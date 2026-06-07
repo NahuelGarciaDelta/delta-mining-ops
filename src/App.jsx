@@ -1456,8 +1456,63 @@ function ViewVehiculos({rop02All}){
 }
 
 
+// ─── Login ────────────────────────────────────────────────────────────────────
+function Login({onLogin}){
+  const[pass,setPass]=React.useState("");
+  const[error,setError]=React.useState(false);
+  const[shake,setShake]=React.useState(false);
+
+  const handleSubmit=()=>{
+    if(pass==="DELTA.MINING.APP"){
+      sessionStorage.setItem("dm_auth","1");
+      onLogin();
+    } else {
+      setError(true);
+      setShake(true);
+      setTimeout(()=>setShake(false),500);
+      setTimeout(()=>setError(false),2000);
+    }
+  };
+
+  return(
+    <div style={{height:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:24}}>
+      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
+      <img src={LOGO} alt="Delta Mining" style={{height:80,objectFit:"contain",marginBottom:8}}/>
+      <div style={{fontFamily:"Syne",fontWeight:800,fontSize:22,color:C.accent,letterSpacing:".1em"}}>DELTA MINING APP</div>
+      <div style={{
+        background:C.card,border:`1px solid ${error?C.red:C.border}`,borderRadius:14,
+        padding:"32px 36px",display:"flex",flexDirection:"column",gap:16,
+        width:320,boxShadow:`0 8px 32px rgba(0,0,0,.4)`,
+        animation:shake?"shake .4s ease":"none"
+      }}>
+        <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá la contraseña para continuar</div>
+        <input
+          type="password"
+          value={pass}
+          onChange={e=>{setPass(e.target.value);setError(false);}}
+          onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+          placeholder="Contraseña"
+          style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"DM Sans",width:"100%",boxSizing:"border-box"}}
+          autoFocus
+        />
+        {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>Contraseña incorrecta</div>}
+        <button
+          onClick={handleSubmit}
+          style={{background:C.accent,border:"none",borderRadius:8,color:"#fff",padding:"10px",fontSize:14,fontWeight:700,fontFamily:"Syne",cursor:"pointer",letterSpacing:".06em"}}
+        >
+          INGRESAR
+        </button>
+      </div>
+      <div style={{fontSize:10,color:C.textMuted}}>Delta Mining OPS — Acceso restringido</div>
+    </div>
+  );
+}
+
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
+  const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
+  if(!auth)return<Login onLogin={()=>setAuth(true)}/>;
   const[view,setView]=useState("dashboard");
   const[loading,setLoading]=useState(false);
   const[rop02All,setRop02All]=useState([]);
