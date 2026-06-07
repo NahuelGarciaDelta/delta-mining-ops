@@ -1512,7 +1512,6 @@ function Login({onLogin}){
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
-  if(!auth)return<Login onLogin={()=>setAuth(true)}/>;
   const[view,setView]=useState("dashboard");
   const[loading,setLoading]=useState(false);
   const[rop02All,setRop02All]=useState([]);
@@ -1562,6 +1561,7 @@ export default function App(){
   const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",rop05:"Productividad",control:"Control de Consistencia"};
   const SW=sidebarOpen?240:52;
 
+  if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
   return(
     <>
       <style>{STYLES}</style>
