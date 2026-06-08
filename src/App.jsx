@@ -441,15 +441,34 @@ async function fetchAll(url){
 }
 
 // ─── ViewDashboard ────────────────────────────────────────────────────────────
-function ViewDashboard({rop02All,rop05,control}){
-  const[proyecto,setProyecto]=useState("todos");
+function ViewDashboard({rop02All,rop05,control,dashSt,setDashSt}){
+  const proyecto=dashSt?.proyecto??"todos";
+  const modeD=dashSt?.modeD??"todo";
+  const fechaD=dashSt?.fechaD??"";
+  const fechaDD=dashSt?.fechaDD??"";
+  const fechaDH=dashSt?.fechaDH??"";
+  const setProyecto=v=>setDashSt(s=>({...s,proyecto:v}));
+  const setModeD=v=>setDashSt(s=>({...s,modeD:v}));
+  const setFechaD=v=>setDashSt(s=>({...s,fechaD:v}));
+  const setFechaDD=v=>setDashSt(s=>({...s,fechaDD:v}));
+  const setFechaDH=v=>setDashSt(s=>({...s,fechaDH:v}));
 
   // Proyectos disponibles
   const proyectos=useMemo(()=>uniq(rop02All.map(r=>r.proyecto)),[rop02All]);
 
-  // Base filtrada por proyecto
-  const r02f=useMemo(()=>proyecto==="todos"?rop02All:rop02All.filter(r=>r.proyecto===proyecto),[rop02All,proyecto]);
-  const r05f=useMemo(()=>proyecto==="todos"?rop05:rop05.filter(r=>r.proyecto===proyecto),[rop05,proyecto]);
+  // Base filtrada por proyecto Y fecha
+  const r02f=useMemo(()=>rop02All.filter(r=>{
+    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(modeD==="dia"&&fechaD&&r.fecha!==fechaD)return false;
+    if(modeD==="periodo"){if(fechaDD&&r.fecha<fechaDD)return false;if(fechaDH&&r.fecha>fechaDH)return false;}
+    return true;
+  }),[rop02All,proyecto,modeD,fechaD,fechaDD,fechaDH]);
+  const r05f=useMemo(()=>rop05.filter(r=>{
+    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(modeD==="dia"&&fechaD&&r.fecha!==fechaD)return false;
+    if(modeD==="periodo"){if(fechaDD&&r.fecha<fechaDD)return false;if(fechaDH&&r.fecha>fechaDH)return false;}
+    return true;
+  }),[rop05,proyecto,modeD,fechaD,fechaDD,fechaDH]);
 
   // Excluye camionetas/camiones de TODOS los cálculos del dashboard
   const r02prod=useMemo(()=>r02f.filter(r=>!isExcluded(r.maquina)),[r02f]);
@@ -557,18 +576,25 @@ function ViewDashboard({rop02All,rop05,control}){
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:16}}>
-      {/* Filtro de proyecto */}
+      {/* Filtros de proyecto + fecha */}
       <Card>
-        <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
           <Icon name="filter" size={14} color={C.textSub}/>
-          <span style={{fontSize:11,color:C.textSub,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Proyecto</span>
           <div style={{display:"flex",gap:7}}>
+            <TabBtn active={modeD==="todo"} onClick={()=>setModeD("todo")}>Todo</TabBtn>
+            <TabBtn active={modeD==="dia"} onClick={()=>setModeD("dia")}>Por día</TabBtn>
+            <TabBtn active={modeD==="periodo"} onClick={()=>setModeD("periodo")}>Por período</TabBtn>
+          </div>
+          {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
+          {modeD==="periodo"&&<><DateIn label="Desde" value={fechaDD} onChange={setFechaDD}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH}/></>}
+          <div style={{display:"flex",gap:7,marginLeft:8}}>
             {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
               <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.accent:C.border}`,background:proyecto===opt.value?C.accentDim:"none",color:proyecto===opt.value?C.accent:C.textSub,fontFamily:"DM Sans",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>
                 {opt.label}
               </button>
             ))}
           </div>
+          <button onClick={()=>{setProyecto("todos");setModeD("todo");setFechaD("");setFechaDD("");setFechaDH("");}} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Sans",opacity:(proyecto!=="todos"||modeD!=="todo"||fechaD||fechaDD||fechaDH)?1:0.3,pointerEvents:(proyecto!=="todos"||modeD!=="todo"||fechaD||fechaDD||fechaDH)?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
       </Card>
 
@@ -685,20 +711,30 @@ function ViewDashboard({rop02All,rop05,control}){
 }
 
 // ─── Hook: filtros facetados genérico ─────────────────────────────────────────
-function useFacetedFilters(allRows, filterKeys){
-  const[mode,setMode]=useState("dia");
-  const[fecha,setFecha]=useState("");
-  const[fechaD,setFechaD]=useState("");
-  const[fechaH,setFechaH]=useState("");
-
-  // fkKeys y fkDefaults son estables porque filterKeys viene memoizado del componente
+function useFacetedFilters(allRows, filterKeys, extState, setExtState){
+  // Si se pasa extState, usarlo como fuente de verdad (persistencia entre pestañas)
   const fkKeys=useMemo(()=>filterKeys.map(f=>f.key).join(","),[filterKeys]);
   const fkDefaults=useMemo(()=>Object.fromEntries(filterKeys.map(f=>[f.key,f.defaultVal])),[filterKeys]);
 
-  const[vals,setVals]=useState(fkDefaults);
+  const defaultState=useMemo(()=>({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:fkDefaults}),[fkDefaults]);
 
-  // Reset selectores cuando cambia fecha/modo
-  useEffect(()=>{setVals(fkDefaults);},[mode,fecha,fechaD,fechaH]);// eslint-disable-line
+  const[localState,setLocalState]=useState(defaultState);
+  const state=extState||localState;
+  const setState=useCallback((updater)=>{
+    if(setExtState)setExtState(updater);
+    else setLocalState(updater);
+  },[setExtState]);
+
+  const mode=state.mode;
+  const fecha=state.fecha;
+  const fechaD=state.fechaD;
+  const fechaH=state.fechaH;
+  const vals=state.vals||fkDefaults;
+
+  const setMode=useCallback(v=>setState(s=>({...s,mode:v,vals:fkDefaults})),[setState,fkDefaults]);
+  const setFecha=useCallback(v=>setState(s=>({...s,fecha:v,vals:fkDefaults})),[setState,fkDefaults]);
+  const setFechaD=useCallback(v=>setState(s=>({...s,fechaD:v,vals:fkDefaults})),[setState,fkDefaults]);
+  const setFechaH=useCallback(v=>setState(s=>({...s,fechaH:v,vals:fkDefaults})),[setState,fkDefaults]);
 
   // byFecha: filtrado solo por fecha — base para todo
   const byFecha=useMemo(()=>byDateFilter(allRows,mode,fecha,fechaD,fechaH),[allRows,mode,fecha,fechaD,fechaH]);
@@ -710,14 +746,13 @@ function useFacetedFilters(allRows, filterKeys){
     return byFecha.filter(r=>activeFilters.every(f=>r[f.key]===vals[f.key]));
   },[byFecha,vals,fkKeys]);// eslint-disable-line
 
-  // opts: opciones facetadas — para cada key, byFecha filtrado por todos los demás activos
+  // opts: opciones facetadas
   const opts=useMemo(()=>{
     const result={};
     const valsEntries=Object.entries(vals);
     filterKeys.forEach(f=>{
       const otherActives=valsEntries.filter(([k,v])=>k!==f.key&&v!==fkDefaults[k]);
       if(otherActives.length===0){
-        // Sin otros filtros activos — todas las opciones disponibles en byFecha
         result[f.key]=uniq(byFecha.map(r=>r[f.key]));
       } else {
         result[f.key]=uniq(byFecha.filter(r=>
@@ -728,8 +763,8 @@ function useFacetedFilters(allRows, filterKeys){
     return result;
   },[byFecha,vals,fkKeys]);// eslint-disable-line
 
-  const set=useCallback((key,val)=>setVals(prev=>({...prev,[key]:val})),[]);
-  const reset=useCallback(()=>{setVals(fkDefaults);setFecha("");setFechaD("");setFechaH("");},[fkDefaults]);
+  const set=useCallback((key,val)=>setState(s=>({...s,vals:{...s.vals,[key]:val}})),[setState]);
+  const reset=useCallback(()=>setState(s=>({...s,mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:fkDefaults})),[setState,fkDefaults]);
   const hayFiltros=fecha||fechaD||fechaH||filterKeys.some(f=>vals[f.key]!==f.defaultVal);
 
   return{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,byFecha,filtered,opts,vals,set,reset,hayFiltros};
@@ -767,7 +802,7 @@ function EquipoCard({img,nombre,prefijos,rop02Prod}){
 }
 
 // ─── ViewROP02 ────────────────────────────────────────────────────────────────
-function ViewROP02({rop02All}){
+function ViewROP02({rop02All,extState,setExtState}){
   // Excluir camionetas y camiones de toda la vista ROP02
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)),[rop02All]);
 
@@ -777,7 +812,7 @@ function ViewROP02({rop02All}){
     {key:"supervisor",defaultVal:"todos"},
     {key:"operario",defaultVal:"todos"},
   ],[]);
-  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase,opts,vals,set}=useFacetedFilters(rop02Prod,fk);
+  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop02Prod,fk,extState,setExtState);
 
   // Filtro de estado independiente (no afecta las opciones facetadas de otros selectores)
   const[estado,setEstado]=useState("todos");
@@ -835,11 +870,14 @@ function ViewROP02({rop02All}){
               {value:"OD",label:"🟡 Operativo a Disposición"},
               {value:"FS",label:"🔴 Fuera de servicio"},
             ]}/>
+            <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Sans",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+              <Icon name="close" size={11} color={C.red}/>Limpiar filtros
+            </button>
           </div>
         </div>
       </Card>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10}}>
-        <StatCard icon="hours" label="Kilómetros" value={fmtNum(stats.horas)} color={C.accent} valueColor="#ffffff" small/>
+        <StatCard icon="hours" label="Horas" value={fmtNum(stats.horas)} color={C.accent} valueColor="#ffffff" small/>
         <StatCard icon="fuel" label="Combustible" value={fmtNum(stats.comb)} color={C.teal} valueColor="#ffffff" small/>
         <StatCard icon="equip" label="Equipos" value={stats.equipos} color={C.purple} valueColor="#ffffff" small/>
         <StatCard icon="parts" label="Operarios" value={stats.ops} color={C.blue} valueColor="#ffffff" small/>
@@ -906,14 +944,14 @@ function ViewROP02({rop02All}){
 }
 
 // ─── ViewROP05 ────────────────────────────────────────────────────────────────
-function ViewROP05({rop05}){
+function ViewROP05({rop05,extState,setExtState}){
   const fk=useMemo(()=>[
     {key:"proyecto",defaultVal:"todos"},
     {key:"maquina",defaultVal:"todas"},
     {key:"supervisor",defaultVal:"todos"},
     {key:"unidad",defaultVal:"todas"},
   ],[]);
-  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase05,opts,vals,set}=useFacetedFilters(rop05,fk);
+  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase05,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop05,fk,extState,setExtState);
 
   // Filtro de tarea independiente — sus opciones dependen de la máquina seleccionada
   const[tarea,setTarea]=useState("todas");
@@ -1000,6 +1038,9 @@ function ViewROP05({rop05}){
             <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
             <Sel label="Tarea" value={tarea} onChange={setTarea} options={[{value:"todas",label:"Todas"},...tareasOpts.map(t=>({value:t,label:t.length>40?t.slice(0,38)+"…":t}))]}/>
             <Sel label="Unidad" value={vals.unidad} onChange={v=>set("unidad",v)} options={[{value:"todas",label:"Todas"},...opts.unidad.map(u=>({value:u,label:u}))]}/>
+            <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Sans",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+              <Icon name="close" size={11} color={C.red}/>Limpiar filtros
+            </button>
           </div>
         </div>
       </Card>
@@ -1057,7 +1098,7 @@ function ViewROP05({rop05}){
 }
 
 // ─── ViewControl ──────────────────────────────────────────────────────────────
-function ViewControl({control}){
+function ViewControl({control,rop02All,rop05,extState,setExtState}){
   const[sub,setSub]=useState("dashboard");
 
   // Filtros facetados sobre el universo productivo combinado (02+05)
@@ -1067,7 +1108,7 @@ function ViewControl({control}){
     {key:"maquina",defaultVal:"todas"},
     {key:"supervisor",defaultVal:"todos"},
   ],[]);
-  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,vals,set,reset,hayFiltros,byFecha:byFecha02,opts:opts02}=useFacetedFilters(control.productivos,fk);
+  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,vals,set,reset,hayFiltros,byFecha:byFecha02,opts:opts02}=useFacetedFilters(control.productivos,fk,extState,setExtState);
 
   // Aplicar mismo filtro de fecha+selectores a prod05
   const byFecha05=useMemo(()=>byDateFilter(control.prod05,mode,fecha,fechaD,fechaH),[control.prod05,mode,fecha,fechaD,fechaH]);
@@ -1134,6 +1175,7 @@ function ViewControl({control}){
           <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))]}/>
           <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))]}/>
           <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...optsControl.supervisor.map(s=>({value:s,label:s}))]}/>
+          <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Sans",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
         {hayFiltros&&(
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -1324,7 +1366,7 @@ function ErrorScreen({errors,onRetry}){
 }
 
 // ─── ViewVehiculos ────────────────────────────────────────────────────────────
-function ViewVehiculos({rop02All}){
+function ViewVehiculos({rop02All,extState,setExtState}){
   // Solo camionetas y camiones
   const rop02Veh=useMemo(()=>rop02All.filter(r=>isExcluded(r.maquina)),[rop02All]);
 
@@ -1334,7 +1376,7 @@ function ViewVehiculos({rop02All}){
     {key:"supervisor",defaultVal:"todos"},
     {key:"operario",defaultVal:"todos"},
   ],[]);
-  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase,opts,vals,set}=useFacetedFilters(rop02Veh,fk);
+  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop02Veh,fk,extState,setExtState);
 
   const[estado,setEstado]=useState("todos");
   const filtered=useMemo(()=>{
@@ -1392,6 +1434,7 @@ function ViewVehiculos({rop02All}){
               {value:"OD",label:"🟡 Operativo a Disposición"},
               {value:"FS",label:"🔴 Fuera de servicio"},
             ]}/>
+            <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Sans",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
           </div>
         </div>
       </Card>
@@ -1521,6 +1564,14 @@ export default function App(){
   const[errors,setErrors]=useState([]);
   const[fatalError,setFatalError]=useState(null);
   const control=useMemo(()=>calcControl(rop02All,rop05),[rop02All,rop05]);
+  // Estados persistentes de filtros por pestaña
+  const[dashSt,setDashSt]=useState({proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""});
+  const[st02,setSt02]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
+  const[stVeh,setStVeh]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
+  const[st05,setSt05]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}});
+  const[stCtrl,setStCtrl]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}});
+
+
 
   const loadData=useCallback(async()=>{
     setLoading(true);setErrors([]);setFatalError(null);
@@ -1617,11 +1668,11 @@ export default function App(){
             )}
             {!fatalError&&lastUpdate&&(
               <>
-                {view==="dashboard"&&<ViewDashboard rop02All={rop02All} rop05={rop05} control={control}/>}
-                {view==="rop02"&&<ViewROP02 rop02All={rop02All}/>}
-                {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All}/>}
-                {view==="rop05"&&<ViewROP05 rop05={rop05}/>}
-                {view==="control"&&<ViewControl control={control} rop02All={rop02All} rop05={rop05}/>}
+                {view==="dashboard"&&<ViewDashboard rop02All={rop02All} rop05={rop05} control={control} dashSt={dashSt} setDashSt={setDashSt}/>}
+                {view==="rop02"&&<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>}
+                {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>}
+                {view==="rop05"&&<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>}
+                {view==="control"&&<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>}
               </>
             )}
           </div>
