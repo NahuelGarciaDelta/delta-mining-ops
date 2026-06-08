@@ -1108,6 +1108,86 @@ function ViewROP05({rop05,extState,setExtState}){
   );
 }
 
+// ─── Generar PDF de reporte de Control ───────────────────────────────────────
+function generarReporteControl(periodo, faltanEn05, faltanEn02){
+  const fmtF=f=>{if(!f)return"—";const[y,m,d]=String(f).slice(0,10).split("-");return`${d}/${m}/${y}`;};
+  const fmtN=n=>n==null?"—":Number(n).toLocaleString("es-AR",{minimumFractionDigits:1,maximumFractionDigits:1});
+
+  const tableStyle=`border-collapse:collapse;width:100%;font-size:10px;margin-bottom:20px;`;
+  const thStyle=`background:#1a1a2e;color:#fff;padding:7px 9px;text-align:left;border:1px solid #333;font-size:9px;text-transform:uppercase;letter-spacing:.05em;`;
+  const tdStyle=`padding:6px 9px;border:1px solid #ddd;vertical-align:top;`;
+  const trEven=`background:#f9f9f9;`;
+
+  const buildTable=(rows,cols)=>{
+    if(!rows.length)return`<p style="color:#888;font-style:italic">Sin registros</p>`;
+    return`<table style="${tableStyle}">
+      <thead><tr>${cols.map(c=>`<th style="${thStyle}">${c.label}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r,i)=>`<tr style="${i%2===1?trEven:""}">
+        ${cols.map(c=>`<td style="${tdStyle}">${c.render?c.render(r[c.key]):r[c.key]||"—"}</td>`).join("")}
+      </tr>`).join("")}</tbody>
+    </table>`;
+  };
+
+  const cols05=[
+    {key:"fecha",label:"Fecha",render:v=>fmtF(v)},
+    {key:"proyecto",label:"Proyecto"},
+    {key:"maquina",label:"Máquina"},
+    {key:"parte",label:"N° Parte"},
+    {key:"operario",label:"Operario"},
+    {key:"supervisor",label:"Supervisor"},
+    {key:"horas",label:"Horas",render:v=>fmtN(v)},
+    {key:"estado",label:"Estado"},
+  ];
+  const cols02=[
+    {key:"fecha",label:"Fecha",render:v=>fmtF(v)},
+    {key:"proyecto",label:"Proyecto"},
+    {key:"maquina",label:"Máquina"},
+    {key:"tarea",label:"Tarea"},
+    {key:"supervisor",label:"Supervisor"},
+    {key:"horas",label:"Horas",render:v=>fmtN(v)},
+  ];
+
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Reporte Control de Consistencia</title>
+  <style>
+    body{font-family:Arial,sans-serif;margin:32px;color:#111;font-size:11px;}
+    h1{font-size:18px;color:#1a1a2e;margin-bottom:4px;}
+    h2{font-size:13px;color:#c00;margin:24px 0 8px;border-bottom:2px solid #c00;padding-bottom:4px;}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:3px solid #1a1a2e;padding-bottom:12px;}
+    .badge{display:inline-block;background:#1a1a2e;color:#fff;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:bold;}
+    .periodo{font-size:12px;color:#444;margin-top:6px;}
+    .stats{display:flex;gap:20px;margin-bottom:20px;}
+    .stat{background:#f3f3f3;border-radius:6px;padding:10px 16px;text-align:center;}
+    .stat .val{font-size:22px;font-weight:bold;color:#c00;}
+    .stat .lbl{font-size:9px;color:#666;text-transform:uppercase;}
+    @media print{body{margin:16px;}h2{page-break-before:auto;}}
+  </style></head><body>
+  <div class="header">
+    <div>
+      <h1>🔍 Reporte — Control de Consistencia</h1>
+      <div class="periodo">Período analizado: <strong>${periodo}</strong></div>
+      <div style="margin-top:6px;">Generado el ${new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit",year:"numeric"})} a las ${new Date().toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"})}</div>
+    </div>
+    <div class="badge">DELTA MINING OPS</div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="val">${faltanEn05.length}</div><div class="lbl">Sin producción en ROP05</div></div>
+    <div class="stat"><div class="val">${faltanEn02.length}</div><div class="lbl">Sin parte diario en ROP02</div></div>
+    <div class="stat"><div class="val">${new Set([...faltanEn05.map(r=>r.maquina),...faltanEn02.map(r=>r.maquina)]).size}</div><div class="lbl">Equipos con inconsistencias</div></div>
+  </div>
+  <h2>⚠ Registros en ROP02 sin producción en ROP05 (${faltanEn05.length})</h2>
+  ${buildTable(faltanEn05,cols05)}
+  <h2>⚠ Registros en ROP05 sin parte diario en ROP02 (${faltanEn02.length})</h2>
+  ${buildTable(faltanEn02,cols02)}
+  </body></html>`;
+
+  const w=window.open("","_blank","width=900,height=700");
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),600);
+}
+
+
 // ─── ViewControl ──────────────────────────────────────────────────────────────
 function ViewControl({control,rop02All,rop05,extState,setExtState}){
   const[sub,setSub]=useState("dashboard");
@@ -1206,6 +1286,7 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
     {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"parte",label:"N° Parte",render:v=><span style={{color:C.blue,fontWeight:600}}>{v||"—"}</span>},
     {key:"operario",label:"Operario"},{key:"supervisor",label:"Supervisor"},
     {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"estado",label:"Estado",render:v=><Badge color={C.green}>{v||"—"}</Badge>},
@@ -1228,6 +1309,13 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
         <SubTab active={sub==="dashboard"} onClick={()=>setSub("dashboard")}>Dashboard</SubTab>
         <SubTab active={sub==="sinprod"} onClick={()=>setSub("sinprod")}>Sin producción ({filteredData.faltanEn05.length})</SubTab>
         <SubTab active={sub==="sinparte"} onClick={()=>setSub("sinparte")}>Sin parte diario ({filteredData.faltanEn02.length})</SubTab>
+        <button onClick={()=>generarReporteControl(
+          (fecha&&mode==="dia"?fmtFecha(fecha):(fechaD||fechaH)?`${fmtFecha(fechaD)} → ${fmtFecha(fechaH)}`:"Todo el período"),
+          filteredData.faltanEn05,
+          filteredData.faltanEn02
+        )} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Syne",letterSpacing:".04em"}}>
+          📄 Guardar Reporte
+        </button>
       </div>
       {FilterPanel}
       <AlertBanner type="info">Camionetas, camiones y equipos auxiliares están excluidos de este análisis.</AlertBanner>
@@ -1961,10 +2049,10 @@ export default function App(){
     {id:"rop02",icon:"parts",label:"Equipos"},
     {id:"vehiculos",icon:"equip",label:"Vehículos"},
     {id:"rop05",icon:"prod",label:"Productividad"},
-    {id:"chc",icon:"consist",label:"ICHC"},
     {id:"control",icon:"control",label:"Control",badge:control.problemas>0?control.problemas:null},
+    {id:"chc",icon:"consist",label:"ICHC"},
   ];
-  const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",rop05:"Productividad",chc:"ICHC — Indicador Control de Horas Contratadas",control:"Control de Consistencia"};
+  const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",rop05:"Productividad",chc:"ICHC — Indicador Control de Horas Contratadas",control:"Consistencia ROP02 vs ROP05"};
   const SW=sidebarOpen?240:52;
 
   if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
