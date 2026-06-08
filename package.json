@@ -10,10 +10,11 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "recharts": "latest"
-  },
-  "devDependencies": {}
+    "recharts": "latest",
+    "vite": "latest",
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
+  }
 }
