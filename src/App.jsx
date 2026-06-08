@@ -476,7 +476,7 @@ function ViewDashboard({rop02All,rop05,control,dashSt,setDashSt}){
   const totalHoras=useMemo(()=>r02prod.reduce((s,r)=>s+r.horas,0),[r02prod]);
   const totalComb=useMemo(()=>r02prod.reduce((s,r)=>s+r.combustible,0),[r02prod]);
   const totalProd=useMemo(()=>r05f.reduce((s,r)=>s+r.cantidad,0),[r05f]);
-  const totalEquipos=useMemo(()=>uniq(r02prod.map(r=>r.maquina)).length,[r02prod]);
+  const totalEquipos=useMemo(()=>uniq(r02prod.filter(r=>r.estado==="TRABAJO").map(r=>r.maquina)).length,[r02prod]);
 
   // Top 10 equipos con info enriquecida para tooltip
   const topEquipos=useMemo(()=>{
