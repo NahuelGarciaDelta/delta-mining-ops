@@ -150,7 +150,8 @@ function normDate(d){
 }
 function cleanMachine(v){
   return String(v||"").trim().toUpperCase().replace(/\s+/g,"-")
-    .replace(/([A-Z]{3})-?(\d+)/,(_,a,n)=>`${a}-${String(n).padStart(4,"0")}`);
+    .replace(/([A-Z]{3})-?(\d+)/,(_,a,n)=>`${a}-${String(n).padStart(4,"0")}`)
+    .replace(/[-_]JM$/,"");  // quitar sufijo -JM al final
 }
 function detectEstado(trabajo,obs,hs){
   // La fuente de verdad es la columna Cant. Hs.:
