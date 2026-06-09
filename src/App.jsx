@@ -310,6 +310,19 @@ function normalizeROP02(rows,proyectoDefault){
     };
   }).filter(r=>r.fecha&&r.maquina);
 }
+function normSupervisorROP05(raw){
+  const s=String(raw||"").trim().toLowerCase();
+  if(!s)return"";
+  // Mapeo de mails conocidos a nombres canónicos
+  if(s.startsWith("carlos.sisterna")||s.startsWith("carlossisterna"))return"Sisterna Carlos";
+  if(s.startsWith("marcelovedia")||s.startsWith("marcelo.vedia"))return"Vedia Marcelo";
+  if(s.startsWith("alfredo.vedia")||s.startsWith("alfredovedia"))return"Vedia Alfredo";
+  if(s.startsWith("marcoaguilera")||s.startsWith("marco.aguilera"))return"Aguilera Marco";
+  if(s.startsWith("gilberto.eseiza")||s.startsWith("gilbertoeseiza"))return"Eseiza Gilberto";
+  // Si no es mail, normalizar como nombre normal
+  return normName(raw);
+}
+
 function normalizeROP05(rows){
   return(rows||[]).map(r=>{
     const tareaRaw=String(r["Tarea"]||r["TAREAS PRODUCTIVAS CON TOPADORAS"]||r["TAREAS PRODUCTIVAS CON EXCAVADORAS"]||r["TAREAS PRODUCTIVAS CON CARGADORA FRONTAL"]||r["TAREAS PRODUCTIVAS CON MOTONIVELADORA"]||r["TAREAS PRODUCTIVAS CON RETROPALA"]||"").trim();
@@ -323,7 +336,7 @@ function normalizeROP05(rows){
       tarea,horas:toNumber(cantHs),cantidad:toNumber(cantProd),
       unidad:String(r["UNIDAD DE PRODUCTIVIDAD"]||"").trim().toUpperCase(),
       proyecto:normProject(r["Proyecto"]),
-      supervisor:normName(r["Supervisor"]),
+      supervisor:normSupervisorROP05(r["Supervisor"]),
       parte:String(r["N° de Parte"]||"").trim(),
       grupo:String(r["Grupo de trabajo"]||"").trim(),
       observaciones:String(getValue(r,["OBSERVACION DE LA TAREA","Observacion","Observación"])||"").trim(),
@@ -1700,8 +1713,7 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
   const byFecha05=useMemo(()=>byDateFilter(control.prod05,mode,fecha,fechaD,fechaH),[control.prod05,mode,fecha,fechaD,fechaH]);
   const filtered05=useMemo(()=>byFecha05.filter(r=>
     (vals.proyecto==="todos"||r.proyecto===vals.proyecto)&&
-    (vals.maquina==="todas"||r.maquina===vals.maquina)&&
-    (vals.supervisor==="todos"||r.supervisor===vals.supervisor)
+    (vals.maquina==="todas"||r.maquina===vals.maquina)
   ),[byFecha05,vals]);
   const filtered02=useMemo(()=>byFecha02.filter(r=>
     (vals.proyecto==="todos"||r.proyecto===vals.proyecto)&&
@@ -1760,7 +1772,6 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
           {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><DateIn label="Desde" value={fechaD} onChange={setFechaD}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH}/></>}
           <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))]}/>
           <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))]}/>
-          <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...optsControl.supervisor.map(s=>({value:s,label:s}))]}/>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Sans",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
         {hayFiltros&&(
