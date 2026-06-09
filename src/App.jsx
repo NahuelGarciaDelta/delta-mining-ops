@@ -418,8 +418,25 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos"}){
           {offsetY>0&&<tr style={{height:offsetY}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
           {visibleRows.map((r,i)=>{
             const absI=startIdx+i;
+            const hasTooltip=!!r.observaciones;
             return(
-              <tr key={absI} style={{background:absI%2===0?"transparent":C.surface+"66",height:ROW_H}}>
+              <tr key={absI}
+                style={{background:absI%2===0?"transparent":C.surface+"66",height:ROW_H,position:"relative",cursor:hasTooltip?"pointer":"default"}}
+                onMouseEnter={e=>{
+                  if(!hasTooltip)return;
+                  const tip=document.createElement("div");
+                  tip.id="row-tip";
+                  tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:DM Sans;max-width:320px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none`;
+                  const rect=e.currentTarget.getBoundingClientRect();
+                  const tipW=320;
+                  const left=Math.min(rect.right+10, window.innerWidth-tipW-10);
+                  tip.style.top=rect.top+"px";
+                  tip.style.left=left+"px";
+                  tip.innerHTML=(r.observaciones?"<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:#ccc;margin-top:3px\">"+r.observaciones+"</div></div>":"Sin observaciones");
+                  document.body.appendChild(tip);
+                }}
+                onMouseLeave={()=>{const t=document.getElementById("row-tip");if(t)t.remove();}}
+              >
                 {cols.map((c,j)=><td key={j} style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",maxWidth:c.wrap?undefined:300}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>)}
               </tr>
             );
@@ -1803,7 +1820,17 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
             <StatCard icon="consist" label="Partes Consistentes" value={fmtPct(filteredData.consistencia)} sub={sem.label} color={sem.color} small/>
             <StatCard icon="alert" label="Problemas" value={filteredData.problemas} sub="registros" color={C.red} small/>
-            <StatCard icon="check" label="Equipos consistentes" value={`${Math.round((1-filteredData.faltanEn05.length/Math.max(1,uniq(filteredData.prod02f.map(r=>r.maquina)).length))*100)}%`} sub="con ROP02 y ROP05" color={C.green} small/>
+            <StatCard icon="warn" label="Supervisor c/ más faltas" value={(()=>{
+              const m={};
+              filteredData.faltanEn05.forEach(r=>{if(r.supervisor)m[r.supervisor]=(m[r.supervisor]||0)+1;});
+              const top=Object.entries(m).sort((a,b)=>b[1]-a[1])[0];
+              return top?top[0]:"—";
+            })()} sub={(()=>{
+              const m={};
+              filteredData.faltanEn05.forEach(r=>{if(r.supervisor)m[r.supervisor]=(m[r.supervisor]||0)+1;});
+              const top=Object.entries(m).sort((a,b)=>b[1]-a[1])[0];
+              return top?`${top[1]} registros sin carga`:"sin datos";
+            })()} color={C.red} small/>
             <StatCard icon="warn" label="Equipos con problemas" value={uniq([...filteredData.faltanEn05.map(r=>r.maquina),...filteredData.faltanEn02.map(r=>r.maquina)]).length} sub="con inconsistencias" color={C.red} small/>
             <StatCard icon="warn" label="Sin producción" value={filteredData.faltanEn05.length} sub="→ ROP05 faltante" color={C.red} small/>
             <StatCard icon="warn" label="Sin parte diario" value={filteredData.faltanEn02.length} sub="→ ROP02 faltante" color={C.yellow} small/>
