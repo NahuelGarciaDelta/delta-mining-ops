@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from "react"
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwKaZwRXWUdSGq1sbgwoIlwy7-cWA2h7HMsiMxsPUQm754S9fs7p34hc6_wntt49nKgew/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw4PInO2952O0g5Y0gLhBkXyEUlobAQq-nrG2SBSa5R5RilHJyq9XEWrlsXIBA5TFSXvQ/exec";
 
 // ─── Máquinas excluidas (camionetas, camiones, auxiliares) ────────────────────
 const EXCLUDED_TYPES = new Set([
@@ -321,6 +321,47 @@ function normSupervisorROP05(raw){
   if(s.startsWith("gilberto.eseiza")||s.startsWith("gilbertoeseiza"))return"Eseiza Gilberto";
   // Si no es mail, normalizar como nombre normal
   return normName(raw);
+}
+
+function fmtARS(v){return v>0?"$"+fmtNum(v):"—";}
+function fmtUSD(v,rate){if(!v||v<=0||!rate)return"—";const usd=Math.round(v/rate);return"U$S "+fmtNum(usd);}
+
+function normalizeRMA15(r, insumosMap){
+  const fecha=normDate(r["Fecha de OT"]||"");
+  const maquina=cleanMachine(r["CODIGO N° INTERNO"]||"");
+  const proyecto=r["_proyectoForzado"]||"S/D"; // Proyecto siempre viene forzado desde la fuente
+  // Insumos: cruzar codigo con base de datos
+  const insumos=[];
+  for(let i=1;i<=10;i++){
+    const cant=parseFloat(String(r["cantidad "+i]||"0").replace(/[^0-9.]/g,""))||0;
+    const cod=String(r["codigo "+i]||"").trim();
+    const nombre=String(r["nombre "+i]||"").trim();
+    if(cod||cant>0){
+      const infoInsumo=insumosMap[cod]||{};
+      insumos.push({
+        cantidad:cant,
+        codigo:cod,
+        nombre:nombre||infoInsumo.descripcion||cod,
+        costoUnitario:infoInsumo.costoUnitario||0,
+        costoTotal:(infoInsumo.costoUnitario||0)*cant,
+      });
+    }
+  }
+  const costoTotal=insumos.reduce((s,i)=>s+i.costoTotal,0);
+  return{
+    fecha,
+    maquina,
+    proyecto,
+    tipoEquipo:String(r["EQUIPO"]||"").trim(),
+    turno:String(r["TURNO EN QUE SE HIZO LA OT"]||"").trim(),
+    tipoMant:String(r["TIPO DE MANTENIMIENTO"]||"").trim(),
+    kmHs:parseFloat(String(r["Km / hs"]||"0").replace(/[^0-9.]/g,""))||0,
+    intervencion:String(r["INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)"]||"").trim(),
+    operativo:String(r["¿EQUIPO QUEDO OPERATIVO?"]||"").trim().toUpperCase()==="SI",
+    observaciones:String(r["OBSERVACIONES"]||"").trim(),
+    insumos,
+    costoTotal,
+  };
 }
 
 function normalizeROP05(rows){
@@ -2457,6 +2498,558 @@ function ViewCHC({rop02All}){
 }
 
 
+// ─── ViewMantenimiento ────────────────────────────────────────────────────────
+function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
+  const{modo,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,filtroCosto}=extState;
+  const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
+  const setModo=v=>set("modo",v);
+  const setProyecto=v=>set("proyecto",v);
+  const setTipoMant=v=>set("tipoMant",v);
+  const setMaquina=v=>set("maquina",v);
+  const setFechaD=v=>set("fechaD",v);
+  const setFechaH=v=>set("fechaH",v);
+  const setFechaDia=v=>set("fechaDia",v);
+  const setFiltroCosto=v=>set("filtroCosto",v);
+
+  // Normalizar tipo para comparación case-insensitive
+  const normTipo=v=>String(v||"").trim().toLowerCase();
+
+  const proyectos=useMemo(()=>uniq(rma15.map(r=>r.proyecto).filter(Boolean)),[rma15]);
+
+  const tiposMant=useMemo(()=>uniq(rma15.filter(r=>{
+    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(maquina!=="todas"&&r.maquina!==maquina)return false;
+    if(modo==="dia"){if(fechaDia&&r.fecha!==fechaDia)return false;}
+    else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
+    return true;
+  }).map(r=>{const t=normTipo(r.tipoMant);return t.includes("prev")?"Preventivo":t.includes("corr")?"Correctivo":r.tipoMant;}).filter(Boolean)),[rma15,proyecto,maquina,fechaD,fechaH,fechaDia,modo]);
+
+  const maquinas=useMemo(()=>uniq(rma15.filter(r=>{
+    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(tipoMant!=="todos"&&normTipo(r.tipoMant)!==normTipo(tipoMant))return false;
+    if(modo==="dia"){if(fechaDia&&r.fecha!==fechaDia)return false;}
+    else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
+    return true;
+  }).map(r=>r.maquina).filter(Boolean)).sort(),[rma15,proyecto,tipoMant,fechaD,fechaH,fechaDia,modo]);
+
+  const filtered=useMemo(()=>rma15.filter(r=>{
+    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(tipoMant!=="todos"&&normTipo(r.tipoMant)!==normTipo(tipoMant))return false;
+    if(maquina!=="todas"&&r.maquina!==maquina)return false;
+    if(modo==="dia"){if(fechaDia&&r.fecha!==fechaDia)return false;}
+    else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
+    return true;
+  }),[rma15,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,modo]);
+
+  // KPIs
+  const totalOTs=filtered.length;
+  const preventivos=filtered.filter(r=>normTipo(r.tipoMant).includes("prev")).length;
+  const correctivos=filtered.filter(r=>normTipo(r.tipoMant).includes("corr")).length;
+  const costoTotal=filtered.reduce((s,r)=>s+r.costoTotal,0);
+  const noOperativos=filtered.filter(r=>!r.operativo).length;
+  const equiposAfectados=uniq(filtered.map(r=>r.maquina)).length;
+
+  // Insumos más usados
+  const insumosMap={};
+  filtered.forEach(r=>r.insumos.forEach(i=>{
+    if(!i.codigo)return;
+    if(!insumosMap[i.codigo])insumosMap[i.codigo]={nombre:i.nombre,cantidad:0,costo:0};
+    insumosMap[i.codigo].cantidad+=i.cantidad;
+    insumosMap[i.codigo].costo+=i.costoTotal;
+  }));
+  const topInsumos=Object.entries(insumosMap).sort((a,b)=>b[1].cantidad-a[1].cantidad).slice(0,10);
+
+  // OTs por equipo
+  const otsPorMaq={};
+  filtered.forEach(r=>{otsPorMaq[r.maquina]=(otsPorMaq[r.maquina]||0)+1;});
+  const barDataMaq=Object.entries(otsPorMaq).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([maquina,ots])=>({maquina,ots}));
+
+  // Costos por equipo según filtro
+  const costosPorMaq=useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>{
+      const tipo=normTipo(r.tipoMant);
+      if(filtroCosto==="prev"&&!tipo.includes("prev"))return;
+      if(filtroCosto==="corr"&&!tipo.includes("corr"))return;
+      if(!m[r.maquina])m[r.maquina]=0;
+      m[r.maquina]+=r.costoTotal;
+    });
+    return Object.entries(m).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([maquina,costo])=>({maquina,costo}));
+  },[filtered,filtroCosto]);
+
+  // OTs por tipo (normalizado)
+  const otsPorTipo={};
+  filtered.forEach(r=>{
+    const t=normTipo(r.tipoMant).includes("prev")?"Preventivo":normTipo(r.tipoMant).includes("corr")?"Correctivo":(r.tipoMant||"Otro");
+    otsPorTipo[t]=(otsPorTipo[t]||0)+1;
+  });
+  const pieDataTipo=Object.entries(otsPorTipo).map(([name,value])=>({name,value}));
+  const COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899"];
+
+  const hayFiltros=proyecto!=="todos"||tipoMant!=="todos"||maquina!=="todas"||fechaD||fechaH||fechaDia;
+  const reset=()=>{setProyecto("todos");setTipoMant("todos");setMaquina("todas");setFechaD("");setFechaH("");setFechaDia("");};
+
+  const colsPeriodo=useMemo(()=>[
+    {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+    {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"tipoMant",label:"Tipo",render:v=><Badge color={normTipo(v).includes("prev")?C.green:C.red}>{v||"—"}</Badge>},
+    {key:"intervencion",label:"Intervención",wrap:true},
+    {key:"operativo",label:"Operativo",render:v=><Badge color={v?C.green:C.red}>{v?"SÍ":"NO"}</Badge>},
+    {key:"costoTotal",label:"Costo ARS",render:v=><span style={{color:C.accent,fontWeight:600}}>{v>0?"$"+fmtNum(v):"—"}</span>},
+    {key:"costoTotal",label:"Costo USD",render:v=><span style={{color:C.green,fontWeight:600}}>{fmtUSD(v,usdRate)}</span>},
+    {key:"observaciones",label:"Observaciones",wrap:true},
+  ],[]);
+
+  // colsDia no se usa más — tabla de insumos se arma inline en el dashboard
+
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* Filtros */}
+      <Card>
+        <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",alignItems:"flex-end",gap:12}}>
+          <Icon name="filter" size={14} color={C.textSub}/>
+          <div style={{display:"flex",gap:7}}>
+            <TabBtn active={modo==="dia"} onClick={()=>setModo("dia")}>Por día</TabBtn>
+            <TabBtn active={modo==="periodo"} onClick={()=>setModo("periodo")}>Por período</TabBtn>
+          </div>
+          {modo==="periodo"&&<><DateIn label="Desde" value={fechaD} onChange={setFechaD}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH}/></>}
+          {modo==="dia"&&<DateIn label="Fecha" value={fechaDia} onChange={setFechaDia}/>}
+          <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+          <Sel label="Tipo" value={tipoMant} onChange={setTipoMant} options={[{value:"todos",label:"Todos"},...tiposMant.map(t=>({value:t,label:t}))]}/>
+          <Sel label="Máquina" value={maquina} onChange={setMaquina} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
+          <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"DM Sans",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
+        </div>
+      </Card>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+        <StatCard icon="parts" label="Total OTs" value={totalOTs} color={C.blue} small/>
+        <StatCard icon="check" label="Preventivos" value={preventivos} color={C.green} small/>
+        <StatCard icon="warn" label="Correctivos" value={correctivos} color={C.red} small/>
+        <StatCard icon="equip" label="Equipos afectados" value={equiposAfectados} color={C.purple} small/>
+        <StatCard icon="warn" label="No operativos" value={noOperativos} color={C.yellow} small/>
+        <StatCard icon="prod" label="Costo total insumos" value={costoTotal>0?"$"+fmtNum(costoTotal):"—"} color={C.accent} small/>
+        <StatCard icon="prod" label="Costo total USD" value={fmtUSD(costoTotal,usdRate)} color={C.blue} small/>
+      </div>
+
+      {/* Gráficos solo en período */}
+      {modo==="periodo"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr 2fr",gap:14}}>
+          <Card title="Distribución por Tipo">
+            <div style={{padding:"12px",display:"flex",justifyContent:"center",alignItems:"center",flexDirection:"column",gap:10}}>
+              <PieChart width={180} height={180}>
+                <Pie data={pieDataTipo} dataKey="value" cx="50%" cy="50%" outerRadius={80} innerRadius={36}>
+                  {pieDataTipo.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
+                </Pie>
+                <Tooltip content={({active,payload})=>{
+                  if(!active||!payload?.length)return null;
+                  const d=payload[0].payload;
+                  return(<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:12}}>
+                    <div style={{color:C.text,fontWeight:600}}>{d.name}</div>
+                    <div style={{color:C.accent}}>{d.value} OTs</div>
+                  </div>);
+                }}/>
+              </PieChart>
+              <div style={{display:"flex",flexDirection:"column",gap:5,width:"100%"}}>
+                {pieDataTipo.map((d,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{width:10,height:10,borderRadius:"50%",background:COLORS[i%COLORS.length],flexShrink:0}}/>
+                    <span style={{fontSize:12,color:C.textSub,flex:1}}>{d.name}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>{d.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+          <Card title="OTs por Equipo">
+            <div style={{padding:"8px 6px"}}>
+              <ResponsiveContainer width="100%" height={Math.max(180,barDataMaq.length*28+40)}>
+                <BarChart data={barDataMaq} layout="vertical" margin={{left:8,right:30}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
+                  <XAxis type="number" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                  <YAxis type="category" dataKey="maquina" tick={{fill:C.textSub,fontSize:10}} width={88} axisLine={false} tickLine={false}/>
+                  <Tooltip content={({active,payload})=>{
+                    if(!active||!payload?.length)return null;
+                    return(<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:12}}>
+                      <div style={{color:C.purple,fontWeight:700}}>{payload[0].payload.maquina}</div>
+                      <div style={{color:C.accent}}>{payload[0].value} OTs</div>
+                    </div>);
+                  }}/>
+                  <Bar dataKey="ots" fill={C.accent} radius={[0,4,4,0]} barSize={16}/>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+          <Card title="Gasto en Insumos por Equipo" action={
+            <div style={{display:"flex",gap:4}}>
+              {[{v:"total",l:"Total"},{v:"prev",l:"Prev."},{v:"corr",l:"Corr."}].map(({v,l})=>(
+                <button key={v} onClick={()=>setFiltroCosto(v)} style={{padding:"3px 9px",borderRadius:6,border:`1px solid ${filtroCosto===v?C.accent:C.border}`,background:filtroCosto===v?C.redDim:"transparent",color:filtroCosto===v?C.accent:C.textMuted,fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"DM Sans"}}>{l}</button>
+              ))}
+            </div>
+          }>
+            <div style={{padding:"8px 6px"}}>
+              {costosPorMaq.length===0
+                ?<div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:12}}>Sin datos de costos</div>
+                :<ResponsiveContainer width="100%" height={Math.max(180,costosPorMaq.length*28+40)}>
+                  <BarChart data={costosPorMaq} layout="vertical" margin={{left:8,right:30}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
+                    <XAxis type="number" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>"$"+fmtNum(v)}/>
+                    <YAxis type="category" dataKey="maquina" tick={{fill:C.textSub,fontSize:10}} width={88} axisLine={false} tickLine={false}/>
+                    <Tooltip content={({active,payload})=>{
+                      if(!active||!payload?.length)return null;
+                      return(<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:12}}>
+                        <div style={{color:C.purple,fontWeight:700}}>{payload[0].payload.maquina}</div>
+                        <div style={{color:C.green,fontWeight:600}}>${fmtNum(payload[0].value)}</div>
+                      </div>);
+                    }}/>
+                    <Bar dataKey="costo" fill={C.green} radius={[0,4,4,0]} barSize={16}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              }
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Top insumos solo en período */}
+      {modo==="periodo"&&topInsumos.length>0&&(
+        <Card title="Insumos más utilizados (Top 10)">
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{background:C.surface}}>
+                  {["Código","Descripción","Cantidad total","Costo ARS","Costo USD"].map((h,i)=>(
+                    <th key={i} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {topInsumos.map(([cod,v],i)=>(
+                  <tr key={cod} style={{background:i%2===0?"transparent":C.surface+"55"}}>
+                    <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{cod}</td>
+                    <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{v.nombre||"—"}</td>
+                    <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(v.cantidad)}</td>
+                    <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:v.costo>0?C.green:C.textMuted,fontWeight:v.costo>0?700:400}}>{v.costo>0?"$"+fmtNum(v.costo):"—"}</td>
+                    <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:v.costo>0?C.blue:C.textMuted,fontWeight:v.costo>0?700:400}}>{fmtUSD(v.costo,usdRate)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* Dashboard Por día */}
+      {modo==="dia"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+          {/* Fila 1: KPIs del día */}
+          {!fechaDia&&(
+            <Card>
+              <div style={{padding:"20px",textAlign:"center",color:C.textMuted,fontSize:13}}>
+                Seleccioná una fecha para ver el dashboard del día
+              </div>
+            </Card>
+          )}
+
+          {fechaDia&&filtered.length===0&&(
+            <Card>
+              <div style={{padding:"20px",textAlign:"center",color:C.textMuted,fontSize:13}}>
+                Sin registros para el día seleccionado
+              </div>
+            </Card>
+          )}
+
+          {fechaDia&&filtered.length>0&&(()=>{
+            const COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899"];
+            // Insumos del día
+            const insMap={};
+            filtered.forEach(r=>r.insumos.forEach(i=>{
+              if(!i.codigo)return;
+              if(!insMap[i.codigo])insMap[i.codigo]={nombre:i.nombre,cantidad:0,costo:0};
+              insMap[i.codigo].cantidad+=i.cantidad;
+              insMap[i.codigo].costo+=i.costoTotal;
+            }));
+            const topIns=Object.entries(insMap).sort((a,b)=>b[1].cantidad-a[1].cantidad).slice(0,8);
+            // Equipos del día con tipo
+            const eqData=filtered.map(r=>({
+              maquina:r.maquina,
+              tipo:normTipo(r.tipoMant).includes("prev")?"Preventivo":"Correctivo",
+              operativo:r.operativo,
+              costo:r.costoTotal,
+              intervencion:r.intervencion,
+            }));
+            // Torta tipo
+            const tipoCount={Preventivo:0,Correctivo:0};
+            filtered.forEach(r=>{const t=normTipo(r.tipoMant).includes("prev")?"Preventivo":"Correctivo";tipoCount[t]++;});
+            const pieData=[{name:"Preventivo",value:tipoCount.Preventivo},{name:"Correctivo",value:tipoCount.Correctivo}].filter(d=>d.value>0);
+            // Costos por equipo
+            const costoEq={};
+            filtered.forEach(r=>{costoEq[r.maquina]=(costoEq[r.maquina]||0)+r.costoTotal;});
+            const barCosto=Object.entries(costoEq).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).map(([maquina,costo])=>({maquina,costo}));
+            // No operativos
+            const noOp=filtered.filter(r=>!r.operativo);
+
+            return(
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
+                {/* Fila gráficos */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:14}}>
+
+                  {/* Torta tipo + equipos no operativos */}
+                  <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                    <Card title="Distribución por Tipo">
+                      <div style={{padding:"12px",display:"flex",justifyContent:"center",alignItems:"center",flexDirection:"column",gap:8}}>
+                        <PieChart width={160} height={160}>
+                          <Pie data={pieData} dataKey="value" cx="50%" cy="50%" outerRadius={72} innerRadius={32}>
+                            {pieData.map((_,i)=><Cell key={i} fill={i===0?C.green:C.red}/>)}
+                          </Pie>
+                          <Tooltip content={({active,payload})=>{
+                            if(!active||!payload?.length)return null;
+                            return(<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:12}}>
+                              <div style={{color:C.text,fontWeight:600}}>{payload[0].payload.name}</div>
+                              <div style={{color:C.accent}}>{payload[0].value} OTs</div>
+                            </div>);
+                          }}/>
+                        </PieChart>
+                        <div style={{display:"flex",flexDirection:"column",gap:5,width:"100%"}}>
+                          {pieData.map((d,i)=>(
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{width:10,height:10,borderRadius:"50%",background:i===0?C.green:C.red,flexShrink:0}}/>
+                              <span style={{fontSize:12,color:C.textSub,flex:1}}>{d.name}</span>
+                              <span style={{fontSize:12,fontWeight:700,color:C.text}}>{d.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </Card>
+
+                    {noOp.length>0&&(
+                      <Card title="⚠ Equipos no operativos">
+                        <div style={{padding:"8px 12px",display:"flex",flexDirection:"column",gap:6}}>
+                          {noOp.map((r,i)=>(
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",background:C.redDim,borderRadius:7,border:`1px solid ${C.red}33`}}>
+                              <Badge color={C.red}>{r.maquina}</Badge>
+                              <span style={{fontSize:11,color:C.textSub,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.intervencion||"Sin detalle"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+                    )}
+                  </div>
+
+                  {/* Equipos atendidos */}
+                  <Card title={`Equipos atendidos (${eqData.length})`}>
+                    <div style={{overflowX:"auto",maxHeight:320,overflowY:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{background:C.surface}}>
+                            {["Proyecto","Máquina","Tipo","Operativo","Intervención","Costo ARS","Costo USD"].map((h,i)=>(
+                              <th key={i} style={{padding:"8px 12px",textAlign:i===0||i===3?"left":"center",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.surface}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {eqData.map((r,i)=>(
+                            <tr key={i}
+                            style={{background:i%2===0?"transparent":C.surface+"55",cursor:"pointer"}}
+                            onMouseEnter={e=>{
+                              const ot=filtered[i];const ins=ot?.insumos?.filter(x=>x.codigo)||[];
+                              if(!ins.length)return;
+                              const tip=document.createElement("div");tip.id="mant-tip2";
+                              tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:DM Sans,sans-serif;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
+                              const rect=e.currentTarget.getBoundingClientRect();
+                              tip.style.left=Math.min(rect.right+10,window.innerWidth-410)+"px";
+                              tip.style.top=Math.max(10,rect.top-10)+"px";
+                              tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+r.maquina+"</div>"+
+                                ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+x.codigo+"</b> — "+(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700'>x"+x.cantidad+"</span></div>").join("")+
+                                (ot.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total: $"+Math.round(ot.costoTotal).toLocaleString("es-AR")+"</div>":"");
+                              document.body.appendChild(tip);
+                            }}
+                            onMouseLeave={()=>{const t=document.getElementById("mant-tip2");if(t)t.remove();}}
+                          >
+                              <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={filtered[i]?.proyecto?.includes("FILO")?C.accent:C.teal}>{filtered[i]?.proyecto||"—"}</Badge></td>
+                              <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{r.maquina}</Badge></td>
+                              <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={r.tipo==="Preventivo"?C.green:C.red}>{r.tipo}</Badge></td>
+                              <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={r.operativo?C.green:C.red}>{r.operativo?"SÍ":"NO"}</Badge></td>
+                              <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`,color:C.textSub,fontSize:11,maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.intervencion||"—"}</td>
+                              <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:r.costo>0?C.green:C.textMuted,fontWeight:r.costo>0?600:400}}>{r.costo>0?"$"+fmtNum(r.costo):"—"}</td>
+                              <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:r.costo>0?C.blue:C.textMuted,fontWeight:r.costo>0?600:400}}>{fmtUSD(r.costo,usdRate)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Card>
+                </div>
+
+                {/* Fila 2: Insumos + costos por equipo */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+
+                  {/* Top insumos del día */}
+                  {topIns.length>0&&(
+                    <Card title={`Insumos utilizados (${topIns.length})`}>
+                      <div style={{overflowX:"auto",maxHeight:300,overflowY:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                          <thead>
+                            <tr style={{background:C.surface}}>
+                              {["Código","Descripción","Cant.","Costo ARS","Costo USD"].map((h,i)=>(
+                                <th key={i} style={{padding:"8px 10px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.surface}}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {topIns.map(([cod,v],i)=>(
+                              <tr key={cod} style={{background:i%2===0?"transparent":C.surface+"55"}}>
+                                <td style={{padding:"7px 10px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600,fontSize:11}}>{cod}</td>
+                                <td style={{padding:"7px 10px",borderBottom:`1px solid ${C.border}18`,color:C.text,fontSize:11}}>{v.nombre||"—"}</td>
+                                <td style={{padding:"7px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(v.cantidad)}</td>
+                                <td style={{padding:"7px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:v.costo>0?C.green:C.textMuted,fontWeight:v.costo>0?600:400}}>{v.costo>0?"$"+fmtNum(v.costo):"—"}</td>
+                                <td style={{padding:"7px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:v.costo>0?C.blue:C.textMuted,fontWeight:v.costo>0?600:400}}>{fmtUSD(v.costo,usdRate)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Card>
+                  )}
+
+                  {/* Costos por equipo */}
+                  {barCosto.length>0&&(
+                    <Card title="Gasto por Equipo">
+                      <div style={{padding:"8px 6px"}}>
+                        <ResponsiveContainer width="100%" height={Math.max(140,barCosto.length*28+30)}>
+                          <BarChart data={barCosto} layout="vertical" margin={{left:8,right:40}}>
+                            <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
+                            <XAxis type="number" tick={{fill:C.textMuted,fontSize:9}} axisLine={false} tickLine={false} tickFormatter={v=>"$"+fmtNum(v)}/>
+                            <YAxis type="category" dataKey="maquina" tick={{fill:C.textSub,fontSize:10}} width={88} axisLine={false} tickLine={false}/>
+                            <Tooltip content={({active,payload})=>{
+                              if(!active||!payload?.length)return null;
+                              return(<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:12}}>
+                                <div style={{color:C.purple,fontWeight:700}}>{payload[0].payload.maquina}</div>
+                                <div style={{color:C.green,fontWeight:600}}>${fmtNum(payload[0].value)}</div>
+                              </div>);
+                            }}/>
+                            <Bar dataKey="costo" fill={C.green} radius={[0,4,4,0]} barSize={16}/>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </Card>
+                  )}
+                </div>
+
+                {/* Tabla insumos del día */}
+                {(()=>{
+                  const allIns=[];
+                  filtered.forEach(r=>{
+                    r.insumos.filter(x=>x.codigo).forEach(x=>{
+                      allIns.push({maquina:r.maquina,tipoMant:r.tipoMant,codigo:x.codigo,nombre:x.nombre,cantidad:x.cantidad,costoARS:x.costoTotal});
+                    });
+                  });
+                  if(!allIns.length)return null;
+                  return(
+                    <Card title={`Insumos utilizados — ${fmtFecha(fechaDia)} (${allIns.length} registros)`}>
+                      <div style={{overflowX:"auto",overflowY:"auto",maxHeight:400}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                          <thead>
+                            <tr style={{background:C.surface}}>
+                              {["Máquina","Tipo","Código","Descripción","Cantidad","Costo ARS","Costo USD"].map((h,i)=>(
+                                <th key={i} style={{padding:"9px 12px",textAlign:i>4?"center":"left",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:1}}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allIns.map((x,i)=>{
+                              // Buscar la OT completa para el tooltip
+                              const ot=filtered.find(r=>r.maquina===x.maquina&&r.insumos.some(ins=>ins.codigo===x.codigo));
+                              const otIns=ot?.insumos?.filter(ins=>ins.codigo)||[];
+                              return(
+                              <tr key={i} style={{background:i%2===0?"transparent":C.surface+"55",cursor:otIns.length?"pointer":"default"}}
+                                onMouseEnter={e=>{
+                                  if(!otIns.length)return;
+                                  const tip=document.createElement("div");tip.id="ins-tip";
+                                  tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:DM Sans,sans-serif;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
+                                  const rect=e.currentTarget.getBoundingClientRect();
+                                  tip.style.left=Math.min(rect.right+10,window.innerWidth-430)+"px";
+                                  tip.style.top=Math.max(10,rect.top-10)+"px";
+                                  tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Todos los insumos — "+x.maquina+"</div>"+
+                                    otIns.map(ins=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+ins.codigo+"</b> — "+(ins.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+ins.cantidad+(ins.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(ins.costoTotal).toLocaleString("es-AR")+"</span>":"")+"</span></div>").join("")+
+                                    (ot?.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total OT: $"+Math.round(ot.costoTotal).toLocaleString("es-AR")+"</div>":"");
+                                  document.body.appendChild(tip);
+                                }}
+                                onMouseLeave={()=>{const t=document.getElementById("ins-tip");if(t)t.remove();}}
+                              >
+                                <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{x.maquina}</Badge></td>
+                                <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={normTipo(x.tipoMant).includes("prev")?C.green:C.red}>{x.tipoMant||"—"}</Badge></td>
+                                <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{x.codigo}</td>
+                                <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{x.nombre||"—"}</td>
+                                <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(x.cantidad)}</td>
+                                <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:x.costoARS>0?C.green:C.textMuted,fontWeight:x.costoARS>0?600:400}}>{x.costoARS>0?"$"+fmtNum(x.costoARS):"—"}</td>
+                                <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:x.costoARS>0?C.blue:C.textMuted,fontWeight:x.costoARS>0?600:400}}>{fmtUSD(x.costoARS,usdRate)}</td>
+                              </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Card>
+                  );
+                })()}
+
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Por período */}
+      {modo==="periodo"&&(
+        <Card title={`Órdenes de Trabajo (${filtered.length})`}>
+          <div style={{overflowX:"auto",overflowY:"auto",maxHeight:420,width:"100%"}}>
+            <table style={{width:"100%",tableLayout:"fixed",borderCollapse:"collapse",fontSize:12}}>
+              <thead>
+                <tr style={{background:C.surface}}>
+                  {colsPeriodo.map((c,i)=><th key={i} style={{padding:"9px 12px",textAlign:"left",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:1}}>{c.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length===0
+                  ?<tr><td colSpan={colsPeriodo.length} style={{padding:28,textAlign:"center",color:C.textMuted}}>Sin registros</td></tr>
+                  :filtered.map((r,i)=>{
+                    const ins=r.insumos?.filter(x=>x.codigo)||[];
+                    return(
+                      <tr key={i}
+                        style={{background:i%2===0?"transparent":C.surface+"66",cursor:ins.length?"pointer":"default"}}
+                        onMouseEnter={e=>{
+                          if(!ins.length)return;
+                          const tip=document.createElement("div");tip.id="mant-tip3";
+                          tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:DM Sans,sans-serif;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
+                          const rect=e.currentTarget.getBoundingClientRect();
+                          tip.style.left=Math.min(rect.right+10,window.innerWidth-430)+"px";
+                          tip.style.top=Math.max(10,rect.top-10)+"px";
+                          tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+r.maquina+" ("+r.fecha+")</div>"+
+                            ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+x.codigo+"</b> — "+(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+x.cantidad+(x.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(x.costoTotal).toLocaleString('es-AR')+"</span>":"")+"</span></div>").join("")+
+                            (r.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total: $"+Math.round(r.costoTotal).toLocaleString('es-AR')+"</div>":"");
+                          document.body.appendChild(tip);
+                        }}
+                        onMouseLeave={()=>{const t=document.getElementById("mant-tip3");if(t)t.remove();}}
+                      >
+                        {colsPeriodo.map((c,j)=><td key={j} style={{padding:"8px 12px",borderBottom:`1px solid #ffffff0a`,color:"#e0e0e0",whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",maxWidth:c.wrap?undefined:260}}>{c.render?c.render(r[c.key]):r[c.key]||"—"}</td>)}
+                      </tr>
+                    );
+                  })
+                }
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+
 // ─── Login ────────────────────────────────────────────────────────────────────
 function Login({onLogin}){
   const[pass,setPass]=React.useState("");
@@ -2536,6 +3129,24 @@ export default function App(){
   const control=useMemo(()=>calcControl(rop02All,rop05),[rop02All,rop05]);
   // Estados persistentes de filtros por pestaña
   const[dashSt,setDashSt]=useState({proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""});
+  const[rma15,setRma15]=useState([]);
+  const[stMant,setStMant]=useState({modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total"});
+  const[usdRate,setUsdRate]=useState(null);
+
+  // Obtener tipo de cambio ARS→USD al cargar
+  useEffect(()=>{
+    fetch("https://api.exchangerate-api.com/v4/latest/USD")
+      .then(r=>r.json())
+      .then(d=>{if(d.rates?.ARS)setUsdRate(d.rates.ARS);})
+      .catch(()=>{
+        // Fallback: dolar blue via otra API
+        fetch("https://dolarapi.com/v1/dolares/blue")
+          .then(r=>r.json())
+          .then(d=>{if(d.venta)setUsdRate(d.venta);})
+          .catch(()=>setUsdRate(1300));
+      });
+  },[]);
+  const[insumos,setInsumos]=useState({});
   const[st02,setSt02]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
   const[stVeh,setStVeh]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
   const[st05,setSt05]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}});
@@ -2572,6 +3183,28 @@ export default function App(){
       buildTareaMap(allTareas);
       // Re-normalizar con el mapa ya construido
       const allRop02Norm=allRop02.map(r=>({...r,supervisor:normName(r.supervisor),operario:normName(r.operario)}));
+      // ── RMA15 Mantenimiento ──────────────────────────────────────────────
+      const rmaFS=src.rma15_fs?.ok&&src.rma15_fs.data?src.rma15_fs.data:[];
+      const rmaJM=src.rma15_jm?.ok&&src.rma15_jm.data?src.rma15_jm.data:[];
+      if(src.rma15_fs&&!src.rma15_fs.ok)errs.push({source:"RMA15 — Filo del Sol",...src.rma15_fs.error});
+      if(src.rma15_jm&&!src.rma15_jm.ok)errs.push({source:"RMA15 — José María",...src.rma15_jm.error});
+      // ── Insumos base de datos ─────────────────────────────────────────────
+      const insumosMap={};
+      if(src.insumos?.ok&&src.insumos.data){
+        src.insumos.data.forEach(r=>{
+          const cod=String(r["CODIGO"]||r["Codigo"]||r["código"]||"").trim();
+          if(cod)insumosMap[cod]={
+            descripcion:String(r["DESCRIPCIÓN"]||r["DESCRIPCION"]||r["Descripción"]||"").trim(),
+            costoUnitario:parseFloat(String(r["COSTO UNITARIO"]||r["Costo Unitario"]||"0").replace(/[^0-9.]/g,""))||0,
+          };
+        });
+      }
+      setInsumos(insumosMap);
+      const allRma=[
+        ...rmaFS.map(r=>normalizeRMA15({...r,_proyectoForzado:"FILO DEL SOL"},insumosMap)),
+        ...rmaJM.map(r=>normalizeRMA15({...r,_proyectoForzado:"JOSE MARIA"},insumosMap)),
+      ];
+      setRma15(allRma);
       setRop02All(allRop02Norm);setErrors(errs);setLastUpdate(new Date());
     }catch(err){setFatalError(err.message);}
     finally{setLoading(false);}
@@ -2581,13 +3214,17 @@ export default function App(){
 
   const navItems=[
     {id:"dashboard",icon:"dashboard",label:"Dashboard"},
-    {id:"rop02",icon:"parts",label:"Equipos"},
-    {id:"vehiculos",icon:"equip",label:"Vehículos"},
-    {id:"rop05",icon:"prod",label:"Productividad"},
-    {id:"control",icon:"control",label:"Control",badge:control.problemas>0?control.problemas:null},
+    {id:"_rop02",icon:"parts",label:"ROP02",isGroup:true},
+    {id:"rop02",icon:"parts",label:"Equipos",indent:true},
+    {id:"vehiculos",icon:"equip",label:"Vehículos",indent:true},
+    {id:"_rop05",icon:"prod",label:"ROP05",isGroup:true},
+    {id:"rop05",icon:"prod",label:"Productividad",indent:true},
+    {id:"_rma15",icon:"equip",label:"RMA15",isGroup:true},
+    {id:"mant",icon:"equip",label:"Mantenimiento",indent:true},
     {id:"chc",icon:"consist",label:"ICHC"},
+    {id:"control",icon:"control",label:"Control ROP05 vs ROP02",badge:control.problemas>0?control.problemas:null},
   ];
-  const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",rop05:"Productividad",chc:"ICHC — Indicador Control de Horas Contratadas",control:"Consistencia ROP02 vs ROP05"};
+  const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",rop05:"Productividad",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",control:"Consistencia ROP02 vs ROP05"};
   const SW=sidebarOpen?240:52;
 
   if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
@@ -2604,11 +3241,14 @@ export default function App(){
           </div>
           <nav style={{flex:1,padding:"8px 0"}}>
             {navItems.map(item=>{
+              if(item.isGroup)return(
+                <div key={item.id} style={{padding:sidebarOpen?"8px 14px 2px":"8px 0 2px",fontSize:9,fontWeight:700,color:C.textMuted,letterSpacing:".1em",textTransform:"uppercase",userSelect:"none",textAlign:sidebarOpen?"left":"center"}}>{sidebarOpen?item.label:"···"}</div>
+              );
               const active=view===item.id;
               return(
-                <button key={item.id} onClick={()=>setView(item.id)} style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:"transparent"}`,padding:sidebarOpen?"10px 14px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
-                  <Icon name={item.icon} size={17} color={active?C.accent:C.textMuted}/>
-                  {sidebarOpen&&(<><span style={{fontSize:12,fontWeight:500,color:active?C.accent:C.textSub,flex:1,textAlign:"left"}}>{item.label}</span>{item.badge&&<span style={{background:C.red,color:"#fff",borderRadius:9,fontSize:9,fontWeight:700,padding:"1px 5px"}}>{item.badge}</span>}</>)}
+                <button key={item.id} onClick={()=>setView(item.id)} style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:"transparent"}`,padding:sidebarOpen?`10px 14px 10px ${item.indent?"28px":"14px"}`:"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
+                  <Icon name={item.icon} size={item.indent?14:17} color={active?C.accent:item.indent?C.textMuted+"bb":C.textMuted}/>
+                  {sidebarOpen&&(<><span style={{fontSize:item.indent?11:12,fontWeight:500,color:active?C.accent:C.textSub,flex:1,textAlign:"left"}}>{item.label}</span>{item.badge&&<span style={{background:C.red,color:"#fff",borderRadius:9,fontSize:9,fontWeight:700,padding:"1px 5px"}}>{item.badge}</span>}</>)}
                 </button>
               );
             })}
@@ -2650,6 +3290,7 @@ export default function App(){
                 {view==="rop02"&&<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>}
                 {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>}
                 {view==="rop05"&&<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>}
+                {view==="mant"&&<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>}
                 {view==="chc"&&<ViewCHC rop02All={rop02All}/>}
                 {view==="control"&&<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>}
               </>
