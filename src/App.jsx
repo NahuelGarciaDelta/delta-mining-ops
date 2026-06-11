@@ -13,6 +13,7 @@ const EXCLUDED_TYPES = new Set([
   "N/A","OFICINA","REORGANIZACION","REPARACION","TALLER",
 ]);
 const MACHINE_TYPE_MAP = {
+  // Camionetas y vehículos (excluidos de producción)
   "1088":"PERTIGA",
   "AG201HG":"CAMIONETA","AG201HO":"CAMIONETA","AG458MM":"CAMIONETA",
   "AG575LJ":"CAMIONETA","AG575MX":"CAMIONETA","AG469HA":"CAMIONETA",
@@ -32,27 +33,33 @@ const MACHINE_TYPE_MAP = {
   "CATERPILLAR":"GENERADOR","CAT":"GRUPO ELECTROGENO",
   "CX21067":"GRUPO ELECTROGENO","DE-169":"GRUPO ELECTROGENO","DE169":"GENERADOR CAT",
   "DELTA":"PREDIO",
-  "PCA-0081":"PALA CARGADORA","PCA-0093":"PALA CARGADORA","PCA-095":"PALA CARGADORA","CFN-0101":"PALA CARGADORA",
-  "EXC-0005":"EXCAVADORA","EXC-0034":"EXCAVADORA","EXC-0048":"EXCAVADORA","EXC-0055":"EXCAVADORA",
-  "MNC-001":"MINICARGADORA","MNC-FDS-001":"MINICARGADORA","MCA-0005":"MINICARGADORA",
-  "MOT-0014":"MOTONIVELADORA","MOT-0047":"MOTONIVELADORA","MOT-0079":"MOTONIVELADORA",
-  "MOT-0021":"PALA CARGADORA","MOT-0024":"MOTONIVELADORA","MOT-0049":"MOTONIVELADORA",
-  "MOT-0051":"MOTONIVELADORA","MOT-0069":"MOTONIVELADORA",
-  "ROD-0001":"VIBROCOMPACTADOR","RPC-0039":"VIBROCOMPACTADOR",
-  "RCP-0016":"COMPACTADOR","RCP-0036":"COMPACTADOR",
-  "RPC-0016":"BIBRO COMPACTADOR","RPC-0036":"BIBRO COMPACTADOR",
-  "RTP-0016":"RETROPALA","RTP-0011":"RETROPALA","RTP-0012":"RETROPALA","RTP-0018":"RETROPALA","RTP-0030":"RETROPALA",
-  "TOP-0032":"TOPADOR","TOP-0022":"TOPADOR","TOP-0036-JM":"TOPADOR","TOP-0051":"TOPADOR","TOP-0059":"TOPADOR",
-  "TOP-0014":"TOPADORA","TOP-0036":"TOPADORA","TOP-0048":"TOPADORA","TOP-0067":"TOPADORA",
-  "PCA-0017":"PALA CARGADORA","PCA-0021":"PALA CARGADORA","PCA-0040":"PALA CARGADORA",
-  "PCA-0051":"CARGADORA","PCA-0070":"PALA CARGADORA","PCA-0074":"PALA CARGADORA",
-  "PCA-0101":"PALA CARGADORA","PCA-021":"PALA CARGADORA","PCA-051":"PALA CARGADORA",
 };
+
+// Tipos canónicos por prefijo de 3 letras
+const PREFIX_TYPE_MAP = {
+  "CFN":"CARGADORA FRONTAL",
+  "PCA":"CARGADORA FRONTAL",
+  "MOT":"MOTONIVELADORA",
+  "TOP":"TOPADORA",
+  "RTP":"RETROPALA",
+  "RPC":"VIBROCOMPACTADOR",
+  "ROD":"VIBROCOMPACTADOR",
+  "EXC":"EXCAVADORA",
+  "MNC":"MINICARGADORA",
+  "MCA":"MINICARGADORA",
+};
+
 function normalizeMachineCode(code){
   return String(code||"").replace(/\s*\(.*?\)/g,"").replace(/[-_\/\s]+JM$/i,"").trim().toUpperCase();
 }
 function getMachineType(maquina){
-  return MACHINE_TYPE_MAP[normalizeMachineCode(maquina)]||null;
+  const norm=normalizeMachineCode(maquina);
+  // 1. Buscar en mapa exacto
+  if(MACHINE_TYPE_MAP[norm])return MACHINE_TYPE_MAP[norm];
+  // 2. Derivar del prefijo de 3 letras del código
+  const prefix=norm.replace(/[-_].*/,"").slice(0,3);
+  if(PREFIX_TYPE_MAP[prefix])return PREFIX_TYPE_MAP[prefix];
+  return null;
 }
 function isExcluded(maquina){
   const raw=String(maquina||"").trim().toUpperCase();
@@ -126,7 +133,7 @@ function semaforo(pct){
   if(pct>=70)return{color:C.yellow,label:"ATENCIÓN",dim:C.yellowDim};
   return{color:C.red,label:"CRÍTICO",dim:C.redDim};
 }
-function cleanKey(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim().toLowerCase();}
+function cleanKey(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[\r\n]+/g," ").replace(/\s+/g," ").trim().toLowerCase();}
 function getValue(row,keys){
   const rk=Object.keys(row||{});const wk=keys.map(cleanKey);
   for(const k of rk){if(wk.includes(cleanKey(k)))return row[k];}
@@ -379,7 +386,20 @@ function normalizeROP05(rows){
       supervisor:normSupervisorROP05(r["Supervisor"]),
       parte:String(r["N° de Parte"]||"").trim(),
       grupo:String(r["Grupo de trabajo"]||"").trim(),
-      observaciones:String(getValue(r,["OBSERVACION DE LA TAREA","Observacion","Observación"])||"").trim(),
+      observaciones:String(getValue(r,[
+        "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.",
+        "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA",
+        "OBSERVACION DE LA TAREA",
+        "OBSERVACIONES DE LA TAREA",
+        "Observacion",
+        "Observación",
+        "OBSERVACION",
+        "OBSERVACIONES",
+        "Observaciones",
+        "observaciones",
+        "Obs",
+        "OBS",
+      ])||"").trim(),
     };
   }).filter(r=>r.fecha&&r.maquina);
 }
@@ -416,6 +436,7 @@ const PATHS={
   close:"M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
   wear:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z",
   filter:"M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z",
+  person:"M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z",
 };
 function Icon({name,size=18,color="currentColor",style}){
   const p=PATHS[name];if(!p)return null;
@@ -494,24 +515,30 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos"}){
           {offsetY>0&&<tr style={{height:offsetY}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
           {visibleRows.map((r,i)=>{
             const absI=startIdx+i;
-            const hasTooltip=!!r.observaciones;
+            const hasTooltip=true;
             return(
               <tr key={absI}
-                style={{background:absI%2===0?"transparent":C.surface+"66",height:ROW_H,position:"relative",cursor:hasTooltip?"pointer":"default"}}
+                style={{background:absI%2===0?"transparent":C.surface+"66",height:ROW_H,position:"relative",cursor:hasTooltip?"pointer":"default",transition:"background .1s"}}
                 onMouseEnter={e=>{
+                  e.currentTarget.dataset.bg=absI%2===0?"transparent":C.surface+"66";
+                  e.currentTarget.style.background=C.accent+"22";
                   if(!hasTooltip)return;
                   const tip=document.createElement("div");
                   tip.id="row-tip";
-                  tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:320px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none`;
-                  const rect=e.currentTarget.getBoundingClientRect();
-                  const tipW=320;
-                  const left=Math.min(rect.right+10, window.innerWidth-tipW-10);
-                  tip.style.top=rect.top+"px";
-                  tip.style.left=left+"px";
-                  tip.innerHTML=(r.observaciones?"<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:#ccc;margin-top:3px\">"+r.observaciones+"</div></div>":"Sin observaciones");
+                  tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:320px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none;visibility:hidden`;
+                  tip.innerHTML="<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:"+(r.observaciones?"#ccc":"#555")+";margin-top:3px;font-style:"+(r.observaciones?"normal":"italic")+"\">"+(r.observaciones||"Sin observaciones")+"</div></div>";
                   document.body.appendChild(tip);
+                  const rect=e.currentTarget.getBoundingClientRect();
+                  const tipW=tip.offsetWidth||320;
+                  const tipH=tip.offsetHeight||60;
+                  tip.style.left=Math.min(rect.right+8, window.innerWidth-tipW-8)+"px";
+                  tip.style.top=Math.max(8, rect.bottom-tipH)+"px";
+                  tip.style.visibility="visible";
                 }}
-                onMouseLeave={()=>{const t=document.getElementById("row-tip");if(t)t.remove();}}
+                onMouseLeave={e=>{
+                  e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";
+                  const t=document.getElementById("row-tip");if(t)t.remove();
+                }}
               >
                 {cols.map((c,j)=><td key={j} style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",maxWidth:c.wrap?undefined:300}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>)}
               </tr>
@@ -1402,7 +1429,7 @@ function ViewROP05({rop05,extState,setExtState}){
   const cols=useMemo(()=>[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
-    {key:"tipo_maquina",label:"Tipo"},
+    {key:"tipo_maquina",label:"Tipo",render:(v,r)=>{const t=v||getMachineType(r.maquina)||"—";return <Badge color={C.textSub}>{t}</Badge>;}},
     {key:"tarea",label:"Tarea",render:v=><span style={{display:"block",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={v}>{v||"—"}</span>},
     {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"cantidad",label:"Cantidad",render:v=><span style={{color:C.blue,fontWeight:600}}>{fmtNum(v)}</span>},
@@ -1829,16 +1856,20 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
   const FilterPanel=(
     <Card>
       <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <Icon name="filter" size={14} color={C.textSub}/>
-          <span style={{fontSize:11,color:C.textSub,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Filtros</span>
-          {hayFiltros&&<button onClick={reset} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:6,border:`1px solid ${C.border}`,background:"none",color:C.textSub,cursor:"pointer",fontSize:11}}>Limpiar todo</button>}
+        {/* Fila 1: tabs + botón reporte */}
+        <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+          <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
+          <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
+          <button onClick={()=>generarReporteControl(
+            (fecha&&mode==="dia"?fmtFecha(fecha):(fechaD||fechaH)?`${fmtFecha(fechaD)} → ${fmtFecha(fechaH)}`:"Todo el período"),
+            filteredData.faltanEn05,
+            filteredData.faltanEn02
+          )} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+            📄 Guardar Reporte
+          </button>
         </div>
+        {/* Fila 2: filtros */}
         <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-          <div style={{display:"flex",gap:7}}>
-            <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
-            <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
-          </div>
           {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
           <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))]}/>
           <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))]}/>
@@ -1885,13 +1916,6 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
         <SubTab active={sub==="dashboard"} onClick={()=>setSub("dashboard")}>Dashboard</SubTab>
         <SubTab active={sub==="sinprod"} onClick={()=>setSub("sinprod")}>Sin producción ({filteredData.faltanEn05.length})</SubTab>
         <SubTab active={sub==="sinparte"} onClick={()=>setSub("sinparte")}>Sin parte diario ({filteredData.faltanEn02.length})</SubTab>
-        <button onClick={()=>generarReporteControl(
-          (fecha&&mode==="dia"?fmtFecha(fecha):(fechaD||fechaH)?`${fmtFecha(fechaD)} → ${fmtFecha(fechaH)}`:"Todo el período"),
-          filteredData.faltanEn05,
-          filteredData.faltanEn02
-        )} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
-          📄 Guardar Reporte
-        </button>
       </div>
       {FilterPanel}
       <AlertBanner type="info">Camionetas, camiones y equipos auxiliares están excluidos de este análisis.</AlertBanner>
@@ -2729,20 +2753,25 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Filtros */}
       <Card>
-        <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",alignItems:"flex-end",gap:12}}>
-          <Icon name="filter" size={14} color={C.textSub}/>
-          <div style={{display:"flex",gap:7}}>
+        <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+          {/* Fila 1: tabs + botón reporte */}
+          <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
             <TabBtn active={modo==="dia"} onClick={()=>setModo("dia")}>Por día</TabBtn>
             <TabBtn active={modo==="periodo"} onClick={()=>setModo("periodo")}>Por período</TabBtn>
+            <button onClick={()=>{const label=(fechaDia||fechaD||new Date().toISOString().slice(0,10)).replace(/-/g,"");generarExcelMantenimiento(filtered,usdRate,label);}} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+              📄 Generar Reporte
+            </button>
           </div>
-          {modo==="periodo"&&<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-          {modo==="dia"&&<DateIn label="Fecha" value={fechaDia} onChange={setFechaDia}/>}
-          <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
-          <Sel label="Tipo" value={tipoMant} onChange={setTipoMant} options={[{value:"todos",label:"Todos"},...tiposMant.map(t=>({value:t,label:t}))]}/>
-          <Sel label="Máquina" value={maquina} onChange={setMaquina} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
-          <InsumoSearch value={insumoFiltro} onChange={setInsumoFiltro} opciones={insumosDisponibles}/>
-          <button onClick={reset} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
-          <button onClick={()=>{const label=(fechaDia||fechaD||new Date().toISOString().slice(0,10)).replace(/-/g,"");generarExcelMantenimiento(filtered,usdRate,label);}} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.teal}44`,background:C.tealDim,color:C.teal,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter"}}>⬇ Excel</button>
+          {/* Fila 2: filtros */}
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+            {modo==="periodo"&&<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {modo==="dia"&&<DateIn label="Fecha" value={fechaDia} onChange={setFechaDia}/>}
+            <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+            <Sel label="Tipo" value={tipoMant} onChange={setTipoMant} options={[{value:"todos",label:"Todos"},...tiposMant.map(t=>({value:t,label:t}))]}/>
+            <Sel label="Máquina" value={maquina} onChange={setMaquina} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
+            <InsumoSearch value={insumoFiltro} onChange={setInsumoFiltro} opciones={insumosDisponibles}/>
+            <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
+          </div>
         </div>
       </Card>
 
@@ -2977,21 +3006,24 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                         <tbody>
                           {eqData.map((r,i)=>(
                             <tr key={i}
-                            style={{background:i%2===0?"transparent":C.surface+"55",cursor:"pointer"}}
+                            style={{background:i%2===0?"transparent":C.surface+"55",cursor:"pointer",transition:"background .1s"}}
                             onMouseEnter={e=>{
+                              e.currentTarget.dataset.bg=e.currentTarget.style.background||"transparent";
+                              e.currentTarget.style.background=C.accent+"22";
                               const ot=filtered[i];const ins=ot?.insumos?.filter(x=>x.codigo)||[];
                               if(!ins.length)return;
                               const tip=document.createElement("div");tip.id="mant-tip2";
                               tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
                               const rect=e.currentTarget.getBoundingClientRect();
-                              tip.style.left=Math.min(rect.right+10,window.innerWidth-410)+"px";
-                              tip.style.top=Math.max(10,rect.top-10)+"px";
+                              const tipW1=tip.offsetWidth||400;const tipH1=tip.offsetHeight||120;
+                              tip.style.left=Math.min(rect.right+8,window.innerWidth-tipW1-8)+"px";
+                              tip.style.top=Math.max(8,rect.bottom-tipH1)+"px";
                               tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+r.maquina+"</div>"+
                                 ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+x.codigo+"</b> — "+(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700'>x"+x.cantidad+"</span></div>").join("")+
                                 (ot.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total: $"+Math.round(ot.costoTotal).toLocaleString("es-AR")+"</div>":"");
                               document.body.appendChild(tip);
                             }}
-                            onMouseLeave={()=>{const t=document.getElementById("mant-tip2");if(t)t.remove();}}
+                            onMouseLeave={e=>{e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";const t=document.getElementById("mant-tip2");if(t)t.remove();}}
                           >
                               <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={filtered[i]?.proyecto?.includes("FILO")?C.accent:C.teal}>{filtered[i]?.proyecto||"—"}</Badge></td>
                               <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{r.maquina}</Badge></td>
@@ -3089,20 +3121,23 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                               const ot=filtered.find(r=>r.maquina===x.maquina&&r.insumos.some(ins=>ins.codigo===x.codigo));
                               const otIns=ot?.insumos?.filter(ins=>ins.codigo)||[];
                               return(
-                              <tr key={i} style={{background:i%2===0?"transparent":C.surface+"55",cursor:otIns.length?"pointer":"default"}}
+                              <tr key={i} style={{background:i%2===0?"transparent":C.surface+"55",cursor:otIns.length?"pointer":"default",transition:"background .1s"}}
                                 onMouseEnter={e=>{
+                                  e.currentTarget.dataset.bg=e.currentTarget.style.background||"transparent";
+                                  e.currentTarget.style.background=C.accent+"22";
                                   if(!otIns.length)return;
                                   const tip=document.createElement("div");tip.id="ins-tip";
                                   tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
                                   const rect=e.currentTarget.getBoundingClientRect();
-                                  tip.style.left=Math.min(rect.right+10,window.innerWidth-430)+"px";
-                                  tip.style.top=Math.max(10,rect.top-10)+"px";
+                                  const tipW2=tip.offsetWidth||430;const tipH2=tip.offsetHeight||120;
+                                  tip.style.left=Math.min(rect.right+8,window.innerWidth-tipW2-8)+"px";
+                                  tip.style.top=Math.max(8,rect.bottom-tipH2)+"px";
                                   tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Todos los insumos — "+x.maquina+"</div>"+
                                     otIns.map(ins=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+ins.codigo+"</b> — "+(ins.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+ins.cantidad+(ins.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(ins.costoTotal).toLocaleString("es-AR")+"</span>":"")+"</span></div>").join("")+
                                     (ot?.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total OT: $"+Math.round(ot.costoTotal).toLocaleString("es-AR")+"</div>":"");
                                   document.body.appendChild(tip);
                                 }}
-                                onMouseLeave={()=>{const t=document.getElementById("ins-tip");if(t)t.remove();}}
+                                onMouseLeave={e=>{e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";const t=document.getElementById("ins-tip");if(t)t.remove();}}
                               >
                                 <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{x.maquina}</Badge></td>
                                 <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={normTipo(x.tipoMant).includes("prev")?C.green:C.red}>{x.tipoMant||"—"}</Badge></td>
@@ -3144,20 +3179,23 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                     const ins=r.insumos?.filter(x=>x.codigo)||[];
                     return(
                       <tr key={i}
-                        style={{background:i%2===0?"transparent":C.surface+"66",cursor:ins.length?"pointer":"default"}}
+                        style={{background:i%2===0?"transparent":C.surface+"66",cursor:ins.length?"pointer":"default",transition:"background .1s"}}
                         onMouseEnter={e=>{
+                          e.currentTarget.dataset.bg=e.currentTarget.style.background||"transparent";
+                          e.currentTarget.style.background=C.accent+"22";
                           if(!ins.length)return;
                           const tip=document.createElement("div");tip.id="mant-tip3";
                           tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
                           const rect=e.currentTarget.getBoundingClientRect();
-                          tip.style.left=Math.min(rect.right+10,window.innerWidth-430)+"px";
-                          tip.style.top=Math.max(10,rect.top-10)+"px";
+                          const tipW3=tip.offsetWidth||430;const tipH3=tip.offsetHeight||120;
+                          tip.style.left=Math.min(rect.right+8,window.innerWidth-tipW3-8)+"px";
+                          tip.style.top=Math.max(8,rect.bottom-tipH3)+"px";
                           tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+r.maquina+" ("+r.fecha+")</div>"+
                             ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+x.codigo+"</b> — "+(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+x.cantidad+(x.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(x.costoTotal).toLocaleString('es-AR')+"</span>":"")+"</span></div>").join("")+
                             (r.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total: $"+Math.round(r.costoTotal).toLocaleString('es-AR')+"</div>":"");
                           document.body.appendChild(tip);
                         }}
-                        onMouseLeave={()=>{const t=document.getElementById("mant-tip3");if(t)t.remove();}}
+                        onMouseLeave={e=>{e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";const t=document.getElementById("mant-tip3");if(t)t.remove();}}
                       >
                         {colsPeriodo.map((c,j)=><td key={j} style={{padding:"8px 12px",borderBottom:`1px solid #ffffff0a`,color:"#e0e0e0",whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",maxWidth:c.wrap?undefined:260}}>{c.render?c.render(r[c.key]):r[c.key]||"—"}</td>)}
                       </tr>
@@ -3283,16 +3321,21 @@ function generarExcelMantenimiento(rows, usdRate, label){
 function ViewRankingOperarios({rop02All,rop05}){
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)&&r.estado==="TRABAJO"),[rop02All]);
   const[proyecto,setProyecto]=useState("todos");
-  const[modeR,setModeR]=useState("todo");
+  const[modeR,setModeR]=useState("periodo");
+  const[fecha,setFecha]=useState("");
   const[fechaD,setFechaD]=useState("");
   const[fechaH,setFechaH]=useState("");
   const proyectos=useMemo(()=>uniq(rop02Prod.map(r=>r.proyecto)),[rop02Prod]);
 
   const filtered=useMemo(()=>rop02Prod.filter(r=>{
     if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(modeR==="dia"){if(fecha&&r.fecha!==fecha)return false;}
     if(modeR==="periodo"){if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
     return true;
-  }),[rop02Prod,proyecto,modeR,fechaD,fechaH]);
+  }),[rop02Prod,proyecto,modeR,fecha,fechaD,fechaH]);
+
+  const hayFiltros=proyecto!=="todos"||(modeR==="dia"&&!!fecha)||(modeR==="periodo"&&(!!fechaD||!!fechaH));
+  const reset=()=>{setModeR("periodo");setProyecto("todos");setFecha("");setFechaD("");setFechaH("");};
 
   const ranking=useMemo(()=>{
     const m={};
@@ -3327,14 +3370,19 @@ function ViewRankingOperarios({rop02All,rop05}){
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
       <Card>
-        <div style={{padding:"10px 14px",display:"flex",flexWrap:"wrap",alignItems:"flex-end",gap:12}}>
-          <Icon name="filter" size={14} color={C.textSub}/>
-          <div style={{display:"flex",gap:7}}>
-            <TabBtn active={modeR==="todo"} onClick={()=>setModeR("todo")}>Todo</TabBtn>
+        <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+          {/* Fila 1: tabs */}
+          <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+            <TabBtn active={modeR==="dia"} onClick={()=>setModeR("dia")}>Por día</TabBtn>
             <TabBtn active={modeR==="periodo"} onClick={()=>setModeR("periodo")}>Por período</TabBtn>
           </div>
-          {modeR==="periodo"&&<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-          <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+          {/* Fila 2: filtros */}
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+            {modeR==="dia"&&<DateIn label="Fecha" value={fecha} onChange={setFecha}/>}
+            {modeR==="periodo"&&<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+            <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
+          </div>
         </div>
       </Card>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10}}>
@@ -3477,7 +3525,7 @@ export default function App(){
     {id:"vehiculos",icon:"equip",label:"Vehículos",indent:true},
     {id:"_rop05",icon:"prod",label:"ROP05",isGroup:true},
     {id:"rop05",icon:"prod",label:"Productividad",indent:true},
-    {id:"ranking",icon:"consist",label:"Ranking Operarios",indent:true},
+    {id:"ranking",icon:"person",label:"Ranking Operarios",indent:true},
     {id:"_rma15",icon:"equip",label:"RMA15",isGroup:true},
     {id:"mant",icon:"gear",label:"Mantenimiento",indent:true},
     {id:"chc",icon:"consist",label:"ICHC"},
