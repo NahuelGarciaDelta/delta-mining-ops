@@ -417,6 +417,32 @@ function calcControl(rop02All,rop05){
   return{faltanEn05,faltanEn02,consistencia,total,problemas,productivos,prod05};
 }
 
+// ─── Smart tooltip positioning ───────────────────────────────────────────────
+function positionTip(tip, mouseX, mouseY){
+  const margin=12;
+  const vw=window.innerWidth;
+  const vh=window.innerHeight;
+  // Render offscreen to measure real dimensions
+  tip.style.visibility="hidden";
+  tip.style.top="-9999px";
+  tip.style.left="-9999px";
+  document.body.appendChild(tip);
+  const tipW=tip.offsetWidth;
+  const tipH=tip.offsetHeight;
+  // Horizontal: prefer right of cursor, fallback left
+  let left=mouseX+margin;
+  if(left+tipW>vw-margin) left=mouseX-tipW-margin;
+  left=Math.max(margin,left);
+  // Vertical: bottom edge anchored to cursor
+  let top=mouseY-tipH;
+  if(top<margin) top=mouseY+margin;
+  if(top+tipH>vh-margin) top=vh-tipH-margin;
+  top=Math.max(margin,top);
+  tip.style.left=left+"px";
+  tip.style.top=top+"px";
+  tip.style.visibility="visible";
+}
+
 // ─── Íconos ───────────────────────────────────────────────────────────────────
 const PATHS={
   dashboard:"M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
@@ -527,13 +553,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos"}){
                   tip.id="row-tip";
                   tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:320px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none;visibility:hidden`;
                   tip.innerHTML="<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:"+(r.observaciones?"#ccc":"#555")+";margin-top:3px;font-style:"+(r.observaciones?"normal":"italic")+"\">"+(r.observaciones||"Sin observaciones")+"</div></div>";
-                  document.body.appendChild(tip);
-                  const rect=e.currentTarget.getBoundingClientRect();
-                  const tipW=tip.offsetWidth||320;
-                  const tipH=tip.offsetHeight||60;
-                  tip.style.left=Math.min(rect.right+8, window.innerWidth-tipW-8)+"px";
-                  tip.style.top=Math.max(8, rect.bottom-tipH)+"px";
-                  tip.style.visibility="visible";
+                  positionTip(tip,e.clientX,e.clientY);
                 }}
                 onMouseLeave={e=>{
                   e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";
@@ -3014,14 +3034,10 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                               if(!ins.length)return;
                               const tip=document.createElement("div");tip.id="mant-tip2";
                               tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
-                              const rect=e.currentTarget.getBoundingClientRect();
-                              const tipW1=tip.offsetWidth||400;const tipH1=tip.offsetHeight||120;
-                              tip.style.left=Math.min(rect.right+8,window.innerWidth-tipW1-8)+"px";
-                              tip.style.top=Math.max(8,rect.bottom-tipH1)+"px";
                               tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+r.maquina+"</div>"+
                                 ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+x.codigo+"</b> — "+(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700'>x"+x.cantidad+"</span></div>").join("")+
                                 (ot.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total: $"+Math.round(ot.costoTotal).toLocaleString("es-AR")+"</div>":"");
-                              document.body.appendChild(tip);
+                              positionTip(tip,e.clientX,e.clientY);
                             }}
                             onMouseLeave={e=>{e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";const t=document.getElementById("mant-tip2");if(t)t.remove();}}
                           >
@@ -3128,14 +3144,10 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                                   if(!otIns.length)return;
                                   const tip=document.createElement("div");tip.id="ins-tip";
                                   tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
-                                  const rect=e.currentTarget.getBoundingClientRect();
-                                  const tipW2=tip.offsetWidth||430;const tipH2=tip.offsetHeight||120;
-                                  tip.style.left=Math.min(rect.right+8,window.innerWidth-tipW2-8)+"px";
-                                  tip.style.top=Math.max(8,rect.bottom-tipH2)+"px";
                                   tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Todos los insumos — "+x.maquina+"</div>"+
                                     otIns.map(ins=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+ins.codigo+"</b> — "+(ins.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+ins.cantidad+(ins.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(ins.costoTotal).toLocaleString("es-AR")+"</span>":"")+"</span></div>").join("")+
                                     (ot?.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total OT: $"+Math.round(ot.costoTotal).toLocaleString("es-AR")+"</div>":"");
-                                  document.body.appendChild(tip);
+                                  positionTip(tip,e.clientX,e.clientY);
                                 }}
                                 onMouseLeave={e=>{e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";const t=document.getElementById("ins-tip");if(t)t.remove();}}
                               >
@@ -3186,14 +3198,10 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                           if(!ins.length)return;
                           const tip=document.createElement("div");tip.id="mant-tip3";
                           tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
-                          const rect=e.currentTarget.getBoundingClientRect();
-                          const tipW3=tip.offsetWidth||430;const tipH3=tip.offsetHeight||120;
-                          tip.style.left=Math.min(rect.right+8,window.innerWidth-tipW3-8)+"px";
-                          tip.style.top=Math.max(8,rect.bottom-tipH3)+"px";
                           tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+r.maquina+" ("+r.fecha+")</div>"+
                             ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+x.codigo+"</b> — "+(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+x.cantidad+(x.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(x.costoTotal).toLocaleString('es-AR')+"</span>":"")+"</span></div>").join("")+
                             (r.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total: $"+Math.round(r.costoTotal).toLocaleString('es-AR')+"</div>":"");
-                          document.body.appendChild(tip);
+                          positionTip(tip,e.clientX,e.clientY);
                         }}
                         onMouseLeave={e=>{e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";const t=document.getElementById("mant-tip3");if(t)t.remove();}}
                       >
