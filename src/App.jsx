@@ -619,7 +619,323 @@ async function fetchAll(url){
 }
 
 // ─── ViewDashboard ────────────────────────────────────────────────────────────
-function ViewDashboard({rop02All,rop05,control,dashSt,setDashSt}){
+// ─── Dashboard ROP05 ──────────────────────────────────────────────────────────
+function DashboardROP05({rop05,dashSt,setDashSt}){
+  const modeD=dashSt?.modeD05??"todo";
+  const fechaD=dashSt?.fechaD05??"";
+  const fechaDD=dashSt?.fechaDD05??"";
+  const fechaDH=dashSt?.fechaDH05??"";
+  const proyecto=dashSt?.proyecto05??"todos";
+  const setModeD=v=>setDashSt(s=>({...s,modeD05:v}));
+  const setFechaD=v=>setDashSt(s=>({...s,fechaD05:v}));
+  const setFechaDD=v=>setDashSt(s=>({...s,fechaDD05:v}));
+  const setFechaDH=v=>setDashSt(s=>({...s,fechaDH05:v}));
+  const setProyecto=v=>setDashSt(s=>({...s,proyecto05:v}));
+
+  const proyectos=useMemo(()=>uniq(rop05.map(r=>r.proyecto).filter(Boolean)),[rop05]);
+
+  const filtered=useMemo(()=>rop05.filter(r=>{
+    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(modeD==="dia"&&fechaD&&r.fecha!==fechaD)return false;
+    if(modeD==="periodo"){if(fechaDD&&r.fecha<fechaDD)return false;if(fechaDH&&r.fecha>fechaDH)return false;}
+    return true;
+  }),[rop05,proyecto,modeD,fechaD,fechaDD,fechaDH]);
+
+  const totalHoras=useMemo(()=>filtered.reduce((s,r)=>s+r.horas,0),[filtered]);
+  const totalEquipos=useMemo(()=>uniq(filtered.map(r=>r.maquina)).length,[filtered]);
+  const diasOp=useMemo(()=>uniq(filtered.map(r=>r.fecha)).length,[filtered]);
+
+  const topTareas=useMemo(()=>{
+    const m={};
+    filtered.filter(r=>r.tarea).forEach(r=>{m[r.tarea]=(m[r.tarea]||0)+1;});
+    const total=Object.values(m).reduce((s,v)=>s+v,0);
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,10)
+      .map(([name,count])=>({name:name.length>36?name.slice(0,34)+"…":name,count,pct:total>0?Math.round(count/total*100):0}));
+  },[filtered]);
+
+  const topEquipos=useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>{if(!m[r.maquina])m[r.maquina]={horas:0,tipo:getMachineType(r.maquina)||""};m[r.maquina].horas+=r.horas;});
+    return Object.entries(m).sort((a,b)=>b[1].horas-a[1].horas).slice(0,10).map(([name,d])=>({name,horas:Math.round(d.horas*10)/10,tipo:d.tipo}));
+  },[filtered]);
+
+  const totalTareas=useMemo(()=>{const m={};filtered.forEach(r=>{if(r.tarea)m[r.tarea]=1;});return Object.keys(m).length;},[filtered]);
+
+  const prodPorUnidad=useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>{if(r.unidad){m[r.unidad]=(m[r.unidad]||0)+r.cantidad;}});
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value:Math.round(value)}));
+  },[filtered]);
+
+  const prodPorProy=useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>{const p=r.proyecto||"S/D";m[p]=(m[p]||0)+r.horas;});
+    return Object.entries(m).map(([name,value])=>({name,value}));
+  },[filtered]);
+
+  const hayFiltros=modeD!=="todo"||proyecto!=="todos";
+  const reset=()=>{setModeD("todo");setFechaD("");setFechaDD("");setFechaDH("");setProyecto("todos");};
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <Icon name="filter" size={14} color={C.textSub}/>
+          <div style={{display:"flex",gap:7}}>
+            <TabBtn active={modeD==="todo"} onClick={()=>setModeD("todo")}>Todo</TabBtn>
+            <TabBtn active={modeD==="dia"} onClick={()=>setModeD("dia")}>Por día</TabBtn>
+            <TabBtn active={modeD==="periodo"} onClick={()=>setModeD("periodo")}>Por período</TabBtn>
+          </div>
+          {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
+          {modeD==="periodo"&&<><DateIn label="Desde" value={fechaDD} onChange={setFechaDD} max={fechaDH||undefined}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH} min={fechaDD||undefined} warn={fechaDH&&fechaDD&&fechaDH<fechaDD?"≥ Desde":null}/></>}
+          <div style={{display:"flex",gap:7,marginLeft:8}}>
+            {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
+              <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.teal:C.border}`,background:proyecto===opt.value?C.tealDim:"none",color:proyecto===opt.value?C.teal:C.textSub,fontFamily:"Inter",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>{opt.label}</button>
+            ))}
+          </div>
+          <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar</button>
+        </div>
+      </Card>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:12}}>
+        <StatCard icon="prod" label="Registros" value={filtered.length} color={C.teal}/>
+        <StatCard icon="hours" label="Horas Productivas" value={fmtNum(totalHoras)} color={C.yellow}/>
+        <StatCard icon="equip" label="Equipos" value={totalEquipos} color={C.purple}/>
+        <StatCard icon="consist" label="Días con Registro" value={diasOp} color={C.blue}/>
+        <StatCard icon="prod" label="Tareas distintas" value={totalTareas} color={C.green}/>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <Card title="Top 10 Equipos — Horas productivas">
+          <div style={{padding:"12px 6px"}}>
+            <ResponsiveContainer width="100%" height={Math.max(200,topEquipos.length*34+40)}>
+              <BarChart data={topEquipos} layout="vertical" margin={{left:8,right:16}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
+                <XAxis type="number" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                <YAxis type="category" dataKey="name" tick={{fill:C.textSub,fontSize:10}} width={84} axisLine={false} tickLine={false}/>
+                <Tooltip content={<ChartTip/>}/>
+                <Bar dataKey="horas" fill={C.teal} radius={[0,4,4,0]} barSize={20}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Card title="Top 10 Tareas más realizadas">
+            <div style={{padding:"8px 12px 12px",display:"flex",flexDirection:"column",gap:7}}>
+              {topTareas.map((t,i)=>(
+                <div key={i} style={{display:"flex",flexDirection:"column",gap:3}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <span style={{fontSize:11,fontWeight:800,color:C.teal,width:16,textAlign:"right",flexShrink:0,fontFamily:"Inter"}}>{i+1}</span>
+                    <span style={{fontSize:11,color:C.text,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.name}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:C.teal,flexShrink:0,minWidth:36,textAlign:"right"}}>{t.pct}%</span>
+                  </div>
+                  <div style={{marginLeft:23,background:C.border,borderRadius:3,height:4,overflow:"hidden"}}>
+                    <div style={{width:`${t.pct}%`,height:"100%",background:C.teal,borderRadius:3,transition:"width .4s ease"}}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card title="Producción por unidad">
+            <div style={{padding:"10px 14px 12px",display:"flex",flexDirection:"column",gap:8}}>
+              {prodPorUnidad.slice(0,5).map((u,i)=>{
+                const max=prodPorUnidad[0]?.value||1;
+                return(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:10,fontWeight:600,color:C.textSub,width:80,flexShrink:0}}>{u.name}</span>
+                    <div style={{flex:1,background:C.border,borderRadius:3,height:6,overflow:"hidden"}}>
+                      <div style={{width:`${(u.value/max)*100}%`,height:"100%",background:C.teal,borderRadius:3}}/>
+                    </div>
+                    <span style={{fontSize:11,fontWeight:700,color:C.teal,flexShrink:0,minWidth:60,textAlign:"right"}}>{fmtNum(u.value)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      <Card title="Producción por proyecto">
+        <div style={{padding:"10px 14px 12px",display:"flex",alignItems:"center",gap:16}}>
+          <ResponsiveContainer width={120} height={120}>
+            <PieChart>
+              <Pie data={prodPorProy} cx="50%" cy="50%" outerRadius={52} innerRadius={30} dataKey="value" labelLine={false} label={false}>
+                {prodPorProy.map((entry,i)=><Cell key={i} fill={entry.name==="FILO DEL SOL"?"#e8001d":entry.name==="JOSE MARIA"?"#f0f0f0":"#ffaa00"}/>)}
+              </Pie>
+              <Tooltip content={<ChartTip/>}/>
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{flex:1,display:"flex",flexDirection:"column",gap:8}}>
+            {(()=>{const total=prodPorProy.reduce((s,r)=>s+r.value,0);return prodPorProy.map((entry,i)=>{const col=entry.name==="FILO DEL SOL"?"#e8001d":entry.name==="JOSE MARIA"?"#f0f0f0":"#ffaa00";const pct=total>0?Math.round(entry.value/total*100):0;return(<div key={i} style={{display:"flex",flexDirection:"column",gap:3}}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,fontWeight:600,color:col}}>{entry.name}</span><span style={{fontSize:14,fontWeight:800,color:col,fontFamily:"Inter"}}>{pct}%</span></div><div style={{background:C.border,borderRadius:3,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:col,borderRadius:3}}/></div><span style={{fontSize:10,color:C.textMuted}}>{fmtNum(entry.value)} hs</span></div>);})})()}
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Dashboard RMA15 ──────────────────────────────────────────────────────────
+function DashboardRMA15({rma15,dashSt,setDashSt}){
+  const modeD=dashSt?.modeD15??"todo";
+  const fechaD=dashSt?.fechaD15??"";
+  const fechaDD=dashSt?.fechaDD15??"";
+  const fechaDH=dashSt?.fechaDH15??"";
+  const proyecto=dashSt?.proyecto15??"todos";
+  const setModeD=v=>setDashSt(s=>({...s,modeD15:v}));
+  const setFechaD=v=>setDashSt(s=>({...s,fechaD15:v}));
+  const setFechaDD=v=>setDashSt(s=>({...s,fechaDD15:v}));
+  const setFechaDH=v=>setDashSt(s=>({...s,fechaDH15:v}));
+  const setProyecto=v=>setDashSt(s=>({...s,proyecto15:v}));
+
+  const proyectos=useMemo(()=>uniq((rma15||[]).map(r=>r.proyecto).filter(Boolean)),[rma15]);
+
+  const filtered=useMemo(()=>(rma15||[]).filter(r=>{
+    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(modeD==="dia"&&fechaD&&r.fecha!==fechaD)return false;
+    if(modeD==="periodo"){if(fechaDD&&r.fecha<fechaDD)return false;if(fechaDH&&r.fecha>fechaDH)return false;}
+    return true;
+  }),[rma15,proyecto,modeD,fechaD,fechaDD,fechaDH]);
+
+  const totalOTs=filtered.length;
+  const preventivos=filtered.filter(r=>r.tipoMant?.toUpperCase().includes("PREV")).length;
+  const correctivos=filtered.filter(r=>r.tipoMant?.toUpperCase().includes("CORR")).length;
+  const noOperativos=filtered.filter(r=>!r.operativo).length;
+  const costoTotal=filtered.reduce((s,r)=>s+r.costoTotal,0);
+  const equiposAfect=useMemo(()=>uniq(filtered.map(r=>r.maquina)).length,[filtered]);
+
+  const otsPorTipo=useMemo(()=>[
+    {name:"Preventivo",value:preventivos,fill:C.green},
+    {name:"Correctivo",value:correctivos,fill:C.red},
+  ].filter(x=>x.value>0),[preventivos,correctivos]);
+
+  const topEquipos=useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>{if(!m[r.maquina])m[r.maquina]={ots:0,costo:0};m[r.maquina].ots++;m[r.maquina].costo+=r.costoTotal;});
+    return Object.entries(m).sort((a,b)=>b[1].costo-a[1].costo).slice(0,10).map(([name,d])=>({name,ots:d.ots,costo:Math.round(d.costo)}));
+  },[filtered]);
+
+  const topInsumos=useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>(r.insumos||[]).forEach(ins=>{if(!ins.codigo)return;const k=ins.codigo+" — "+(ins.nombre||"");if(!m[k])m[k]={qty:0,costo:0};m[k].qty+=ins.cantidad;m[k].costo+=ins.costoTotal||0;}));
+    return Object.entries(m).sort((a,b)=>b[1].costo-a[1].costo).slice(0,8).map(([name,d])=>({name,qty:Math.round(d.qty),costo:Math.round(d.costo)}));
+  },[filtered]);
+
+  const costosPorMes=useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>{if(!r.fecha)return;const mes=r.fecha.slice(0,7);if(!m[mes])m[mes]={prev:0,corr:0};if(r.tipoMant?.toUpperCase().includes("PREV"))m[mes].prev+=r.costoTotal;else m[mes].corr+=r.costoTotal;});
+    return Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0])).map(([mes,d])=>({mes,prev:Math.round(d.prev),corr:Math.round(d.corr)}));
+  },[filtered]);
+
+  const hayFiltros=modeD!=="todo"||proyecto!=="todos";
+  const reset=()=>{setModeD("todo");setFechaD("");setFechaDD("");setFechaDH("");setProyecto("todos");};
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <Icon name="filter" size={14} color={C.textSub}/>
+          <div style={{display:"flex",gap:7}}>
+            <TabBtn active={modeD==="todo"} onClick={()=>setModeD("todo")}>Todo</TabBtn>
+            <TabBtn active={modeD==="dia"} onClick={()=>setModeD("dia")}>Por día</TabBtn>
+            <TabBtn active={modeD==="periodo"} onClick={()=>setModeD("periodo")}>Por período</TabBtn>
+          </div>
+          {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
+          {modeD==="periodo"&&<><DateIn label="Desde" value={fechaDD} onChange={setFechaDD} max={fechaDH||undefined}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH} min={fechaDD||undefined} warn={fechaDH&&fechaDD&&fechaDH<fechaDD?"≥ Desde":null}/></>}
+          <div style={{display:"flex",gap:7,marginLeft:8}}>
+            {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
+              <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.purple:C.border}`,background:proyecto===opt.value?C.purple+"22":"none",color:proyecto===opt.value?C.purple:C.textSub,fontFamily:"Inter",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>{opt.label}</button>
+            ))}
+          </div>
+          <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar</button>
+        </div>
+      </Card>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:12}}>
+        <StatCard icon="parts" label="Total OTs" value={totalOTs} color={C.blue}/>
+        <StatCard icon="check" label="Preventivos" value={preventivos} color={C.green}/>
+        <StatCard icon="warn" label="Correctivos" value={correctivos} color={C.red}/>
+        <StatCard icon="equip" label="Equipos afectados" value={equiposAfect} color={C.purple}/>
+        <StatCard icon="warn" label="No operativos" value={noOperativos} color={C.yellow}/>
+        <StatCard icon="prod" label="Costo total ARS" value={costoTotal>0?"$"+fmtNum(Math.round(costoTotal)):"—"} color={C.yellow}/>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <Card title="Costo por equipo (Top 10)">
+          <div style={{padding:"12px 6px"}}>
+            <ResponsiveContainer width="100%" height={Math.max(200,topEquipos.length*34+40)}>
+              <BarChart data={topEquipos} layout="vertical" margin={{left:8,right:16}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
+                <XAxis type="number" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>"$"+fmtNum(v)}/>
+                <YAxis type="category" dataKey="name" tick={{fill:C.textSub,fontSize:10}} width={84} axisLine={false} tickLine={false}/>
+                <Tooltip content={<ChartTip/>}/>
+                <Bar dataKey="costo" fill={C.purple} radius={[0,4,4,0]} barSize={20}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <Card title="OTs por tipo">
+            <div style={{padding:"10px 14px 12px",display:"flex",alignItems:"center",gap:16}}>
+              <ResponsiveContainer width={120} height={120}>
+                <PieChart>
+                  <Pie data={otsPorTipo} cx="50%" cy="50%" outerRadius={52} innerRadius={30} dataKey="value" labelLine={false} label={false}>
+                    {otsPorTipo.map((entry,i)=><Cell key={i} fill={entry.fill}/>)}
+                  </Pie>
+                  <Tooltip content={<ChartTip/>}/>
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{flex:1,display:"flex",flexDirection:"column",gap:8}}>
+                {otsPorTipo.map((t,i)=>{const pct=totalOTs>0?Math.round(t.value/totalOTs*100):0;return(<div key={i} style={{display:"flex",flexDirection:"column",gap:3}}><div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,fontWeight:600,color:t.fill}}>{t.name}</span><span style={{fontSize:14,fontWeight:800,color:t.fill,fontFamily:"Inter"}}>{pct}%</span></div><div style={{background:C.border,borderRadius:3,height:5,overflow:"hidden"}}><div style={{width:pct+"%",height:"100%",background:t.fill,borderRadius:3}}/></div><span style={{fontSize:10,color:C.textMuted}}>{t.value} OTs</span></div>);})}
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Top insumos por costo">
+            <div style={{padding:"8px 12px 12px",display:"flex",flexDirection:"column",gap:6}}>
+              {topInsumos.slice(0,5).map((ins,i)=>{
+                const max=topInsumos[0]?.costo||1;
+                return(
+                  <div key={i} style={{display:"flex",flexDirection:"column",gap:2}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                      <span style={{fontSize:10,color:C.text,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ins.name}</span>
+                      <span style={{fontSize:11,fontWeight:700,color:C.yellow,flexShrink:0,marginLeft:8}}>${fmtNum(ins.costo)}</span>
+                    </div>
+                    <div style={{background:C.border,borderRadius:3,height:4,overflow:"hidden"}}>
+                      <div style={{width:`${(ins.costo/max)*100}%`,height:"100%",background:C.yellow,borderRadius:3}}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {costosPorMes.length>1&&(
+        <Card title="Evolución de costos por mes">
+          <div style={{padding:"12px 6px"}}>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={costosPorMes} margin={{left:8,right:16}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
+                <XAxis dataKey="mes" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>"$"+fmtNum(v)}/>
+                <Tooltip content={<ChartTip/>}/>
+                <Bar dataKey="prev" name="Preventivo" fill={C.green} radius={[4,4,0,0]} stackId="a"/>
+                <Bar dataKey="corr" name="Correctivo" fill={C.red} radius={[4,4,0,0]} stackId="a"/>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+
+function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
   const proyecto=dashSt?.proyecto??"todos";
   const modeD=dashSt?.modeD??"todo";
   const fechaD=dashSt?.fechaD??"";
@@ -754,6 +1070,19 @@ function ViewDashboard({rop02All,rop05,control,dashSt,setDashSt}){
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:16}}>
+      {/* Selector de dashboard */}
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <TabBtn active={dashSt?.dashTab!=="rop05"&&dashSt?.dashTab!=="rma15"} onClick={()=>setDashSt(s=>({...s,dashTab:"rop02"}))}>ROP02 — Partes Diarios</TabBtn>
+        <TabBtn active={dashSt?.dashTab==="rop05"} onClick={()=>setDashSt(s=>({...s,dashTab:"rop05"}))}>ROP05 — Productividad</TabBtn>
+        <TabBtn active={dashSt?.dashTab==="rma15"} onClick={()=>setDashSt(s=>({...s,dashTab:"rma15"}))}>RMA15 — Mantenimiento</TabBtn>
+      </div>
+
+      {(dashSt?.dashTab==="rop05")?(
+        <DashboardROP05 rop05={rop05} dashSt={dashSt} setDashSt={setDashSt}/>
+      ):(dashSt?.dashTab==="rma15")?(
+        <DashboardRMA15 rma15={rma15} dashSt={dashSt} setDashSt={setDashSt}/>
+      ):(
+      <>
       {/* Filtros de proyecto + fecha */}
       <Card>
         <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
@@ -884,6 +1213,8 @@ function ViewDashboard({rop02All,rop05,control,dashSt,setDashSt}){
           </div>
         </Card>
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -3603,7 +3934,7 @@ export default function App(){
             )}
             {!fatalError&&lastUpdate&&(
               <>
-                {view==="dashboard"&&<ViewDashboard rop02All={rop02All} rop05={rop05} control={control} dashSt={dashSt} setDashSt={setDashSt}/>}
+                {view==="dashboard"&&<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>}
                 {view==="rop02"&&<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>}
                 {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>}
                 {view==="rop05"&&<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>}
