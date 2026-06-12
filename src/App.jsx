@@ -330,8 +330,9 @@ function normalizeROP02(rows,proyectoDefault){
   return(rows||[]).map(r=>{
     const trabajo=String(r["Descripción de los trabajos realizados"]||"").trim();
     const obs=String(r["Observaciones"]||"").trim();
+    const maquina=cleanMachine(r["Interno"]);
     return{
-      fecha:normDate(r["Fecha"]),maquina:cleanMachine(r["Interno"]),
+      fecha:normDate(r["Fecha"]),maquina,
       operario:normName(r["Operador"]),supervisor:normName(r["Supervisor Delta"]),
       supervisorCliente:String(r["Supervisor Vial Cliente"]||"").trim(),
       turno:String(r["Turno de trabajo"]||"").trim(),parte:String(r["N° Parte"]||"").trim(),
@@ -341,6 +342,9 @@ function normalizeROP02(rows,proyectoDefault){
       aceite:String(r["Aceite"]||"").trim(),tipo_trabajo:trabajo,
       desgaste:String(r["Información sobre Desgaste"]||"").trim(),observaciones:obs,
       estado:detectEstado(trabajo,obs,r["Cant. Hs."]),
+      // Precalculado una sola vez (en vez de recalcular isExcluded/getMachineType
+      // —cada una con hasta ~24 regex— en cada render de cada vista)
+      _excluded:isExcluded(maquina),_tipo:getMachineType(maquina)||"",
     };
   }).filter(r=>r.fecha&&r.maquina);
 }
@@ -430,13 +434,15 @@ function normalizeROP05(rows){
         "Obs",
         "OBS",
       ])||"").trim(),
+      _excluded:isExcluded(cleanMachine(r["Codigo Int"])),
+      _tipo:getMachineType(r["Codigo Int"])||"",
     };
   }).filter(r=>r.fecha&&r.maquina);
 }
 function esNoProductivo(e){const s=String(e||"").toUpperCase();return s==="FS"||s==="OD"||s.includes("FUERA")||s.includes("OTRO");}
 function calcControl(rop02All,rop05){
-  const productivos=(rop02All||[]).filter(r=>!esNoProductivo(r.estado)&&!isExcluded(r.maquina));
-  const prod05=(rop05||[]).filter(r=>!isExcluded(r.maquina));
+  const productivos=(rop02All||[]).filter(r=>!esNoProductivo(r.estado)&&!r._excluded);
+  const prod05=(rop05||[]).filter(r=>!r._excluded);
   const key=r=>`${r.fecha}__${r.maquina}`;
   const set05=new Set(prod05.map(key));const set02=new Set(productivos.map(key));
   const faltanEn05=productivos.filter(r=>!set05.has(key(r)));
@@ -488,7 +494,7 @@ const PATHS={
   equip:"M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm13.5-1c0 .55-.45 1-1 1s-1-.45-1-1 .45-1 1-1 1 .45 1 1z",
   alert:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z",
   consist:"M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z",
-  bulldozer:"M2 9h2v6H2zM4 8h8v7H4zM12 11h5v4h-5zM5 5h1.5v3H5zM2 15h18v2H2zM3.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0zM15.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0z",
+  bulldozer:"M3 5H9V11H3ZM3 10H16V14H3ZM16 9L20 9L21 17L16 17ZM2 14H21V18H2ZM3.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0ZM9.1 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0ZM14.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0Z",
   chevronDown:"M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z",
   menu:"M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z",
   close:"M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
@@ -606,12 +612,22 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos"}){
 function Sel({label,value,onChange,options}){
   // Si el valor actual no existe en las opciones, caer al default (primera opción)
   const safeValue=options.some(o=>o.value===value)?value:(options[0]?.value??value);
+  const defaultVal=options[0]?.value;
+  const isActive=defaultVal!==undefined&&safeValue!==defaultVal;
   return(
     <div style={{display:"flex",flexDirection:"column",gap:3}}>
       <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>{label}</label>
-      <select value={safeValue} onChange={e=>onChange(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"7px 10px",fontSize:12,cursor:"pointer",outline:"none",minWidth:120}}>
-        {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
+      <div style={{position:"relative",display:"flex"}}>
+        {isActive&&(
+          <button onClick={()=>onChange(defaultVal)} title="Limpiar filtro" aria-label="Limpiar filtro"
+            style={{position:"absolute",left:5,top:"50%",transform:"translateY(-50%)",width:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",background:C.red+"33",border:"none",borderRadius:"50%",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700,lineHeight:1,padding:0,zIndex:2}}>
+            ×
+          </button>
+        )}
+        <select value={safeValue} onChange={e=>onChange(e.target.value)} style={{background:C.surface,border:`1px solid ${isActive?C.accent+"55":C.border}`,borderRadius:7,color:C.text,padding:`7px 10px 7px ${isActive?26:10}px`,fontSize:12,cursor:"pointer",outline:"none",minWidth:120,width:"100%"}}>
+          {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
     </div>
   );
 }
@@ -633,20 +649,27 @@ const MONTH_OPTIONS=[
 ];
 const YEAR_OPTIONS=(()=>{const y=new Date().getFullYear();const arr=[{value:"",label:"Año"}];for(let yy=y-4;yy<=y+2;yy++)arr.push({value:String(yy),label:String(yy)});return arr;})();
 function PeriodMonthYear({fechaD,fechaH,setFechaD,setFechaH}){
-  const selectedMonth=fechaD?String(fechaD).slice(5,7):"";
+  const sameMonth=fechaD&&fechaH&&fechaD.slice(0,7)===fechaH.slice(0,7);
+  const selectedMonth=sameMonth?String(fechaD).slice(5,7):"";
   const selectedYear=fechaD?String(fechaD).slice(0,4):"";
   const apply=(year,month)=>{
     const now=new Date();
     const y=year||String(now.getFullYear());
-    const m=month||String(now.getMonth()+1).padStart(2,"0");
-    const lastDay=new Date(Number(y),Number(m),0).getDate();
-    setFechaD(`${y}-${m}-01`);
-    setFechaH(`${y}-${m}-${String(lastDay).padStart(2,"0")}`);
+    if(!month){
+      // Solo año seleccionado: rango = año completo (no forzar un mes)
+      setFechaD(`${y}-01-01`);
+      setFechaH(`${y}-12-31`);
+      return;
+    }
+    const lastDay=new Date(Number(y),Number(month),0).getDate();
+    setFechaD(`${y}-${month}-01`);
+    setFechaH(`${y}-${month}-${String(lastDay).padStart(2,"0")}`);
   };
+  const clearPeriodo=()=>{setFechaD("");setFechaH("");};
   return(
     <>
-      <Sel label="Mes" value={selectedMonth} onChange={m=>apply(selectedYear,m)} options={MONTH_OPTIONS}/>
-      <Sel label="Año" value={selectedYear} onChange={y=>apply(y,selectedMonth)} options={YEAR_OPTIONS}/>
+      <Sel label="Mes" value={selectedMonth} onChange={m=>m?apply(selectedYear,m):clearPeriodo()} options={MONTH_OPTIONS}/>
+      <Sel label="Año" value={selectedYear} onChange={y=>y?apply(y,selectedMonth):clearPeriodo()} options={YEAR_OPTIONS}/>
     </>
   );
 }
@@ -665,6 +688,23 @@ function AlertBanner({type="warn",children}){
   const m={warn:[C.yellow,C.yellowDim],error:[C.red,C.redDim],success:[C.green,C.greenDim],info:[C.blue,C.blueDim]};
   const[col,bg]=m[type]||m.warn;
   return<div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 14px",background:bg,border:`1px solid ${col}44`,borderRadius:9,fontSize:12,color:C.text}}><Icon name="warn" size={14} color={col} style={{flexShrink:0,marginTop:1}}/><span>{children}</span></div>;
+}
+// ─── HelpTip ──────────────────────────────────────────────────────────────────
+// Ícono "?" con tooltip explicativo, para desambiguar siglas (ROP02, ROP05,
+// RMA15, ICHC, TD/TN, etc.) a usuarios nuevos sin necesidad de manual.
+function HelpTip({text}){
+  const[open,setOpen]=useState(false);
+  return(
+    <span style={{position:"relative",display:"inline-flex",alignItems:"center"}}
+      onMouseEnter={()=>setOpen(true)} onMouseLeave={()=>setOpen(false)}>
+      <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:16,height:16,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.textMuted,fontSize:10,fontWeight:700,cursor:"help",userSelect:"none"}}>?</span>
+      {open&&(
+        <span style={{position:"absolute",top:"calc(100% + 8px)",left:0,zIndex:50,width:280,padding:"10px 12px",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 4px 16px rgba(0,0,0,0.4)",fontSize:11,fontWeight:400,lineHeight:1.5,color:C.textSub,whiteSpace:"normal"}}>
+          {text}
+        </span>
+      )}
+    </span>
+  );
 }
 
 // ─── fetchAll ─────────────────────────────────────────────────────────────────
@@ -717,7 +757,7 @@ function DashboardROP05({rop05,dashSt,setDashSt}){
 
   const topEquipos=useMemo(()=>{
     const m={};
-    filtered.forEach(r=>{if(!m[r.maquina])m[r.maquina]={horas:0,tipo:getMachineType(r.maquina)||""};m[r.maquina].horas+=r.horas;});
+    filtered.forEach(r=>{if(!m[r.maquina])m[r.maquina]={horas:0,tipo:r._tipo};m[r.maquina].horas+=r.horas;});
     return Object.entries(m).sort((a,b)=>b[1].horas-a[1].horas).slice(0,10).map(([name,d])=>({name,horas:Math.round(d.horas*10)/10,tipo:d.tipo}));
   },[filtered]);
 
@@ -1027,7 +1067,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
   }),[rop05,proyecto,modeD,fechaD,fechaDD,fechaDH]);
 
   // Excluye camionetas/camiones de TODOS los cálculos del dashboard
-  const r02prod=useMemo(()=>r02f.filter(r=>!isExcluded(r.maquina)),[r02f]);
+  const r02prod=useMemo(()=>r02f.filter(r=>!r._excluded),[r02f]);
   const totalHoras=useMemo(()=>r02prod.reduce((s,r)=>s+r.horas,0),[r02prod]);
   const totalComb=useMemo(()=>r02prod.reduce((s,r)=>s+r.combustible,0),[r02prod]);
   const totalProd=useMemo(()=>r05f.reduce((s,r)=>s+r.cantidad,0),[r05f]);
@@ -1037,7 +1077,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
   const topEquipos=useMemo(()=>{
     const m={};
     r02prod.forEach(r=>{
-      if(!m[r.maquina])m[r.maquina]={horas:0,proyectos:new Set(),tipo:getMachineType(r.maquina)||""};
+      if(!m[r.maquina])m[r.maquina]={horas:0,proyectos:new Set(),tipo:r._tipo};
       m[r.maquina].horas+=r.horas;
       if(r.proyecto)m[r.maquina].proyectos.add(r.proyecto);
     });
@@ -1083,9 +1123,9 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
     const fechas=uniq(r02prod.map(r=>r.fecha));
     return fechas.length>0?Math.round(totalHoras/fechas.length):0;
   },[r02prod,totalHoras]);
-  const equiposFS=useMemo(()=>uniq(r02f.filter(r=>r.estado==="FS"&&!isExcluded(r.maquina)).map(r=>r.maquina)).length,[r02f]);
+  const equiposFS=useMemo(()=>uniq(r02f.filter(r=>r.estado==="FS"&&!r._excluded).map(r=>r.maquina)).length,[r02f]);
   const diasOperativos=useMemo(()=>uniq(r02prod.filter(r=>r.estado==="TRABAJO").map(r=>r.fecha)).length,[r02prod]);
-  const diasOD=useMemo(()=>uniq(r02f.filter(r=>r.estado==="OD"&&!isExcluded(r.maquina)).map(r=>r.fecha)).length,[r02f]);
+  const diasOD=useMemo(()=>uniq(r02f.filter(r=>r.estado==="OD"&&!r._excluded).map(r=>r.fecha)).length,[r02f]);
   const sem=semaforo(control.consistencia);
 
   // Tooltips custom
@@ -1258,7 +1298,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
             </div>
             <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10,display:"flex",flexDirection:"column",gap:6}}>
               <div style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Equipos FS por máquina</div>
-              {r02f.filter(r=>r.estado==="FS"&&!isExcluded(r.maquina)).reduce((acc,r)=>{
+              {r02f.filter(r=>r.estado==="FS"&&!r._excluded).reduce((acc,r)=>{
                 const ex=acc.find(a=>a.m===r.maquina);
                 if(ex)ex.d=uniq([...ex.d,r.fecha]);else acc.push({m:r.maquina,d:[r.fecha]});
                 return acc;
@@ -1266,7 +1306,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
                 <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:10,fontWeight:700,color:C.red,fontFamily:"Inter",width:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flexShrink:0}}>{e.m}</span>
                   <div style={{flex:1,background:C.border,borderRadius:3,height:5}}>
-                    <div style={{width:`${(e.d.length/Math.max(...r02f.filter(r=>r.estado==="FS"&&!isExcluded(r.maquina)).reduce((acc,r)=>{const ex=acc.find(a=>a.m===r.maquina);if(ex)ex.d=uniq([...ex.d,r.fecha]);else acc.push({m:r.maquina,d:[r.fecha]});return acc;},[]).map(a=>a.d.length)))*100}%`,height:"100%",background:C.red,borderRadius:3}}/>
+                    <div style={{width:`${(e.d.length/Math.max(...r02f.filter(r=>r.estado==="FS"&&!r._excluded).reduce((acc,r)=>{const ex=acc.find(a=>a.m===r.maquina);if(ex)ex.d=uniq([...ex.d,r.fecha]);else acc.push({m:r.maquina,d:[r.fecha]});return acc;},[]).map(a=>a.d.length)))*100}%`,height:"100%",background:C.red,borderRadius:3}}/>
                   </div>
                   <span style={{fontSize:10,color:C.textMuted,flexShrink:0}}>{e.d.length}d</span>
                 </div>
@@ -1375,7 +1415,7 @@ function EquipoCard({img,nombre,prefijos,rop02Prod}){
 // ─── ViewROP02 ────────────────────────────────────────────────────────────────
 function ViewROP02({rop02All,extState,setExtState}){
   // Excluir camionetas y camiones de toda la vista ROP02
-  const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)),[rop02All]);
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
 
   const fk=useMemo(()=>[
     {key:"proyecto",defaultVal:"todos"},
@@ -1839,7 +1879,7 @@ function ViewROP05({rop05,extState,setExtState}){
   const cols=useMemo(()=>[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
-    {key:"tipo_maquina",label:"Tipo",render:(v,r)=>{const t=v||getMachineType(r.maquina)||"—";return <Badge color={C.textSub}>{t}</Badge>;}},
+    {key:"tipo_maquina",label:"Tipo",render:(v,r)=>{const t=v||(r._tipo||"—");return <Badge color={C.textSub}>{t}</Badge>;}},
     {key:"tarea",label:"Tarea",render:v=><span style={{display:"block",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={v}>{v||"—"}</span>},
     {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"cantidad",label:"Cantidad",render:v=><span style={{color:C.blue,fontWeight:600}}>{fmtNum(v)}</span>},
@@ -1858,7 +1898,7 @@ function ViewROP05({rop05,extState,setExtState}){
               📊 Generar Reporte
             </button>
           </div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+          <div style={{display:"flex",flexWrap:"nowrap",overflowX:"auto",gap:10,alignItems:"flex-end",paddingBottom:2}}>
             {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
             <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
             <Sel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{setTipoMaquina(v);set("maquina","todas");}} options={TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
@@ -2205,7 +2245,7 @@ function generarReporteControl(periodo, faltanEn05, faltanEn02){
 
 // ─── ControlPorEquipo ─────────────────────────────────────────────────────────
 function ControlPorEquipo({rop02All,extState,setExtState}){
-  const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)),[rop02All]);
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const hoy=new Date();
   const{proyecto,maquina,año,mesIdx,fechaSel,controlActivo}=extState;
@@ -2471,7 +2511,20 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
       </Card>
 
       {maquina==="todas"?(
-        <AlertBanner type="info">Seleccioná una máquina para ver la ficha diaria TD/TN. Los controles de numeración y horómetros igual se calculan sobre todas las máquinas filtradas.</AlertBanner>
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <Card title="¿Qué hace esta pestaña?">
+            <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:8,fontSize:12,color:C.textSub,lineHeight:1.6}}>
+              <p style={{margin:0}}>Acá podés ver, día por día y turno por turno (TD/TN), el detalle completo de un equipo: parte diario, horómetros, tarea realizada, observaciones, desgaste, combustible y aceite.</p>
+              <p style={{margin:0}}>Además, corre dos controles automáticos sobre el período filtrado:</p>
+              <ul style={{margin:"0 0 0 18px",padding:0}}>
+                <li><strong style={{color:C.text}}>Numeración de partes</strong>: que el número de parte sea consecutivo entre el último turno de un día y el primero del día siguiente.</li>
+                <li><strong style={{color:C.text}}>Horómetros</strong>: que el horómetro final de un turno coincida con el horómetro inicial del turno siguiente.</li>
+              </ul>
+              <p style={{margin:0}}>Elegí un <strong style={{color:C.text}}>proyecto</strong> y una <strong style={{color:C.text}}>máquina</strong> arriba para empezar.</p>
+            </div>
+          </Card>
+          <AlertBanner type="info">Seleccioná una máquina para ver la ficha diaria TD/TN. Los controles de numeración y horómetros igual se calculan sobre todas las máquinas filtradas.</AlertBanner>
+        </div>
       ):!fichaActual?(
         <AlertBanner type="warn">No hay registros para {maquina} en {MESES[mesIdx]} {año}.</AlertBanner>
       ):(
@@ -2828,7 +2881,7 @@ function ErrorScreen({errors,onRetry}){
 // ─── ViewVehiculos ────────────────────────────────────────────────────────────
 function ViewVehiculos({rop02All,extState,setExtState}){
   // Solo camionetas y camiones
-  const rop02Veh=useMemo(()=>rop02All.filter(r=>isExcluded(r.maquina)),[rop02All]);
+  const rop02Veh=useMemo(()=>rop02All.filter(r=>r._excluded),[rop02All]);
 
   const fk=useMemo(()=>[
     {key:"proyecto",defaultVal:"todos"},
@@ -2976,7 +3029,7 @@ function ViewVehiculos({rop02All,extState,setExtState}){
 // ─── ViewCombustible ──────────────────────────────────────────────────────────
 function ViewCombustible({rop02All,extState,setExtState}){
   // Solo máquinas/equipos (excluye camiones y camionetas)
-  const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)),[rop02All]);
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
 
   const fk=useMemo(()=>[
     {key:"proyecto",defaultVal:"todos"},
@@ -3011,7 +3064,7 @@ function ViewCombustible({rop02All,extState,setExtState}){
   const rankingEquipos=useMemo(()=>{
     const m={};
     conCombustible.forEach(r=>{
-      if(!m[r.maquina])m[r.maquina]={maquina:r.maquina,total:0,horas:0,cargas:0,tipo:getMachineType(r.maquina)||""};
+      if(!m[r.maquina])m[r.maquina]={maquina:r.maquina,total:0,horas:0,cargas:0,tipo:r._tipo};
       m[r.maquina].total+=Number(r.combustible)||0;
       m[r.maquina].horas+=Number(r.horas)||0;
       m[r.maquina].cargas+=1;
@@ -3164,7 +3217,7 @@ function ViewCombustible({rop02All,extState,setExtState}){
 
 // ─── ViewCHC — Indicador Control de Horas Contratadas ────────────────────────
 function ViewCHC({rop02All,extState,setExtState}){
-  const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)),[rop02All]);
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
   const proyecto=extState?.proyecto??"todos";
   const setProyecto=v=>setExtState(s=>({...s,proyecto:v}));
   const HS_MES=180;
@@ -3184,7 +3237,7 @@ function ViewCHC({rop02All,extState,setExtState}){
   const mesIdx=extState?.mesIdx??new Date().getMonth(); // 0=Enero
   const setMesIdx=v=>setExtState(s=>({...s,mesIdx:v}));
 
-  const proyectos=useMemo(()=>uniq(rop02All.filter(r=>!isExcluded(r.maquina)).map(r=>r.proyecto)),[rop02All]);
+  const proyectos=useMemo(()=>uniq(rop02All.filter(r=>!r._excluded).map(r=>r.proyecto)),[rop02All]);
 
   // Calcular fechaD y fechaH a partir del mes/año seleccionado
   // El período es del 26 del mes anterior al 25 del mes seleccionado
@@ -3205,7 +3258,7 @@ function ViewCHC({rop02All,extState,setExtState}){
 
   // Base: solo equipos productivos filtrados por proyecto y período
   const base=useMemo(()=>rop02All.filter(r=>{
-    if(isExcluded(r.maquina))return false;
+    if(r._excluded)return false;
     if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
     if(r.fecha<fechaD||r.fecha>fechaH)return false;
     return true;
@@ -4250,7 +4303,7 @@ function generarExcelMantenimiento(rows, usdRate, label){
 
 // ─── ViewRankingOperarios ─────────────────────────────────────────────────────
 function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
-  const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)&&r.estado==="TRABAJO"),[rop02All]);
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded&&r.estado==="TRABAJO"),[rop02All]);
   const proyecto=extState?.proyecto??"todos";
   const setProyecto=v=>setExtState(s=>({...s,proyecto:v}));
   const modeR=extState?.modeR??"periodo";
@@ -4405,7 +4458,8 @@ export default function App(){
     try{
       const json=await fetchAll(APPS_SCRIPT_URL);
       const src=json.sources||{};const errs=[];
-      if(src.rop05?.ok&&src.rop05.data){const rop05Raw=normalizeROP05(src.rop05.data);
+      const rop05Raw=src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data):[];
+      if(rop05Raw.length){
       // Build tarea map first with raw data, THEN normalize
       const allTareasEarly=rop05Raw.map(r=>r.tarea).filter(Boolean);
       buildTareaMap(allTareasEarly);
@@ -4418,7 +4472,7 @@ export default function App(){
       if(src.rop02_jm&&!src.rop02_jm.ok)errs.push({source:"ROP02 — José María",...src.rop02_jm.error});
       // Construir mapa canónico con TODOS los nombres antes de setear estado
       const allRop02=[...rFS,...rJM];
-      const allRop05Names=src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data).map(r=>r.supervisor):[];
+      const allRop05Names=rop05Raw.map(r=>r.supervisor);
       const allNames=[
         ...allRop02.map(r=>r.supervisor),
         ...allRop02.map(r=>r.operario),
@@ -4471,13 +4525,25 @@ export default function App(){
       {id:"rop05",icon:"prod",label:"Productividad"},
       {id:"ranking",icon:"person",label:"Ranking Operarios"},
     ]},
-    {id:"grp_rma15",icon:"equip",label:"RMA15",type:"group",color:C.yellow,children:[
+    {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
       {id:"mant",icon:"gear",label:"Mantenimiento"},
     ]},
     {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:control.problemas>0?control.problemas:null},
     {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.teal},
   ];
   const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",control:"Consistencia ROP02 vs ROP05"};
+  const titleHelp={
+    dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
+    rop02:"ROP02 = Reporte de Operación de máquinas: parte diario por turno (TD = turno día, TN = turno noche), con horómetros, tareas y observaciones.",
+    vehiculos:"Mismo reporte que ROP02 (TD/TN, horómetros, km), pero para camiones y camionetas en lugar de máquinas.",
+    ctrlEquipo:"Ficha por equipo: muestra el detalle día por turno (TD/TN) y controla automáticamente que la numeración de partes y los horómetros sean consistentes entre registros.",
+    combustible:"Análisis de litros de combustible cargados por equipo, proyecto y período, con ranking de consumo.",
+    rop05:"ROP05 = Reporte de Producción: cantidad y tipo de trabajo productivo realizado por cada equipo (m³, m², horas, etc.).",
+    ranking:"Ranking de operarios según horas trabajadas, días activos y equipos operados.",
+    chc:"ICHC = Indicador de Control de Horas Contratadas: compara las horas efectivamente trabajadas contra las horas pactadas por contrato (180 hs/mes por equipo).",
+    mant:"RMA15 = Registro de Mantenimiento: órdenes de trabajo (OT), insumos y costos de mantenimiento de cada equipo.",
+    control:"Cruza ROP02 (partes diarios) contra ROP05 (producción) para detectar registros de un lado que no tienen su contraparte en el otro (turnos sin producción cargada o producción sin parte diario).",
+  };
   const SW=sidebarOpen?240:52;
 
   if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
@@ -4535,7 +4601,10 @@ export default function App(){
         </div>
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
           <div style={{height:50,flexShrink:0,background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
-            <h1 style={{fontFamily:"Inter",fontWeight:700,fontSize:14,color:C.text}}>{titles[view]}</h1>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <h1 style={{fontFamily:"Inter",fontWeight:700,fontSize:14,color:C.text}}>{titles[view]}</h1>
+              {titleHelp[view]&&<HelpTip text={titleHelp[view]}/>}
+            </div>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               {lastUpdate&&<span style={{fontSize:10,color:C.textMuted}}>Actualizado: {lastUpdate.toLocaleTimeString("es-AR")}</span>}
               <button onClick={loadData} disabled={loading} style={{display:"flex",alignItems:"center",gap:5,background:C.accentDim,border:`1px solid ${C.accent}44`,borderRadius:7,padding:"6px 12px",cursor:loading?"not-allowed":"pointer",color:C.accent,fontSize:12,fontWeight:600,fontFamily:"Inter"}}>
