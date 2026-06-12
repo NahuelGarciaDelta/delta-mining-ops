@@ -303,9 +303,19 @@ function normName(raw){
 function normProject(raw){
   const p=String(raw||"").replace(/\s+/g," ").trim().toUpperCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  // OJO: chequear "FILO SUR" ANTES del check genérico de "FILO" (que mapea a FILO DEL SOL)
+  if(p.includes("FILO SUR")||p.includes("FILOSUR")||p.includes("FILO-SUR")||p==="FSUR"||p.includes("F.SUR"))return"FILO SUR";
   if(p.includes("VICU")||p.includes("FILO")||p==="FDS"||p.includes("F.D.S"))return"FILO DEL SOL";
   if(p.includes("JOSE")||p.includes("MARIA")||p==="JM"||p.includes("J.M"))return"JOSE MARIA";
   return p||"S/D";
+}
+// Color distintivo por proyecto, usado en badges, bordes y gráficos
+function proyColor(p){
+  const s=String(p||"").toUpperCase();
+  if(s==="FILO DEL SOL")return C.accent;
+  if(s==="FILO SUR")return C.yellow;
+  if(s==="JOSE MARIA")return C.teal;
+  return C.purple;
 }
 // Filtro facetado: byFecha filtrado por todos los demás selectores excepto el propio
 function facetOpts(byFecha,key,others){
@@ -631,6 +641,166 @@ function Sel({label,value,onChange,options}){
     </div>
   );
 }
+
+function multiDefault(options){return options?.[0]?.value ?? "todos";}
+function normalizeMultiValue(value, options){
+  const def=multiDefault(options);
+  const valid=new Set((options||[]).map(o=>o.value));
+  if(Array.isArray(value)){
+    const arr=value.filter(v=>v!==def&&valid.has(v));
+    const realOpts=(options||[]).filter(o=>o.value!==def);
+    if(arr.length===0||arr.length>=realOpts.length)return def;
+    return arr;
+  }
+  if(!value||value===def||!valid.has(value))return def;
+  return [value];
+}
+function multiIsAll(value, def="todos"){
+  return !Array.isArray(value)||value.length===0||value.includes(def);
+}
+function multiIncludes(value, item, def="todos"){
+  if(multiIsAll(value,def))return true;
+  return value.includes(item);
+}
+function matchMulti(item, value, def="todos"){
+  return multiIncludes(value,item,def);
+}
+function multiSummary(value, options){
+  const def=multiDefault(options);
+  const normalized=normalizeMultiValue(value,options);
+  if(!Array.isArray(normalized))return (options.find(o=>o.value===def)?.label)||"Todos";
+  const labels=normalized.map(v=>(options.find(o=>o.value===v)?.label)||v);
+  if(labels.length===1)return labels[0];
+  const joined=labels.join(", ");
+  return joined.length<=34?joined:`${labels.length} seleccionados`;
+}
+function multiSelectedLabels(value, options){
+  const normalized=normalizeMultiValue(value,options);
+  if(!Array.isArray(normalized))return [];
+  return normalized.map(v=>({value:v,label:(options.find(o=>o.value===v)?.label)||v}));
+}
+function MultiSel({label,value,onChange,options}){
+  const[open,setOpen]=useState(false);
+  const[pos,setPos]=useState({top:0,left:0,width:240});
+  const[tipOpen,setTipOpen]=useState(false);
+  const[tipPos,setTipPos]=useState({top:0,left:0});
+  const ref=useRef(null);
+  const btnRef=useRef(null);
+  const def=multiDefault(options);
+  const selected=normalizeMultiValue(value,options);
+  const selectedArr=Array.isArray(selected)?selected:[];
+  const selectedLabels=multiSelectedLabels(value,options);
+  const isActive=Array.isArray(selected)&&selected.length>0;
+  const realOptions=(options||[]).filter(o=>o.value!==def);
+
+  const updatePos=useCallback(()=>{
+    const el=btnRef.current;
+    if(!el)return;
+    const r=el.getBoundingClientRect();
+    const width=Math.max(240,r.width);
+    let left=r.left;
+    if(left+width>window.innerWidth-12)left=window.innerWidth-width-12;
+    left=Math.max(12,left);
+    setPos({top:r.bottom+6,left,width});
+  },[]);
+
+  const updateTipPos=useCallback(()=>{
+    const el=btnRef.current;
+    if(!el)return;
+    const r=el.getBoundingClientRect();
+    let left=r.left;
+    let top=r.bottom+8;
+    setTipPos({top,left});
+  },[]);
+
+  useEffect(()=>{
+    const handler=e=>{
+      if(ref.current&&ref.current.contains(e.target))return;
+      if(e.target.closest&&e.target.closest('[data-multisel-menu="true"]'))return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown",handler);
+    return()=>document.removeEventListener("mousedown",handler);
+  },[]);
+
+  useEffect(()=>{
+    if(!open)return;
+    updatePos();
+    window.addEventListener("resize",updatePos);
+    window.addEventListener("scroll",updatePos,true);
+    return()=>{
+      window.removeEventListener("resize",updatePos);
+      window.removeEventListener("scroll",updatePos,true);
+    };
+  },[open,updatePos]);
+
+  const emit=(arr)=>{
+    const clean=arr.filter(Boolean).filter(v=>v!==def);
+    if(clean.length===0||clean.length>=realOptions.length)onChange(def);
+    else onChange(clean);
+  };
+  const toggle=(v)=>{
+    if(v===def){onChange(def);return;}
+    const set=new Set(selectedArr);
+    if(set.has(v))set.delete(v);else set.add(v);
+    emit([...set]);
+  };
+  const allChecked=!isActive;
+
+  const tooltip=isActive&&tipOpen?ReactDOM.createPortal(
+    <div style={{position:"fixed",top:tipPos.top,left:tipPos.left,zIndex:1000000,minWidth:220,maxWidth:360,maxHeight:260,overflow:"auto",background:C.card,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 16px 45px rgba(0,0,0,.75)",padding:"10px 12px",pointerEvents:"none"}}>
+      <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:7}}>{label} aplicado</div>
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+        {selectedLabels.map(item=>(
+          <div key={item.value} style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:C.text,lineHeight:1.25}}>
+            <span style={{color:C.accent,fontWeight:900}}>✓</span>
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>,document.body
+  ):null;
+
+  const menu=open?ReactDOM.createPortal(
+    <div data-multisel-menu="true" style={{position:"fixed",top:pos.top,left:pos.left,zIndex:999999,width:pos.width,maxHeight:300,overflow:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:6}}>
+      <label style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:allChecked?C.accent:C.textSub,fontWeight:allChecked?700:500}}>
+        <input type="checkbox" checked={allChecked} onChange={()=>onChange(def)} style={{accentColor:C.accent}}/>
+        Todos
+      </label>
+      <div style={{height:1,background:C.border,margin:"4px 0"}}/>
+      {realOptions.map(o=>(
+        <label key={o.value} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:selectedArr.includes(o.value)?C.text:C.textSub}}>
+          <input type="checkbox" checked={selectedArr.includes(o.value)} onChange={()=>toggle(o.value)} style={{accentColor:C.accent}}/>
+          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</span>
+        </label>
+      ))}
+    </div>,document.body
+  ):null;
+
+  return(
+    <div ref={ref} style={{display:"flex",flexDirection:"column",gap:3,position:"relative",minWidth:130,zIndex:open?999999:1}}>
+      <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>{label}</label>
+      <div style={{position:"relative",display:"flex"}}>
+        {isActive&&(
+          <button onClick={(e)=>{e.stopPropagation();onChange(def);}} title="Limpiar filtro" aria-label="Limpiar filtro"
+            style={{position:"absolute",left:5,top:"50%",transform:"translateY(-50%)",width:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",background:C.red+"33",border:"none",borderRadius:"50%",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700,lineHeight:1,padding:0,zIndex:2}}>
+            ×
+          </button>
+        )}
+        <button ref={btnRef} type="button"
+          onMouseEnter={()=>{updateTipPos();setTipOpen(true);}}
+          onMouseLeave={()=>setTipOpen(false)}
+          onClick={()=>{updatePos();setTipOpen(false);setOpen(o=>!o);}}
+          style={{background:C.surface,border:`1px solid ${isActive?C.accent+"55":C.border}`,borderRadius:7,color:C.text,padding:`7px 28px 7px ${isActive?26:10}px`,fontSize:12,cursor:"pointer",outline:"none",minWidth:130,width:"100%",textAlign:"left",fontFamily:"Inter",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+          {multiSummary(value,options)}
+        </button>
+        <Icon name="chevronDown" size={15} color={C.textMuted} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
+      </div>
+      {tooltip}
+      {menu}
+    </div>
+  );
+}
 function DateIn({label,value,onChange,min,max,warn}){
   return(
     <div style={{display:"flex",flexDirection:"column",gap:3}}>
@@ -737,7 +907,7 @@ function DashboardROP05({rop05,dashSt,setDashSt}){
   const proyectos=useMemo(()=>uniq(rop05.map(r=>r.proyecto).filter(Boolean)),[rop05]);
 
   const filtered=useMemo(()=>rop05.filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
     if(modeD==="dia"&&fechaD&&r.fecha!==fechaD)return false;
     if(modeD==="periodo"){if(fechaDD&&r.fecha<fechaDD)return false;if(fechaDH&&r.fecha>fechaDH)return false;}
     return true;
@@ -775,7 +945,7 @@ function DashboardROP05({rop05,dashSt,setDashSt}){
     return Object.entries(m).map(([name,value])=>({name,value}));
   },[filtered]);
 
-  const hayFiltros=modeD!=="todo"||proyecto!=="todos";
+  const hayFiltros=modeD!=="todo"||!multiIsAll(proyecto,"todos");
   const reset=()=>{setModeD("todo");setFechaD("");setFechaDD("");setFechaDH("");setProyecto("todos");};
 
   return(
@@ -790,11 +960,7 @@ function DashboardROP05({rop05,dashSt,setDashSt}){
           </div>
           {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
           {modeD==="periodo"&&<><PeriodMonthYear fechaD={fechaDD} fechaH={fechaDH} setFechaD={setFechaDD} setFechaH={setFechaDH}/><DateIn label="Desde" value={fechaDD} onChange={setFechaDD} max={fechaDH||undefined}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH} min={fechaDD||undefined} warn={fechaDH&&fechaDD&&fechaDH<fechaDD?"≥ Desde":null}/></>}
-          <div style={{display:"flex",gap:7,marginLeft:8}}>
-            {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
-              <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.teal:C.border}`,background:proyecto===opt.value?C.tealDim:"none",color:proyecto===opt.value?C.teal:C.textSub,fontFamily:"Inter",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>{opt.label}</button>
-            ))}
-          </div>
+          <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar</button>
         </div>
       </Card>
@@ -894,7 +1060,7 @@ function DashboardRMA15({rma15,dashSt,setDashSt}){
   const proyectos=useMemo(()=>uniq((rma15||[]).map(r=>r.proyecto).filter(Boolean)),[rma15]);
 
   const filtered=useMemo(()=>(rma15||[]).filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
     if(modeD==="dia"&&fechaD&&r.fecha!==fechaD)return false;
     if(modeD==="periodo"){if(fechaDD&&r.fecha<fechaDD)return false;if(fechaDH&&r.fecha>fechaDH)return false;}
     return true;
@@ -930,7 +1096,7 @@ function DashboardRMA15({rma15,dashSt,setDashSt}){
     return Object.entries(m).sort((a,b)=>a[0].localeCompare(b[0])).map(([mes,d])=>({mes,prev:Math.round(d.prev),corr:Math.round(d.corr)}));
   },[filtered]);
 
-  const hayFiltros=modeD!=="todo"||proyecto!=="todos";
+  const hayFiltros=modeD!=="todo"||!multiIsAll(proyecto,"todos");
   const reset=()=>{setModeD("todo");setFechaD("");setFechaDD("");setFechaDH("");setProyecto("todos");};
 
   return(
@@ -945,11 +1111,7 @@ function DashboardRMA15({rma15,dashSt,setDashSt}){
           </div>
           {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
           {modeD==="periodo"&&<><PeriodMonthYear fechaD={fechaDD} fechaH={fechaDH} setFechaD={setFechaDD} setFechaH={setFechaDH}/><DateIn label="Desde" value={fechaDD} onChange={setFechaDD} max={fechaDH||undefined}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH} min={fechaDD||undefined} warn={fechaDH&&fechaDD&&fechaDH<fechaDD?"≥ Desde":null}/></>}
-          <div style={{display:"flex",gap:7,marginLeft:8}}>
-            {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
-              <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.purple:C.border}`,background:proyecto===opt.value?C.purple+"22":"none",color:proyecto===opt.value?C.purple:C.textSub,fontFamily:"Inter",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>{opt.label}</button>
-            ))}
-          </div>
+          <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar</button>
         </div>
       </Card>
@@ -1054,13 +1216,13 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
 
   // Base filtrada por proyecto Y fecha
   const r02f=useMemo(()=>rop02All.filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
     if(modeD==="dia"&&fechaD&&r.fecha!==fechaD)return false;
     if(modeD==="periodo"){if(fechaDD&&r.fecha<fechaDD)return false;if(fechaDH&&r.fecha>fechaDH)return false;}
     return true;
   }),[rop02All,proyecto,modeD,fechaD,fechaDD,fechaDH]);
   const r05f=useMemo(()=>rop05.filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
     if(modeD==="dia"&&fechaD&&r.fecha!==fechaD)return false;
     if(modeD==="periodo"){if(fechaDD&&r.fecha<fechaDD)return false;if(fechaDH&&r.fecha>fechaDH)return false;}
     return true;
@@ -1196,14 +1358,8 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
           </div>
           {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
           {modeD==="periodo"&&<><PeriodMonthYear fechaD={fechaDD} fechaH={fechaDH} setFechaD={setFechaDD} setFechaH={setFechaDH}/><DateIn label="Desde" value={fechaDD} onChange={setFechaDD}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH}/></>}
-          <div style={{display:"flex",gap:7,marginLeft:8}}>
-            {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
-              <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.accent:C.border}`,background:proyecto===opt.value?C.accentDim:"none",color:proyecto===opt.value?C.accent:C.textSub,fontFamily:"Inter",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>
-                {opt.label}
-              </button>
-            ))}
-          </div>
-          <button onClick={()=>{setProyecto("todos");setModeD("todo");setFechaD("");setFechaDD("");setFechaDH("");}} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:(proyecto!=="todos"||modeD!=="todo"||fechaD||fechaDD||fechaDH)?1:0.3,pointerEvents:(proyecto!=="todos"||modeD!=="todo"||fechaD||fechaDD||fechaDH)?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
+          <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+          <button onClick={()=>{setProyecto("todos");setModeD("todo");setFechaD("");setFechaDD("");setFechaDH("");}} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:(!multiIsAll(proyecto,"todos")||modeD!=="todo"||fechaD||fechaDD||fechaDH)?1:0.3,pointerEvents:(!multiIsAll(proyecto,"todos")||modeD!=="todo"||fechaD||fechaDD||fechaDH)?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
       </Card>
 
@@ -1352,9 +1508,9 @@ function useFacetedFilters(allRows, filterKeys, extState, setExtState){
 
   // filtered: aplica todos los selectores sobre byFecha
   const filtered=useMemo(()=>{
-    const activeFilters=filterKeys.filter(f=>vals[f.key]!==f.defaultVal);
+    const activeFilters=filterKeys.filter(f=>!multiIsAll(vals[f.key],f.defaultVal));
     if(activeFilters.length===0)return byFecha;
-    return byFecha.filter(r=>activeFilters.every(f=>r[f.key]===vals[f.key]));
+    return byFecha.filter(r=>activeFilters.every(f=>matchMulti(r[f.key],vals[f.key],f.defaultVal)));
   },[byFecha,vals,fkKeys]);// eslint-disable-line
 
   // opts: opciones facetadas
@@ -1362,12 +1518,12 @@ function useFacetedFilters(allRows, filterKeys, extState, setExtState){
     const result={};
     const valsEntries=Object.entries(vals);
     filterKeys.forEach(f=>{
-      const otherActives=valsEntries.filter(([k,v])=>k!==f.key&&v!==fkDefaults[k]);
+      const otherActives=valsEntries.filter(([k,v])=>k!==f.key&&!multiIsAll(v,fkDefaults[k]));
       if(otherActives.length===0){
         result[f.key]=uniq(byFecha.map(r=>r[f.key]));
       } else {
         result[f.key]=uniq(byFecha.filter(r=>
-          otherActives.every(([k,v])=>r[k]===v)
+          otherActives.every(([k,v])=>matchMulti(r[k],v,fkDefaults[k]))
         ).map(r=>r[f.key]));
       }
     });
@@ -1376,7 +1532,7 @@ function useFacetedFilters(allRows, filterKeys, extState, setExtState){
 
   const set=useCallback((key,val)=>setState(s=>({...s,vals:{...s.vals,[key]:val}})),[setState]);
   const reset=useCallback(()=>setState(s=>({...s,mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:fkDefaults})),[setState,fkDefaults]);
-  const hayFiltros=fecha||fechaD||fechaH||filterKeys.some(f=>vals[f.key]!==f.defaultVal);
+  const hayFiltros=fecha||fechaD||fechaH||filterKeys.some(f=>!multiIsAll(vals[f.key],f.defaultVal));
 
   return{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,byFecha,filtered,opts,vals,set,reset,hayFiltros};
 }
@@ -1429,7 +1585,7 @@ function ViewROP02({rop02All,extState,setExtState}){
   const estado=extState?.estado||"todos";
   const setEstado=v=>setExtState(s=>({...s,estado:v}));
   const filtered=useMemo(()=>{
-    if(estado==="todos")return filteredBase;
+    if(multiIsAll(estado,"todos"))return filteredBase;
     if(estado==="TRABAJO")return filteredBase.filter(r=>r.estado==="TRABAJO");
     if(estado==="OD")return filteredBase.filter(r=>r.estado==="OD");
     if(estado==="FS")return filteredBase.filter(r=>r.estado==="FS");
@@ -1458,7 +1614,7 @@ function ViewROP02({rop02All,extState,setExtState}){
     {key:"combustible",label:"Comb.",render:v=>fmtNum(v)},
     {key:"estado",label:"Estado",render:v=><Badge color={v==="FS"?C.red:v==="OD"?C.yellow:C.green}>{v==="OD"?"OD":v||"—"}</Badge>},
     {key:"desgaste",label:"Desgaste",wrap:true,render:v=>v&&!v.toLowerCase().includes("sin consumo")?<Badge color={C.purple}>{v}</Badge>:<span style={{color:C.textMuted}}>—</span>},
-    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
   ],[]);
   // Ordenar de más reciente a más viejo
   const filteredSorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
@@ -1472,11 +1628,11 @@ function ViewROP02({rop02All,extState,setExtState}){
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-            <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
-            <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
-            <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
-            <Sel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
-            <Sel label="Estado" value={estado} onChange={setEstado} options={[
+            <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
+            <MultiSel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
+            <MultiSel label="Estado" value={estado} onChange={setEstado} options={[
               {value:"todos",label:"Todos"},
               {value:"TRABAJO",label:"✅ Trabajo efectivo"},
               {value:"OD",label:"🟡 Operativo a Disposición"},
@@ -1515,15 +1671,16 @@ function ViewROP02({rop02All,extState,setExtState}){
         </Card>
       )}
       {mode==="periodo"&&(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          {["FILO DEL SOL","JOSE MARIA"].map((p,i)=>{
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+          {uniq(filtered.map(r=>r.proyecto)).map((p)=>{
             const rows=filtered.filter(r=>r.proyecto===p);
+            const col=proyColor(p);
             return(
-              <Card key={p} style={{borderColor:(i===0?C.accent:C.teal)+"44"}}>
+              <Card key={p} style={{borderColor:col+"44"}}>
                 <div style={{padding:"12px 16px"}}>
-                  <Badge color={i===0?C.accent:C.teal}>{p}</Badge>
+                  <Badge color={col}>{p}</Badge>
                   <div style={{marginTop:10,display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                    {[[fmtNum(rows.reduce((s,r)=>s+r.horas,0)),"horas",i===0?C.accent:C.teal],[fmtNum(rows.reduce((s,r)=>s+r.combustible,0)),"combustible",C.teal],[rows.length,"registros",C.blue],[uniq(rows.map(r=>r.maquina)).length,"equipos",C.purple]].map(([v,l,c],j)=>(
+                    {[[fmtNum(rows.reduce((s,r)=>s+r.horas,0)),"horas",col],[fmtNum(rows.reduce((s,r)=>s+r.combustible,0)),"combustible",C.teal],[rows.length,"registros",C.blue],[uniq(rows.map(r=>r.maquina)).length,"equipos",C.purple]].map(([v,l,c],j)=>(
                       <div key={j}><div style={{fontFamily:"Inter",fontSize:18,fontWeight:800,color:c}}>{v}</div><div style={{fontSize:10,color:C.textMuted}}>{l}</div></div>
                     ))}
                   </div>
@@ -1785,6 +1942,14 @@ function ViewROP05({rop05,extState,setExtState}){
     {label:"Retropala",value:"RTP",prefijos:["RTP"]},
     {label:"Rodillo Compactador",value:"ROD",prefijos:["ROD","RPC","RCP"]},
   ];
+  const tipoMatchMachine=(tipoValue, maquina)=>{
+    if(multiIsAll(tipoValue,"todas"))return true;
+    const vals=Array.isArray(tipoValue)?tipoValue:[tipoValue];
+    return vals.some(v=>{
+      const t=TIPOS_MAQUINA.find(x=>x.value===v);
+      return t?.prefijos?.some(p=>maquina?.startsWith(p));
+    });
+  };
   const[tipoMaquina,setTipoMaquina]=useState("todas");
 
   // Opciones de tarea: filtra por tipo de máquina, máquina, proyecto y fecha
@@ -1794,10 +1959,10 @@ function ViewROP05({rop05,extState,setExtState}){
       const f=r.fecha||"";
       if(mode==="dia"&&fecha&&f!==fecha)return false;
       if(mode==="periodo"){if(fechaD&&f<fechaD)return false;if(fechaH&&f>fechaH)return false;}
-      if(vals.maquina!=="todas"&&r.maquina!==vals.maquina)return false;
-      if(vals.proyecto!=="todos"&&r.proyecto!==vals.proyecto)return false;
+      if(!matchMulti(r.maquina,vals.maquina,"todas"))return false;
+      if(!matchMulti(r.proyecto,vals.proyecto,"todos"))return false;
       // Filtrar por tipo de máquina si está activo
-      if(tipoMaquina!=="todas"&&tipoActivo&&!tipoActivo.prefijos.some(p=>r.maquina?.startsWith(p)))return false;
+      if(!multiIsAll(tipoMaquina,"todas")&&!tipoMatchMachine(tipoMaquina,r.maquina))return false;
       return true;
     });
     return uniq(base.map(r=>r.tarea).filter(Boolean));
@@ -1818,10 +1983,9 @@ function ViewROP05({rop05,extState,setExtState}){
 
   // Aplicar filtro de tipo sobre filtered
   const filtered=useMemo(()=>{
-    let rows=tarea==="todas"?filteredBase05:filteredBase05.filter(r=>r.tarea===tarea);
-    if(tipoMaquina!=="todas"){
-      const tipo=TIPOS_MAQUINA.find(t=>t.value===tipoMaquina);
-      if(tipo)rows=rows.filter(r=>tipo.prefijos.some(p=>r.maquina?.startsWith(p)));
+    let rows=multiIsAll(tarea,"todas")?filteredBase05:filteredBase05.filter(r=>matchMulti(r.tarea,tarea,"todas"));
+    if(!multiIsAll(tipoMaquina,"todas")){
+      rows=rows.filter(r=>tipoMatchMachine(tipoMaquina,r.maquina));
     }
     return rows;
   },[filteredBase05,tarea,tipoMaquina]);
@@ -1884,7 +2048,7 @@ function ViewROP05({rop05,extState,setExtState}){
     {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"cantidad",label:"Cantidad",render:v=><span style={{color:C.blue,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"unidad",label:"Unidad",render:v=><Badge color={C.teal}>{v}</Badge>},
-    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
   ],[]);
 
   return(
@@ -1900,12 +2064,12 @@ function ViewROP05({rop05,extState,setExtState}){
           </div>
           <div style={{display:"flex",flexWrap:"nowrap",overflowX:"auto",gap:10,alignItems:"flex-end",paddingBottom:2}}>
             {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-            <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
-            <Sel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{setTipoMaquina(v);set("maquina","todas");}} options={TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
-            <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>tipoMaquina==="todas"||TIPOS_MAQUINA.find(t=>t.value===tipoMaquina)?.prefijos.some(p=>m.startsWith(p))).map(m=>({value:m,label:m}))]}/>
-            <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
-            <Sel label="Tarea" value={tarea} onChange={setTarea} options={[{value:"todas",label:"Todas"},...tareasOpts.map(t=>({value:t,label:t.length>40?t.slice(0,38)+"…":t}))]}/>
-            <Sel label="Unidad" value={vals.unidad} onChange={v=>set("unidad",v)} options={[{value:"todas",label:"Todas"},...opts.unidad.map(u=>({value:u,label:u}))]}/>
+            <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{setTipoMaquina(v);set("maquina","todas");}} options={TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
+            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>multiIsAll(tipoMaquina,"todas")||tipoMatchMachine(tipoMaquina,m)).map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
+            <MultiSel label="Tarea" value={tarea} onChange={setTarea} options={[{value:"todas",label:"Todas"},...tareasOpts.map(t=>({value:t,label:t.length>40?t.slice(0,38)+"…":t}))]}/>
+            <MultiSel label="Unidad" value={vals.unidad} onChange={v=>set("unidad",v)} options={[{value:"todas",label:"Todas"},...opts.unidad.map(u=>({value:u,label:u}))]}/>
             <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
               <Icon name="close" size={11} color={C.red}/>Limpiar filtros
             </button>
@@ -2276,24 +2440,24 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   const proyectos=useMemo(()=>uniq(rop02Prod.map(r=>r.proyecto).filter(Boolean)).sort(),[rop02Prod]);
   const maquinas=useMemo(()=>{
     const base=rop02Prod.filter(r=>
-      (proyecto==="todos"||r.proyecto===proyecto)&&
+      matchMulti(r.proyecto,proyecto,"todos")&&
       r.fecha>=periodo.fechaD&&r.fecha<=periodo.fechaH
     );
     return uniq(base.map(r=>r.maquina).filter(Boolean)).sort();
   },[rop02Prod,proyecto,periodo]);
 
   const filtered=useMemo(()=>rop02Prod.filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
-    if(maquina!=="todas"&&r.maquina!==maquina)return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
+    if(!matchMulti(r.maquina,maquina,"todas"))return false;
     if(r.fecha<periodo.fechaD||r.fecha>periodo.fechaH)return false;
     return true;
   }),[rop02Prod,proyecto,maquina,periodo]);
 
-  const hayFiltros=proyecto!=="todos"||maquina!=="todas"||año!==String(hoy.getFullYear())||mesIdx!==hoy.getMonth();
+  const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(maquina,"todas")||año!==String(hoy.getFullYear())||mesIdx!==hoy.getMonth();
   const reset=()=>{setProyecto("todos");setMaquina("todas");setAño(String(hoy.getFullYear()));setMesIdx(hoy.getMonth());setFechaSel("");};
 
   const equipoData=useMemo(()=>{
-    if(!maquina||maquina==="todas")return null;
+    if(!maquina||multiIsAll(maquina,"todas"))return null;
     const byFechaTurno={};
     filtered.forEach(r=>{
       const k=r.fecha;
@@ -2341,7 +2505,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   };
 
   const controlIntegridad=useMemo(()=>{
-    const rows=maquina==="todas"?filtered:[...filtered];
+    const rows=multiIsAll(maquina,"todas")?filtered:[...filtered];
     const byMaq={};
     rows.forEach(r=>{if(r.maquina){if(!byMaq[r.maquina])byMaq[r.maquina]=[];byMaq[r.maquina].push(r);}});
     const erroresPartes=[];
@@ -2501,8 +2665,8 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
         <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
           <Sel label="Mes" value={String(mesIdx)} onChange={v=>{setMesIdx(Number(v));setFechaSel("");}} options={MESES.map((m,i)=>({value:String(i),label:m}))}/>
           <Sel label="Año" value={año} onChange={v=>{setAño(v);setFechaSel("");}} options={años.map(y=>({value:y,label:y}))}/>
-          <Sel label="Proyecto" value={proyecto} onChange={v=>{setProyecto(v);setMaquina("todas");setFechaSel("");}} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
-          <Sel label="Máquina" value={maquina} onChange={v=>{setMaquina(v);setFechaSel("");}} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
+          <MultiSel label="Proyecto" value={proyecto} onChange={v=>{setProyecto(v);setMaquina("todas");setFechaSel("");}} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+          <MultiSel label="Máquina" value={maquina} onChange={v=>{setMaquina(v);setFechaSel("");}} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
           <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:`1px solid ${C.border}`,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{periodo.label}</strong></div>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
             <Icon name="close" size={11} color={C.red}/>Limpiar filtros
@@ -2510,7 +2674,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
         </div>
       </Card>
 
-      {maquina==="todas"?(
+      {multiIsAll(maquina,"todas")?(
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Card title="¿Qué hace esta pestaña?">
             <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:8,fontSize:12,color:C.textSub,lineHeight:1.6}}>
@@ -2599,20 +2763,20 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
   // tener el campo Supervisor distinto o vacío entre ROP02 y ROP05.
   const byFecha05=useMemo(()=>byDateFilter(control.prod05,mode,fecha,fechaD,fechaH),[control.prod05,mode,fecha,fechaD,fechaH]);
   const filtered05Match=useMemo(()=>byFecha05.filter(r=>
-    (vals.proyecto==="todos"||r.proyecto===vals.proyecto)&&
-    (vals.maquina==="todas"||r.maquina===vals.maquina)
+    matchMulti(r.proyecto,vals.proyecto,"todos")&&
+    matchMulti(r.maquina,vals.maquina,"todas")
   ),[byFecha05,vals]);
   const filtered02Match=useMemo(()=>byFecha02.filter(r=>
-    (vals.proyecto==="todos"||r.proyecto===vals.proyecto)&&
-    (vals.maquina==="todas"||r.maquina===vals.maquina)
+    matchMulti(r.proyecto,vals.proyecto,"todos")&&
+    matchMulti(r.maquina,vals.maquina,"todas")
   ),[byFecha02,vals]);
 
   // Conjuntos con filtro de supervisor aplicado (para totales/estadísticas)
   const filtered05=useMemo(()=>filtered05Match.filter(r=>
-    vals.supervisor==="todos"||r.supervisor===vals.supervisor
+    matchMulti(r.supervisor,vals.supervisor,"todos")
   ),[filtered05Match,vals]);
   const filtered02=useMemo(()=>filtered02Match.filter(r=>
-    vals.supervisor==="todos"||r.supervisor===vals.supervisor
+    matchMulti(r.supervisor,vals.supervisor,"todos")
   ),[filtered02Match,vals]);
 
   // Opciones facetadas para Control: unión de 02 y 05
@@ -2636,9 +2800,9 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
     const set02=new Set(filtered02Match.map(key));
     let faltanEn05=filtered02Match.filter(r=>!set05.has(key(r)));
     let faltanEn02=filtered05Match.filter(r=>!set02.has(key(r)));
-    if(vals.supervisor!=="todos"){
-      faltanEn05=faltanEn05.filter(r=>r.supervisor===vals.supervisor);
-      faltanEn02=faltanEn02.filter(r=>r.supervisor===vals.supervisor);
+    if(!multiIsAll(vals.supervisor,"todos")){
+      faltanEn05=faltanEn05.filter(r=>matchMulti(r.supervisor,vals.supervisor,"todos"));
+      faltanEn02=faltanEn02.filter(r=>matchMulti(r.supervisor,vals.supervisor,"todos"));
     }
     const total=filtered02.length+filtered05.length;
     const problemas=faltanEn05.length+faltanEn02.length;
@@ -2673,9 +2837,9 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
         {/* Fila 2: filtros */}
         <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
           {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-          <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))]}/>
-          <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))]}/>
-          <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...optsControl.supervisor.map(s=>({value:s,label:s}))]}/>
+          <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))]}/>
+          <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))]}/>
+          <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...optsControl.supervisor.map(s=>({value:s,label:s}))]}/>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
         {hayFiltros&&(
@@ -2683,9 +2847,9 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
             {fecha&&<Badge color={C.blue}>Fecha: {fecha}</Badge>}
             {fechaD&&<Badge color={C.blue}>Desde: {fechaD}</Badge>}
             {fechaH&&<Badge color={C.blue}>Hasta: {fechaH}</Badge>}
-            {vals.proyecto!=="todos"&&<Badge color={C.accent}>Proyecto: {vals.proyecto}</Badge>}
-            {vals.maquina!=="todas"&&<Badge color={C.purple}>Máquina: {vals.maquina}</Badge>}
-            {vals.supervisor!=="todos"&&<Badge color={C.teal}>Supervisor: {vals.supervisor}</Badge>}
+            {!multiIsAll(vals.proyecto,"todos")&&<Badge color={C.accent}>Proyecto: {multiSummary(vals.proyecto,[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))])}</Badge>}
+            {!multiIsAll(vals.maquina,"todas")&&<Badge color={C.purple}>Máquina: {multiSummary(vals.maquina,[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))])}</Badge>}
+            {!multiIsAll(vals.supervisor,"todos")&&<Badge color={C.teal}>Supervisor: {multiSummary(vals.supervisor,[{value:"todos",label:"Todos"},...optsControl.supervisor.map(s=>({value:s,label:s}))])}</Badge>}
           </div>
         )}
       </div>
@@ -2694,7 +2858,7 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
 
   const cols1=[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
-    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
     {key:"parte",label:"N° Parte",render:v=><span style={{color:C.blue,fontWeight:600}}>{v||"—"}</span>},
     {key:"operario",label:"Operario"},{key:"supervisor",label:"Supervisor"},
@@ -2705,7 +2869,7 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
   ];
   const cols2=[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
-    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
     {key:"supervisor",label:"Supervisor"},{key:"tarea",label:"Tarea",wrap:true},
     {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
@@ -2894,8 +3058,8 @@ function ViewVehiculos({rop02All,extState,setExtState}){
   const estado=extState?.estado||"todos";
   const setEstado=v=>setExtState(s=>({...s,estado:v}));
   const filtered=useMemo(()=>{
-    if(estado==="todos")return filteredBase;
-    return filteredBase.filter(r=>r.estado===estado);
+    if(multiIsAll(estado,"todos"))return filteredBase;
+    return filteredBase.filter(r=>matchMulti(r.estado,estado,"todos"));
   },[filteredBase,estado]);
 
   const stats=useMemo(()=>({
@@ -2923,7 +3087,7 @@ function ViewVehiculos({rop02All,extState,setExtState}){
     {key:"horas",label:"Km",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"combustible",label:"Comb.",render:v=>fmtNum(v)},
     {key:"estado",label:"Estado",render:v=><Badge color={v==="FS"?C.red:v==="OD"?C.yellow:C.green}>{v==="OD"?"OD":v||"—"}</Badge>},
-    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
   ],[]);
 
   const filteredSorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
@@ -2938,11 +3102,11 @@ function ViewVehiculos({rop02All,extState,setExtState}){
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-            <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
-            <Sel label="Vehículo" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todos"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
-            <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
-            <Sel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
-            <Sel label="Estado" value={estado} onChange={setEstado} options={[
+            <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Vehículo" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todos"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
+            <MultiSel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
+            <MultiSel label="Estado" value={estado} onChange={setEstado} options={[
               {value:"todos",label:"Todos"},
               {value:"TRABAJO",label:"✅ Trabajo efectivo"},
               {value:"OD",label:"🟡 Operativo a Disposición"},
@@ -2981,16 +3145,17 @@ function ViewVehiculos({rop02All,extState,setExtState}){
       )}
 
       {mode==="periodo"&&(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          {["FILO DEL SOL","JOSE MARIA"].map((p,i)=>{
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+          {uniq(filtered.map(r=>r.proyecto)).map((p)=>{
             const rows=filtered.filter(r=>r.proyecto===p);
+            const col=proyColor(p);
             return(
-              <Card key={p} style={{borderColor:(i===0?C.accent:C.teal)+"44"}}>
+              <Card key={p} style={{borderColor:col+"44"}}>
                 <div style={{padding:"12px 16px"}}>
-                  <Badge color={i===0?C.accent:C.teal}>{p}</Badge>
+                  <Badge color={col}>{p}</Badge>
                   <div style={{marginTop:10,display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
                     {[
-                      [fmtNum(rows.reduce((s,r)=>s+r.horas,0)),"km",i===0?C.accent:C.teal],
+                      [fmtNum(rows.reduce((s,r)=>s+r.horas,0)),"km",col],
                       [fmtNum(rows.reduce((s,r)=>s+r.combustible,0)),"combustible",C.teal],
                       [rows.length,"registros",C.blue],
                       [uniq(rows.map(r=>r.maquina)).length,"vehículos",C.purple],
@@ -3092,7 +3257,7 @@ function ViewCombustible({rop02All,extState,setExtState}){
     {key:"supervisor",label:"Supervisor"},
     {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"combustible",label:"Combustible",render:v=><span style={{color:C.teal,fontWeight:700}}>{fmtNum(v)} L</span>},
-    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
   ],[]);
 
   const filteredSorted=useMemo(()=>[...conCombustible].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[conCombustible]);
@@ -3108,10 +3273,10 @@ function ViewCombustible({rop02All,extState,setExtState}){
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-            <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
-            <Sel label="Equipo" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todos"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
-            <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
-            <Sel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
+            <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Equipo" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todos"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
+            <MultiSel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
             <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
               <Icon name="close" size={11} color={C.red}/>Limpiar filtros
             </button>
@@ -3237,14 +3402,26 @@ function ViewCHC({rop02All,extState,setExtState}){
   const mesIdx=extState?.mesIdx??new Date().getMonth(); // 0=Enero
   const setMesIdx=v=>setExtState(s=>({...s,mesIdx:v}));
 
-  const proyectos=useMemo(()=>uniq(rop02All.filter(r=>!r._excluded).map(r=>r.proyecto)),[rop02All]);
+  const proyectos=useMemo(()=>uniq(rop02All.filter(r=>!r._excluded&&r.proyecto!=="FILO SUR").map(r=>r.proyecto)),[rop02All]);
+
+  // Sub-pestaña: período "26-25" (José María / Filo del Sol) vs período de
+  // mes calendario (Filo Sur, donde el mes coincide con el período 1-fin de mes)
+  const chcTab=extState?.chcTab??"principal";
+  const setChcTab=v=>setExtState(s=>({...s,chcTab:v}));
 
   // Calcular fechaD y fechaH a partir del mes/año seleccionado
-  // El período es del 26 del mes anterior al 25 del mes seleccionado
-  // Ej: Mayo = del 26/04 al 25/05
+  // - "principal": del 26 del mes anterior al 25 del mes seleccionado
+  //   Ej: Mayo = del 26/04 al 25/05
+  // - "filosur": mes calendario completo (1 al último día del mes)
   const{fechaD,fechaH,diasPeriodo}=useMemo(()=>{
     const y=parseInt(añoSelec);
     const m=mesIdx; // 0=Enero
+    if(chcTab==="filosur"){
+      const dD=`${y}-${String(m+1).padStart(2,"0")}-01`;
+      const lastDay=new Date(y,m+1,0).getDate();
+      const dH=`${y}-${String(m+1).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
+      return{fechaD:dD,fechaH:dH,diasPeriodo:lastDay};
+    }
     // Inicio: 26 del mes anterior al mes seleccionado
     // Si enero (m=0): inicio = 26/12 del año anterior
     const mesAnteriorNum=m===0?12:m;          // número de mes (1-12) del mes anterior
@@ -3254,15 +3431,20 @@ function ViewCHC({rop02All,extState,setExtState}){
     const dH=`${y}-${String(m+1).padStart(2,"0")}-25`;
     const dias=Math.round((new Date(dH)-new Date(dD))/(1000*60*60*24))+1;
     return{fechaD:dD,fechaH:dH,diasPeriodo:dias};
-  },[añoSelec,mesIdx]);
+  },[añoSelec,mesIdx,chcTab]);
 
   // Base: solo equipos productivos filtrados por proyecto y período
   const base=useMemo(()=>rop02All.filter(r=>{
     if(r._excluded)return false;
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(chcTab==="filosur"){
+      if(r.proyecto!=="FILO SUR")return false;
+    }else{
+      if(r.proyecto==="FILO SUR")return false;
+      if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
+    }
     if(r.fecha<fechaD||r.fecha>fechaH)return false;
     return true;
-  }),[rop02All,proyecto,fechaD,fechaH]);
+  }),[rop02All,proyecto,fechaD,fechaH,chcTab]);
 
   // Agrupar por máquina y calcular métricas
   const rows=useMemo(()=>{
@@ -3348,6 +3530,11 @@ function ViewCHC({rop02All,extState,setExtState}){
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* Sub-pestañas: período 26-25 vs Filo Sur (mes calendario) */}
+      <div style={{borderBottom:`1px solid ${C.border}`,paddingBottom:2}}>
+        <SubTab active={chcTab==="principal"} onClick={()=>setChcTab("principal")}>José María / Filo del Sol</SubTab>
+        <SubTab active={chcTab==="filosur"} onClick={()=>setChcTab("filosur")}>Filo Sur</SubTab>
+      </div>
       {/* Filtros */}
       <Card>
         <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",alignItems:"flex-end",gap:12}}>
@@ -3362,8 +3549,17 @@ function ViewCHC({rop02All,extState,setExtState}){
               {fmtFecha(fechaD)} → {fmtFecha(fechaH)}
             </div>
           </div>
-          <Sel label="Proyecto" value={proyecto} onChange={setProyecto}
-            options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+          {chcTab==="principal"?(
+            <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto}
+              options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+              <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Proyecto</label>
+              <div style={{fontSize:12,padding:"7px 10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7}}>
+                <Badge color={proyColor("FILO SUR")}>FILO SUR</Badge>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -3399,7 +3595,7 @@ function ViewCHC({rop02All,extState,setExtState}){
                 return(
                   <tr key={r.maquina} style={{background:i%2===0?"transparent":C.surface+"66"}}>
                     <td style={{padding:"8px 10px",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{r.maquina}</Badge></td>
-                    <td style={{padding:"8px 10px",borderBottom:`1px solid ${C.border}18`}}><Badge color={r.proyecto?.includes("FILO")?C.accent:C.teal}>{r.proyecto||"—"}</Badge></td>
+                    <td style={{padding:"8px 10px",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(r.proyecto)}>{r.proyecto||"—"}</Badge></td>
                     <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(r.horasTrabajo)}</td>
                     <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.textSub}}>{fmtFecha(r.fechaInicio)}</td>
                     <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.textSub}}>{fmtFecha(r.fechaFin)}</td>
@@ -3641,25 +3837,25 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const proyectos=useMemo(()=>uniq(rma15.map(r=>r.proyecto).filter(Boolean)),[rma15]);
 
   const tiposMant=useMemo(()=>uniq(rma15.filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
-    if(maquina!=="todas"&&r.maquina!==maquina)return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
+    if(!matchMulti(r.maquina,maquina,"todas"))return false;
     if(modo==="dia"){if(fechaDia&&r.fecha!==fechaDia)return false;}
     else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
     return true;
   }).map(r=>{const t=normTipo(r.tipoMant);return t.includes("prev")?"Preventivo":t.includes("corr")?"Correctivo":r.tipoMant;}).filter(Boolean)),[rma15,proyecto,maquina,fechaD,fechaH,fechaDia,modo]);
 
   const maquinas=useMemo(()=>uniq(rma15.filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
-    if(tipoMant!=="todos"&&normTipo(r.tipoMant)!==normTipo(tipoMant))return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
+    if(!matchMulti(normTipo(r.tipoMant), Array.isArray(tipoMant)?tipoMant.map(normTipo):tipoMant,"todos"))return false;
     if(modo==="dia"){if(fechaDia&&r.fecha!==fechaDia)return false;}
     else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
     return true;
   }).map(r=>r.maquina).filter(Boolean)).sort(),[rma15,proyecto,tipoMant,fechaD,fechaH,fechaDia,modo]);
 
   const filtered=useMemo(()=>rma15.filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
-    if(tipoMant!=="todos"&&normTipo(r.tipoMant)!==normTipo(tipoMant))return false;
-    if(maquina!=="todas"&&r.maquina!==maquina)return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
+    if(!matchMulti(normTipo(r.tipoMant), Array.isArray(tipoMant)?tipoMant.map(normTipo):tipoMant,"todos"))return false;
+    if(!matchMulti(r.maquina,maquina,"todas"))return false;
     if(modo==="dia"){if(fechaDia&&r.fecha!==fechaDia)return false;}
     else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
     // Si hay filtro por insumo, solo incluir OTs que usen ese insumo
@@ -3712,15 +3908,15 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const pieDataTipo=Object.entries(otsPorTipo).map(([name,value])=>({name,value}));
   const COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899"];
 
-  const hayFiltros=proyecto!=="todos"||tipoMant!=="todos"||maquina!=="todas"||fechaD||fechaH||fechaDia||insumoFiltro;
+  const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(tipoMant,"todos")||!multiIsAll(maquina,"todas")||fechaD||fechaH||fechaDia||insumoFiltro;
 
   // Lista de insumos únicos para el selector (código + nombre, ordenado alfabéticamente)
   const insumosDisponibles=useMemo(()=>{
     // Solo mostrar insumos disponibles según filtros activos (sin insumoFiltro)
     const base=rma15.filter(r=>{
-      if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
-      if(tipoMant!=="todos"&&normTipo(r.tipoMant)!==normTipo(tipoMant))return false;
-      if(maquina!=="todas"&&r.maquina!==maquina)return false;
+      if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
+      if(!matchMulti(normTipo(r.tipoMant), Array.isArray(tipoMant)?tipoMant.map(normTipo):tipoMant,"todos"))return false;
+      if(!matchMulti(r.maquina,maquina,"todas"))return false;
       if(modo==="dia"){if(fechaDia&&r.fecha!==fechaDia)return false;}
       else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
       return true;
@@ -3733,7 +3929,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
 
   const colsPeriodo=useMemo(()=>[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
-    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
     {key:"tipoMant",label:"Tipo",render:v=><Badge color={normTipo(v).includes("prev")?C.green:C.red}>{v||"—"}</Badge>},
     {key:"intervencion",label:"Intervención",wrap:true},
@@ -3762,9 +3958,9 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {modo==="periodo"&&<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
             {modo==="dia"&&<DateIn label="Fecha" value={fechaDia} onChange={setFechaDia}/>}
-            <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
-            <Sel label="Tipo" value={tipoMant} onChange={setTipoMant} options={[{value:"todos",label:"Todos"},...tiposMant.map(t=>({value:t,label:t}))]}/>
-            <Sel label="Máquina" value={maquina} onChange={setMaquina} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Tipo" value={tipoMant} onChange={setTipoMant} options={[{value:"todos",label:"Todos"},...tiposMant.map(t=>({value:t,label:t}))]}/>
+            <MultiSel label="Máquina" value={maquina} onChange={setMaquina} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
             <InsumoSearch value={insumoFiltro} onChange={setInsumoFiltro} opciones={insumosDisponibles}/>
             <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
           </div>
@@ -4017,7 +4213,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                             }}
                             onMouseLeave={e=>{e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";const t=document.getElementById("mant-tip2");if(t)t.remove();}}
                           >
-                              <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={filtered[i]?.proyecto?.includes("FILO")?C.accent:C.teal}>{filtered[i]?.proyecto||"—"}</Badge></td>
+                              <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(filtered[i]?.proyecto)}>{filtered[i]?.proyecto||"—"}</Badge></td>
                               <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{r.maquina}</Badge></td>
                               <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={r.tipo==="Preventivo"?C.green:C.red}>{r.tipo}</Badge></td>
                               <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={r.operativo?C.green:C.red}>{r.operativo?"SÍ":"NO"}</Badge></td>
@@ -4317,13 +4513,13 @@ function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
   const proyectos=useMemo(()=>uniq(rop02Prod.map(r=>r.proyecto)),[rop02Prod]);
 
   const filtered=useMemo(()=>rop02Prod.filter(r=>{
-    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
     if(modeR==="dia"){if(fecha&&r.fecha!==fecha)return false;}
     if(modeR==="periodo"){if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
     return true;
   }),[rop02Prod,proyecto,modeR,fecha,fechaD,fechaH]);
 
-  const hayFiltros=proyecto!=="todos"||(modeR==="dia"&&!!fecha)||(modeR==="periodo"&&(!!fechaD||!!fechaH));
+  const hayFiltros=!multiIsAll(proyecto,"todos")||(modeR==="dia"&&!!fecha)||(modeR==="periodo"&&(!!fechaD||!!fechaH));
   const reset=()=>{setModeR("periodo");setProyecto("todos");setFecha("");setFechaD("");setFechaH("");};
 
   const ranking=useMemo(()=>{
@@ -4352,7 +4548,7 @@ function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
     {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:700}}>{fmtNum(v)}</span>},
     {key:"diasTrabajados",label:"Días",render:v=><span style={{color:C.blue,fontWeight:600}}>{v}</span>},
     {key:"promHsDia",label:"Hs/Día",render:v=><span style={{color:C.teal,fontWeight:600}}>{fmtNum(v)}</span>},
-    {key:"proyectos",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:v?.includes("JOSE")?C.teal:C.textSub}>{v||"—"}</Badge>},
+    {key:"proyectos",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
     {key:"maquinas",label:"Máquinas operadas",wrap:true},
   ];
 
@@ -4369,7 +4565,7 @@ function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {modeR==="dia"&&<DateIn label="Fecha" value={fecha} onChange={setFecha}/>}
             {modeR==="periodo"&&<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-            <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
             <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
           </div>
         </div>
@@ -4470,8 +4666,10 @@ export default function App(){
       if(src.rop02_fs&&!src.rop02_fs.ok)errs.push({source:"ROP02 — Filo del Sol",...src.rop02_fs.error});
       const rJM=src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
       if(src.rop02_jm&&!src.rop02_jm.ok)errs.push({source:"ROP02 — José María",...src.rop02_jm.error});
+      const rFSur=src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
+      if(src.rop02_filosur&&!src.rop02_filosur.ok)errs.push({source:"ROP02 — Filo Sur",...src.rop02_filosur.error});
       // Construir mapa canónico con TODOS los nombres antes de setear estado
-      const allRop02=[...rFS,...rJM];
+      const allRop02=[...rFS,...rJM,...rFSur];
       const allRop05Names=rop05Raw.map(r=>r.supervisor);
       const allNames=[
         ...allRop02.map(r=>r.supervisor),
