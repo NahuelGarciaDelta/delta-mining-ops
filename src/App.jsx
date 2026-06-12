@@ -1569,10 +1569,92 @@ function EquipoCard({img,nombre,prefijos,rop02Prod}){
 }
 
 // ─── ViewROP02 ────────────────────────────────────────────────────────────────
+
+function HorometrosSection({rows}){
+  const data=useMemo(()=>{
+    const groups={};
+    (rows||[]).forEach((r,idx)=>{
+      if(!r.maquina)return;
+      if(!groups[r.maquina])groups[r.maquina]=[];
+      groups[r.maquina].push({...r,_idx:idx});
+    });
+    const numParte=r=>{
+      const n=parseFloat(String(r.parte||"").replace(/[^0-9.]/g,""));
+      return Number.isFinite(n)?n:0;
+    };
+    const cleanRows=list=>[...list].sort((a,b)=>
+      String(a.fecha||"").localeCompare(String(b.fecha||"")) ||
+      numParte(a)-numParte(b) ||
+      (Number(a.horometroInicial)||0)-(Number(b.horometroInicial)||0) ||
+      a._idx-b._idx
+    );
+    return Object.entries(groups).map(([maquina,list])=>{
+      const ordenadas=cleanRows(list);
+      const primerasConHI=ordenadas.filter(r=>Number(r.horometroInicial)>0);
+      const ultimasConHF=ordenadas.filter(r=>Number(r.horometroFinal)>0);
+      const primera=primerasConHI[0]||ordenadas[0];
+      const ultima=ultimasConHF[ultimasConHF.length-1]||ordenadas[ordenadas.length-1];
+      const hi=Number(primera?.horometroInicial)||0;
+      const hf=Number(ultima?.horometroFinal)||0;
+      const delta=hf&&hi?hf-hi:0;
+      const proyectos=uniq(ordenadas.map(r=>r.proyecto)).join(" / ");
+      const supervisores=uniq(ordenadas.map(r=>r.supervisor)).join(" / ");
+      const estados=uniq(ordenadas.map(r=>r.estado)).join(" / ");
+      return{
+        maquina,
+        proyecto:proyectos,
+        fechaInicial:primera?.fecha||"",
+        horometroInicial:hi,
+        fechaFinal:ultima?.fecha||"",
+        horometroFinal:hf,
+        diferencia:delta,
+        registros:ordenadas.length,
+        horas:ordenadas.reduce((s,r)=>s+(Number(r.horas)||0),0),
+        supervisor:supervisores,
+        estado:estados,
+      };
+    }).sort((a,b)=>a.maquina.localeCompare(b.maquina));
+  },[rows]);
+
+  const stats=useMemo(()=>({
+    equipos:data.length,
+    registros:(rows||[]).length,
+    totalDelta:data.reduce((s,r)=>s+(Number(r.diferencia)||0),0),
+    sinHorometro:data.filter(r=>!r.horometroInicial||!r.horometroFinal).length,
+  }),[data,rows]);
+
+  const cols=useMemo(()=>[
+    {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><span>{String(v||"—").split(" / ").map((p,i)=><span key={p+i} style={{marginRight:4}}><Badge color={proyColor(p)}>{p}</Badge></span>)}</span>},
+    {key:"fechaInicial",label:"Fecha inicial",render:v=>fmtFecha(v)},
+    {key:"horometroInicial",label:"Horómetro inicial",render:v=><span style={{color:C.teal,fontWeight:700}}>{fmtNum(v)}</span>},
+    {key:"fechaFinal",label:"Fecha final",render:v=>fmtFecha(v)},
+    {key:"horometroFinal",label:"Horómetro final",render:v=><span style={{color:C.accent,fontWeight:700}}>{fmtNum(v)}</span>},
+    {key:"diferencia",label:"Diferencia",render:v=><span style={{color:v<0?C.red:C.green,fontWeight:700}}>{fmtNum(v)}</span>},
+    {key:"horas",label:"Hs. registradas",render:v=>fmtNum(v)},
+    {key:"registros",label:"Registros"},
+    {key:"supervisor",label:"Supervisor",wrap:true,render:v=><span title={v}>{v||"—"}</span>},
+  ],[]);
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <AlertBanner type="info">La tabla toma el horómetro inicial del primer registro del período filtrado y el horómetro final del último registro disponible para cada máquina.</AlertBanner>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+        <StatCard icon="equip" label="Máquinas" value={stats.equipos} color={C.purple} small/>
+        <StatCard icon="parts" label="Registros" value={stats.registros} color={C.blue} small/>
+        <StatCard icon="hours" label="Dif. total horómetro" value={fmtNum(stats.totalDelta)} color={C.green} small/>
+        <StatCard icon="warn" label="Sin HI/HF completo" value={stats.sinHorometro} color={stats.sinHorometro?C.yellow:C.green} small/>
+      </div>
+      <Card title={`Horómetros por máquina (${data.length})`}>
+        <Table cols={cols} rows={data} maxH={520} emptyMsg="Sin registros con los filtros seleccionados"/>
+      </Card>
+    </div>
+  );
+}
+
 function ViewROP02({rop02All,extState,setExtState}){
   // Excluir camionetas y camiones de toda la vista ROP02
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
-
   const fk=useMemo(()=>[
     {key:"proyecto",defaultVal:"todos"},
     {key:"maquina",defaultVal:"todas"},
@@ -1581,16 +1663,17 @@ function ViewROP02({rop02All,extState,setExtState}){
   ],[]);
   const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop02Prod,fk,extState,setExtState);
 
-  // Filtro de estado independiente (no afecta las opciones facetadas de otros selectores)
+  // Filtro de estado correlacionado con los filtros anteriores.
+  // Ejemplo: si elegís una máquina, el filtro Estado solo muestra los estados existentes para esa máquina.
   const estado=extState?.estado||"todos";
   const setEstado=v=>setExtState(s=>({...s,estado:v}));
+  const estadoOptions=useMemo(()=>uniq(filteredBase.map(r=>r.estado).filter(Boolean)),[filteredBase]);
   const filtered=useMemo(()=>{
     if(multiIsAll(estado,"todos"))return filteredBase;
-    if(estado==="TRABAJO")return filteredBase.filter(r=>r.estado==="TRABAJO");
-    if(estado==="OD")return filteredBase.filter(r=>r.estado==="OD");
-    if(estado==="FS")return filteredBase.filter(r=>r.estado==="FS");
-    return filteredBase;
+    return filteredBase.filter(r=>matchMulti(r.estado,estado,"todos"));
   },[filteredBase,estado]);
+  const hayFiltrosConEstado=hayFiltros||!multiIsAll(estado,"todos");
+  const resetAll=()=>{reset();setEstado("todos");};
 
   const stats=useMemo(()=>({
     horas:filtered.reduce((s,r)=>s+r.horas,0),
@@ -1632,13 +1715,7 @@ function ViewROP02({rop02All,extState,setExtState}){
             <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
             <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
             <MultiSel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
-            <MultiSel label="Estado" value={estado} onChange={setEstado} options={[
-              {value:"todos",label:"Todos"},
-              {value:"TRABAJO",label:"✅ Trabajo efectivo"},
-              {value:"OD",label:"🟡 Operativo a Disposición"},
-              {value:"FS",label:"🔴 Fuera de servicio"},
-            ]}/>
-            <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+            <button onClick={resetAll} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
               <Icon name="close" size={11} color={C.red}/>Limpiar filtros
             </button>
           </div>
@@ -1708,6 +1785,55 @@ function ViewROP02({rop02All,extState,setExtState}){
           ))}
         </div>
       </Card>
+    </div>
+  );
+}
+
+
+function ViewHorometros({rop02All,extState,setExtState}){
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
+
+  const fk=useMemo(()=>[
+    {key:"proyecto",defaultVal:"todos"},
+    {key:"maquina",defaultVal:"todas"},
+    {key:"supervisor",defaultVal:"todos"},
+    {key:"operario",defaultVal:"todos"},
+  ],[]);
+
+  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop02Prod,fk,extState,setExtState);
+
+  // En Horómetros no se filtra por estado: se muestran todos los registros del período
+  // para calcular el horómetro inicial y final real de cada máquina.
+  const filtered=filteredBase;
+  const resetAll=()=>{reset();};
+
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{display:"flex",gap:7}}>
+            <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
+            <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+            {mode==="dia"?
+              <DateIn label="Fecha" value={fecha} onChange={setFecha}/>
+              :<>
+                <PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/>
+                <DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/>
+                <DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/>
+              </>}
+            <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
+            <MultiSel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
+            <button onClick={resetAll} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+              <Icon name="close" size={11} color={C.red}/>Limpiar filtros
+            </button>
+          </div>
+        </div>
+      </Card>
+      <HorometrosSection rows={filtered}/>
     </div>
   );
 }
@@ -2779,18 +2905,22 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
     matchMulti(r.supervisor,vals.supervisor,"todos")
   ),[filtered02Match,vals]);
 
-  // Opciones facetadas para Control: unión de 02 y 05
+  // Opciones facetadas para Control: unión de ROP02 + ROP05
+  // Correlación de izquierda a derecha:
+  // Proyecto → Máquina → Supervisor
+  // - Proyecto se calcula con el universo del período.
+  // - Máquina se calcula aplicando solo Proyecto.
+  // - Supervisor se calcula aplicando Proyecto + Máquina.
   const optsControl=useMemo(()=>{
     const combined=[...byFecha02,...byFecha05];
-    const result={};
-    fk.forEach(f=>{
-      const others=fk.filter(o=>o.key!==f.key);
-      result[f.key]=uniq(combined.filter(r=>
-        others.every(o=>vals[o.key]===o.defaultVal||r[o.key]===vals[o.key])
-      ).map(r=>r[f.key]).filter(Boolean));
-    });
-    return result;
-  },[byFecha02,byFecha05,vals]);// eslint-disable-line
+    const byProyecto=combined.filter(r=>matchMulti(r.proyecto,vals.proyecto,"todos"));
+    const byProyectoMaquina=byProyecto.filter(r=>matchMulti(r.maquina,vals.maquina,"todas"));
+    return{
+      proyecto:uniq(combined.map(r=>r.proyecto).filter(Boolean)),
+      maquina:uniq(byProyecto.map(r=>r.maquina).filter(Boolean)),
+      supervisor:uniq(byProyectoMaquina.map(r=>r.supervisor).filter(Boolean)),
+    };
+  },[byFecha02,byFecha05,vals]);
 
   // Recalcular inconsistencias: el cruce se hace sobre los conjuntos SIN filtro
   // de supervisor; luego se filtra el resultado por supervisor de cada registro.
@@ -2837,21 +2967,11 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
         {/* Fila 2: filtros */}
         <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
           {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-          <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))]}/>
-          <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))]}/>
+          <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>{set("proyecto",v);set("maquina","todas");set("supervisor","todos");}} options={[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))]}/>
+          <MultiSel label="Máquina" value={vals.maquina} onChange={v=>{set("maquina",v);set("supervisor","todos");}} options={[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))]}/>
           <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...optsControl.supervisor.map(s=>({value:s,label:s}))]}/>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
-        {hayFiltros&&(
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {fecha&&<Badge color={C.blue}>Fecha: {fecha}</Badge>}
-            {fechaD&&<Badge color={C.blue}>Desde: {fechaD}</Badge>}
-            {fechaH&&<Badge color={C.blue}>Hasta: {fechaH}</Badge>}
-            {!multiIsAll(vals.proyecto,"todos")&&<Badge color={C.accent}>Proyecto: {multiSummary(vals.proyecto,[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))])}</Badge>}
-            {!multiIsAll(vals.maquina,"todas")&&<Badge color={C.purple}>Máquina: {multiSummary(vals.maquina,[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))])}</Badge>}
-            {!multiIsAll(vals.supervisor,"todos")&&<Badge color={C.teal}>Supervisor: {multiSummary(vals.supervisor,[{value:"todos",label:"Todos"},...optsControl.supervisor.map(s=>({value:s,label:s}))])}</Badge>}
-          </div>
-        )}
       </div>
     </Card>
   );
@@ -4641,6 +4761,7 @@ export default function App(){
   },[]);
   const[insumos,setInsumos]=useState({});
   const[st02,setSt02]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
+  const[stHorometros,setStHorometros]=useState({mode:"periodo",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
   const[stVeh,setStVeh]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
   const[stComb,setStComb]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
   const[stCtrlEquipo,setStCtrlEquipo]=useState({proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:"",controlActivo:"numeracion"});
@@ -4718,6 +4839,7 @@ export default function App(){
       {id:"vehiculos",icon:"equip",label:"Vehículos"},
       {id:"ctrlEquipo",icon:"bulldozer",label:"Control por Equipo"},
       {id:"combustible",icon:"fuel",label:"Combustible"},
+      {id:"horometros",icon:"hours",label:"Horómetros"},
     ]},
     {id:"grp_rop05",icon:"prod",label:"ROP05",type:"group",color:C.green,children:[
       {id:"rop05",icon:"prod",label:"Productividad"},
@@ -4729,10 +4851,11 @@ export default function App(){
     {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:control.problemas>0?control.problemas:null},
     {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.teal},
   ];
-  const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",control:"Consistencia ROP02 vs ROP05"};
+  const titles={dashboard:"Dashboard",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",control:"Consistencia ROP02 vs ROP05"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     rop02:"ROP02 = Reporte de Operación de máquinas: parte diario por turno (TD = turno día, TN = turno noche), con horómetros, tareas y observaciones.",
+    horometros:"Resume por máquina el horómetro inicial del primer registro filtrado y el horómetro final del último registro del período seleccionado.",
     vehiculos:"Mismo reporte que ROP02 (TD/TN, horómetros, km), pero para camiones y camionetas en lugar de máquinas.",
     ctrlEquipo:"Ficha por equipo: muestra el detalle día por turno (TD/TN) y controla automáticamente que la numeración de partes y los horómetros sean consistentes entre registros.",
     combustible:"Análisis de litros de combustible cargados por equipo, proyecto y período, con ranking de consumo.",
@@ -4834,6 +4957,7 @@ export default function App(){
               <>
                 {view==="dashboard"&&<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>}
                 {view==="rop02"&&<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>}
+                {view==="horometros"&&<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>}
                 {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>}
                 {view==="ctrlEquipo"&&<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>}
                 {view==="combustible"&&<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>}
