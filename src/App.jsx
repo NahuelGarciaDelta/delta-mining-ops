@@ -146,11 +146,25 @@ function toNumber(v){
 }
 function normDate(d){
   if(!d)return"";const t=String(d).trim();
+  let iso="";
   const m1=t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if(m1)return`${m1[3]}-${m1[2].padStart(2,"0")}-${m1[1].padStart(2,"0")}`;
-  const m2=t.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m2)return t.slice(0,10);
-  const p=new Date(t);if(!Number.isNaN(p.getTime()))return p.toISOString().slice(0,10);
-  return"";
+  if(m1)iso=`${m1[3]}-${m1[2].padStart(2,"0")}-${m1[1].padStart(2,"0")}`;
+  else{
+    const m2=t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(m2)iso=t.slice(0,10);
+    else{
+      const p=new Date(t);
+      if(!Number.isNaN(p.getTime()))iso=p.toISOString().slice(0,10);
+    }
+  }
+  if(!iso)return"";
+  // Validar y corregir: año (1900-2100), mes (1-12), día (1-31).
+  // Si el mes quedó fuera de rango pero el día sí es un mes válido,
+  // probablemente vinieron invertidos (ej: "2026-31-05" → "2026-05-31").
+  let[y,mo,da]=iso.split("-").map(Number);
+  if(mo>12&&da>=1&&da<=12){const tmp=mo;mo=da;da=tmp;}
+  if(y<1900||y>2100||mo<1||mo>12||da<1||da>31)return"";
+  return`${y}-${String(mo).padStart(2,"0")}-${String(da).padStart(2,"0")}`;
 }
 function cleanMachine(v){
   return String(v||"").trim().toUpperCase().replace(/\s+/g,"-")
@@ -474,6 +488,8 @@ const PATHS={
   equip:"M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm13.5-1c0 .55-.45 1-1 1s-1-.45-1-1 .45-1 1-1 1 .45 1 1z",
   alert:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z",
   consist:"M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z",
+  bulldozer:"M2 9h2v6H2zM4 8h8v7H4zM12 11h5v4h-5zM5 5h1.5v3H5zM2 15h18v2H2zM3.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0zM15.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0z",
+  chevronDown:"M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z",
   menu:"M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z",
   close:"M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
   wear:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z",
@@ -653,7 +669,9 @@ function AlertBanner({type="warn",children}){
 
 // ─── fetchAll ─────────────────────────────────────────────────────────────────
 async function fetchAll(url){
-  const res=await fetch(`${url}?action=all`);
+  // Cache-busting: evita que el navegador o la infraestructura de Google
+  // devuelvan una respuesta vieja en caché para el Apps Script
+  const res=await fetch(`${url}?action=all&_t=${Date.now()}`,{cache:"no-store"});
   if(!res.ok)throw new Error(`HTTP ${res.status} desde el Apps Script`);
   const text=await res.text();
   let json;
@@ -4356,6 +4374,7 @@ export default function App(){
   const[stMant,setStMant]=useState({modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:""});
   const[stCHC,setStCHC]=useState({proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()});
   const[stRanking,setStRanking]=useState({proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""});
+  const[navOpen,setNavOpen]=useState({grp_rop02:true,grp_rop05:true,grp_rma15:true});
   const[usdRate,setUsdRate]=useState(null);
 
   // Obtener tipo de cambio ARS→USD al cargar
@@ -4440,20 +4459,23 @@ export default function App(){
 
   useEffect(()=>{loadData();},[loadData]);
 
-  const navItems=[
-    {id:"dashboard",icon:"dashboard",label:"Dashboard"},
-    {id:"_rop02",icon:"parts",label:"ROP02",isGroup:true},
-    {id:"rop02",icon:"parts",label:"Equipos",indent:true},
-    {id:"vehiculos",icon:"equip",label:"Vehículos",indent:true},
-    {id:"ctrlEquipo",icon:"consist",label:"Control por Equipo",indent:true},
-    {id:"combustible",icon:"fuel",label:"Combustible",indent:true},
-    {id:"_rop05",icon:"prod",label:"ROP05",isGroup:true},
-    {id:"rop05",icon:"prod",label:"Productividad",indent:true},
-    {id:"ranking",icon:"person",label:"Ranking Operarios",indent:true},
-    {id:"_rma15",icon:"equip",label:"RMA15",isGroup:true},
-    {id:"mant",icon:"gear",label:"Mantenimiento",indent:true},
-    {id:"chc",icon:"consist",label:"ICHC"},
-    {id:"control",icon:"control",label:"Control ROP05 vs ROP02",badge:control.problemas>0?control.problemas:null},
+  const navStructure=[
+    {id:"dashboard",icon:"dashboard",label:"Dashboard",type:"item",color:C.accent},
+    {id:"grp_rop02",icon:"parts",label:"ROP02",type:"group",color:C.purple,children:[
+      {id:"rop02",icon:"parts",label:"Equipos"},
+      {id:"vehiculos",icon:"equip",label:"Vehículos"},
+      {id:"ctrlEquipo",icon:"bulldozer",label:"Control por Equipo"},
+      {id:"combustible",icon:"fuel",label:"Combustible"},
+    ]},
+    {id:"grp_rop05",icon:"prod",label:"ROP05",type:"group",color:C.green,children:[
+      {id:"rop05",icon:"prod",label:"Productividad"},
+      {id:"ranking",icon:"person",label:"Ranking Operarios"},
+    ]},
+    {id:"grp_rma15",icon:"equip",label:"RMA15",type:"group",color:C.yellow,children:[
+      {id:"mant",icon:"gear",label:"Mantenimiento"},
+    ]},
+    {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:control.problemas>0?control.problemas:null},
+    {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.teal},
   ];
   const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",control:"Consistencia ROP02 vs ROP05"};
   const SW=sidebarOpen?240:52;
@@ -4470,18 +4492,42 @@ export default function App(){
               <Icon name={sidebarOpen?"close":"menu"} size={17}/>
             </button>
           </div>
-          <nav style={{flex:1,padding:"8px 0"}}>
-            {navItems.map(item=>{
-              if(item.isGroup)return(
-                <div key={item.id} style={{padding:sidebarOpen?"8px 14px 2px":"8px 0 2px",fontSize:9,fontWeight:700,color:C.textMuted,letterSpacing:".1em",textTransform:"uppercase",userSelect:"none",textAlign:sidebarOpen?"left":"center"}}>{sidebarOpen?item.label:"···"}</div>
-              );
+          <nav style={{flex:1,padding:"8px 0",overflowY:"auto"}}>
+            {navStructure.map(item=>{
+              if(item.type==="group"){
+                const open=!!navOpen[item.id];
+                return(
+                  <div key={item.id}>
+                    <button onClick={()=>setNavOpen(o=>({...o,[item.id]:!o[item.id]}))}
+                      title={!sidebarOpen?item.label:undefined}
+                      style={{width:"100%",background:"none",border:"none",borderLeft:`2px solid ${item.color}55`,padding:sidebarOpen?"10px 14px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
+                      <Icon name={item.icon} size={17} color={item.color}/>
+                      {sidebarOpen&&(<>
+                        <span style={{fontSize:12,fontWeight:600,color:C.textSub,flex:1,textAlign:"left"}}>{item.label}</span>
+                        <Icon name="chevronDown" size={14} color={C.textMuted} style={{transform:open?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s"}}/>
+                      </>)}
+                    </button>
+                    {open&&item.children.map(child=>{
+                      const active=view===child.id;
+                      return(
+                        <button key={child.id} onClick={()=>setView(child.id)}
+                          title={!sidebarOpen?child.label:undefined}
+                          style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:item.color+"22"}`,padding:sidebarOpen?"10px 14px 10px 28px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
+                          <Icon name={child.icon} size={17} color={active?C.accent:item.color+"cc"}/>
+                          {sidebarOpen&&<span style={{fontSize:12,fontWeight:500,color:active?C.accent:C.textSub,flex:1,textAlign:"left"}}>{child.label}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              }
               const active=view===item.id;
               return(
                 <button key={item.id} onClick={()=>setView(item.id)}
                   title={!sidebarOpen?item.label:undefined}
-                  style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:"transparent"}`,padding:sidebarOpen?`10px 14px 10px ${item.indent?"28px":"14px"}`:"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
-                  <Icon name={item.icon} size={item.indent?14:17} color={active?C.accent:item.indent?C.textMuted+"bb":C.textMuted}/>
-                  {sidebarOpen&&(<><span style={{fontSize:item.indent?11:12,fontWeight:500,color:active?C.accent:C.textSub,flex:1,textAlign:"left"}}>{item.label}</span>{item.badge&&<span style={{background:C.red,color:"#fff",borderRadius:9,fontSize:9,fontWeight:700,padding:"1px 5px"}}>{item.badge}</span>}</>)}
+                  style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:item.color+"22"}`,padding:sidebarOpen?"10px 14px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
+                  <Icon name={item.icon} size={17} color={active?C.accent:item.color}/>
+                  {sidebarOpen&&(<><span style={{fontSize:12,fontWeight:500,color:active?C.accent:C.textSub,flex:1,textAlign:"left"}}>{item.label}</span>{item.badge&&<span style={{background:C.red,color:"#fff",borderRadius:9,fontSize:9,fontWeight:700,padding:"1px 5px"}}>{item.badge}</span>}</>)}
                 </button>
               );
             })}
