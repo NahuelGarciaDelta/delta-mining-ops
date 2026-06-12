@@ -173,6 +173,17 @@ function detectEstado(trabajo,obs,hs){
 const _canonicalMap={};
 const _tareaMap={};
 
+// Mapeo de emails de supervisores a nombres canónicos
+const SUPERVISOR_EMAIL_MAP={
+  "carlos.sisterna@deltaming.com.ar":"Sisterna Carlos",
+  "alfredo.vedia@deltamining.com.ar":"Vedia Alfredo",
+  "marcoaguilera@deltaming.com.ar":"Aguilera Marco",
+  "gilberto.eseiza@deltamining.com.ar":"Eseiza Gilberto",
+  "marcelo.vedia@deltamining.com.ar":"Vedia Marcelo",
+  "adrian.ovalles@deltamining.com":"Ovalles Adrian",
+  "ssma.fds@deltamining.com":"Unamuno Federico",
+};
+
 // Normalización base: quita tildes, puntos, espacios extra
 function normalizeName(s){
   // eslint-disable-next-line no-control-regex
@@ -266,6 +277,9 @@ function buildCanonicalMap(names){
 function normName(raw){
   const s=String(raw||"").trim();
   if(!s)return s;
+  // Si es un email conocido de supervisor, mapear a nombre
+  const emailKey=s.toLowerCase();
+  if(SUPERVISOR_EMAIL_MAP[emailKey])return SUPERVISOR_EMAIL_MAP[emailKey];
   const norm=normalizeName(s);
   if(_canonicalMap[norm])return _canonicalMap[norm];
   // Fallback: limpiar puntos y espacios
@@ -325,6 +339,8 @@ function normSupervisorROP05(raw){
   if(s.startsWith("alfredo.vedia")||s.startsWith("alfredovedia"))return"Vedia Alfredo";
   if(s.startsWith("marcoaguilera")||s.startsWith("marco.aguilera"))return"Aguilera Marco";
   if(s.startsWith("gilberto.eseiza")||s.startsWith("gilbertoeseiza"))return"Eseiza Gilberto";
+  if(s.startsWith("adrian.ovalles")||s.startsWith("adrianovalles"))return"Ovalles Adrian";
+  if(s.startsWith("ssma.fds")||s.startsWith("ssmafds"))return"Unamuno Federico";
   // Si no es mail, normalizar como nombre normal
   return normName(raw);
 }
@@ -542,11 +558,12 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos"}){
           {visibleRows.map((r,i)=>{
             const absI=startIdx+i;
             const hasTooltip=true;
+            const rowBg=absI%2===0?"transparent":C.surface+"66";
             return(
               <tr key={absI}
-                style={{background:absI%2===0?"transparent":C.surface+"66",height:ROW_H,position:"relative",cursor:hasTooltip?"pointer":"default",transition:"background .1s"}}
+                style={{background:rowBg,height:ROW_H,position:"relative",cursor:hasTooltip?"pointer":"default",transition:"background .1s"}}
                 onMouseEnter={e=>{
-                  e.currentTarget.dataset.bg=absI%2===0?"transparent":C.surface+"66";
+                  e.currentTarget.dataset.bg=rowBg;
                   e.currentTarget.style.background=C.accent+"22";
                   if(!hasTooltip)return;
                   const tip=document.createElement("div");
@@ -588,6 +605,33 @@ function DateIn({label,value,onChange,min,max,warn}){
       <label style={{fontSize:10,color:warn?C.red:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>{label}{warn?` ⚠ ${warn}`:""}</label>
       <input type="date" value={value} min={min} max={max} onChange={e=>onChange(e.target.value)} style={{background:C.surface,border:`1px solid ${warn?C.red:C.border}`,borderRadius:7,color:C.text,padding:"7px 10px",fontSize:12,outline:"none"}}/>
     </div>
+  );
+}
+
+const MONTH_OPTIONS=[
+  {value:"",label:"Mes"},
+  {value:"01",label:"Enero"},{value:"02",label:"Febrero"},{value:"03",label:"Marzo"},
+  {value:"04",label:"Abril"},{value:"05",label:"Mayo"},{value:"06",label:"Junio"},
+  {value:"07",label:"Julio"},{value:"08",label:"Agosto"},{value:"09",label:"Septiembre"},
+  {value:"10",label:"Octubre"},{value:"11",label:"Noviembre"},{value:"12",label:"Diciembre"},
+];
+const YEAR_OPTIONS=(()=>{const y=new Date().getFullYear();const arr=[{value:"",label:"Año"}];for(let yy=y-4;yy<=y+2;yy++)arr.push({value:String(yy),label:String(yy)});return arr;})();
+function PeriodMonthYear({fechaD,fechaH,setFechaD,setFechaH}){
+  const selectedMonth=fechaD?String(fechaD).slice(5,7):"";
+  const selectedYear=fechaD?String(fechaD).slice(0,4):"";
+  const apply=(year,month)=>{
+    const now=new Date();
+    const y=year||String(now.getFullYear());
+    const m=month||String(now.getMonth()+1).padStart(2,"0");
+    const lastDay=new Date(Number(y),Number(m),0).getDate();
+    setFechaD(`${y}-${m}-01`);
+    setFechaH(`${y}-${m}-${String(lastDay).padStart(2,"0")}`);
+  };
+  return(
+    <>
+      <Sel label="Mes" value={selectedMonth} onChange={m=>apply(selectedYear,m)} options={MONTH_OPTIONS}/>
+      <Sel label="Año" value={selectedYear} onChange={y=>apply(y,selectedMonth)} options={YEAR_OPTIONS}/>
+    </>
   );
 }
 function ChartTip({active,payload,label}){
@@ -687,7 +731,7 @@ function DashboardROP05({rop05,dashSt,setDashSt}){
             <TabBtn active={modeD==="periodo"} onClick={()=>setModeD("periodo")}>Por período</TabBtn>
           </div>
           {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
-          {modeD==="periodo"&&<><DateIn label="Desde" value={fechaDD} onChange={setFechaDD} max={fechaDH||undefined}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH} min={fechaDD||undefined} warn={fechaDH&&fechaDD&&fechaDH<fechaDD?"≥ Desde":null}/></>}
+          {modeD==="periodo"&&<><PeriodMonthYear fechaD={fechaDD} fechaH={fechaDH} setFechaD={setFechaDD} setFechaH={setFechaDH}/><DateIn label="Desde" value={fechaDD} onChange={setFechaDD} max={fechaDH||undefined}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH} min={fechaDD||undefined} warn={fechaDH&&fechaDD&&fechaDH<fechaDD?"≥ Desde":null}/></>}
           <div style={{display:"flex",gap:7,marginLeft:8}}>
             {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
               <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.teal:C.border}`,background:proyecto===opt.value?C.tealDim:"none",color:proyecto===opt.value?C.teal:C.textSub,fontFamily:"Inter",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>{opt.label}</button>
@@ -842,7 +886,7 @@ function DashboardRMA15({rma15,dashSt,setDashSt}){
             <TabBtn active={modeD==="periodo"} onClick={()=>setModeD("periodo")}>Por período</TabBtn>
           </div>
           {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
-          {modeD==="periodo"&&<><DateIn label="Desde" value={fechaDD} onChange={setFechaDD} max={fechaDH||undefined}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH} min={fechaDD||undefined} warn={fechaDH&&fechaDD&&fechaDH<fechaDD?"≥ Desde":null}/></>}
+          {modeD==="periodo"&&<><PeriodMonthYear fechaD={fechaDD} fechaH={fechaDH} setFechaD={setFechaDD} setFechaH={setFechaDH}/><DateIn label="Desde" value={fechaDD} onChange={setFechaDD} max={fechaDH||undefined}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH} min={fechaDD||undefined} warn={fechaDH&&fechaDD&&fechaDH<fechaDD?"≥ Desde":null}/></>}
           <div style={{display:"flex",gap:7,marginLeft:8}}>
             {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
               <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.purple:C.border}`,background:proyecto===opt.value?C.purple+"22":"none",color:proyecto===opt.value?C.purple:C.textSub,fontFamily:"Inter",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>{opt.label}</button>
@@ -1093,7 +1137,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
             <TabBtn active={modeD==="periodo"} onClick={()=>setModeD("periodo")}>Por período</TabBtn>
           </div>
           {modeD==="dia"&&<DateIn label="Fecha" value={fechaD} onChange={setFechaD}/>}
-          {modeD==="periodo"&&<><DateIn label="Desde" value={fechaDD} onChange={setFechaDD}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH}/></>}
+          {modeD==="periodo"&&<><PeriodMonthYear fechaD={fechaDD} fechaH={fechaDH} setFechaD={setFechaDD} setFechaH={setFechaDH}/><DateIn label="Desde" value={fechaDD} onChange={setFechaDD}/><DateIn label="Hasta" value={fechaDH} onChange={setFechaDH}/></>}
           <div style={{display:"flex",gap:7,marginLeft:8}}>
             {[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))].map(opt=>(
               <button key={opt.value} onClick={()=>setProyecto(opt.value)} style={{padding:"6px 14px",borderRadius:7,border:`1px solid ${proyecto===opt.value?C.accent:C.border}`,background:proyecto===opt.value?C.accentDim:"none",color:proyecto===opt.value?C.accent:C.textSub,fontFamily:"Inter",fontWeight:600,fontSize:12,cursor:"pointer",transition:"all .15s"}}>
@@ -1324,7 +1368,8 @@ function ViewROP02({rop02All,extState,setExtState}){
   const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop02Prod,fk,extState,setExtState);
 
   // Filtro de estado independiente (no afecta las opciones facetadas de otros selectores)
-  const[estado,setEstado]=useState("todos");
+  const estado=extState?.estado||"todos";
+  const setEstado=v=>setExtState(s=>({...s,estado:v}));
   const filtered=useMemo(()=>{
     if(estado==="todos")return filteredBase;
     if(estado==="TRABAJO")return filteredBase.filter(r=>r.estado==="TRABAJO");
@@ -1368,7 +1413,7 @@ function ViewROP02({rop02All,extState,setExtState}){
             <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
             <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
             <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
             <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
@@ -1430,11 +1475,7 @@ function ViewROP02({rop02All,extState,setExtState}){
           })}
         </div>
       )}
-      <Card title={`Registros (${filtered.length})`} action={
-        <button onClick={()=>{const label=(fecha||fechaD||new Date().toISOString().slice(0,10)).replace(/-/g,"");generarExcelROP02(filteredSorted,label);}} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:7,border:`1px solid ${C.teal}44`,background:C.tealDim,color:C.teal,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter"}}>
-          ⬇ Excel
-        </button>
-      }>
+      <Card title={`Registros (${filtered.length})`}>
         <Table cols={cols} rows={filteredSorted} maxH={400} emptyMsg="Sin registros con los filtros seleccionados"/>
       </Card>
       <Card title="Flota de Equipos" style={{overflow:"visible"}}>
@@ -1800,7 +1841,7 @@ function ViewROP05({rop05,extState,setExtState}){
             </button>
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
             <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
             <Sel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{setTipoMaquina(v);set("maquina","todas");}} options={TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
             <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>tipoMaquina==="todas"||TIPOS_MAQUINA.find(t=>t.value===tipoMaquina)?.prefijos.some(p=>m.startsWith(p))).map(m=>({value:m,label:m}))]}/>
@@ -2144,7 +2185,332 @@ function generarReporteControl(periodo, faltanEn05, faltanEn02){
 }
 
 
-// ─── ViewControl ──────────────────────────────────────────────────────────────
+// ─── ControlPorEquipo ─────────────────────────────────────────────────────────
+function ControlPorEquipo({rop02All,extState,setExtState}){
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)),[rop02All]);
+  const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const hoy=new Date();
+  const{proyecto,maquina,año,mesIdx,fechaSel,controlActivo}=extState;
+  const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
+  const setProyecto=v=>set("proyecto",v);
+  const setMaquina=v=>set("maquina",v);
+  const setAño=v=>set("año",v);
+  const setMesIdx=v=>set("mesIdx",v);
+  const setFechaSel=v=>set("fechaSel",v);
+  const setControlActivo=v=>set("controlActivo",v);
+
+  const periodo=useMemo(()=>{
+    const y=parseInt(año,10);
+    const m=Number(mesIdx);
+    const mesAnterior=m===0?12:m;
+    const añoInicio=m===0?y-1:y;
+    const fechaD=`${añoInicio}-${String(mesAnterior).padStart(2,"0")}-26`;
+    const fechaH=`${y}-${String(m+1).padStart(2,"0")}-25`;
+    return{fechaD,fechaH,label:`26/${String(mesAnterior).padStart(2,"0")}/${añoInicio} → 25/${String(m+1).padStart(2,"0")}/${y}`};
+  },[año,mesIdx]);
+
+  const años=useMemo(()=>{
+    const ys=new Set([String(hoy.getFullYear())]);
+    rop02Prod.forEach(r=>{if(r.fecha)ys.add(r.fecha.slice(0,4));});
+    return [...ys].sort();
+  },[rop02Prod]);
+
+  const proyectos=useMemo(()=>uniq(rop02Prod.map(r=>r.proyecto).filter(Boolean)).sort(),[rop02Prod]);
+  const maquinas=useMemo(()=>{
+    const base=rop02Prod.filter(r=>
+      (proyecto==="todos"||r.proyecto===proyecto)&&
+      r.fecha>=periodo.fechaD&&r.fecha<=periodo.fechaH
+    );
+    return uniq(base.map(r=>r.maquina).filter(Boolean)).sort();
+  },[rop02Prod,proyecto,periodo]);
+
+  const filtered=useMemo(()=>rop02Prod.filter(r=>{
+    if(proyecto!=="todos"&&r.proyecto!==proyecto)return false;
+    if(maquina!=="todas"&&r.maquina!==maquina)return false;
+    if(r.fecha<periodo.fechaD||r.fecha>periodo.fechaH)return false;
+    return true;
+  }),[rop02Prod,proyecto,maquina,periodo]);
+
+  const hayFiltros=proyecto!=="todos"||maquina!=="todas"||año!==String(hoy.getFullYear())||mesIdx!==hoy.getMonth();
+  const reset=()=>{setProyecto("todos");setMaquina("todas");setAño(String(hoy.getFullYear()));setMesIdx(hoy.getMonth());setFechaSel("");};
+
+  const equipoData=useMemo(()=>{
+    if(!maquina||maquina==="todas")return null;
+    const byFechaTurno={};
+    filtered.forEach(r=>{
+      const k=r.fecha;
+      if(!byFechaTurno[k])byFechaTurno[k]={fecha:k,TD:null,TN:null};
+      const turnoKey=(r.turno||"").toUpperCase().includes("NOCHE")?"TN":"TD";
+      byFechaTurno[k][turnoKey]=r;
+    });
+    return Object.values(byFechaTurno).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  },[filtered,maquina]);
+
+  const fechasDisp=useMemo(()=>(equipoData||[]).map(d=>d.fecha),[equipoData]);
+  const fichaActual=useMemo(()=>{
+    if(!equipoData||equipoData.length===0)return null;
+    const target=fechaSel&&fechasDisp.includes(fechaSel)?fechaSel:fechasDisp[0];
+    return equipoData.find(d=>d.fecha===target)||equipoData[0];
+  },[equipoData,fechaSel,fechasDisp]);
+
+  React.useEffect(()=>{
+    if(fechasDisp.length>0&&(!fechaSel||!fechasDisp.includes(fechaSel)))setFechaSel(fechasDisp[0]);
+  },[fechasDisp]);// eslint-disable-line
+
+  const FILAS=[
+    {key:"parte",      label:"Parte diario",    render:r=>r?.parte||"—"},
+    {key:"hi",         label:"Hi",              render:r=>r?.horometroInicial!=null?r.horometroInicial:"—"},
+    {key:"hf",         label:"Hf",              render:r=>r?.horometroFinal!=null?r.horometroFinal:"—"},
+    {key:"tarea",      label:"Tarea realizada", render:r=>r?.tipo_trabajo||"—"},
+    {key:"obs",        label:"Observaciones",   render:r=>r?.observaciones||"—"},
+    {key:"desgaste",   label:"Desgaste",        render:r=>r?.desgaste||"Sin consumo de desgaste"},
+    {key:"combustible",label:"Combustible",     render:r=>r?.combustible!=null&&Number(r.combustible)>0?fmtNum(r.combustible):"Sin Carga"},
+    {key:"aceite",     label:"Aceite",          render:r=>r?.aceite||"Sin Carga"},
+    {key:"horas",      label:"Cant. Hs.",       render:r=>r?.estado==="OD"||r?.estado==="FS"?r.estado:(r?.horas!=null?fmtNum(r.horas):"—")},
+  ];
+
+  const cellBg=(r)=>{
+    if(!r)return"rgba(180,60,60,0.18)";
+    if(r.estado==="OD")return"rgba(34,197,94,0.78)";
+    if(r.estado==="FS")return"rgba(232,0,29,0.78)";
+    return(r.horas||0)>0?"rgba(40,160,80,0.18)":"rgba(180,60,60,0.18)";
+  };
+  const cellColor=(r)=>r&&(r.estado==="OD"||r.estado==="FS")?"#fff":(r?C.text:C.textMuted);
+
+  const selectStyle={
+    background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,
+    color:C.text,fontSize:12,fontWeight:600,padding:"5px 10px",fontFamily:"Inter",cursor:"pointer",outline:"none",
+  };
+
+  const controlIntegridad=useMemo(()=>{
+    const rows=maquina==="todas"?filtered:[...filtered];
+    const byMaq={};
+    rows.forEach(r=>{if(r.maquina){if(!byMaq[r.maquina])byMaq[r.maquina]=[];byMaq[r.maquina].push(r);}});
+    const erroresPartes=[];
+    const erroresHoro=[];
+    const parseParte=p=>{const m=String(p||"").match(/(\d+)/g);return m?Number(m[m.length-1]):null;};
+    Object.entries(byMaq).forEach(([maq,items])=>{
+      const byFecha={};
+      items.forEach(r=>{
+        if(!byFecha[r.fecha])byFecha[r.fecha]={fecha:r.fecha,TD:null,TN:null};
+        const turnoKey=(r.turno||"").toUpperCase().includes("NOCHE")?"TN":"TD";
+        byFecha[r.fecha][turnoKey]=r;
+      });
+      const cronologico=Object.values(byFecha).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+      const diasPartes=cronologico.map(d=>{
+        const primero=d.TD||d.TN;
+        const ultimo=d.TN||d.TD;
+        return{
+          fecha:d.fecha,
+          primero,
+          ultimo,
+          turnoPrimero:d.TD?"TD":"TN",
+          turnoUltimo:d.TN?"TN":"TD",
+          partePrimero:primero?.parte||"",
+          parteUltimo:ultimo?.parte||"",
+          numPrimero:parseParte(primero?.parte),
+          numUltimo:parseParte(ultimo?.parte),
+        };
+      }).filter(d=>d.primero&&d.ultimo);
+      for(let i=0;i<diasPartes.length-1;i++){
+        const hoy=diasPartes[i];
+        const siguiente=diasPartes[i+1];
+        if(hoy.numUltimo!==null&&siguiente.numPrimero!==null&&siguiente.numPrimero!==hoy.numUltimo+1){
+          erroresPartes.push({
+            proyecto:siguiente.primero?.proyecto||hoy.ultimo?.proyecto||"—",
+            maquina:maq,
+            supervisor:siguiente.primero?.supervisor||hoy.ultimo?.supervisor||"—",
+            fecha:siguiente.fecha,
+            turno:siguiente.turnoPrimero,
+            numeroIncorrecto:siguiente.partePrimero,
+            numeroCorrecto:hoy.numUltimo+1,
+            parteAnterior:hoy.parteUltimo,
+            fechaAnterior:hoy.fecha,
+            diff:siguiente.numPrimero-(hoy.numUltimo+1),
+          });
+        }
+      }
+      // Control de horómetros entre días:
+      // El Hf del ÚLTIMO registro de la máquina en un día determinado
+      // debe coincidir con el Hi del PRIMER registro de esa misma máquina al día siguiente registrado.
+      // No se compara TD vs TN dentro del mismo día, porque el control pedido es día contra día.
+      const turnoOrden=r=>(String(r?.turno||"").toUpperCase().includes("NOCHE")?1:0);
+      const parteNumero=r=>parseParte(r?.parte)??0;
+      const diasHoro=cronologico.map(d=>{
+        const registros=[d.TD,d.TN].filter(Boolean).sort((a,b)=>{
+          const t=turnoOrden(a)-turnoOrden(b);
+          if(t!==0)return t;
+          return parteNumero(a)-parteNumero(b);
+        });
+        return{
+          fecha:d.fecha,
+          primero:registros[0]||null,
+          ultimo:registros[registros.length-1]||null,
+          turnoPrimero:registros[0]?(turnoOrden(registros[0])===1?"TN":"TD"):"—",
+          turnoUltimo:registros[registros.length-1]?(turnoOrden(registros[registros.length-1])===1?"TN":"TD"):"—",
+        };
+      }).filter(d=>d.primero&&d.ultimo);
+      for(let i=0;i<diasHoro.length-1;i++){
+        const diaActual=diasHoro[i];
+        const diaSiguiente=diasHoro[i+1];
+        const hfPrev=Number(diaActual.ultimo?.horometroFinal)||null;
+        const hiCurr=Number(diaSiguiente.primero?.horometroInicial)||null;
+        if(hfPrev&&hiCurr&&hfPrev!==hiCurr){
+          erroresHoro.push({
+            proyecto:diaSiguiente.primero?.proyecto||diaActual.ultimo?.proyecto||"—",
+            maquina:maq,
+            fecha:diaSiguiente.fecha,
+            turno:diaSiguiente.turnoPrimero,
+            supervisor:diaSiguiente.primero?.supervisor||"—",
+            parte:diaSiguiente.primero?.parte||"—",
+            hiActual:hiCurr,
+            hfAnterior:hfPrev,
+            fechaAnterior:diaActual.fecha,
+            turnoAnterior:diaActual.turnoUltimo,
+            parteAnterior:diaActual.ultimo?.parte||"—",
+            diff:hiCurr-hfPrev,
+          });
+        }
+      }
+    });
+    return{erroresPartes,erroresHoro};
+  },[filtered,maquina]);
+
+  const ErrorDato=({label,children,color=C.text})=>(
+    <div style={{display:"flex",flexDirection:"column",gap:3,minWidth:120}}>
+      <span style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>{label}</span>
+      <span style={{fontSize:13,color,fontWeight:800}}>{children}</span>
+    </div>
+  );
+
+  const renderNumeracion=()=>{
+    const errores=controlIntegridad.erroresPartes;
+    if(errores.length===0)return <AlertBanner type="success">✅ Sin errores de numeración para los filtros seleccionados.</AlertBanner>;
+    return(
+      <Card title={`⚠️ Errores de numeración de partes (${errores.length})`}>
+        <div style={{padding:14,display:"flex",flexDirection:"column",gap:10}}>
+          {errores.map((e,i)=>(
+            <div key={i} style={{background:C.redDim,border:`1px solid ${C.red}55`,borderRadius:10,padding:"12px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+              <span style={{fontSize:22}}>⚠️</span>
+              <ErrorDato label="Supervisor">{e.supervisor}</ErrorDato>
+              <ErrorDato label="Día">{fmtFecha(e.fecha)}</ErrorDato>
+              <ErrorDato label="Parte incorrecto" color={C.red}>#{e.numeroIncorrecto}</ErrorDato>
+              <ErrorDato label="Debería decir" color={C.yellow}>#{e.numeroCorrecto}</ErrorDato>
+              <ErrorDato label="Máquina">{e.maquina}</ErrorDato>
+              <ErrorDato label="Turno">{e.turno}</ErrorDato>
+            </div>
+          ))}
+        </div>
+      </Card>
+    );
+  };
+
+  const renderHorometros=()=>{
+    const errores=controlIntegridad.erroresHoro;
+    if(errores.length===0)return <AlertBanner type="success">✅ Sin cortes de horómetro para los filtros seleccionados.</AlertBanner>;
+    const cols=["Proyecto","Máquina","Día con error","Turno con error","Supervisor","N° parte","Día anterior","Turno anterior","Hi informado","Hf anterior esperado","Diferencia"];
+    return(
+      <Card title={`⚠️ Control de horómetros (${errores.length})`}>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:860}}>
+            <thead><tr style={{background:C.surface}}>{cols.map(h=><th key={h} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:C.textMuted,textAlign:"left",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
+            <tbody>
+              {errores.map((e,i)=>(
+                <tr key={i} style={{background:i%2===0?C.red+"0a":"transparent"}}>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}>{e.proyecto}</td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{e.maquina}</Badge></td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,fontWeight:700}}>{fmtFecha(e.fecha)}</td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={e.turno==="TD"?C.blue:C.purple}>{e.turno}</Badge></td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}>{e.supervisor}</td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:700}}>#{e.parte}</td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,fontWeight:700}}>{fmtFecha(e.fechaAnterior)}</td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={e.turnoAnterior==="TD"?C.blue:C.purple}>{e.turnoAnterior}</Badge></td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.red,fontWeight:800}}>{fmtNum(e.hiActual)}</td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.yellow,fontWeight:800}}>{fmtNum(e.hfAnterior)}</td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={e.diff>0?C.yellow:C.red}>{e.diff>0?`+${fmtNum(e.diff)}`:fmtNum(e.diff)}</Badge></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    );
+  };
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+          <Sel label="Mes" value={String(mesIdx)} onChange={v=>{setMesIdx(Number(v));setFechaSel("");}} options={MESES.map((m,i)=>({value:String(i),label:m}))}/>
+          <Sel label="Año" value={año} onChange={v=>{setAño(v);setFechaSel("");}} options={años.map(y=>({value:y,label:y}))}/>
+          <Sel label="Proyecto" value={proyecto} onChange={v=>{setProyecto(v);setMaquina("todas");setFechaSel("");}} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+          <Sel label="Máquina" value={maquina} onChange={v=>{setMaquina(v);setFechaSel("");}} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
+          <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:`1px solid ${C.border}`,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{periodo.label}</strong></div>
+          <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+            <Icon name="close" size={11} color={C.red}/>Limpiar filtros
+          </button>
+        </div>
+      </Card>
+
+      {maquina==="todas"?(
+        <AlertBanner type="info">Seleccioná una máquina para ver la ficha diaria TD/TN. Los controles de numeración y horómetros igual se calculan sobre todas las máquinas filtradas.</AlertBanner>
+      ):!fichaActual?(
+        <AlertBanner type="warn">No hay registros para {maquina} en {MESES[mesIdx]} {año}.</AlertBanner>
+      ):(
+        <Card>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:560,tableLayout:"fixed"}}>
+              <colgroup><col style={{width:180}}/><col style={{width:"50%"}}/><col style={{width:"50%"}}/></colgroup>
+              <thead>
+                <tr>
+                  <th style={{padding:"10px 14px",background:C.surface,borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
+                    <select value={maquina} onChange={e=>setMaquina(e.target.value)} style={selectStyle}>{maquinas.map(m=><option key={m} value={m}>{m}</option>)}</select>
+                  </th>
+                  <th colSpan={2} style={{padding:"10px 14px",background:C.surface,borderBottom:`2px solid ${C.border}`,textAlign:"center"}}>
+                    <select value={fichaActual.fecha} onChange={e=>setFechaSel(e.target.value)} style={{...selectStyle,fontSize:13,fontWeight:700,color:C.accent,minWidth:140}}>{fechasDisp.map(f=><option key={f} value={f}>{fmtFecha(f)}</option>)}</select>
+                  </th>
+                </tr>
+                <tr>
+                  <th style={{padding:"7px 14px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`}}/>
+                  {['TD','TN'].map(t=><th key={t} style={{padding:"8px 14px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`,textAlign:"center",fontSize:13,fontWeight:700,color:C.textSub,letterSpacing:".06em"}}>{t}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {FILAS.map(({key,label,render})=>{
+                  const rTD=fichaActual.TD; const rTN=fichaActual.TN;
+                  return(
+                    <tr key={key}>
+                      <td style={{padding:"9px 14px",fontWeight:700,fontSize:12,color:C.textSub,background:C.surface+"55",borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`}}>{label}</td>
+                      <td style={{padding:"9px 14px",fontSize:12,color:cellColor(rTD),background:cellBg(rTD),borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`,verticalAlign:"top",lineHeight:1.5,fontWeight:rTD?.estado==="OD"||rTD?.estado==="FS"?700:400}}>{render(rTD)}</td>
+                      <td style={{padding:"9px 14px",fontSize:12,color:cellColor(rTN),background:cellBg(rTN),borderBottom:`1px solid ${C.border}22`,verticalAlign:"top",lineHeight:1.5,fontWeight:rTN?.estado==="OD"||rTN?.estado==="FS"?700:400}}>{render(rTN)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {fechasDisp.length>1&&(
+            <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:10,borderTop:`1px solid ${C.border}22`}}>
+              <span style={{fontSize:11,color:C.textSub}}>{fechasDisp.indexOf(fichaActual.fecha)+1} / {fechasDisp.length} fechas</span>
+              <button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i<fechasDisp.length-1)setFechaSel(fechasDisp[i+1]);}} style={{...selectStyle,padding:"4px 10px"}}>← Anterior</button>
+              <button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i>0)setFechaSel(fechasDisp[i-1]);}} style={{...selectStyle,padding:"4px 10px"}}>Siguiente →</button>
+            </div>
+          )}
+        </Card>
+      )}
+
+      <Card>
+        <div style={{padding:"10px 14px",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <TabBtn active={controlActivo==="numeracion"} onClick={()=>setControlActivo("numeracion")}>Numeración de partes ({controlIntegridad.erroresPartes.length})</TabBtn>
+          <TabBtn active={controlActivo==="horometros"} onClick={()=>setControlActivo("horometros")}>Control de horómetros ({controlIntegridad.erroresHoro.length})</TabBtn>
+        </div>
+      </Card>
+
+      {controlActivo==="numeracion"?renderNumeracion():renderHorometros()}
+    </div>
+  );
+}
+
 function ViewControl({control,rop02All,rop05,extState,setExtState}){
   const[sub,setSub]=useState("dashboard");
 
@@ -2157,17 +2523,26 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
   ],[]);
   const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,vals,set,reset,hayFiltros,byFecha:byFecha02,opts:opts02}=useFacetedFilters(control.productivos,fk,extState,setExtState);
 
-  // Aplicar mismo filtro de fecha+selectores a prod05
+  // Conjuntos para el CRUCE 02↔05: solo proyecto+máquina+fecha (sin supervisor),
+  // así un registro que existe en ambos lados no se marca como "faltante" por
+  // tener el campo Supervisor distinto o vacío entre ROP02 y ROP05.
   const byFecha05=useMemo(()=>byDateFilter(control.prod05,mode,fecha,fechaD,fechaH),[control.prod05,mode,fecha,fechaD,fechaH]);
-  const filtered05=useMemo(()=>byFecha05.filter(r=>
+  const filtered05Match=useMemo(()=>byFecha05.filter(r=>
     (vals.proyecto==="todos"||r.proyecto===vals.proyecto)&&
     (vals.maquina==="todas"||r.maquina===vals.maquina)
   ),[byFecha05,vals]);
-  const filtered02=useMemo(()=>byFecha02.filter(r=>
+  const filtered02Match=useMemo(()=>byFecha02.filter(r=>
     (vals.proyecto==="todos"||r.proyecto===vals.proyecto)&&
-    (vals.maquina==="todas"||r.maquina===vals.maquina)&&
-    (vals.supervisor==="todos"||r.supervisor===vals.supervisor)
+    (vals.maquina==="todas"||r.maquina===vals.maquina)
   ),[byFecha02,vals]);
+
+  // Conjuntos con filtro de supervisor aplicado (para totales/estadísticas)
+  const filtered05=useMemo(()=>filtered05Match.filter(r=>
+    vals.supervisor==="todos"||r.supervisor===vals.supervisor
+  ),[filtered05Match,vals]);
+  const filtered02=useMemo(()=>filtered02Match.filter(r=>
+    vals.supervisor==="todos"||r.supervisor===vals.supervisor
+  ),[filtered02Match,vals]);
 
   // Opciones facetadas para Control: unión de 02 y 05
   const optsControl=useMemo(()=>{
@@ -2177,23 +2552,28 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
       const others=fk.filter(o=>o.key!==f.key);
       result[f.key]=uniq(combined.filter(r=>
         others.every(o=>vals[o.key]===o.defaultVal||r[o.key]===vals[o.key])
-      ).map(r=>r[f.key]));
+      ).map(r=>r[f.key]).filter(Boolean));
     });
     return result;
   },[byFecha02,byFecha05,vals]);// eslint-disable-line
 
-  // Recalcular inconsistencias sobre subconjunto filtrado
+  // Recalcular inconsistencias: el cruce se hace sobre los conjuntos SIN filtro
+  // de supervisor; luego se filtra el resultado por supervisor de cada registro.
   const filteredData=useMemo(()=>{
     const key=r=>`${r.fecha}__${r.maquina}`;
-    const set05=new Set(filtered05.map(key));
-    const set02=new Set(filtered02.map(key));
-    const faltanEn05=filtered02.filter(r=>!set05.has(key(r)));
-    const faltanEn02=filtered05.filter(r=>!set02.has(key(r)));
+    const set05=new Set(filtered05Match.map(key));
+    const set02=new Set(filtered02Match.map(key));
+    let faltanEn05=filtered02Match.filter(r=>!set05.has(key(r)));
+    let faltanEn02=filtered05Match.filter(r=>!set02.has(key(r)));
+    if(vals.supervisor!=="todos"){
+      faltanEn05=faltanEn05.filter(r=>r.supervisor===vals.supervisor);
+      faltanEn02=faltanEn02.filter(r=>r.supervisor===vals.supervisor);
+    }
     const total=filtered02.length+filtered05.length;
     const problemas=faltanEn05.length+faltanEn02.length;
     const consistencia=total>0?Math.round(((total-problemas)/total)*100):100;
     return{faltanEn05,faltanEn02,total,problemas,consistencia,prod02f:filtered02,prod05f:filtered05};
-  },[filtered02,filtered05]);
+  },[filtered02Match,filtered05Match,filtered02,filtered05,vals]);
 
   const inconsistFecha=useMemo(()=>{
     const m={};
@@ -2221,9 +2601,10 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
         </div>
         {/* Fila 2: filtros */}
         <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-          {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+          {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
           <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...optsControl.proyecto.map(p=>({value:p,label:p}))]}/>
           <Sel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...optsControl.maquina.map(m=>({value:m,label:m}))]}/>
+          <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...optsControl.supervisor.map(s=>({value:s,label:s}))]}/>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
         {hayFiltros&&(
@@ -2248,6 +2629,7 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
     {key:"operario",label:"Operario"},{key:"supervisor",label:"Supervisor"},
     {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"estado",label:"Estado",render:v=><Badge color={C.green}>{v||"—"}</Badge>},
+    {key:"tipo_trabajo",label:"Tarea (ROP02)",wrap:true,render:v=>v||"—"},
     {key:"_",label:"Problema",render:()=><span style={{color:C.red,fontSize:11}}>Sin producción en ROP05</span>},
   ];
   const cols2=[
@@ -2438,7 +2820,8 @@ function ViewVehiculos({rop02All,extState,setExtState}){
   ],[]);
   const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop02Veh,fk,extState,setExtState);
 
-  const[estado,setEstado]=useState("todos");
+  const estado=extState?.estado||"todos";
+  const setEstado=v=>setExtState(s=>({...s,estado:v}));
   const filtered=useMemo(()=>{
     if(estado==="todos")return filteredBase;
     return filteredBase.filter(r=>r.estado===estado);
@@ -2483,7 +2866,7 @@ function ViewVehiculos({rop02All,extState,setExtState}){
             <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
             <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
             <Sel label="Vehículo" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todos"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
             <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
@@ -2572,11 +2955,200 @@ function ViewVehiculos({rop02All,extState,setExtState}){
 }
 
 
-// ─── ViewCHC — Indicador Control de Horas Contratadas ────────────────────────
-function ViewCHC({rop02All}){
+// ─── ViewCombustible ──────────────────────────────────────────────────────────
+function ViewCombustible({rop02All,extState,setExtState}){
+  // Solo máquinas/equipos (excluye camiones y camionetas)
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)),[rop02All]);
-  const[proyecto,setProyecto]=useState("todos");
-  const[mesSelec,setMesSelec]=useState(""); // formato "YYYY-MM" del mes nominal
+
+  const fk=useMemo(()=>[
+    {key:"proyecto",defaultVal:"todos"},
+    {key:"maquina",defaultVal:"todas"},
+    {key:"supervisor",defaultVal:"todos"},
+    {key:"operario",defaultVal:"todos"},
+  ],[]);
+  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop02Prod,fk,extState,setExtState);
+
+  // Solo registros con consumo de combustible cargado
+  const conCombustible=useMemo(()=>filtered.filter(r=>Number(r.combustible)>0),[filtered]);
+
+  const stats=useMemo(()=>{
+    const total=filtered.reduce((s,r)=>s+(Number(r.combustible)||0),0);
+    const horas=filtered.reduce((s,r)=>s+(Number(r.horas)||0),0);
+    const registrosConCarga=conCombustible.length;
+    const equiposConCarga=uniq(conCombustible.map(r=>r.maquina)).length;
+    const promedioPorCarga=registrosConCarga>0?total/registrosConCarga:0;
+    const ratio=horas>0?total/horas:0; // litros por hora trabajada
+    return{total,horas,registrosConCarga,equiposConCarga,promedioPorCarga,ratio};
+  },[filtered,conCombustible]);
+
+  // Evolución por fecha (modo período)
+  const combFecha=useMemo(()=>{
+    if(mode!=="periodo")return[];
+    const m={};
+    filtered.forEach(r=>{m[r.fecha]=(m[r.fecha]||0)+(Number(r.combustible)||0);});
+    return Object.entries(m).sort().map(([fecha,combustible])=>({fecha,combustible:Math.round(combustible*10)/10}));
+  },[filtered,mode]);
+
+  // Ranking por equipo
+  const rankingEquipos=useMemo(()=>{
+    const m={};
+    conCombustible.forEach(r=>{
+      if(!m[r.maquina])m[r.maquina]={maquina:r.maquina,total:0,horas:0,cargas:0,tipo:getMachineType(r.maquina)||""};
+      m[r.maquina].total+=Number(r.combustible)||0;
+      m[r.maquina].horas+=Number(r.horas)||0;
+      m[r.maquina].cargas+=1;
+    });
+    return Object.values(m)
+      .map(d=>({...d,total:Math.round(d.total*10)/10,ratio:d.horas>0?Math.round((d.total/d.horas)*100)/100:0}))
+      .sort((a,b)=>b.total-a.total);
+  },[conCombustible]);
+
+  // Distribución por proyecto
+  const porProyecto=useMemo(()=>{
+    const m={};
+    conCombustible.forEach(r=>{
+      const p=r.proyecto||"Sin proyecto";
+      m[p]=(m[p]||0)+(Number(r.combustible)||0);
+    });
+    return Object.entries(m).map(([proyecto,total],i)=>({proyecto,total:Math.round(total*10)/10,color:[C.accent,C.teal,C.purple,C.yellow,C.blue][i%5]}));
+  },[conCombustible]);
+
+  const cols=useMemo(()=>[
+    {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
+    {key:"maquina",label:"Equipo",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"turno",label:"Turno",render:v=><Badge color={(v||"").toUpperCase().includes("NOCHE")?C.purple:C.blue}>{(v||"").toUpperCase().includes("NOCHE")?"TN":"TD"}</Badge>},
+    {key:"operario",label:"Operario"},
+    {key:"supervisor",label:"Supervisor"},
+    {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
+    {key:"combustible",label:"Combustible",render:v=><span style={{color:C.teal,fontWeight:700}}>{fmtNum(v)} L</span>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={v?.includes("FILO")?C.accent:C.teal}>{v||"—"}</Badge>},
+  ],[]);
+
+  const filteredSorted=useMemo(()=>[...conCombustible].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[conCombustible]);
+
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* Filtros */}
+      <Card>
+        <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{display:"flex",gap:7}}>
+            <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
+            <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            <Sel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
+            <Sel label="Equipo" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todos"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
+            <Sel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
+            <Sel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
+            <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+              <Icon name="close" size={11} color={C.red}/>Limpiar filtros
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
+        <StatCard icon="fuel" label="Combustible Total" value={fmtNum(stats.total)} sub="litros" color={C.teal} small/>
+        <StatCard icon="hours" label="Horas Trabajadas" value={fmtNum(stats.horas)} color={C.yellow} small/>
+        <StatCard icon="parts" label="Cargas Registradas" value={stats.registrosConCarga} color={C.blue} small/>
+        <StatCard icon="equip" label="Equipos con Carga" value={stats.equiposConCarga} color={C.purple} small/>
+        <StatCard icon="fuel" label="Litros / Carga" value={fmtNum(stats.promedioPorCarga)} color={C.teal} small/>
+        <StatCard icon="fuel" label="Litros / Hora" value={fmtNum(stats.ratio)} color={C.accent} small/>
+      </div>
+
+      {/* Evolución temporal */}
+      {mode==="periodo"&&combFecha.length>0&&(
+        <Card title="Combustible por Fecha">
+          <div style={{padding:"10px 6px"}}>
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={combFecha} margin={{left:0,right:10}}>
+                <defs><linearGradient id="gc" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={C.teal} stopOpacity={.35}/><stop offset="95%" stopColor={C.teal} stopOpacity={0}/></linearGradient></defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} vertical={false}/>
+                <XAxis dataKey="fecha" tick={{fill:C.textMuted,fontSize:9}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                <Tooltip content={<ChartTip/>}/>
+                <Area type="monotone" dataKey="combustible" stroke={C.teal} fill="url(#gc)" name="Combustible (L)" strokeWidth={2}/>
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
+
+      {/* Ranking + distribución por proyecto */}
+      <div style={{display:"grid",gridTemplateColumns:"1.3fr 1fr",gap:12}}>
+        <Card title={`Ranking de Consumo por Equipo (${rankingEquipos.length})`}>
+          <div style={{padding:"10px 6px"}}>
+            <ResponsiveContainer width="100%" height={Math.max(220,rankingEquipos.slice(0,12).length*32)}>
+              <BarChart data={rankingEquipos.slice(0,12)} layout="vertical" margin={{left:10,right:20}}>
+                <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
+                <XAxis type="number" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                <YAxis type="category" dataKey="maquina" tick={{fill:C.textSub,fontSize:10}} axisLine={false} tickLine={false} width={80}/>
+                <Tooltip content={<ChartTip/>}/>
+                <Bar dataKey="total" name="Combustible (L)" fill={C.teal} radius={[0,4,4,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card title="Distribución por Proyecto">
+          <div style={{padding:"10px 6px"}}>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={porProyecto} dataKey="total" nameKey="proyecto" cx="50%" cy="50%" outerRadius={75} label={({proyecto,total})=>`${proyecto}: ${fmtNum(total)}L`}>
+                  {porProyecto.map((p,i)=><Cell key={i} fill={p.color}/>)}
+                </Pie>
+                <Tooltip content={<ChartTip/>}/>
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      </div>
+
+      {/* Tabla de ranking detallado */}
+      <Card title="Detalle por Equipo">
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:C.surface}}>
+                {["Equipo","Tipo","Litros Totales","Horas","Litros/Hora","Cargas"].map(h=>(
+                  <th key={h} style={{padding:"8px 14px",fontSize:11,fontWeight:700,color:C.textMuted,textAlign:"left",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rankingEquipos.map((r,i)=>(
+                <tr key={r.maquina} style={{background:i%2===0?"transparent":C.surface+"33"}}
+                  onMouseEnter={ev=>ev.currentTarget.style.background=C.accent+"11"}
+                  onMouseLeave={ev=>ev.currentTarget.style.background=i%2===0?"transparent":C.surface+"33"}
+                >
+                  <td style={{padding:"8px 14px",fontSize:12,fontWeight:600,borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{r.maquina}</Badge></td>
+                  <td style={{padding:"8px 14px",fontSize:11,color:C.textSub,borderBottom:`1px solid ${C.border}18`}}>{r.tipo||"—"}</td>
+                  <td style={{padding:"8px 14px",fontSize:12,fontWeight:700,color:C.teal,borderBottom:`1px solid ${C.border}18`}}>{fmtNum(r.total)} L</td>
+                  <td style={{padding:"8px 14px",fontSize:12,color:C.accent,borderBottom:`1px solid ${C.border}18`}}>{fmtNum(r.horas)}</td>
+                  <td style={{padding:"8px 14px",fontSize:12,color:C.text,borderBottom:`1px solid ${C.border}18`}}>{fmtNum(r.ratio)}</td>
+                  <td style={{padding:"8px 14px",fontSize:12,color:C.textSub,borderBottom:`1px solid ${C.border}18`}}>{r.cargas}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rankingEquipos.length===0&&<div style={{padding:20,textAlign:"center",color:C.textMuted,fontSize:12}}>Sin cargas de combustible con los filtros seleccionados</div>}
+        </div>
+      </Card>
+
+      {/* Tabla de registros */}
+      <Card title={`Registros con Combustible (${conCombustible.length})`}>
+        <Table cols={cols} rows={filteredSorted} maxH={400} emptyMsg="Sin registros de combustible con los filtros seleccionados"/>
+      </Card>
+    </div>
+  );
+}
+
+// ─── ViewCHC — Indicador Control de Horas Contratadas ────────────────────────
+function ViewCHC({rop02All,extState,setExtState}){
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)),[rop02All]);
+  const proyecto=extState?.proyecto??"todos";
+  const setProyecto=v=>setExtState(s=>({...s,proyecto:v}));
   const HS_MES=180;
 
   // Meses disponibles: lista fija de nombres
@@ -2589,8 +3161,10 @@ function ViewCHC({rop02All}){
     return [...ys].sort();
   },[rop02All]);
 
-  const[añoSelec,setAñoSelec]=useState(()=>new Date().getFullYear().toString());
-  const[mesIdx,setMesIdx]=useState(()=>new Date().getMonth()); // 0=Enero
+  const añoSelec=extState?.añoSelec??String(new Date().getFullYear());
+  const setAñoSelec=v=>setExtState(s=>({...s,añoSelec:v}));
+  const mesIdx=extState?.mesIdx??new Date().getMonth(); // 0=Enero
+  const setMesIdx=v=>setExtState(s=>({...s,mesIdx:v}));
 
   const proyectos=useMemo(()=>uniq(rop02All.filter(r=>!isExcluded(r.maquina)).map(r=>r.proyecto)),[rop02All]);
 
@@ -3115,7 +3689,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
           </div>
           {/* Fila 2: filtros */}
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-            {modo==="periodo"&&<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {modo==="periodo"&&<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
             {modo==="dia"&&<DateIn label="Fecha" value={fechaDia} onChange={setFechaDia}/>}
             <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
             <Sel label="Tipo" value={tipoMant} onChange={setTipoMant} options={[{value:"todos",label:"Todos"},...tiposMant.map(t=>({value:t,label:t}))]}/>
@@ -3657,13 +4231,18 @@ function generarExcelMantenimiento(rows, usdRate, label){
 }
 
 // ─── ViewRankingOperarios ─────────────────────────────────────────────────────
-function ViewRankingOperarios({rop02All,rop05}){
+function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!isExcluded(r.maquina)&&r.estado==="TRABAJO"),[rop02All]);
-  const[proyecto,setProyecto]=useState("todos");
-  const[modeR,setModeR]=useState("periodo");
-  const[fecha,setFecha]=useState("");
-  const[fechaD,setFechaD]=useState("");
-  const[fechaH,setFechaH]=useState("");
+  const proyecto=extState?.proyecto??"todos";
+  const setProyecto=v=>setExtState(s=>({...s,proyecto:v}));
+  const modeR=extState?.modeR??"periodo";
+  const setModeR=v=>setExtState(s=>({...s,modeR:v}));
+  const fecha=extState?.fecha??"";
+  const setFecha=v=>setExtState(s=>({...s,fecha:v}));
+  const fechaD=extState?.fechaD??"";
+  const setFechaD=v=>setExtState(s=>({...s,fechaD:v}));
+  const fechaH=extState?.fechaH??"";
+  const setFechaH=v=>setExtState(s=>({...s,fechaH:v}));
   const proyectos=useMemo(()=>uniq(rop02Prod.map(r=>r.proyecto)),[rop02Prod]);
 
   const filtered=useMemo(()=>rop02Prod.filter(r=>{
@@ -3718,7 +4297,7 @@ function ViewRankingOperarios({rop02All,rop05}){
           {/* Fila 2: filtros */}
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {modeR==="dia"&&<DateIn label="Fecha" value={fecha} onChange={setFecha}/>}
-            {modeR==="periodo"&&<><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {modeR==="periodo"&&<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
             <Sel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
             <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
           </div>
@@ -3775,6 +4354,8 @@ export default function App(){
   const[dashSt,setDashSt]=useState({proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""});
   const[rma15,setRma15]=useState([]);
   const[stMant,setStMant]=useState({modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:""});
+  const[stCHC,setStCHC]=useState({proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()});
+  const[stRanking,setStRanking]=useState({proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""});
   const[usdRate,setUsdRate]=useState(null);
 
   // Obtener tipo de cambio ARS→USD al cargar
@@ -3793,6 +4374,8 @@ export default function App(){
   const[insumos,setInsumos]=useState({});
   const[st02,setSt02]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
   const[stVeh,setStVeh]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
+  const[stComb,setStComb]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
+  const[stCtrlEquipo,setStCtrlEquipo]=useState({proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:"",controlActivo:"numeracion"});
   const[st05,setSt05]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}});
   const[stCtrl,setStCtrl]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}});
 
@@ -3862,6 +4445,8 @@ export default function App(){
     {id:"_rop02",icon:"parts",label:"ROP02",isGroup:true},
     {id:"rop02",icon:"parts",label:"Equipos",indent:true},
     {id:"vehiculos",icon:"equip",label:"Vehículos",indent:true},
+    {id:"ctrlEquipo",icon:"consist",label:"Control por Equipo",indent:true},
+    {id:"combustible",icon:"fuel",label:"Combustible",indent:true},
     {id:"_rop05",icon:"prod",label:"ROP05",isGroup:true},
     {id:"rop05",icon:"prod",label:"Productividad",indent:true},
     {id:"ranking",icon:"person",label:"Ranking Operarios",indent:true},
@@ -3870,7 +4455,7 @@ export default function App(){
     {id:"chc",icon:"consist",label:"ICHC"},
     {id:"control",icon:"control",label:"Control ROP05 vs ROP02",badge:control.problemas>0?control.problemas:null},
   ];
-  const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",control:"Consistencia ROP02 vs ROP05"};
+  const titles={dashboard:"Dashboard",rop02:"Equipos",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",control:"Consistencia ROP02 vs ROP05"};
   const SW=sidebarOpen?240:52;
 
   if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
@@ -3937,10 +4522,12 @@ export default function App(){
                 {view==="dashboard"&&<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>}
                 {view==="rop02"&&<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>}
                 {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>}
+                {view==="ctrlEquipo"&&<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>}
+                {view==="combustible"&&<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>}
                 {view==="rop05"&&<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>}
-                {view==="ranking"&&<ViewRankingOperarios rop02All={rop02All} rop05={rop05}/>}
+                {view==="ranking"&&<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>}
                 {view==="mant"&&<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>}
-                {view==="chc"&&<ViewCHC rop02All={rop02All}/>}
+                {view==="chc"&&<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>}
                 {view==="control"&&<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>}
               </>
             )}
