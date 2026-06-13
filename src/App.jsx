@@ -4566,6 +4566,69 @@ function InsumoSearch({value,onChange,opciones}){
 
 
 
+
+function CodeMultiSearch({value,onChange,options,label="Código"}){
+  const[open,setOpen]=useState(false);
+  const[search,setSearch]=useState("");
+  const ref=useRef(null);
+  const selected=Array.isArray(value)?value:[];
+  const isAll=!Array.isArray(value)||selected.length===0||value==="todos";
+  const realOptions=(options||[]).filter(o=>o.value!=="todos");
+  const filteredOptions=useMemo(()=>{
+    const q=cleanKey(search);
+    if(!q)return realOptions;
+    return realOptions.filter(o=>cleanKey(o.value).includes(q)||cleanKey(o.label).includes(q));
+  },[realOptions,search]);
+
+  useEffect(()=>{
+    const handler=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
+    document.addEventListener("mousedown",handler);
+    return()=>document.removeEventListener("mousedown",handler);
+  },[]);
+
+  const emit=(arr)=>{
+    const clean=[...new Set(arr.filter(Boolean).filter(v=>v!=="todos"))];
+    if(clean.length===0||clean.length>=realOptions.length)onChange("todos");
+    else onChange(clean);
+  };
+  const toggle=(v)=>{
+    const s=new Set(selected);
+    if(s.has(v))s.delete(v);else s.add(v);
+    emit([...s]);
+  };
+  const selectedText=isAll?"Todos":(selected.length===1?selected[0]:`${selected.length} códigos`);
+
+  return(
+    <div ref={ref} style={{position:"relative",minWidth:230}}>
+      <button type="button" onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:C.surface,border:`1px solid ${isAll?C.border:C.blue+"88"}`,borderRadius:8,color:isAll?C.textSub:C.blue,padding:"8px 10px",fontSize:12,fontWeight:700,fontFamily:"Inter",cursor:"pointer"}}>
+        <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}: {selectedText}</span>
+        <Icon name="chevronDown" size={14} color={isAll?C.textMuted:C.blue}/>
+      </button>
+      {open&&(
+        <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",zIndex:50,width:310,maxHeight:360,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:8}}>
+          <input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar código o insumo..." style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,outline:"none",marginBottom:8}}/>
+          <button type="button" onClick={()=>onChange("todos")} style={{width:"100%",textAlign:"left",background:isAll?C.blueDim:"transparent",border:"none",borderRadius:7,color:isAll?C.blue:C.textSub,padding:"7px 8px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Inter"}}>Todos</button>
+          <div style={{height:1,background:C.border,margin:"6px 0"}}/>
+          <div style={{maxHeight:250,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+            {filteredOptions.length===0?(
+              <div style={{padding:12,color:C.textMuted,fontSize:12,textAlign:"center"}}>Sin códigos coincidentes</div>
+            ):filteredOptions.map(o=>{
+              const checked=!isAll&&selected.includes(o.value);
+              return(
+                <label key={o.value} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:7,cursor:"pointer",background:checked?C.blueDim:"transparent",color:checked?C.text:C.textSub,fontSize:12}}>
+                  <input type="checkbox" checked={checked} onChange={()=>toggle(o.value)} style={{accentColor:C.blue}}/>
+                  <span style={{color:C.blue,fontWeight:800,minWidth:52}}>{o.value}</span>
+                  <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label.replace(`${o.value} — `,"")}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ViewCostosUnitarios ──────────────────────────────────────────────────────
 function ViewCostosUnitarios({insumos,usdRate}){
   const[search,setSearch]=useState("");
@@ -4620,7 +4683,7 @@ function ViewCostosUnitarios({insumos,usdRate}){
 
 // ─── ViewMantenimiento ────────────────────────────────────────────────────────
 function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
-  const{modo,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,filtroCosto,insumoFiltro,verGastosExcesivos=false}=extState;
+  const{modo,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,filtroCosto,insumoFiltro,verGastosExcesivos=false,codigoGastoFiltro="todos"}=extState;
   const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
   const setModo=v=>set("modo",v);
   const setProyecto=v=>set("proyecto",v);
@@ -4631,6 +4694,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const setFechaDia=v=>set("fechaDia",v);
   const setFiltroCosto=v=>set("filtroCosto",v);
   const setInsumoFiltro=v=>set("insumoFiltro",v);
+  const setCodigoGastoFiltro=v=>set("codigoGastoFiltro",v);
 
   // Normalizar tipo para comparación case-insensitive
   const normTipo=v=>String(v||"").trim().toLowerCase();
@@ -4713,6 +4777,19 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
       .sort((a,b)=>(Number(b.precio)||0)-(Number(a.precio)||0));
   },[filtered]);
 
+  const codigosGastosExcesivos=useMemo(()=>{
+    const m={};
+    gastosExcesivosPorMaquina.forEach(x=>{if(x.codigo&&!m[x.codigo])m[x.codigo]=x.insumo||x.codigo;});
+    return Object.entries(m)
+      .sort((a,b)=>String(a[0]).localeCompare(String(b[0]),"es-AR",{numeric:true,sensitivity:"base"}))
+      .map(([codigo,insumo])=>({value:String(codigo),label:`${codigo} — ${insumo}`}));
+  },[gastosExcesivosPorMaquina]);
+
+  const gastosExcesivosFiltrados=useMemo(()=>{
+    if(multiIsAll(codigoGastoFiltro,"todos"))return gastosExcesivosPorMaquina;
+    return gastosExcesivosPorMaquina.filter(x=>matchMulti(String(x.codigo||""),codigoGastoFiltro,"todos"));
+  },[gastosExcesivosPorMaquina,codigoGastoFiltro]);
+
   // OTs por equipo
   const otsPorMaq={};
   filtered.forEach(r=>{otsPorMaq[r.maquina]=(otsPorMaq[r.maquina]||0)+1;});
@@ -4740,7 +4817,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const pieDataTipo=Object.entries(otsPorTipo).map(([name,value])=>({name,value}));
   const COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899"];
 
-  const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(tipoMant,"todos")||!multiIsAll(maquina,"todas")||fechaD||fechaH||fechaDia||insumoFiltro;
+  const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(tipoMant,"todos")||!multiIsAll(maquina,"todas")||fechaD||fechaH||fechaDia||insumoFiltro||!multiIsAll(codigoGastoFiltro,"todos");
 
   // Lista de insumos únicos para el selector (código + nombre, ordenado alfabéticamente)
   const insumosDisponibles=useMemo(()=>{
@@ -4757,7 +4834,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
     base.forEach(r=>r.insumos.forEach(i=>{if(i.codigo&&!m[i.codigo])m[i.codigo]=i.nombre||i.codigo;}));
     return Object.entries(m).sort((a,b)=>(a[1]||a[0]).localeCompare(b[1]||b[0]));
   },[rma15,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,modo]);
-  const reset=()=>{setProyecto("todos");setTipoMant("todos");setMaquina("todas");setFechaD("");setFechaH("");setFechaDia("");setInsumoFiltro("");};
+  const reset=()=>{setProyecto("todos");setTipoMant("todos");setMaquina("todas");setFechaD("");setFechaH("");setFechaDia("");setInsumoFiltro("");setCodigoGastoFiltro("todos");};
 
   const colsPeriodo=useMemo(()=>[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
@@ -4814,8 +4891,11 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
       </div>
 
       {verGastosExcesivos&&(
-        <Card title={`Gastos excesivos por máquina (${gastosExcesivosPorMaquina.length} ítems)`} action={
-          <span style={{fontSize:11,color:C.textMuted}}>Top 5 gastos individuales por máquina según el filtro aplicado</span>
+        <Card title={`Gastos excesivos por máquina (${gastosExcesivosFiltrados.length} ítems)`} action={
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
+            <span style={{fontSize:11,color:C.textMuted}}>Top 5 gastos individuales por máquina según el filtro aplicado</span>
+            <CodeMultiSearch value={codigoGastoFiltro} onChange={setCodigoGastoFiltro} options={[{value:"todos",label:"Todos"},...codigosGastosExcesivos]}/>
+          </div>
         }>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -4827,9 +4907,9 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                 </tr>
               </thead>
               <tbody>
-                {gastosExcesivosPorMaquina.length===0?
+                {gastosExcesivosFiltrados.length===0?
                   <tr><td colSpan={7} style={{padding:28,textAlign:"center",color:C.textMuted}}>Sin gastos con costo para el filtro aplicado</td></tr>:
-                  gastosExcesivosPorMaquina.map((x,i)=>(
+                  gastosExcesivosFiltrados.map((x,i)=>(
                     <tr key={`${x.codigo}-${x.maquina}-${x.fecha}-${i}`} style={{background:i%2===0?"transparent":C.surface+"55"}}>
                       <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{x.codigo}</td>
                       <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{x.insumo||"—"}</td>
