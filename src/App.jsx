@@ -107,9 +107,10 @@ const STYLES=`
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Inter',sans-serif;background:${C.bg};color:${C.text};-webkit-font-smoothing:antialiased}
-  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar{width:12px;height:12px}
   ::-webkit-scrollbar-track{background:${C.surface}}
-  ::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px}
+  ::-webkit-scrollbar-thumb{background:#4a4a4a;border-radius:6px;border:2px solid ${C.surface}}
+  ::-webkit-scrollbar-thumb:hover{background:#666666}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   .fade-in{animation:fadeIn .3s ease forwards}
@@ -171,6 +172,120 @@ function cleanMachine(v){
     .replace(/([A-Z]{2,4})-?(\d{1,3})$/,(_,a,n)=>`${a}-${String(n).padStart(4,"0")}`)
     .replace(/([A-Z]{2,4})-?(\d{4,})/,(_,a,n)=>`${a}-${n}`)
     .replace(/[-_]JM$/,"");
+}
+// ─── Matching difuso de columnas (Lista Maestra de Equipos) ───────────────────
+const COL_STOPWORDS=new Set(["de","del","la","el","los","las","en","y","al","con","sin","un","una"]);
+function tokenizeLabel(label){
+  return cleanKey(label).split(/[^a-z0-9]+/).filter(t=>t.length>1&&!COL_STOPWORDS.has(t));
+}
+function findColumnKey(allKeys,label,extraAliases=[]){
+  const variants=[label,...extraAliases];
+  for(const v of variants){
+    const target=cleanKey(v);
+    const exact=allKeys.find(k=>cleanKey(k)===target);
+    if(exact)return exact;
+  }
+  for(const v of variants){
+    const target=cleanKey(v);
+    const found=allKeys.find(k=>{const ck=cleanKey(k);return ck.includes(target)||target.includes(ck);});
+    if(found)return found;
+  }
+  let best=null,bestScore=0;
+  for(const v of variants){
+    const tokens=tokenizeLabel(v);
+    if(!tokens.length)continue;
+    allKeys.forEach(k=>{
+      const ck=cleanKey(k);
+      const score=tokens.filter(t=>ck.includes(t)).length;
+      const need=Math.max(1,Math.ceil(tokens.length*0.6));
+      if(score>=need&&score>bestScore){bestScore=score;best=k;}
+    });
+  }
+  return best;
+}
+// Código "principal" de una máquina ROP02 cuando viene con un alterno entre
+// paréntesis, ej. "MOT-0024-(MOT-0047)" → "MOT-0024" (la parte fuera del
+// paréntesis, que es la que se cruza contra "Código Drusila").
+function mainMachineCode(maquina){
+  const s=String(maquina||"");
+  const i=s.indexOf("(");
+  if(i===-1)return s;
+  return s.slice(0,i).replace(/[-\s]+$/,"");
+}
+function turnoOrder(turno){
+  return String(turno||"").toUpperCase().includes("NOCHE")?1:0;
+}
+// Último horómetro final registrado por máquina en ROP02 (todos los proyectos):
+// se toma el registro del último día con datos y, dentro de ese día, el del
+// último turno (Noche > Día).
+function buildLastHorometroMap(rop02All){
+  const groups={};
+  (rop02All||[]).forEach(r=>{
+    if(!r.maquina||!(Number(r.horometroFinal)>0))return;
+    const code=mainMachineCode(r.maquina);
+    if(!code)return;
+    (groups[code]=groups[code]||[]).push(r);
+  });
+  const map={};
+  Object.entries(groups).forEach(([code,list])=>{
+    const ordenadas=[...list].sort((a,b)=>
+      String(a.fecha||"").localeCompare(String(b.fecha||""))||
+      (turnoOrder(a.turno)-turnoOrder(b.turno))
+    );
+    const ultima=ordenadas[ordenadas.length-1];
+    map[code]={horometroFinal:Number(ultima.horometroFinal)||0,fecha:ultima.fecha||"",turno:ultima.turno||""};
+  });
+  return map;
+}
+
+// Horómetro por máquina para Lista Maestra:
+// - Sin fecha seleccionada: último horómetro final ROP02 disponible.
+// - Con fecha seleccionada: busca primero el último registro de ese día (TN > TD).
+//   Si la máquina no tiene horómetro ese día, busca el último registro ROP02
+//   anterior o igual al día filtrado. Si no existe anterior, usa el último
+//   ROP02 histórico de esa máquina.
+// - Si la máquina no tiene ningún ROP02 histórico, se usa la columna HORAS de
+//   la Lista Maestra como respaldo.
+function buildHorometroMapForLista(rop02All, fechaFiltro){
+  const allGroups={};
+  const dayGroups={};
+  const previousGroups={};
+
+  (rop02All||[]).forEach(r=>{
+    if(!r.maquina||!(Number(r.horometroFinal)>0))return;
+    const code=mainMachineCode(r.maquina);
+    if(!code)return;
+    (allGroups[code]=allGroups[code]||[]).push(r);
+
+    if(fechaFiltro){
+      if(r.fecha===fechaFiltro)(dayGroups[code]=dayGroups[code]||[]).push(r);
+      if(r.fecha&&r.fecha<=fechaFiltro)(previousGroups[code]=previousGroups[code]||[]).push(r);
+    }
+  });
+
+  const pickLast=(list)=>{
+    const ordenadas=[...(list||[])].sort((a,b)=>
+      String(a.fecha||"").localeCompare(String(b.fecha||""))||
+      (turnoOrder(a.turno)-turnoOrder(b.turno))
+    );
+    return ordenadas[ordenadas.length-1]||null;
+  };
+
+  const map={};
+  Object.keys(allGroups).forEach(code=>{
+    const exacta=fechaFiltro?pickLast(dayGroups[code]):null;
+    const anterior=fechaFiltro&&!exacta?pickLast(previousGroups[code]):null;
+    const historica=!exacta&&!anterior?pickLast(allGroups[code]):null;
+    const ultima=exacta||anterior||historica;
+    if(!ultima)return;
+    map[code]={
+      horometroFinal:Number(ultima.horometroFinal)||0,
+      fecha:ultima.fecha||"",
+      turno:ultima.turno||"",
+      modo:fechaFiltro?(exacta?"dia":(anterior?"fallback_ultimo":"fallback_historico")):"ultimo"
+    };
+  });
+  return map;
 }
 function detectEstado(trabajo,obs,hs){
   // La fuente de verdad es la columna Cant. Hs.:
@@ -415,40 +530,101 @@ function normalizeRMA15(r, insumosMap){
 }
 
 function normalizeROP05(rows){
+  // BUG CRÍTICO CORREGIDO:
+  // Para controles ROP02 vs ROP05, la fecha válida de ROP05 es SIEMPRE la
+  // fecha del parte diario / FechaParte. La fecha de carga (Marca Temporal,
+  // Marca Tmeporal, FechaCarga) NO se usa para correlacionar contra ROP02.
   return(rows||[]).map(r=>{
-    const tareaRaw=String(r["Tarea"]||r["TAREAS PRODUCTIVAS CON TOPADORAS"]||r["TAREAS PRODUCTIVAS CON EXCAVADORAS"]||r["TAREAS PRODUCTIVAS CON CARGADORA FRONTAL"]||r["TAREAS PRODUCTIVAS CON MOTONIVELADORA"]||r["TAREAS PRODUCTIVAS CON RETROPALA"]||"").trim();
+    const maquinaRaw=getValue(r,["Equipo","Codigo Int","Código Int","Codigo interno","Código interno"]);
+
+    // Primero buscamos únicamente columnas que representen la fecha del PARTE.
+    // No incluimos FechaCarga ni Marca Temporal en esta lista para evitar que
+    // el control cruce contra la fecha en que se cargó el formulario.
+    let fechaRaw=getValue(r,[
+      "FechaParte",
+      "Fecha del Parte Diario",
+      "Fecha Parte",
+      "Fecha de Parte",
+      "Día Parte",
+      "Dia Parte",
+      "Fecha trabajo",
+      "Fecha de trabajo"
+    ]);
+
+    // Respaldo seguro para importaciones por posición: si el row viene armado
+    // como array/objeto por columnas, la columna H (índice 7) es FechaParte.
+    if(!fechaRaw && Array.isArray(r))fechaRaw=r[7];
+
+    // Último recurso: solo si NO existe ninguna fecha de parte, usamos la fecha
+    // de carga para no descartar la fila. Esta situación queda marcada para
+    // diagnóstico y NO debería ocurrir en ROP05 válido.
+    let _fechaDesdeCarga=false;
+    if(!fechaRaw){
+      fechaRaw=getValue(r,["FechaCarga","Marca Tmeporal","Marca Temporal"]);
+      _fechaDesdeCarga=!!fechaRaw;
+    }
+
+    const tareaRaw=String(getValue(r,[
+      "Tarea",
+      "TAREAS PRODUCTIVAS CON TOPADORAS",
+      "TAREAS PRODUCTIVAS CON EXCAVADORAS",
+      "TAREAS PRODUCTIVAS CON CARGADORA FRONTAL",
+      "TAREAS PRODUCTIVAS CON MOTONIVELADORA",
+      "TAREAS PRODUCTIVAS CON RETROPALA"
+    ])||"").trim();
     const tarea=normTarea(tareaRaw);
-    const cantHs=getValue(r,["CANTIDAD DE HS PRODUCTIVAS EFECTIVAS\n(SOLO CANTIDAD)","CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)","HS PRODUCTIVAS EFECTIVAS","Horas","Hs"]);
-    const cantProd=getValue(r,["CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA\n(SIN UNIDADES DE MEDIDA)","CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)","CANTIDAD DE PRODUCCIÓN","CANTIDAD DE PRODUCCION","Cantidad"]);
+    const cantHs=getValue(r,[
+      "HorasProductivas",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS\n(SOLO CANTIDAD)",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)",
+      "HS PRODUCTIVAS EFECTIVAS",
+      "Horas",
+      "Hs"
+    ]);
+    const cantProd=getValue(r,[
+      "CantidadProduccion",
+      "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA\n(SIN UNIDADES DE MEDIDA)",
+      "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)",
+      "CANTIDAD DE PRODUCCIÓN",
+      "CANTIDAD DE PRODUCCION",
+      "Cantidad"
+    ]);
+    const obs=getValue(r,[
+      "Observacion",
+      "Observación",
+      "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.",
+      "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA",
+      "OBSERVACION DE LA TAREA",
+      "OBSERVACIONES DE LA TAREA",
+      "Observaciones",
+      "observaciones",
+      "OBSERVACIONES",
+      "Obs",
+      "OBS"
+    ]);
+    const maquina=cleanMachine(maquinaRaw);
     return{
-      fecha:normDate(r["Fecha del Parte Diario"]||r["Marca Tmeporal"]||r["Marca Temporal"]),
-      maquina:cleanMachine(r["Codigo Int"]),
-      tipo_maquina:String(r["Tipo de máquina"]||r["Tipo de maquina"]||"").trim(),
-      tarea,horas:toNumber(cantHs),cantidad:toNumber(cantProd),
-      unidad:String(r["UNIDAD DE PRODUCTIVIDAD"]||"").trim().toUpperCase(),
-      proyecto:normProject(r["Proyecto"]),
-      supervisor:normSupervisorROP05(r["Supervisor"]),
-      parte:String(r["N° de Parte"]||"").trim(),
-      grupo:String(r["Grupo de trabajo"]||"").trim(),
-      observaciones:String(getValue(r,[
-        "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.",
-        "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA",
-        "OBSERVACION DE LA TAREA",
-        "OBSERVACIONES DE LA TAREA",
-        "Observacion",
-        "Observación",
-        "OBSERVACION",
-        "OBSERVACIONES",
-        "Observaciones",
-        "observaciones",
-        "Obs",
-        "OBS",
-      ])||"").trim(),
-      _excluded:isExcluded(cleanMachine(r["Codigo Int"])),
-      _tipo:getMachineType(r["Codigo Int"])||"",
+      fecha:normDate(fechaRaw),
+      fechaParte:normDate(fechaRaw),
+      fechaCarga:normDate(getValue(r,["FechaCarga","Marca Tmeporal","Marca Temporal"])),
+      _fechaDesdeCarga,
+      maquina,
+      tipo_maquina:String(getValue(r,["TipoEquipo","Tipo Equipo","Tipo de máquina","Tipo de maquina"])||"").trim(),
+      tarea,
+      horas:toNumber(cantHs),
+      cantidad:toNumber(cantProd),
+      unidad:String(getValue(r,["Unidad","UNIDAD DE PRODUCTIVIDAD"])||"").trim().toUpperCase(),
+      proyecto:normProject(getValue(r,["Proyecto"])),
+      supervisor:normSupervisorROP05(getValue(r,["CorreoSupervisor","Supervisor"])),
+      parte:String(getValue(r,["NroParte","N° de Parte","Nro Parte","Numero de Parte","Número de Parte"])||"").trim(),
+      grupo:String(getValue(r,["GrupoTrabajo","Grupo de trabajo"])||"").trim(),
+      observaciones:String(obs||"").trim(),
+      _excluded:isExcluded(maquina),
+      _tipo:getMachineType(maquina)||"",
     };
   }).filter(r=>r.fecha&&r.maquina);
 }
+
 function esNoProductivo(e){const s=String(e||"").toUpperCase();return s==="FS"||s==="OD"||s.includes("FUERA")||s.includes("OTRO");}
 function calcControl(rop02All,rop05){
   const productivos=(rop02All||[]).filter(r=>!esNoProductivo(r.estado)&&!r._excluded);
@@ -511,6 +687,7 @@ const PATHS={
   wear:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z",
   filter:"M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z",
   person:"M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z",
+  dollar:"M11 2h2v2.06c2.28.28 4 1.55 4 3.44h-2c0-.86-.9-1.55-2-1.55h-2c-1.1 0-2 .69-2 1.55s.9 1.55 2 1.55h2c2.21 0 4 1.43 4 3.2 0 1.9-1.72 3.16-4 3.44V18h-2v-2.06c-2.28-.28-4-1.55-4-3.44h2c0 .86.9 1.55 2 1.55h2c1.1 0 2-.69 2-1.55s-.9-1.55-2-1.55h-2c-2.21 0-4-1.43-4-3.2 0-1.9 1.72-3.16 4-3.44V2z",
 };
 function Icon({name,size=18,color="currentColor",style}){
   const p=PATHS[name];if(!p)return null;
@@ -543,7 +720,7 @@ function Card({children,style,title,action}){
     </div>
   );
 }
-function Table({cols,rows,maxH=380,emptyMsg="Sin datos"}){
+function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disableTooltip=false}){
   const ROW_H=36;
   const[scrollTop,setScrollTop]=useState(0);
   const[sortKey,setSortKey]=useState(null);
@@ -579,17 +756,20 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos"}){
   return(
     <div onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH}}>
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-        <thead><tr>{cols.map((c,i)=>(
+        <thead><tr>{cols.map((c,i)=>{
+          const sticky=stickyFirst&&i===0;
+          return(
           <th key={i} onClick={()=>c.key&&handleSort(c.key)}
-            style={{padding:"9px 12px",textAlign:"left",position:"sticky",top:0,zIndex:1,background:C.surface,color:sortKey===c.key?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",cursor:c.key?"pointer":"default",userSelect:"none"}}>
+            style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?3:1,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===c.key?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",maxWidth:c.width||c.maxWidth||(c.wrap?120:undefined),minWidth:c.width||c.minWidth, width:c.width||(c.wrap?120:undefined),lineHeight:1.3,cursor:c.key?"pointer":"default",userSelect:"none"}}>
             {c.label}{sortKey===c.key?(sortDir==="asc"?" ↑":" ↓"):""}
           </th>
-        ))}</tr></thead>
+          );
+        })}</tr></thead>
         <tbody>
           {offsetY>0&&<tr style={{height:offsetY}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
           {visibleRows.map((r,i)=>{
             const absI=startIdx+i;
-            const hasTooltip=true;
+            const hasTooltip=!disableTooltip;
             const rowBg=absI%2===0?"transparent":C.surface+"66";
             return(
               <tr key={absI}
@@ -609,7 +789,12 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos"}){
                   const t=document.getElementById("row-tip");if(t)t.remove();
                 }}
               >
-                {cols.map((c,j)=><td key={j} style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",maxWidth:c.wrap?undefined:300}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>)}
+                {cols.map((c,j)=>{
+                  const sticky=stickyFirst&&j===0;
+                  return(
+                  <td key={j} style={{padding:c.compact?"8px 6px":"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textAlign:c.align||"left",maxWidth:c.maxWidth||(c.wrap?undefined:300),minWidth:c.width||c.minWidth,width:c.width,position:sticky?"sticky":undefined,left:sticky?0:undefined,zIndex:sticky?1:undefined,background:sticky?C.card:(c.color?c.color+"0a":undefined)}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>
+                  );
+                })}
               </tr>
             );
           })}
@@ -877,17 +1062,288 @@ function HelpTip({text}){
   );
 }
 
-// ─── fetchAll ─────────────────────────────────────────────────────────────────
-async function fetchAll(url){
-  // Cache-busting: evita que el navegador o la infraestructura de Google
-  // devuelvan una respuesta vieja en caché para el Apps Script
-  const res=await fetch(`${url}?action=all&_t=${Date.now()}`,{cache:"no-store"});
+// ─── Fetch Google Apps Script: carga liviana y bajo demanda ──────────────────
+async function fetchAction(url,action,{force=false}={}){
+  const qs=new URLSearchParams({action,_t:String(Date.now())});
+  if(force)qs.set("force","1");
+  const res=await fetch(`${url}?${qs.toString()}`,{cache:"no-store"});
   if(!res.ok)throw new Error(`HTTP ${res.status} desde el Apps Script`);
   const text=await res.text();
   let json;
   try{json=JSON.parse(text);}catch(e){throw new Error("El Apps Script devolvió HTML. Verificá que esté publicado como 'Cualquier persona'.");}
   if(!json.ok&&!json.sources)throw new Error(json.error?.message||"Respuesta inválida del Apps Script");
   return json;
+}
+async function fetchHealth(url){return fetchAction(url,"health");}
+async function fetchSource(url,source,{force=false}={}){return fetchAction(url,source,{force});}
+
+const VIEW_SOURCES={
+  dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
+  rop02:["rop02_fs","rop02_jm","rop02_filosur"],
+  horometros:["rop02_fs","rop02_jm","rop02_filosur"],
+  vehiculos:["rop02_fs","rop02_jm","rop02_filosur"],
+  ctrlEquipo:["rop02_fs","rop02_jm","rop02_filosur"],
+  combustible:["rop02_fs","rop02_jm","rop02_filosur"],
+  chc:["rop02_fs","rop02_jm","rop02_filosur"],
+  rop05:["rop05"],
+  ranking:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
+  control:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
+  mant:["insumos","rma15_fs","rma15_jm"],
+  costosUnitarios:["insumos"],
+  listaEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
+  importExcel:["rop02_fs","rop02_jm","rop05","rma15_fs","rma15_jm","insumos"],
+};
+
+// ─── ViewListaMaestraEquipos ──────────────────────────────────────────────────
+// Columnas en el orden solicitado, con alias para encontrar el encabezado real
+// de la planilla aunque varíe ligeramente en redacción/acentos.
+const LISTA_COLUMNS=[
+  {label:"Código Drusila",aliases:["Codigo Drusila","Código de Drusila","Cod Drusila"],group:"id"},
+  {label:"Código Nuevo",aliases:["Codigo Nuevo","Codigo Interno","Código Interno","CODIGO N° INTERNO","Interno"],group:"id"},
+  {label:"Familia",aliases:["Familia","Tipo de equipo","Tipo"],group:"id"},
+  {label:"Marca",aliases:["Marca"],group:"id"},
+  {label:"Propiedad",aliases:["Propiedad"],group:"id"},
+  {label:"N° Serie",aliases:["N Serie","Nro Serie","Numero de Serie","N° de Serie"],group:"id"},
+  {label:"Potencia",aliases:["Potencia"],group:"tec"},
+  {label:"Año Fabricación",aliases:["Año de Fabricacion","Anio de Fabricacion","Año Fabricacion"],group:"tec"},
+  {label:"Fecha Ingreso",aliases:["Fecha de Ingreso a la Empresa","Fecha de Ingreso","Ingreso a la Empresa"],group:"tec"},
+  {label:"Horómetro",special:"horometro",aliases:[],group:"tec"},
+  {label:"Costo Local USD (s/IVA)",aliases:["Costo Local en Dolares sin IVA","Costo Local USD sin IVA","Costo Local Dolares"],group:"costo"},
+  {label:"Tipo Combustible",aliases:["Tipo de Combustible"],group:"tec"},
+  {label:"Capacidad",aliases:["Capacidad"],group:"tec"},
+  {label:"Tarifa Mensual Alquiler",aliases:["Tarifa Mensual de Alquiler","Tarifa de Alquiler Mensual"],group:"costo"},
+  {label:"Horas Trab. x Mes",aliases:["Horas Trabajadas por Mes","Horas Trab por Mes","Horas de Trabajo por Mes"],group:"costo"},
+  {label:"Cant. Neumáticos",aliases:["Cantidad de Neumaticos","Cantidad Neumaticos"],group:"neum",width:95,align:"center",compact:true},
+  {label:"Costo Neumático USD/u",aliases:["Costo de Neumaticos en Dolares por Unidad","Costo Neumatico USD Unidad","Costo Neumaticos Dolares"],group:"neum",width:112,align:"center",compact:true},
+  {label:"Combustible (lts/hs y km/hs)",aliases:["Combustible lts hs y km hs","Consumo Combustible lts hs km hs"],group:"uso",width:110,align:"center",compact:true},
+  {label:"Vida Útil hs/km",aliases:["Vida Util hs km","Vida Util"],group:"tec"},
+  {label:"Horas Hombre (Mecánico)",aliases:["Horas Hombre Mecanico","Horas Hombre"],group:"uso",width:105,align:"center",compact:true},
+  {label:"Lugar de Alquiler",aliases:["Lugar de Alquiler","Lugar Alquiler"],group:"uso"},
+];
+
+// ─── Export Excel Lista Maestra de Equipos ────────────────────────────────────
+function generarExcelListaMaestra(rows, cols, label){
+  const wb=XLSX.utils.book_new();
+  const headers=cols.map(c=>c.label);
+  const data=[headers];
+  rows.forEach(r=>{
+    data.push(cols.map(c=>{
+      if(c.key==="_horometroDisplay")return r._horometroValue!=null?r._horometroValue:"";
+      const v=r[c.key];
+      return v==null?"":v;
+    }));
+  });
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"]=cols.map(c=>({wch:c.wrap?24:14}));
+  XLSX.utils.book_append_sheet(wb,ws,"Lista Equipos");
+  XLSX.writeFile(wb,`Lista_Maestra_Equipos_${label}.xlsx`);
+}
+
+function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
+  const[search,setSearch]=useState("");
+  const[fechaHorometro,setFechaHorometro]=useState("");
+  const[filtersOpen,setFiltersOpen]=useState(false);
+  const[addOpen,setAddOpen]=useState(false);
+  const[newEquipo,setNewEquipo]=useState({});
+  const[savingEquipo,setSavingEquipo]=useState(false);
+  const[addMsg,setAddMsg]=useState(null);
+  const data=useMemo(()=>rows||[],[rows]);
+  const allKeys=useMemo(()=>{
+    const set=new Set();
+    data.slice(0,200).forEach(r=>Object.keys(r||{}).forEach(k=>{if(k&&String(k).trim())set.add(k);}));
+    return Array.from(set);
+  },[data]);
+
+  // Columna "HORAS" de la planilla: valor de respaldo cuando la máquina no
+  // tiene registros en ROP02 (no se separa con findColumnKey para que no
+  // "robe" el match de otras columnas como "Horas Trab. x Mes").
+  const horasKey=useMemo(()=>allKeys.find(k=>cleanKey(k)==="horas"),[allKeys]);
+  const searchableKeys=useMemo(()=>allKeys.filter(k=>k!==horasKey),[allKeys,horasKey]);
+
+  // Clave de código usada para cruzar contra ROP02: el código fuera de
+  // paréntesis en ROP02 (ej. "MOT-0024" en "MOT-0024 (MOT-0047)") corresponde
+  // al "Código Drusila" de la lista maestra.
+  const drusilaKey=useMemo(()=>findColumnKey(searchableKeys,"Codigo Drusila",["Codigo de Drusila","Cod Drusila"]),[searchableKeys]);
+  const horometroMap=useMemo(()=>buildHorometroMapForLista(rop02All,fechaHorometro),[rop02All,fechaHorometro]);
+
+  const dataWithKey=useMemo(()=>data.map(r=>{
+    const maquinaKey=cleanMachine(r[drusilaKey]||"");
+    const ropInfo=horometroMap[maquinaKey]||null;
+    const fallbackRaw=horasKey?String(r[horasKey]||"").trim():"";
+    const fallbackNum=fallbackRaw?parseFloat(fallbackRaw.replace(/[^0-9.-]/g,"")):NaN;
+    // Prioridad del horómetro:
+    // 1) ROP02 del día filtrado, si existe.
+    // 2) Si ese día no existe, último horómetro final ROP02 de la máquina.
+    // 3) Si la máquina no tiene ninguna carga ROP02 histórica, columna HORAS de la Lista Maestra.
+    const horometroValue=ropInfo?ropInfo.horometroFinal:(Number.isFinite(fallbackNum)?fallbackNum:null);
+    return{
+      ...r,
+      _maquinaKey:maquinaKey,
+      _ropInfo:ropInfo,
+      _horometroValue:horometroValue,
+      _horometroDisplay:horometroValue!=null?fmtNum(horometroValue):"",
+    };
+  }),[data,drusilaKey,horometroMap,horasKey,fechaHorometro]);
+
+  const q=cleanKey(search);
+  const searched=useMemo(()=>{
+    if(!q)return dataWithKey;
+    return dataWithKey.filter(r=>searchableKeys.some(k=>cleanKey(r[k]).includes(q)));
+  },[dataWithKey,searchableKeys,q]);
+
+  const cols=useMemo(()=>LISTA_COLUMNS.map((col,idx)=>{
+    if(col.special==="horometro"){
+      return{
+        key:"_horometroDisplay",label:col.label,filterKey:"_horometroDisplay",
+        render:(_v,row)=>{
+          if(row._horometroValue==null)return<span style={{color:C.textMuted}}>—</span>;
+          if(row._ropInfo){
+            const isFallback=row._ropInfo.modo==="fallback_ultimo"||row._ropInfo.modo==="fallback_historico";
+            const tip=`${isFallback?"Sin registro el día elegido. Último horómetro final ROP02 disponible":"Registro ROP02"}: ${fmtFecha(row._ropInfo.fecha)}${row._ropInfo.turno?` (${row._ropInfo.turno})`:""}`;
+            return<span style={{display:"inline-block",padding:"2px 7px",borderRadius:5,background:(isFallback?C.yellow:C.green)+"33",border:`1px solid ${(isFallback?C.yellow:C.green)}55`,color:"#fff",fontWeight:700}} title={tip}>{fmtNum(row._horometroValue)}</span>;
+          }
+          return<span style={{display:"inline-block",padding:"2px 7px",borderRadius:5,background:C.red+"33",border:`1px solid ${C.red}55`,color:"#fff",fontWeight:700}} title="Sin registros en ROP02 — valor fijo de la planilla (columna HORAS), no se actualiza">{fmtNum(row._horometroValue)}</span>;
+        }
+      };
+    }
+    const realKey=findColumnKey(searchableKeys,col.label,col.aliases);
+    const isCodigo=idx===0; // Código Drusila → badge, igual al estilo de la columna MÁQUINA en ROP02
+    return{
+      key:realKey||`_missing_${idx}`,label:col.label,wrap:col.label.length>=17,
+      width:col.width, minWidth:col.minWidth, maxWidth:col.maxWidth,
+      align:col.align, compact:col.compact, color:col.color,
+      filterKey:realKey||null,
+      render:!realKey?()=><span style={{color:C.textMuted}}>—</span>:
+        isCodigo?(v)=>v?<Badge color={C.purple}>{v}</Badge>:<span style={{color:C.textMuted}}>—</span>:
+        undefined,
+    };
+  }),[searchableKeys,fechaHorometro]);
+
+  // ── Filtros desplegables facetados, uno por columna ──
+  const filterFields=useMemo(()=>{
+    const seen=new Set();
+    return cols.filter(c=>c.filterKey&&!seen.has(c.filterKey)&&(seen.add(c.filterKey),true))
+      .map(c=>({key:c.filterKey,label:c.label,color:c.color}));
+  },[cols]);
+  const filterKeysOnly=useMemo(()=>filterFields.map(f=>f.key),[filterFields]);
+  const{vals:fVals,set:fSet,opts:fOpts,filtered,reset:fReset,hayFiltros}=useSimpleFacetedFilters(searched,filterKeysOnly);
+
+  const formFields=useMemo(()=>LISTA_COLUMNS.map(col=>{
+    const realKey=col.special==="horometro"
+      ? (horasKey||"HORAS")
+      : (findColumnKey(searchableKeys,col.label,col.aliases)||col.label);
+    return{...col,key:realKey,inputType:col.label.toLowerCase().includes("fecha")?"date":"text"};
+  }),[searchableKeys,horasKey]);
+
+  const setNewEquipoValue=useCallback((key,value)=>{
+    setNewEquipo(prev=>({...prev,[key]:value}));
+  },[]);
+
+  const limpiarNuevoEquipo=useCallback(()=>{
+    setNewEquipo({});
+    setAddMsg(null);
+  },[]);
+
+  const guardarNuevoEquipo=useCallback(async()=>{
+    const codigoDrusilaField=formFields.find(f=>cleanKey(f.label).includes("codigo drusila"));
+    const codigoNuevoField=formFields.find(f=>cleanKey(f.label).includes("codigo nuevo"));
+    const codigoDrusila=String(newEquipo[codigoDrusilaField?.key]||"").trim();
+    const codigoNuevo=String(newEquipo[codigoNuevoField?.key]||"").trim();
+    if(!codigoDrusila&&!codigoNuevo){
+      setAddMsg({type:"error",text:"Completá al menos Código Drusila o Código Nuevo."});
+      return;
+    }
+    setSavingEquipo(true);
+    setAddMsg({type:"info",text:"Guardando equipo en Google Sheets..."});
+    try{
+      const cleanRow={};
+      formFields.forEach(f=>{
+        const v=newEquipo[f.key];
+        if(v!==undefined&&String(v).trim()!=="")cleanRow[f.key]=String(v).trim();
+      });
+      const res=await postAddListaEquipo(cleanRow);
+      setAddMsg({type:"success",text:`Equipo guardado en la fila ${res.rowNumber||"nueva"}.`});
+      setNewEquipo({});
+      if(onReloadLista)await onReloadLista();
+    }catch(err){
+      setAddMsg({type:"error",text:err.message});
+    }finally{
+      setSavingEquipo(false);
+    }
+  },[formFields,newEquipo,onReloadLista]);
+
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+        <StatCard icon="equip" label="Equipos en lista" value={fmtNum(data.length)} sub="Registros cargados desde Google Sheets" color={C.teal} small/>
+        <StatCard icon="filter" label="Resultado filtrado" value={fmtNum(filtered.length)} sub={search||hayFiltros?"Según búsqueda / filtros":"Sin filtros aplicados"} color={C.blue} small/>
+        <StatCard icon="hours" label="Con horómetro ROP02" value={fmtNum(filtered.filter(r=>r._ropInfo).length)} sub={fechaHorometro?`Del día o último disponible`:"Último disponible"} color={C.accent} small/>
+        <StatCard icon="warn" label={fechaHorometro?"Usan último ROP02":"Valor fijo (HORAS)"} value={fmtNum(fechaHorometro?filtered.filter(r=>r._ropInfo?.modo==="fallback_ultimo"||r._ropInfo?.modo==="fallback_historico").length:filtered.filter(r=>!r._ropInfo&&r._horometroValue!=null).length)} sub={fechaHorometro?"No tenían ROP02 ese día":"Sin registros en ROP02"} color={C.red} small/>
+      </div>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:C.textSub}}>
+        <span><Badge color={C.green}>●</Badge> {fechaHorometro?`Horómetro ROP02 del ${fmtFecha(fechaHorometro)}`:"Último horómetro ROP02"}</span>
+        {fechaHorometro&&<span><Badge color={C.yellow}>●</Badge> Sin registro ese día: muestra el último horómetro final disponible</span>}
+        <span><Badge color={C.red}>●</Badge> Sin ROP02 histórico: horómetro fijo de planilla</span>
+      </div>
+      <Card title="Lista Maestra de Equipos" action={
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${fechaHorometro?C.accent+"55":C.border}`,borderRadius:8,padding:"5px 8px"}}>
+            <span style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>Horómetro día</span>
+            <input type="date" value={fechaHorometro} onChange={e=>setFechaHorometro(e.target.value)} style={{background:"transparent",border:"none",color:C.text,fontSize:12,outline:"none",fontFamily:"Inter"}}/>
+            {fechaHorometro&&<button onClick={()=>setFechaHorometro("")} title="Sin día: mostrar último horómetro" style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:6,color:C.red,padding:"3px 7px",fontSize:11,fontWeight:700,cursor:"pointer"}}>×</button>}
+          </div>
+          <button onClick={()=>{setAddOpen(o=>!o);setAddMsg(null);}} style={{background:addOpen?C.accentDim:C.tealDim,border:`1px solid ${addOpen?C.accent+"55":C.teal+"44"}`,borderRadius:7,color:addOpen?C.accent:C.teal,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            + Cargar nuevo equipo
+          </button>
+          <button onClick={()=>generarExcelListaMaestra(filtered,cols,new Date().toISOString().slice(0,10).replace(/-/g,""))} style={{background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:7,color:C.green,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            ⬇ Generar reporte
+          </button>
+          {hayFiltros&&<button onClick={fReset} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Limpiar filtros</button>}
+          <button onClick={()=>setFiltersOpen(o=>!o)} style={{background:filtersOpen?C.accentDim:C.surface,border:`1px solid ${filtersOpen?C.accent+"55":C.border}`,borderRadius:7,color:filtersOpen?C.accent:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            <Icon name="filter" size={13} color={filtersOpen?C.accent:C.textSub}/>Filtros{hayFiltros?` (${filterKeysOnly.filter(k=>!multiIsAll(fVals[k])).length})`:""}
+          </button>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar equipo, tipo, marca, proyecto..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:240,outline:"none"}}/>
+        </div>
+      }>
+        {addOpen&&(
+          <div style={{margin:"0 0 14px",padding:14,background:C.surface,border:`1px solid ${C.teal}33`,borderRadius:10}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:12}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:800,color:C.text}}>Nuevo equipo</div>
+                <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>Completá las celdas y guardá. El registro se agrega en la planilla base Lista Maestra de Equipos.</div>
+              </div>
+              <button onClick={()=>{setAddOpen(false);limpiarNuevoEquipo();}} disabled={savingEquipo} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"6px 10px",fontSize:12,fontWeight:700,cursor:savingEquipo?"not-allowed":"pointer"}}>Cerrar</button>
+            </div>
+            {addMsg&&<div style={{marginBottom:12,padding:"9px 11px",borderRadius:8,fontSize:12,color:addMsg.type==="error"?C.red:addMsg.type==="success"?C.green:C.blue,background:(addMsg.type==="error"?C.redDim:addMsg.type==="success"?C.greenDim:C.blueDim),border:`1px solid ${(addMsg.type==="error"?C.red:addMsg.type==="success"?C.green:C.blue)}44`}}>{addMsg.text}</div>}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
+              {formFields.map(f=>(
+                <div key={f.key+f.label} style={{display:"flex",flexDirection:"column",gap:4}}>
+                  <label style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>{f.label}{f.special==="horometro"&&<span style={{color:C.yellow}}> → HORAS</span>}</label>
+                  <input type={f.inputType} value={newEquipo[f.key]||""} onChange={e=>setNewEquipoValue(f.key,e.target.value)} placeholder={f.special==="horometro"?"Valor inicial si no hay ROP02":""} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"8px 10px",fontSize:12,outline:"none"}}/>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
+              <button onClick={limpiarNuevoEquipo} disabled={savingEquipo} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:savingEquipo?"not-allowed":"pointer"}}>Limpiar</button>
+              <button onClick={guardarNuevoEquipo} disabled={savingEquipo} style={{background:C.tealDim,border:`1px solid ${C.teal}55`,borderRadius:7,color:C.teal,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:savingEquipo?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:7}}>
+                {savingEquipo?<Spinner size={13}/>:<Icon name="check" size={13} color={C.teal}/>}
+                {savingEquipo?"Guardando...":"Guardar en planilla"}
+              </button>
+            </div>
+          </div>
+        )}
+        {filtersOpen&&(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,padding:"4px 0 14px"}}>
+            {filterFields.map(f=>(
+              <MultiSel key={f.key} label={f.label} value={fVals[f.key]} onChange={v=>fSet(f.key,v)}
+                options={[{value:"todos",label:"Todos"},...(fOpts[f.key]||[]).map(v=>({value:v,label:v}))]}/>
+            ))}
+          </div>
+        )}
+        <Table cols={cols} rows={filtered} maxH={620} emptyMsg="Sin equipos para mostrar" stickyFirst disableTooltip/>
+      </Card>
+    </div>
+  );
 }
 
 // ─── ViewDashboard ────────────────────────────────────────────────────────────
@@ -1537,6 +1993,48 @@ function useFacetedFilters(allRows, filterKeys, extState, setExtState){
   return{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,byFecha,filtered,opts,vals,set,reset,hayFiltros};
 }
 
+// Filtros facetados simples (sin dimensión de fecha), para tablas estáticas
+// como la Lista Maestra de Equipos: cada filtro muestra solo las opciones
+// compatibles con los demás filtros activos.
+function sortFacetValues(arr){
+  return [...arr].sort((a,b)=>{
+    const na=parseFloat(String(a).replace(/\./g,"").replace(",","."));
+    const nb=parseFloat(String(b).replace(/\./g,"").replace(",","."));
+    if(Number.isFinite(na)&&Number.isFinite(nb))return na-nb;
+    return String(a).localeCompare(String(b),"es");
+  });
+}
+function useSimpleFacetedFilters(rows, keys){
+  const[vals,setVals]=useState({});
+  useEffect(()=>{
+    setVals(prev=>{
+      let changed=false;
+      const next={...prev};
+      keys.forEach(k=>{if(!(k in next)){next[k]="todos";changed=true;}});
+      Object.keys(next).forEach(k=>{if(!keys.includes(k)){delete next[k];changed=true;}});
+      return changed?next:prev;
+    });
+  },[keys]);
+  const filtered=useMemo(()=>{
+    const active=keys.filter(k=>!multiIsAll(vals[k]));
+    if(!active.length)return rows;
+    return rows.filter(r=>active.every(k=>matchMulti(r[k],vals[k])));
+  },[rows,vals,keys]);
+  const opts=useMemo(()=>{
+    const result={};
+    keys.forEach(k=>{
+      const others=keys.filter(o=>o!==k&&!multiIsAll(vals[o]));
+      const base=others.length?rows.filter(r=>others.every(o=>matchMulti(r[o],vals[o]))):rows;
+      result[k]=sortFacetValues(uniq(base.map(r=>r[k])).filter(v=>v!==undefined&&v!==null&&String(v).trim()!==""));
+    });
+    return result;
+  },[rows,vals,keys]);
+  const set=useCallback((k,v)=>setVals(s=>({...s,[k]:v})),[]);
+  const reset=useCallback(()=>setVals(Object.fromEntries(keys.map(k=>[k,"todos"]))),[keys]);
+  const hayFiltros=keys.some(k=>!multiIsAll(vals[k]));
+  return{vals,set,opts,filtered,reset,hayFiltros};
+}
+
 
 // ─── EquipoCard ───────────────────────────────────────────────────────────────
 function EquipoCard({img,nombre,prefijos,rop02Prod}){
@@ -1711,11 +2209,19 @@ function ViewROP02({rop02All,extState,setExtState}){
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-            <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
-            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
-            <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
-            <MultiSel label="Operario" value={vals.operario} onChange={v=>set("operario",v)} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
-            <button onClick={resetAll} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+            <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>{set("proyecto",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>{set("maquina",v);setEstado("todos");}} options={[{value:"todas",label:"Todas"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>{set("supervisor",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
+            <MultiSel label="Operario" value={vals.operario} onChange={v=>{set("operario",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
+            <MultiSel label="Estado" value={estado} onChange={setEstado} options={[
+              {value:"todos",label:"Todos"},
+              ...[
+                {value:"TRABAJO",label:"✅ Trabajo efectivo"},
+                {value:"OD",label:"🟡 Operativo a Disposición"},
+                {value:"FS",label:"🔴 Fuera de servicio"},
+              ].filter(o=>estadoOptions.includes(o.value)),
+            ]}/>
+            <button onClick={resetAll} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltrosConEstado?1:0.3,pointerEvents:hayFiltrosConEstado?"auto":"none"}}>
               <Icon name="close" size={11} color={C.red}/>Limpiar filtros
             </button>
           </div>
@@ -2482,6 +2988,7 @@ function generarReporteControl(periodo, faltanEn05, faltanEn02){
     {key:"supervisor",label:"Supervisor"},
     {key:"horas",label:"Horas",render:v=>fmtN(v)},
     {key:"estado",label:"Estado"},
+    {key:"tipo_trabajo",label:"Tarea"},
   ];
   const cols02=[
     {key:"fecha",label:"Fecha",render:v=>fmtF(v)},
@@ -2582,17 +3089,23 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(maquina,"todas")||año!==String(hoy.getFullYear())||mesIdx!==hoy.getMonth();
   const reset=()=>{setProyecto("todos");setMaquina("todas");setAño(String(hoy.getFullYear()));setMesIdx(hoy.getMonth());setFechaSel("");};
 
+  const fichaMaquina=useMemo(()=>{
+    if(!multiIsAll(maquina,"todas"))return maquina[0];
+    return maquinas[0]||null;
+  },[maquina,maquinas]);
+
   const equipoData=useMemo(()=>{
-    if(!maquina||multiIsAll(maquina,"todas"))return null;
+    if(!fichaMaquina)return null;
+    const rows=filtered.filter(r=>r.maquina===fichaMaquina);
     const byFechaTurno={};
-    filtered.forEach(r=>{
+    rows.forEach(r=>{
       const k=r.fecha;
       if(!byFechaTurno[k])byFechaTurno[k]={fecha:k,TD:null,TN:null};
       const turnoKey=(r.turno||"").toUpperCase().includes("NOCHE")?"TN":"TD";
       byFechaTurno[k][turnoKey]=r;
     });
     return Object.values(byFechaTurno).sort((a,b)=>b.fecha.localeCompare(a.fecha));
-  },[filtered,maquina]);
+  },[filtered,fichaMaquina]);
 
   const fechasDisp=useMemo(()=>(equipoData||[]).map(d=>d.fecha),[equipoData]);
   const fichaActual=useMemo(()=>{
@@ -2800,7 +3313,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
         </div>
       </Card>
 
-      {multiIsAll(maquina,"todas")?(
+      {!fichaMaquina?(
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <Card title="¿Qué hace esta pestaña?">
             <div style={{padding:"14px 16px",display:"flex",flexDirection:"column",gap:8,fontSize:12,color:C.textSub,lineHeight:1.6}}>
@@ -2813,19 +3326,24 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
               <p style={{margin:0}}>Elegí un <strong style={{color:C.text}}>proyecto</strong> y una <strong style={{color:C.text}}>máquina</strong> arriba para empezar.</p>
             </div>
           </Card>
-          <AlertBanner type="info">Seleccioná una máquina para ver la ficha diaria TD/TN. Los controles de numeración y horómetros igual se calculan sobre todas las máquinas filtradas.</AlertBanner>
+          <AlertBanner type="info">No hay máquinas disponibles para los filtros seleccionados.</AlertBanner>
         </div>
       ):!fichaActual?(
-        <AlertBanner type="warn">No hay registros para {maquina} en {MESES[mesIdx]} {año}.</AlertBanner>
+        <AlertBanner type="warn">No hay registros para {fichaMaquina} en {MESES[mesIdx]} {año}.</AlertBanner>
       ):(
         <Card>
+          {multiIsAll(maquina,"todas")&&(
+            <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+              <AlertBanner type="info">Mostrando la primera máquina del filtro ({fichaMaquina}). Elegí otra desde el desplegable de la tabla para ver su ficha.</AlertBanner>
+            </div>
+          )}
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:560,tableLayout:"fixed"}}>
               <colgroup><col style={{width:180}}/><col style={{width:"50%"}}/><col style={{width:"50%"}}/></colgroup>
               <thead>
                 <tr>
                   <th style={{padding:"10px 14px",background:C.surface,borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
-                    <select value={maquina} onChange={e=>setMaquina(e.target.value)} style={selectStyle}>{maquinas.map(m=><option key={m} value={m}>{m}</option>)}</select>
+                    <select value={fichaMaquina||""} onChange={e=>setMaquina([e.target.value])} style={selectStyle}>{maquinas.map(m=><option key={m} value={m}>{m}</option>)}</select>
                   </th>
                   <th colSpan={2} style={{padding:"10px 14px",background:C.surface,borderBottom:`2px solid ${C.border}`,textAlign:"center"}}>
                     <select value={fichaActual.fecha} onChange={e=>setFechaSel(e.target.value)} style={{...selectStyle,fontSize:13,fontWeight:700,color:C.accent,minWidth:140}}>{fechasDisp.map(f=><option key={f} value={f}>{fmtFecha(f)}</option>)}</select>
@@ -3937,9 +4455,62 @@ function InsumoSearch({value,onChange,opciones}){
 }
 
 
+
+// ─── ViewCostosUnitarios ──────────────────────────────────────────────────────
+function ViewCostosUnitarios({insumos,usdRate}){
+  const[search,setSearch]=useState("");
+
+  const rows=useMemo(()=>{
+    return Object.entries(insumos||{}).map(([codigo,info])=>{
+      const precioARS=Number(info?.costoUnitario)||0;
+      return{
+        codigo,
+        articulo:String(info?.descripcion||"").trim()||codigo,
+        precioARS,
+        precioUSD:usdRate&&precioARS>0 ? precioARS/usdRate : 0,
+      };
+    }).sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo),"es-AR",{numeric:true,sensitivity:"base"}));
+  },[insumos,usdRate]);
+
+  const q=cleanKey(search);
+  const filtered=useMemo(()=>{
+    if(!q)return rows;
+    return rows.filter(r=>cleanKey(r.codigo).includes(q)||cleanKey(r.articulo).includes(q));
+  },[rows,q]);
+
+  const mayorPrecio=useMemo(()=>{
+    return [...filtered]
+      .filter(r=>Number(r.precioARS)>0)
+      .sort((a,b)=>(Number(b.precioARS)||0)-(Number(a.precioARS)||0))[0]||null;
+  },[filtered]);
+
+  const cols=[
+    {key:"codigo",label:"Código",width:120,render:v=><span style={{fontFamily:"monospace",fontWeight:700,color:C.text}}>{v}</span>},
+    {key:"articulo",label:"Artículo / Descripción",wrap:true},
+    {key:"precioARS",label:"Costo en ARS",align:"right",width:150,render:v=>fmtARS(Number(v)||0)},
+    {key:"precioUSD",label:"Costo en USD",align:"right",width:140,render:v=><span style={{color:C.green,fontWeight:700}}>{fmtUSD(Number(v)||0,1)}</span>},
+  ];
+
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+        <StatCard icon="dollar" label="Artículos" value={fmtNum(rows.length)} sub="Base de datos costos" color={C.yellow} small/>
+        <StatCard icon="filter" label="Resultado filtrado" value={fmtNum(filtered.length)} sub={search?"Según búsqueda actual":"Sin búsqueda aplicada"} color={C.blue} small/>
+        <StatCard icon="warn" label="Mayor costo unitario" value={mayorPrecio?fmtARS(mayorPrecio.precioARS):"—"} sub={mayorPrecio?`${mayorPrecio.codigo} — ${mayorPrecio.articulo}`:"Sin datos"} color={C.red} small/>
+      </div>
+
+      <Card title="Costos unitarios" action={
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar código o artículo..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:280,outline:"none"}}/>
+      }>
+        <Table cols={cols} rows={filtered} maxH={720} emptyMsg="Sin costos unitarios para mostrar" disableTooltip/>
+      </Card>
+    </div>
+  );
+}
+
 // ─── ViewMantenimiento ────────────────────────────────────────────────────────
 function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
-  const{modo,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,filtroCosto,insumoFiltro}=extState;
+  const{modo,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,filtroCosto,insumoFiltro,verGastosExcesivos=false}=extState;
   const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
   const setModo=v=>set("modo",v);
   const setProyecto=v=>set("proyecto",v);
@@ -4000,6 +4571,37 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
     insumosMap[i.codigo].costo+=i.costoTotal;
   }));
   const topInsumos=Object.entries(insumosMap).sort((a,b)=>b[1].cantidad-a[1].cantidad).slice(0,10);
+
+  // Gastos excesivos por máquina: top 5 gastos individuales por insumo para cada máquina, según filtros activos
+  const gastosExcesivosPorMaquina=useMemo(()=>{
+    const porMaquina={};
+    filtered.forEach(r=>{
+      (r.insumos||[]).forEach(i=>{
+        const precio=Number(i.costoTotal)||0;
+        if(!i.codigo||precio<=0)return;
+        const maq=r.maquina||"—";
+        if(!porMaquina[maq])porMaquina[maq]=[];
+        porMaquina[maq].push({
+          codigo:i.codigo,
+          insumo:i.nombre||i.codigo,
+          cantidad:Number(i.cantidad)||0,
+          precio,
+          maquina:maq,
+          proyecto:r.proyecto||"—",
+          fecha:r.fecha||"",
+        });
+      });
+    });
+
+    return Object.entries(porMaquina)
+      .sort(([a],[b])=>a.localeCompare(b))
+      .flatMap(([,items])=>
+        items
+          .sort((a,b)=>(Number(b.precio)||0)-(Number(a.precio)||0))
+          .slice(0,5)
+      )
+      .sort((a,b)=>(Number(b.precio)||0)-(Number(a.precio)||0));
+  },[filtered]);
 
   // OTs por equipo
   const otsPorMaq={};
@@ -4070,6 +4672,9 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
           <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
             <TabBtn active={modo==="dia"} onClick={()=>setModo("dia")}>Por día</TabBtn>
             <TabBtn active={modo==="periodo"} onClick={()=>setModo("periodo")}>Por período</TabBtn>
+            <button onClick={()=>set("verGastosExcesivos",!verGastosExcesivos)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${verGastosExcesivos?C.yellow:C.border}`,background:verGastosExcesivos?C.yellowDim:C.surface,color:verGastosExcesivos?C.yellow:C.textSub,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+              💰 Gastos excesivos
+            </button>
             <button onClick={()=>{const label=(fechaDia||fechaD||new Date().toISOString().slice(0,10)).replace(/-/g,"");generarExcelMantenimiento(filtered,usdRate,label);}} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
               📄 Generar Reporte
             </button>
@@ -4097,6 +4702,40 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
         <StatCard icon="prod" label="Costo total insumos" value={costoTotal>0?"$"+fmtNum(costoTotal):"—"} color={C.yellow} small/>
         <StatCard icon="prod" label="Costo total USD" value={fmtUSD(costoTotal,usdRate)} color={C.green} small/>
       </div>
+
+      {verGastosExcesivos&&(
+        <Card title={`Gastos excesivos por máquina (${gastosExcesivosPorMaquina.length} ítems)`} action={
+          <span style={{fontSize:11,color:C.textMuted}}>Top 5 gastos individuales por máquina según el filtro aplicado</span>
+        }>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead>
+                <tr style={{background:C.surface}}>
+                  {["Código","Insumo","Cantidad","Precio","Máquina","Proyecto","Fecha"].map((h,i)=>(
+                    <th key={i} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {gastosExcesivosPorMaquina.length===0?
+                  <tr><td colSpan={7} style={{padding:28,textAlign:"center",color:C.textMuted}}>Sin gastos con costo para el filtro aplicado</td></tr>:
+                  gastosExcesivosPorMaquina.map((x,i)=>(
+                    <tr key={`${x.codigo}-${x.maquina}-${x.fecha}-${i}`} style={{background:i%2===0?"transparent":C.surface+"55"}}>
+                      <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{x.codigo}</td>
+                      <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{x.insumo||"—"}</td>
+                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(x.cantidad)}</td>
+                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.yellow,fontWeight:700}}>{"$"+fmtNum(x.precio)}</td>
+                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{x.maquina}</Badge></td>
+                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(x.proyecto)}>{x.proyecto}</Badge></td>
+                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.textSub,fontWeight:600}}>{fmtFecha(x.fecha)}</td>
+                    </tr>
+                  ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       {/* Gráficos solo en período */}
       {modo==="periodo"&&(
@@ -4726,6 +5365,563 @@ function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
   );
 }
 
+
+// ─── Importación Excel / Upsert ──────────────────────────────────────────────
+const IMPORT_TARGETS={
+  rop02_jm:{id:"rop02_jm",label:"Actualizar ROP02 José María",sourceLabel:"ROP02 — José María",headerRow:4,proyecto:"JOSE MARIA",kind:"rop02",color:C.teal},
+  rop02_fs:{id:"rop02_fs",label:"Actualizar ROP02 Filo del Sol",sourceLabel:"ROP02 — Filo del Sol",headerRow:4,proyecto:"FILO DEL SOL",kind:"rop02",color:C.accent},
+  rop05:{id:"rop05",label:"Actualizar ROP05",sourceLabel:"Productividad — ROP05",headerRow:1,proyecto:null,kind:"rop05",color:C.green},
+  rma15_jm:{id:"rma15_jm",label:"Actualizar RMA15 José María",sourceLabel:"RMA15 — José María",headerRow:5,proyecto:"JOSE MARIA",kind:"rma15",color:C.teal},
+  rma15_fs:{id:"rma15_fs",label:"Actualizar RMA15 Filo del Sol",sourceLabel:"RMA15 — Filo del Sol",headerRow:5,proyecto:"FILO DEL SOL",kind:"rma15",color:C.accent},
+  insumos:{id:"insumos",label:"Actualizar Base de datos costos",sourceLabel:"Base de datos costos",headerRow:1,proyecto:null,kind:"insumos",color:C.yellow},
+};
+
+function normalizeExcelHeader(h,idx){
+  const s=String(h||"").trim();
+  return s||`col_${idx}`;
+}
+function putAliases(obj,value,aliases){
+  aliases.forEach(a=>{obj[a]=String(value??"").trim();});
+}
+
+// Importación por posición para archivos subidos.
+// ROP05 se lee por columnas A:M e ignora completamente los encabezados del Excel.
+// Además se cargan alias viejos y nuevos para que funcione aunque la planilla base
+// tenga encabezados nuevos (FechaCarga, Equipo, etc.) o los encabezados históricos.
+function rowByPositionForImport(target,arr){
+  const obj={};
+  const v=(i)=>String(arr?.[i]??"").trim();
+  if(target?.kind==="rop05"){
+    putAliases(obj,v(0),["FechaCarga","Marca Tmeporal","Marca Temporal"]);
+    putAliases(obj,v(1),["CorreoSupervisor","Supervisor"]);
+    putAliases(obj,v(2),["Proyecto"]);
+    putAliases(obj,v(3),["GrupoTrabajo","Grupo de trabajo"]);
+    putAliases(obj,v(4),["Equipo","Codigo Int","Código Int","Codigo interno","Código interno"]);
+    putAliases(obj,v(5),["NroParte","N° de Parte","Nro Parte","Numero de Parte","Número de Parte"]);
+    putAliases(obj,v(6),["TipoEquipo","Tipo Equipo","Tipo de máquina","Tipo de maquina"]);
+    putAliases(obj,v(7),["FechaParte","Fecha del Parte Diario","Fecha Parte"]);
+    putAliases(obj,v(8),["Tarea"]);
+    putAliases(obj,v(9),[
+      "HorasProductivas",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS\n(SOLO CANTIDAD)",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)",
+      "HS PRODUCTIVAS EFECTIVAS",
+      "Horas",
+      "Hs"
+    ]);
+    putAliases(obj,v(10),[
+      "CantidadProduccion",
+      "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA\n(SIN UNIDADES DE MEDIDA)",
+      "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)",
+      "CANTIDAD DE PRODUCCIÓN",
+      "CANTIDAD DE PRODUCCION",
+      "Cantidad"
+    ]);
+    putAliases(obj,v(11),["Unidad","UNIDAD DE PRODUCTIVIDAD"]);
+    putAliases(obj,v(12),[
+      "Observacion",
+      "Observación",
+      "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.",
+      "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA",
+      "OBSERVACION DE LA TAREA",
+      "OBSERVACIONES DE LA TAREA",
+      "OBSERVACIONES",
+      "Observaciones",
+      "Obs",
+      "OBS"
+    ]);
+    putAliases(obj,v(13),["Mes"]);
+    return obj;
+  }
+  return null;
+}
+
+function readExcelAsObjects(file,targetOrHeaderRow){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onerror=()=>reject(new Error("No se pudo leer el archivo Excel."));
+    reader.onload=e=>{
+      try{
+        const target=typeof targetOrHeaderRow==="object"?targetOrHeaderRow:{headerRow:targetOrHeaderRow};
+        const headerRow=target?.headerRow||1;
+        const data=new Uint8Array(e.target.result);
+        const wb=XLSX.read(data,{type:"array",cellDates:true});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        if(!ws)throw new Error("El Excel no contiene hojas.");
+        const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false,dateNF:"yyyy-mm-dd"});
+        const headerIdx=Math.max(0,(headerRow||1)-1);
+        const header=(matrix[headerIdx]||[]).map(normalizeExcelHeader);
+        const rows=[];
+        for(let i=headerIdx+1;i<matrix.length;i++){
+          const arr=matrix[i]||[];
+          if(arr.every(v=>String(v||"").trim()===""))continue;
+
+          // Para ROP05: no dependemos de los encabezados del Excel. Solo importa
+          // que la estructura de columnas sea A:M.
+          const byPos=rowByPositionForImport(target,arr);
+          if(byPos){
+            byPos._excelRow=i+1;
+            rows.push(byPos);
+            continue;
+          }
+
+          // Resto de planillas: se mantiene lectura por encabezado para no romper
+          // estructuras que tienen encabezados en filas distintas o más columnas.
+          const obj={};
+          header.forEach((h,j)=>{obj[h]=String(arr[j]??"").trim();});
+          obj._excelRow=i+1;
+          rows.push(obj);
+        }
+        resolve({sheetName:wb.SheetNames[0],headers:header,rows});
+      }catch(err){reject(err);}
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+function normalizeInsumoImportRow(r){
+  const codigo=String(getValue(r,["CODIGO","Codigo","Código","Código insumo","Codigo insumo","Cod","cod"])||"").trim();
+  const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","Detalle","Insumo","Nombre"])||"").trim();
+  const costoRaw=getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio","PRECIO","Costo","COSTO"]);
+  const costoUnitario=toNumber(costoRaw);
+  return {...r,codigo,descripcion,costoUnitario};
+}
+function importKey(kind,row){
+  if(kind==="insumos")return String(row.codigo||getValue(row,["CODIGO","Codigo","Código"] )||"").trim().toUpperCase();
+  if(kind==="rop02")return [row.proyecto,row.fecha,row.maquina,row.turno,row.parte].map(v=>String(v||"").trim().toUpperCase()).join("__");
+  if(kind==="rop05")return [row.proyecto,row.fecha,row.maquina,row.parte,row.tarea].map(v=>String(v||"").trim().toUpperCase()).join("__");
+  if(kind==="rma15")return [row.proyecto,row.fecha,row.maquina,row.tipoMant,row.kmHs,row.intervencion].map(v=>String(v||"").trim().toUpperCase()).join("__");
+  return JSON.stringify(row);
+}
+function comparableImportRow(kind,row){
+  if(kind==="rop02")return {
+    fecha:row.fecha,maquina:row.maquina,operario:row.operario,supervisor:row.supervisor,turno:row.turno,parte:row.parte,proyecto:row.proyecto,
+    hi:row.horometroInicial,hf:row.horometroFinal,horas:row.horas,combustible:row.combustible,tarea:row.tipo_trabajo,obs:row.observaciones,estado:row.estado
+  };
+  if(kind==="rop05")return {fecha:row.fecha,maquina:row.maquina,supervisor:row.supervisor,parte:row.parte,proyecto:row.proyecto,tarea:row.tarea,horas:row.horas,cantidad:row.cantidad,unidad:row.unidad,obs:row.observaciones};
+  if(kind==="rma15")return {fecha:row.fecha,maquina:row.maquina,proyecto:row.proyecto,tipoMant:row.tipoMant,kmHs:row.kmHs,turno:row.turno,intervencion:row.intervencion,operativo:row.operativo,obs:row.observaciones,costoTotal:Math.round((row.costoTotal||0)*100)/100};
+  if(kind==="insumos")return {codigo:row.codigo,descripcion:row.descripcion,costoUnitario:Math.round((row.costoUnitario||0)*100)/100};
+  return row;
+}
+function normalizeImportedRows(target,rawRows,insumosMap){
+  if(target.kind==="rop02")return normalizeROP02(rawRows,target.proyecto);
+  if(target.kind==="rop05")return normalizeROP05(rawRows);
+  if(target.kind==="rma15")return rawRows.map(r=>normalizeRMA15({...r,_proyectoForzado:target.proyecto},insumosMap||{})).filter(r=>r.fecha&&r.maquina);
+  if(target.kind==="insumos")return rawRows.map(normalizeInsumoImportRow);
+  return [];
+}
+function buildImportPreview(target,rawRows,normalizedRows,currentRows){
+  const currentMap=new Map();
+  (currentRows||[]).filter(r=>!target.proyecto||r.proyecto===target.proyecto).forEach(r=>currentMap.set(importKey(target.kind,r),r));
+
+  const nuevos=[];const actualizados=[];const iguales=[];const duplicados=[];const seen=new Set();
+  const rowsToUpsert=[];
+
+  normalizedRows.forEach((r,idx)=>{
+    const key=importKey(target.kind,r);
+    if(!key||key.replace(/_/g,"").trim()==="")return;
+
+    const raw=rawRows[idx]||{};
+    if(seen.has(key)){duplicados.push({...r,_row:idx+1,_key:key});return;}
+    seen.add(key);
+
+    const existing=currentMap.get(key);
+    if(!existing){
+      nuevos.push({...r,_row:idx+1,_key:key});
+      rowsToUpsert.push(raw);
+      return;
+    }
+
+    const a=JSON.stringify(comparableImportRow(target.kind,r));
+    const b=JSON.stringify(comparableImportRow(target.kind,existing));
+    if(a===b){
+      iguales.push({...r,_row:idx+1,_key:key});
+    }else{
+      actualizados.push({...r,_row:idx+1,_key:key,_before:existing});
+      rowsToUpsert.push(raw);
+    }
+  });
+
+  return {nuevos,actualizados,iguales,duplicados,total:normalizedRows.length,rawRows,rowsToUpsert};
+}
+async function postImportUpsert(preview){
+  const changedRows=preview.rowsToUpsert||[];
+  const payload=JSON.stringify({
+    action:"upsert_sparse",
+    target:preview.target.id,
+    rows:changedRows
+  });
+  const res=await fetch(APPS_SCRIPT_URL,{method:"POST",body:new URLSearchParams({payload}),redirect:"follow"});
+  if(!res.ok)throw new Error(`HTTP ${res.status} al actualizar planilla`);
+  const text=await res.text();
+  let json;
+  try{json=JSON.parse(text);}catch(e){throw new Error("Apps Script no devolvió JSON al actualizar. Revisá permisos/publicación.");}
+  if(!json.ok)throw new Error(json.error?.message||"No se pudo actualizar la planilla.");
+  return json;
+}
+
+async function postAddListaEquipo(row){
+  const payload=JSON.stringify({
+    action:"add_lista_equipo",
+    row
+  });
+  const res=await fetch(APPS_SCRIPT_URL,{method:"POST",body:new URLSearchParams({payload}),redirect:"follow"});
+  if(!res.ok)throw new Error(`HTTP ${res.status} al guardar equipo`);
+  const text=await res.text();
+  let json;
+  try{json=JSON.parse(text);}catch(e){throw new Error("Apps Script no devolvió JSON al guardar el equipo. Revisá permisos/publicación.");}
+  if(!json.ok)throw new Error(json.error?.message||"No se pudo guardar el equipo en Lista Maestra.");
+  return json;
+}
+function formatFileSize(bytes){
+  const n=Number(bytes||0);
+  if(n>=1024*1024)return `${(n/(1024*1024)).toFixed(1)} MB`;
+  if(n>=1024)return `${(n/1024).toFixed(0)} KB`;
+  return `${n} B`;
+}
+function ImportButton({target,fileEntry,preview,onFile,onRemove,onSelectPreview}){
+  const inputRef=useRef(null);
+  const hasFile=!!fileEntry;
+  const hasPreview=!!preview;
+  const changes=hasPreview?(preview.nuevos.length+preview.actualizados.length):0;
+  const color=hasPreview?(changes>0?target.color:C.green):(hasFile?C.blue:target.color);
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:8,background:C.surface,border:`1px solid ${hasFile?color+"66":target.color+"44"}`,borderRadius:10,padding:12}}>
+      <input ref={inputRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" style={{display:"none"}} onChange={e=>{const file=e.target.files?.[0]; if(file)onFile(target,file); e.target.value="";}}/>
+      <button onClick={()=>inputRef.current?.click()} style={{display:"flex",alignItems:"center",gap:10,justifyContent:"space-between",padding:"8px 4px",background:"transparent",border:"none",color:C.text,cursor:"pointer",fontFamily:"Inter",fontWeight:700,fontSize:13,textAlign:"left"}}>
+        <span style={{display:"flex",alignItems:"center",gap:9}}><Icon name="parts" size={17} color={color}/>{target.label}</span>
+        <span style={{fontSize:11,color}}>{hasFile?"Cambiar Excel":"Elegir Excel"}</span>
+      </button>
+      {hasFile?(
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:11,color:C.text,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fileEntry.fileName}</div>
+              <div style={{fontSize:10,color:C.textMuted,marginTop:2}}>{hasPreview?preview.sheetName:`Cargado — ${formatFileSize(fileEntry.size)}`}</div>
+            </div>
+            <button onClick={()=>onRemove(target.id)} title="Quitar archivo" style={{flexShrink:0,width:22,height:22,borderRadius:"50%",border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,cursor:"pointer",fontWeight:800}}>×</button>
+          </div>
+          {hasPreview?(
+            <>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5}}>
+                <div style={{background:C.greenDim,border:`1px solid ${C.green}33`,borderRadius:7,padding:"6px 7px"}}><div style={{fontSize:15,fontWeight:800,color:C.green}}>{preview.nuevos.length}</div><div style={{fontSize:9,color:C.textMuted}}>nuevas</div></div>
+                <div style={{background:C.yellowDim,border:`1px solid ${C.yellow}33`,borderRadius:7,padding:"6px 7px"}}><div style={{fontSize:15,fontWeight:800,color:C.yellow}}>{preview.actualizados.length}</div><div style={{fontSize:9,color:C.textMuted}}>actualiz.</div></div>
+                <div style={{background:C.blueDim,border:`1px solid ${C.blue}33`,borderRadius:7,padding:"6px 7px"}}><div style={{fontSize:15,fontWeight:800,color:C.blue}}>{preview.iguales.length}</div><div style={{fontSize:9,color:C.textMuted}}>iguales</div></div>
+                <div style={{background:C.redDim,border:`1px solid ${C.red}33`,borderRadius:7,padding:"6px 7px"}}><div style={{fontSize:15,fontWeight:800,color:C.red}}>{preview.duplicados.length}</div><div style={{fontSize:9,color:C.textMuted}}>duplic.</div></div>
+              </div>
+              <button onClick={()=>onSelectPreview(preview)} style={{alignSelf:"flex-start",padding:"5px 9px",borderRadius:7,border:`1px solid ${target.color}44`,background:target.color+"18",color:target.color,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"Inter"}}>Ver detalle</button>
+            </>
+          ):(
+            <div style={{display:"flex",alignItems:"center",gap:7,padding:"7px 9px",borderRadius:7,background:C.blueDim,border:`1px solid ${C.blue}33`,color:C.blue,fontSize:11,fontWeight:700}}>
+              <Icon name="check" size={12} color={C.blue}/> Archivo cargado, pendiente de analizar
+            </div>
+          )}
+        </div>
+      ):(
+        <div style={{fontSize:11,color:C.textMuted,padding:"0 4px 4px"}}>Sin archivo cargado</div>
+      )}
+    </div>
+  );
+}
+function ImportTargetLog({target,fileEntry,preview,result,onSelectPreview}){
+  const hasFile=!!fileEntry;
+  const hasPreview=!!preview;
+  const cambios=hasPreview?preview.nuevos.length+preview.actualizados.length:0;
+  const statusColor=result?C.green:(hasPreview?(cambios?C.yellow:C.green):(hasFile?C.blue:C.textMuted));
+  const Line=({label,value,color=C.text})=>(
+    <div style={{display:"flex",justifyContent:"space-between",gap:10,fontSize:11,lineHeight:1.35}}>
+      <span style={{color:C.textMuted}}>{label}</span>
+      <span style={{color,fontWeight:700,textAlign:"right",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220}}>{value}</span>
+    </div>
+  );
+  return(
+    <div style={{height:"100%",minHeight:84,background:C.surface,border:`1px solid ${statusColor}44`,borderRadius:10,padding:12,display:"flex",flexDirection:"column",gap:8,justifyContent:"center"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+          <span style={{width:8,height:8,borderRadius:"50%",background:statusColor,boxShadow:`0 0 12px ${statusColor}66`,flexShrink:0}}/>
+          <span style={{fontSize:12,fontWeight:800,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{target.sourceLabel}</span>
+        </div>
+        {hasPreview&&(
+          <button onClick={()=>onSelectPreview(preview)} style={{padding:"4px 8px",borderRadius:7,border:`1px solid ${target.color}44`,background:target.color+"18",color:target.color,cursor:"pointer",fontSize:10,fontWeight:800,fontFamily:"Inter",flexShrink:0}}>Detalle</button>
+        )}
+      </div>
+
+      {!hasFile&&(
+        <div style={{fontSize:11,color:C.textMuted}}>Sin archivo cargado. El registro aparecerá acá cuando cargues y analices el Excel.</div>
+      )}
+
+      {hasFile&&!hasPreview&&(
+        <>
+          <Line label="Archivo" value={fileEntry.fileName}/>
+          <Line label="Tamaño" value={formatFileSize(fileEntry.size)} color={C.blue}/>
+          <Line label="Estado" value="Cargado en memoria, pendiente de análisis" color={C.blue}/>
+        </>
+      )}
+
+      {hasPreview&&(
+        <>
+          <Line label="Hoja Excel" value={preview.sheetName||"—"}/>
+          <Line label="Filas leídas" value={fmtNum(preview.total||0)} color={C.text}/>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginTop:2}}>
+            <div style={{background:C.greenDim,border:`1px solid ${C.green}33`,borderRadius:7,padding:"6px 7px"}}><div style={{fontSize:14,fontWeight:900,color:C.green}}>{preview.nuevos.length}</div><div style={{fontSize:9,color:C.textMuted}}>nuevas</div></div>
+            <div style={{background:C.yellowDim,border:`1px solid ${C.yellow}33`,borderRadius:7,padding:"6px 7px"}}><div style={{fontSize:14,fontWeight:900,color:C.yellow}}>{preview.actualizados.length}</div><div style={{fontSize:9,color:C.textMuted}}>actualiz.</div></div>
+            <div style={{background:C.blueDim,border:`1px solid ${C.blue}33`,borderRadius:7,padding:"6px 7px"}}><div style={{fontSize:14,fontWeight:900,color:C.blue}}>{preview.iguales.length}</div><div style={{fontSize:9,color:C.textMuted}}>iguales</div></div>
+            <div style={{background:C.redDim,border:`1px solid ${C.red}33`,borderRadius:7,padding:"6px 7px"}}><div style={{fontSize:14,fontWeight:900,color:C.red}}>{preview.duplicados.length}</div><div style={{fontSize:9,color:C.textMuted}}>duplic.</div></div>
+          </div>
+          <Line label="Cambios a enviar" value={fmtNum(cambios)} color={cambios?C.yellow:C.green}/>
+        </>
+      )}
+
+      {result&&(
+        <div style={{marginTop:2,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+          <div><div style={{fontSize:13,fontWeight:900,color:C.green}}>{result.added||0}</div><div style={{fontSize:9,color:C.textMuted}}>agreg.</div></div>
+          <div><div style={{fontSize:13,fontWeight:900,color:C.yellow}}>{result.updated||0}</div><div style={{fontSize:9,color:C.textMuted}}>actual.</div></div>
+          <div><div style={{fontSize:13,fontWeight:900,color:C.blue}}>{result.updateGroups||0}</div><div style={{fontSize:9,color:C.textMuted}}>grupos</div></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
+  const[busy,setBusy]=useState(false);
+  const[busyLabel,setBusyLabel]=useState("");
+  const[progress,setProgress]=useState({done:0,total:0});
+  const[files,setFiles]=useState({});
+  const[previews,setPreviews]=useState({});
+  const[selectedPreview,setSelectedPreview]=useState(null);
+  const[message,setMessage]=useState(null);
+  const[error,setError]=useState(null);
+  const[results,setResults]=useState([]);
+  const targets=Object.values(IMPORT_TARGETS);
+  const currentForTarget=(target)=>{
+    if(target.kind==="rop02")return rop02All;
+    if(target.kind==="rop05")return rop05;
+    if(target.kind==="rma15")return rma15;
+    if(target.kind==="insumos")return Object.entries(insumos||{}).map(([codigo,info])=>({codigo,descripcion:info.descripcion||"",costoUnitario:info.costoUnitario||0}));
+    return [];
+  };
+
+  const loadFile=(target,file)=>{
+    setError(null);setMessage(null);setResults([]);
+    setFiles(p=>({...p,[target.id]:{target,file,fileName:file.name,size:file.size,loadedAt:new Date().toISOString()}}));
+    setPreviews(p=>{const n={...p};delete n[target.id];return n;});
+    setSelectedPreview(p=>p?.target?.id===target.id?null:p);
+  };
+
+  const removeFile=(targetId)=>{
+    setFiles(p=>{const n={...p};delete n[targetId];return n;});
+    setPreviews(p=>{const n={...p};delete n[targetId];return n;});
+    setSelectedPreview(p=>p?.target?.id===targetId?null:p);
+  };
+
+  const analyzeAll=async()=>{
+    const entries=Object.values(files);
+    if(!entries.length){setMessage("Primero cargá al menos un Excel.");return;}
+    setBusy(true);setBusyLabel("Analizando archivos cargados...");setProgress({done:0,total:entries.length});setError(null);setMessage(null);setResults([]);
+    try{
+      const built=[];
+      await Promise.all(entries.map(async(entry)=>{
+        const target=entry.target;
+        const parsed=await readExcelAsObjects(entry.file,target);
+        const normalized=normalizeImportedRows(target,parsed.rows,insumos);
+        const prev=buildImportPreview(target,parsed.rows,normalized,currentForTarget(target));
+        const full={target,fileName:entry.fileName,sheetName:parsed.sheetName,headers:parsed.headers,...prev,parsedAt:new Date().toISOString()};
+        built.push(full);
+        setProgress(p=>({done:p.done+1,total:p.total}));
+      }));
+      const map={};
+      built.forEach(p=>{map[p.target.id]=p;});
+      setPreviews(map);
+      setSelectedPreview(built[0]||null);
+      const nuevas=built.reduce((s,p)=>s+p.nuevos.length,0);
+      const actualizadas=built.reduce((s,p)=>s+p.actualizados.length,0);
+      setMessage(`Análisis completo: ${nuevas} nuevas y ${actualizadas} actualizadas detectadas.`);
+    }catch(err){setError(err.message);}
+    finally{setBusy(false);setBusyLabel("");setProgress({done:0,total:0});}
+  };
+
+  const loadedFiles=Object.values(files);
+  const loadedPreviews=Object.values(previews);
+  const allLoadedAnalyzed=loadedFiles.length>0&&loadedFiles.every(f=>!!previews[f.target.id]);
+  const pendingAnalyze=loadedFiles.filter(f=>!previews[f.target.id]).length;
+  const totalNuevas=loadedPreviews.reduce((s,p)=>s+p.nuevos.length,0);
+  const totalActualizadas=loadedPreviews.reduce((s,p)=>s+p.actualizados.length,0);
+  const totalIguales=loadedPreviews.reduce((s,p)=>s+p.iguales.length,0);
+  const totalDuplicadas=loadedPreviews.reduce((s,p)=>s+p.duplicados.length,0);
+  const totalCambios=totalNuevas+totalActualizadas;
+  const resultByTarget=useMemo(()=>{
+    const map={};
+    (results||[]).forEach(r=>{if(r?.target?.id)map[r.target.id]=r;});
+    return map;
+  },[results]);
+
+  const confirmAll=async()=>{
+    if(!allLoadedAnalyzed){setMessage("Primero tocá Analizar cambios para preparar la actualización.");return;}
+    const toRun=Object.values(previews).filter(p=>(p.nuevos.length+p.actualizados.length)>0);
+    if(!toRun.length){setMessage("No hay filas nuevas ni modificadas para actualizar.");return;}
+    setBusy(true);setBusyLabel("Actualizando Google Sheets...");setProgress({done:0,total:toRun.length});setError(null);setMessage(null);setResults([]);
+    try{
+      const allResults=[];
+      for(const prev of toRun){
+        const result=await postImportUpsert(prev);
+        allResults.push({target:prev.target,...result});
+        setProgress(p=>({done:p.done+1,total:p.total}));
+      }
+      setResults(allResults);
+      const added=allResults.reduce((s,r)=>s+(r.added||0),0);
+      const updated=allResults.reduce((s,r)=>s+(r.updated||0),0);
+      const unchanged=allResults.reduce((s,r)=>s+(r.unchanged||0),0);
+      const groups=allResults.reduce((s,r)=>s+(r.updateGroups||0),0);
+      setMessage(`Actualización completa: ${added} agregadas, ${updated} actualizadas, ${unchanged} sin cambios. Escrituras de actualización agrupadas: ${groups}.`);
+      setFiles({});
+      setPreviews({});
+      setSelectedPreview(null);
+      if(onReload)await onReload();
+    }catch(err){setError(err.message);}
+    finally{setBusy(false);setBusyLabel("");setProgress({done:0,total:0});}
+  };
+
+  const clearAll=()=>{setFiles({});setPreviews({});setSelectedPreview(null);setResults([]);setMessage(null);setError(null);setProgress({done:0,total:0});};
+
+  const detail=selectedPreview;
+  const sampleRows=detail?[...detail.nuevos.map(r=>({...r,_tipoImport:"Nueva"})),...detail.actualizados.map(r=>({...r,_tipoImport:"Actualiza"}))].slice(0,120):[];
+  const cols=[
+    {key:"_tipoImport",label:"Acción",render:v=><Badge color={v==="Nueva"?C.green:C.yellow}>{v}</Badge>},
+    {key:"codigo",label:"Código"},
+    {key:"descripcion",label:"Descripción",wrap:true},
+    {key:"costoUnitario",label:"Costo unit.",render:v=>v?"$"+fmtNum(v):"—"},
+    {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v}</Badge>},
+    {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"parte",label:"Parte"},
+    {key:"tarea",label:"Tarea",wrap:true},
+    {key:"tipoMant",label:"Tipo Mant."},
+    {key:"horas",label:"Hs",render:v=>fmtNum(v)},
+    {key:"cantidad",label:"Cantidad",render:v=>fmtNum(v)},
+  ];
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card title="Importar Excel a planillas base">
+        <div style={{padding:16,display:"flex",flexDirection:"column",gap:12}}>
+          <AlertBanner type="info">Primero cargá todos los Excel. La carga solo guarda los archivos en memoria. Después tocá <strong>Analizar cambios</strong> para ver nuevas/actualizadas, y finalmente <strong>Actualizar Google Sheets</strong>.</AlertBanner>
+          <div style={{display:"grid",gridTemplateColumns:"minmax(280px,1fr) minmax(280px,1fr)",gap:10,alignItems:"stretch"}}>
+            {targets.map(t=>(
+              <React.Fragment key={t.id}>
+                <ImportButton target={t} fileEntry={files[t.id]} preview={previews[t.id]} onFile={loadFile} onRemove={removeFile} onSelectPreview={setSelectedPreview}/>
+                <ImportTargetLog target={t} fileEntry={files[t.id]} preview={previews[t.id]} result={resultByTarget[t.id]} onSelectPreview={setSelectedPreview}/>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {loadedFiles.length>0&&(
+        <Card title="Flujo de actualización por lote">
+          <div style={{padding:16,display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+              <StatCard icon="parts" label="Archivos cargados" value={loadedFiles.length} color={C.purple} small/>
+              <StatCard icon="refresh" label="Pendientes de análisis" value={pendingAnalyze} color={pendingAnalyze?C.yellow:C.green} small/>
+              <StatCard icon="check" label="Nuevas" value={totalNuevas} color={C.green} small/>
+              <StatCard icon="refresh" label="Actualizadas" value={totalActualizadas} color={C.yellow} small/>
+              <StatCard icon="consist" label="Sin cambios" value={totalIguales} color={C.blue} small/>
+              <StatCard icon="warn" label="Duplicadas" value={totalDuplicadas} color={C.red} small/>
+            </div>
+            {loadedPreviews.length>0&&(
+              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                {loadedPreviews.map(p=>(
+                  <button key={p.target.id} onClick={()=>setSelectedPreview(p)} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 10px",borderRadius:8,border:`1px solid ${selectedPreview?.target?.id===p.target.id?p.target.color:C.border}`,background:selectedPreview?.target?.id===p.target.id?p.target.color+"22":C.surface,color:selectedPreview?.target?.id===p.target.id?p.target.color:C.textSub,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter"}}>
+                    {p.target.sourceLabel}
+                    <Badge color={(p.nuevos.length+p.actualizados.length)>0?C.yellow:C.green}>{p.nuevos.length+p.actualizados.length} cambios</Badge>
+                  </button>
+                ))}
+              </div>
+            )}
+            {busy&&progress.total>0&&(
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.textSub,fontWeight:700}}><span>{busyLabel}</span><span>{progress.done}/{progress.total}</span></div>
+                <div style={{height:7,background:C.border,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.round((progress.done/progress.total)*100)}%`,background:C.accent,borderRadius:999,transition:"width .2s"}}/></div>
+              </div>
+            )}
+            <div style={{display:"flex",justifyContent:"flex-end",gap:10,flexWrap:"wrap"}}>
+              <button onClick={clearAll} disabled={busy} style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:busy?"not-allowed":"pointer",fontWeight:600}}>Limpiar todo</button>
+              <button disabled={busy||loadedFiles.length===0} onClick={analyzeAll} style={{padding:"9px 16px",borderRadius:8,border:`1px solid ${C.yellow}55`,background:loadedFiles.length?C.yellowDim:C.surface,color:loadedFiles.length?C.yellow:C.textMuted,cursor:loadedFiles.length&&!busy?"pointer":"not-allowed",fontWeight:800}}>Analizar cambios</button>
+              <button disabled={busy||!allLoadedAnalyzed||totalCambios===0} onClick={confirmAll} style={{padding:"9px 16px",borderRadius:8,border:`1px solid ${C.green}55`,background:(allLoadedAnalyzed&&totalCambios)?C.greenDim:C.surface,color:(allLoadedAnalyzed&&totalCambios)?C.green:C.textMuted,cursor:(allLoadedAnalyzed&&totalCambios&&!busy)?"pointer":"not-allowed",fontWeight:800}}>Actualizar Google Sheets</button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {busy&&<AlertBanner type="info">{busyLabel||"Procesando..."}</AlertBanner>}
+      {error&&<AlertBanner type="error">{error}</AlertBanner>}
+      {message&&<AlertBanner type="success">{message}</AlertBanner>}
+
+      {results.length>0&&(
+        <Card title="Resultado de actualización">
+          <div style={{padding:16,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}}>
+            {results.map(r=>(
+              <div key={r.target.id} style={{background:C.surface,border:`1px solid ${r.target.color}44`,borderRadius:10,padding:12}}>
+                <div style={{fontSize:12,fontWeight:800,color:r.target.color,marginBottom:8}}>{r.target.sourceLabel}</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                  <div><div style={{fontSize:18,fontWeight:800,color:C.green}}>{r.added||0}</div><div style={{fontSize:10,color:C.textMuted}}>agregadas</div></div>
+                  <div><div style={{fontSize:18,fontWeight:800,color:C.yellow}}>{r.updated||0}</div><div style={{fontSize:10,color:C.textMuted}}>actualiz.</div></div>
+                  <div><div style={{fontSize:18,fontWeight:800,color:C.blue}}>{r.updateGroups??0}</div><div style={{fontSize:10,color:C.textMuted}}>grupos</div></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {detail&&(
+        <Card title={`Vista previa — ${detail.target.sourceLabel}`} action={<button onClick={()=>setSelectedPreview(null)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"5px 10px",cursor:"pointer",fontSize:11}}>Cerrar</button>}>
+          <div style={{padding:16,display:"flex",flexDirection:"column",gap:14}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
+              <StatCard icon="parts" label="Archivo" value={detail.fileName.length>18?detail.fileName.slice(0,16)+"…":detail.fileName} sub={detail.sheetName} color={detail.target.color} small/>
+              <StatCard icon="check" label="Nuevas" value={detail.nuevos.length} color={C.green} small/>
+              <StatCard icon="refresh" label="Actualizadas" value={detail.actualizados.length} color={C.yellow} small/>
+              <StatCard icon="consist" label="Sin cambios" value={detail.iguales.length} color={C.blue} small/>
+              <StatCard icon="warn" label="Duplicadas" value={detail.duplicados.length} color={C.red} small/>
+            </div>
+            {sampleRows.length>0?<Table cols={cols} rows={sampleRows} maxH={360} emptyMsg="No hay cambios para mostrar"/>:<AlertBanner type="success">No hay filas nuevas ni modificadas para esta fuente.</AlertBanner>}
+            {detail.duplicados.length>0&&<AlertBanner type="warn">El Excel tiene {detail.duplicados.length} filas duplicadas por clave. Apps Script salteará duplicadas para evitar pisadas.</AlertBanner>}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+
+
+function HealthDashboard({health,onLoadAll,loading}){
+  const rows=Object.entries(health?.sources||{}).map(([key,v])=>({
+    key,
+    fuente:v.label||key,
+    filas:v.rows??"—",
+    estado:v.ok?"OK":"Error",
+    latencia:v.latency?`${v.latency} ms`:"—",
+  }));
+  const total=rows.reduce((sum,r)=>sum+(typeof r.filas==="number"?r.filas:0),0);
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:16}}>
+      <AlertBanner type="info">Inicio rápido activo: la app abrió solo con diagnóstico. Los datos pesados se cargan recién cuando entrás a cada pestaña.</AlertBanner>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+        <StatCard icon="check" label="Fuentes OK" value={rows.filter(r=>r.estado==="OK").length} color={C.green}/>
+        <StatCard icon="parts" label="Filas detectadas" value={fmtNum(total)} color={C.blue}/>
+        <StatCard icon="refresh" label="Modo" value="Lazy" sub="Carga por pestaña" color={C.accent}/>
+      </div>
+      <Card title="Estado de fuentes" action={<button onClick={onLoadAll} disabled={loading} style={{background:C.accent,border:"none",borderRadius:7,color:"#fff",padding:"7px 12px",fontSize:12,fontWeight:700,cursor:loading?"not-allowed":"pointer"}}>{loading?"Cargando...":"Cargar dashboard completo"}</button>}>
+        <Table cols={[
+          {key:"fuente",label:"Fuente"},
+          {key:"filas",label:"Filas"},
+          {key:"estado",label:"Estado",render:v=><Badge color={v==="OK"?C.green:C.red}>{v}</Badge>},
+          {key:"latencia",label:"Lectura"},
+        ]} rows={rows} maxH={360} emptyMsg="Sin diagnóstico todavía"/>
+      </Card>
+    </div>
+  );
+}
+
 export default function App(){
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
   const[view,setView]=useState("dashboard");
@@ -4736,14 +5932,18 @@ export default function App(){
   const[sidebarOpen,setSidebarOpen]=useState(true);
   const[errors,setErrors]=useState([]);
   const[fatalError,setFatalError]=useState(null);
+  const[health,setHealth]=useState(null);
+  const[rawSources,setRawSources]=useState({});
+  const[loadedSources,setLoadedSources]=useState({});
+  const[listaEquipos,setListaEquipos]=useState([]);
   const control=useMemo(()=>calcControl(rop02All,rop05),[rop02All,rop05]);
   // Estados persistentes de filtros por pestaña
   const[dashSt,setDashSt]=useState({proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""});
   const[rma15,setRma15]=useState([]);
-  const[stMant,setStMant]=useState({modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:""});
+  const[stMant,setStMant]=useState({modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:"",verGastosExcesivos:false});
   const[stCHC,setStCHC]=useState({proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()});
   const[stRanking,setStRanking]=useState({proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""});
-  const[navOpen,setNavOpen]=useState({grp_rop02:true,grp_rop05:true,grp_rma15:true});
+  const[navOpen,setNavOpen]=useState({grp_rop02:true,grp_rop05:true,grp_rma15:true,grp_admin:true});
   const[usdRate,setUsdRate]=useState(null);
 
   // Obtener tipo de cambio ARS→USD al cargar
@@ -4770,67 +5970,108 @@ export default function App(){
 
 
 
-  const loadData=useCallback(async()=>{
-    setLoading(true);setErrors([]);setFatalError(null);
-    try{
-      const json=await fetchAll(APPS_SCRIPT_URL);
-      const src=json.sources||{};const errs=[];
-      const rop05Raw=src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data):[];
-      if(rop05Raw.length){
-      // Build tarea map first with raw data, THEN normalize
-      const allTareasEarly=rop05Raw.map(r=>r.tarea).filter(Boolean);
-      buildTareaMap(allTareasEarly);
-      const rop05Norm=rop05Raw.map(r=>({...r,tarea:normTarea(r.tarea)}));
-      setRop05(rop05Norm);}
-      else if(src.rop05&&!src.rop05.ok){errs.push({source:"ROP05",...src.rop05.error});setRop05([]);}
-      const rFS=src.rop02_fs?.ok&&src.rop02_fs.data?normalizeROP02(src.rop02_fs.data,"FILO DEL SOL"):[];
-      if(src.rop02_fs&&!src.rop02_fs.ok)errs.push({source:"ROP02 — Filo del Sol",...src.rop02_fs.error});
-      const rJM=src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
-      if(src.rop02_jm&&!src.rop02_jm.ok)errs.push({source:"ROP02 — José María",...src.rop02_jm.error});
-      const rFSur=src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
-      if(src.rop02_filosur&&!src.rop02_filosur.ok)errs.push({source:"ROP02 — Filo Sur",...src.rop02_filosur.error});
-      // Construir mapa canónico con TODOS los nombres antes de setear estado
-      const allRop02=[...rFS,...rJM,...rFSur];
-      const allRop05Names=rop05Raw.map(r=>r.supervisor);
-      const allNames=[
-        ...allRop02.map(r=>r.supervisor),
-        ...allRop02.map(r=>r.operario),
-        ...allRop05Names,
-      ].filter(Boolean);
+  // Normaliza todo cada vez que llega una fuente nueva.
+  // Ventaja: podemos cargar por pestaña sin perder consistencia entre ROP02, ROP05, RMA15 e insumos.
+  useEffect(()=>{
+    const src=rawSources||{};
+    const errs=[];
+
+    const rop05Raw=src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data):[];
+    if(src.rop05&&!src.rop05.ok)errs.push({source:"ROP05",...src.rop05.error});
+
+    if(rop05Raw.length){
+      buildTareaMap(rop05Raw.map(r=>r.tarea).filter(Boolean));
+      setRop05(rop05Raw.map(r=>({...r,tarea:normTarea(r.tarea)})));
+    }else if(src.rop05){
+      setRop05([]);
+    }
+
+    const rFS=src.rop02_fs?.ok&&src.rop02_fs.data?normalizeROP02(src.rop02_fs.data,"FILO DEL SOL"):[];
+    const rJM=src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
+    const rFSur=src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
+    if(src.rop02_fs&&!src.rop02_fs.ok)errs.push({source:"ROP02 — Filo del Sol",...src.rop02_fs.error});
+    if(src.rop02_jm&&!src.rop02_jm.ok)errs.push({source:"ROP02 — José María",...src.rop02_jm.error});
+    if(src.rop02_filosur&&!src.rop02_filosur.ok)errs.push({source:"ROP02 — Filo Sur",...src.rop02_filosur.error});
+
+    const allRop02=[...rFS,...rJM,...rFSur];
+    if(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur){
+      const allNames=[...allRop02.map(r=>r.supervisor),...allRop02.map(r=>r.operario),...rop05Raw.map(r=>r.supervisor)].filter(Boolean);
       buildCanonicalMap(allNames);
-      // Construir mapa canónico de tareas (ROP05)
-      const allTareas=(src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data).map(r=>r.tarea):[]).filter(Boolean);
-      buildTareaMap(allTareas);
-      // Re-normalizar con el mapa ya construido
-      const allRop02Norm=allRop02.map(r=>({...r,supervisor:normName(r.supervisor),operario:normName(r.operario)}));
-      // ── RMA15 Mantenimiento ──────────────────────────────────────────────
-      const rmaFS=src.rma15_fs?.ok&&src.rma15_fs.data?src.rma15_fs.data:[];
-      const rmaJM=src.rma15_jm?.ok&&src.rma15_jm.data?src.rma15_jm.data:[];
-      if(src.rma15_fs&&!src.rma15_fs.ok)errs.push({source:"RMA15 — Filo del Sol",...src.rma15_fs.error});
-      if(src.rma15_jm&&!src.rma15_jm.ok)errs.push({source:"RMA15 — José María",...src.rma15_jm.error});
-      // ── Insumos base de datos ─────────────────────────────────────────────
-      const insumosMap={};
-      if(src.insumos?.ok&&src.insumos.data){
-        src.insumos.data.forEach(r=>{
-          const cod=String(r["CODIGO"]||r["Codigo"]||r["código"]||"").trim();
-          if(cod)insumosMap[cod]={
-            descripcion:String(r["DESCRIPCIÓN"]||r["DESCRIPCION"]||r["Descripción"]||"").trim(),
-            costoUnitario:parseFloat(String(r["COSTO UNITARIO"]||r["Costo Unitario"]||"0").replace(/[^0-9.]/g,""))||0,
-          };
-        });
-      }
+      setRop02All(allRop02.map(r=>({...r,supervisor:normName(r.supervisor),operario:normName(r.operario)})));
+    }
+
+    const insumosMap={};
+    if(src.insumos?.ok&&src.insumos.data){
+      src.insumos.data.forEach(r=>{
+        const cod=String(r["CODIGO"]||r["Codigo"]||r["código"]||"").trim();
+        if(cod)insumosMap[cod]={
+          descripcion:String(r["DESCRIPCIÓN"]||r["DESCRIPCION"]||r["Descripción"]||"").trim(),
+          costoUnitario:parseFloat(String(r["COSTO UNITARIO"]||r["Costo Unitario"]||"0").replace(/[^0-9.]/g,""))||0,
+        };
+      });
       setInsumos(insumosMap);
-      const allRma=[
+    }
+
+    const rmaFS=src.rma15_fs?.ok&&src.rma15_fs.data?src.rma15_fs.data:[];
+    const rmaJM=src.rma15_jm?.ok&&src.rma15_jm.data?src.rma15_jm.data:[];
+    if(src.rma15_fs&&!src.rma15_fs.ok)errs.push({source:"RMA15 — Filo del Sol",...src.rma15_fs.error});
+    if(src.rma15_jm&&!src.rma15_jm.ok)errs.push({source:"RMA15 — José María",...src.rma15_jm.error});
+    if(rmaFS.length || rmaJM.length || src.rma15_fs || src.rma15_jm){
+      setRma15([
         ...rmaFS.map(r=>normalizeRMA15({...r,_proyectoForzado:"FILO DEL SOL"},insumosMap)),
         ...rmaJM.map(r=>normalizeRMA15({...r,_proyectoForzado:"JOSE MARIA"},insumosMap)),
-      ];
-      setRma15(allRma);
-      setRop02All(allRop02Norm);setErrors(errs);setLastUpdate(new Date());
+      ]);
+    }
+
+    if(src.lista_equipos?.ok&&src.lista_equipos.data){
+      setListaEquipos(src.lista_equipos.data);
+    }else if(src.lista_equipos&&!src.lista_equipos.ok){
+      errs.push({source:"Lista Maestra de Equipos",...src.lista_equipos.error});
+      setListaEquipos([]);
+    }
+
+    setErrors(errs);
+  },[rawSources]);
+
+  const loadInitial=useCallback(async()=>{
+    setLoading(true);setErrors([]);setFatalError(null);
+    try{
+      const h=await fetchHealth(APPS_SCRIPT_URL);
+      setHealth(h);
+      setLastUpdate(new Date());
     }catch(err){setFatalError(err.message);}
     finally{setLoading(false);}
   },[]);
 
-  useEffect(()=>{loadData();},[loadData]);
+  const loadSources=useCallback(async(sources,{force=false}={})=>{
+    const needed=(sources||[]).filter(Boolean).filter(k=>force||!loadedSources[k]);
+    if(!needed.length)return;
+    setLoading(true);setFatalError(null);
+    try{
+      const entries=await Promise.all(needed.map(async key=>[key,await fetchSource(APPS_SCRIPT_URL,key,{force})]));
+      setRawSources(prev=>{
+        const next={...prev};
+        entries.forEach(([key,val])=>{next[key]=val;});
+        return next;
+      });
+      setLoadedSources(prev=>{
+        const next={...prev};
+        entries.forEach(([key])=>{next[key]=true;});
+        return next;
+      });
+      setLastUpdate(new Date());
+    }catch(err){setFatalError(err.message);}
+    finally{setLoading(false);}
+  },[loadedSources]);
+
+  const loadData=useCallback(async()=>{
+    const sources=VIEW_SOURCES[view]||[];
+    if(sources.length) await loadSources(sources,{force:true});
+    else await loadInitial();
+  },[view,loadSources,loadInitial]);
+
+  useEffect(()=>{loadInitial();},[loadInitial]);
+  useEffect(()=>{loadSources(VIEW_SOURCES[view]||[]);},[view,loadSources]);
 
   const navStructure=[
     {id:"dashboard",icon:"dashboard",label:"Dashboard",type:"item",color:C.accent},
@@ -4847,13 +6088,19 @@ export default function App(){
     ]},
     {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
       {id:"mant",icon:"gear",label:"Mantenimiento"},
+      {id:"costosUnitarios",icon:"dollar",label:"Costos Unitarios"},
     ]},
     {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:control.problemas>0?control.problemas:null},
-    {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.teal},
+    {id:"listaEquipos",icon:"bulldozer",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
+    {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={dashboard:"Dashboard",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",control:"Consistencia ROP02 vs ROP05"};
+  const adminNav={id:"grp_admin",icon:"gear",label:"ADMINISTRACIÓN",type:"group",color:C.red,children:[
+    {id:"importExcel",icon:"parts",label:"Importar Excel"},
+  ]};
+  const titles={dashboard:"Dashboard",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",importExcel:"Importar Excel"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
+    listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
     rop02:"ROP02 = Reporte de Operación de máquinas: parte diario por turno (TD = turno día, TN = turno noche), con horómetros, tareas y observaciones.",
     horometros:"Resume por máquina el horómetro inicial del primer registro filtrado y el horómetro final del último registro del período seleccionado.",
     vehiculos:"Mismo reporte que ROP02 (TD/TN, horómetros, km), pero para camiones y camionetas en lugar de máquinas.",
@@ -4863,7 +6110,9 @@ export default function App(){
     ranking:"Ranking de operarios según horas trabajadas, días activos y equipos operados.",
     chc:"ICHC = Indicador de Control de Horas Contratadas: compara las horas efectivamente trabajadas contra las horas pactadas por contrato (180 hs/mes por equipo).",
     mant:"RMA15 = Registro de Mantenimiento: órdenes de trabajo (OT), insumos y costos de mantenimiento de cada equipo.",
+    costosUnitarios:"Listado de artículos de la Base de datos costos: código, artículo y precio unitario usado para valorizar insumos de mantenimiento.",
     control:"Cruza ROP02 (partes diarios) contra ROP05 (producción) para detectar registros de un lado que no tienen su contraparte en el otro (turnos sin producción cargada o producción sin parte diario).",
+    importExcel:"Permite subir Excel actualizados y aplicar upsert: agregar filas nuevas y actualizar filas existentes que cambiaron.",
   };
   const SW=sidebarOpen?240:52;
 
@@ -4919,6 +6168,28 @@ export default function App(){
               );
             })}
           </nav>
+          <div style={{borderTop:`1px solid ${C.border}`,padding:"8px 0 10px",background:C.surface,boxShadow:"0 -10px 24px rgba(0,0,0,.18)"}}>
+            <button onClick={()=>setNavOpen(o=>({...o,[adminNav.id]:!o[adminNav.id]}))}
+              title={!sidebarOpen?adminNav.label:undefined}
+              style={{width:"100%",background:view==="importExcel"?C.accentDim:"none",border:"none",borderLeft:`2px solid ${view==="importExcel"?C.accent:adminNav.color+"55"}`,padding:sidebarOpen?"10px 14px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
+              <Icon name={adminNav.icon} size={17} color={view==="importExcel"?C.accent:adminNav.color}/>
+              {sidebarOpen&&(<>
+                <span style={{fontSize:12,fontWeight:700,color:view==="importExcel"?C.accent:C.textSub,flex:1,textAlign:"left"}}>{adminNav.label}</span>
+                <Icon name="chevronDown" size={14} color={C.textMuted} style={{transform:navOpen[adminNav.id]?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s"}}/>
+              </>)}
+            </button>
+            {navOpen[adminNav.id]&&adminNav.children.map(child=>{
+              const active=view===child.id;
+              return(
+                <button key={child.id} onClick={()=>setView(child.id)}
+                  title={!sidebarOpen?child.label:undefined}
+                  style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:adminNav.color+"22"}`,padding:sidebarOpen?"10px 14px 10px 28px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
+                  <Icon name={child.icon} size={17} color={active?C.accent:adminNav.color+"cc"}/>
+                  {sidebarOpen&&<span style={{fontSize:12,fontWeight:500,color:active?C.accent:C.textSub,flex:1,textAlign:"left"}}>{child.label}</span>}
+                </button>
+              );
+            })}
+          </div>
         </div>
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
           <div style={{height:50,flexShrink:0,background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
@@ -4946,16 +6217,17 @@ export default function App(){
               </div>
             )}
             {fatalError&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
-            {loading&&!lastUpdate&&!fatalError&&(
+            {!fatalError&&(loading&&!lastUpdate||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
                 <Spinner size={36}/>
                 <div style={{color:C.textMuted,fontSize:13}}>Cargando datos desde Google Sheets...</div>
                 <div style={{fontFamily:"monospace",fontSize:10,color:C.borderLight}}>{APPS_SCRIPT_URL.slice(0,60)}...</div>
               </div>
             )}
-            {!fatalError&&lastUpdate&&(
+            {!fatalError&&lastUpdate&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="dashboard"&&<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>}
+                {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
+                {view==="listaEquipos"&&<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>}
                 {view==="rop02"&&<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>}
                 {view==="horometros"&&<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>}
                 {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>}
@@ -4964,8 +6236,10 @@ export default function App(){
                 {view==="rop05"&&<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>}
                 {view==="ranking"&&<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>}
                 {view==="mant"&&<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>}
+                {view==="costosUnitarios"&&<ViewCostosUnitarios insumos={insumos} usdRate={usdRate}/>}
                 {view==="chc"&&<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>}
                 {view==="control"&&<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>}
+                {view==="importExcel"&&<ViewImportExcel rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} onReload={loadData}/>}
               </>
             )}
           </div>
