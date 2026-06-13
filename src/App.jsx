@@ -530,40 +530,10 @@ function normalizeRMA15(r, insumosMap){
 }
 
 function normalizeROP05(rows){
-  // BUG CRÍTICO CORREGIDO:
-  // Para controles ROP02 vs ROP05, la fecha válida de ROP05 es SIEMPRE la
-  // fecha del parte diario / FechaParte. La fecha de carga (Marca Temporal,
-  // Marca Tmeporal, FechaCarga) NO se usa para correlacionar contra ROP02.
   return(rows||[]).map(r=>{
-    const maquinaRaw=getValue(r,["Equipo","Codigo Int","Código Int","Codigo interno","Código interno"]);
-
-    // Primero buscamos únicamente columnas que representen la fecha del PARTE.
-    // No incluimos FechaCarga ni Marca Temporal en esta lista para evitar que
-    // el control cruce contra la fecha en que se cargó el formulario.
-    let fechaRaw=getValue(r,[
-      "FechaParte",
-      "Fecha del Parte Diario",
-      "Fecha Parte",
-      "Fecha de Parte",
-      "Día Parte",
-      "Dia Parte",
-      "Fecha trabajo",
-      "Fecha de trabajo"
-    ]);
-
-    // Respaldo seguro para importaciones por posición: si el row viene armado
-    // como array/objeto por columnas, la columna H (índice 7) es FechaParte.
-    if(!fechaRaw && Array.isArray(r))fechaRaw=r[7];
-
-    // Último recurso: solo si NO existe ninguna fecha de parte, usamos la fecha
-    // de carga para no descartar la fila. Esta situación queda marcada para
-    // diagnóstico y NO debería ocurrir en ROP05 válido.
-    let _fechaDesdeCarga=false;
-    if(!fechaRaw){
-      fechaRaw=getValue(r,["FechaCarga","Marca Tmeporal","Marca Temporal"]);
-      _fechaDesdeCarga=!!fechaRaw;
-    }
-
+    // FECHA CORRECTA PARA ROP05: siempre FechaParte / Fecha del Parte Diario.
+    // FechaCarga / Marca Temporal queda solo como fecha de carga, NO se usa para controles.
+    const fechaParte=getValue(r,["FechaParte","Fecha del Parte Diario","Fecha Parte","FECHA PARTE"]);
     const tareaRaw=String(getValue(r,[
       "Tarea",
       "TAREAS PRODUCTIVAS CON TOPADORAS",
@@ -589,36 +559,32 @@ function normalizeROP05(rows){
       "CANTIDAD DE PRODUCCION",
       "Cantidad"
     ]);
-    const obs=getValue(r,[
-      "Observacion",
-      "Observación",
-      "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.",
-      "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA",
-      "OBSERVACION DE LA TAREA",
-      "OBSERVACIONES DE LA TAREA",
-      "Observaciones",
-      "observaciones",
-      "OBSERVACIONES",
-      "Obs",
-      "OBS"
-    ]);
-    const maquina=cleanMachine(maquinaRaw);
+    const maquina=cleanMachine(getValue(r,["Equipo","Codigo Int","Código Int","Codigo Interno","Interno"]));
     return{
-      fecha:normDate(fechaRaw),
-      fechaParte:normDate(fechaRaw),
+      fecha:normDate(fechaParte),
       fechaCarga:normDate(getValue(r,["FechaCarga","Marca Tmeporal","Marca Temporal"])),
-      _fechaDesdeCarga,
       maquina,
       tipo_maquina:String(getValue(r,["TipoEquipo","Tipo Equipo","Tipo de máquina","Tipo de maquina"])||"").trim(),
-      tarea,
-      horas:toNumber(cantHs),
-      cantidad:toNumber(cantProd),
+      tarea,horas:toNumber(cantHs),cantidad:toNumber(cantProd),
       unidad:String(getValue(r,["Unidad","UNIDAD DE PRODUCTIVIDAD"])||"").trim().toUpperCase(),
       proyecto:normProject(getValue(r,["Proyecto"])),
       supervisor:normSupervisorROP05(getValue(r,["CorreoSupervisor","Supervisor"])),
-      parte:String(getValue(r,["NroParte","N° de Parte","Nro Parte","Numero de Parte","Número de Parte"])||"").trim(),
+      parte:String(getValue(r,["NroParte","N° de Parte","Nº de Parte","N de Parte","Nro Parte","Parte"])||"").trim(),
       grupo:String(getValue(r,["GrupoTrabajo","Grupo de trabajo"])||"").trim(),
-      observaciones:String(obs||"").trim(),
+      observaciones:String(getValue(r,[
+        "Observacion",
+        "Observación",
+        "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.",
+        "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA",
+        "OBSERVACION DE LA TAREA",
+        "OBSERVACIONES DE LA TAREA",
+        "OBSERVACION",
+        "OBSERVACIONES",
+        "Observaciones",
+        "observaciones",
+        "Obs",
+        "OBS"
+      ])||"").trim(),
       _excluded:isExcluded(maquina),
       _tipo:getMachineType(maquina)||"",
     };
@@ -1121,6 +1087,37 @@ const LISTA_COLUMNS=[
   {label:"Lugar de Alquiler",aliases:["Lugar de Alquiler","Lugar Alquiler"],group:"uso"},
 ];
 
+const LISTA_EQUIPOS_YEAR_OPTIONS=Array.from(
+  {length:Math.max(1,new Date().getFullYear()-1979)},
+  (_,i)=>String(new Date().getFullYear()-i)
+);
+function normalizeYearValue(v){
+  const m=String(v||"").match(/(19|20)\d{2}/);
+  return m?m[0]:"";
+}
+function isYearOnlyListaField(label){
+  const k=cleanKey(label);
+  return (
+    k.includes("fecha ingreso") ||
+    k.includes("ingreso a la empresa") ||
+    k.includes("ano fabricacion") ||
+    k.includes("anio fabricacion") ||
+    k.includes("fabricacion")
+  );
+}
+function ListaEquipoFieldInput({field,value,onChange,placeholder}){
+  const commonStyle={background:C.card,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"8px 10px",fontSize:12,outline:"none"};
+  if(field.inputType==="year"){
+    return(
+      <select value={normalizeYearValue(value)} onChange={e=>onChange(e.target.value)} style={commonStyle}>
+        <option value="">Seleccionar año...</option>
+        {LISTA_EQUIPOS_YEAR_OPTIONS.map(y=><option key={y} value={y}>{y}</option>)}
+      </select>
+    );
+  }
+  return <input type={field.inputType} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder||""} style={commonStyle}/>;
+}
+
 // ─── Export Excel Lista Maestra de Equipos ────────────────────────────────────
 function generarExcelListaMaestra(rows, cols, label){
   const wb=XLSX.utils.book_new();
@@ -1147,6 +1144,11 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   const[newEquipo,setNewEquipo]=useState({});
   const[savingEquipo,setSavingEquipo]=useState(false);
   const[addMsg,setAddMsg]=useState(null);
+  const[editOpen,setEditOpen]=useState(false);
+  const[editEquipo,setEditEquipo]=useState({});
+  const[editSelected,setEditSelected]=useState("");
+  const[savingEdit,setSavingEdit]=useState(false);
+  const[editMsg,setEditMsg]=useState(null);
   const data=useMemo(()=>rows||[],[rows]);
   const allKeys=useMemo(()=>{
     const set=new Set();
@@ -1164,6 +1166,8 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   // paréntesis en ROP02 (ej. "MOT-0024" en "MOT-0024 (MOT-0047)") corresponde
   // al "Código Drusila" de la lista maestra.
   const drusilaKey=useMemo(()=>findColumnKey(searchableKeys,"Codigo Drusila",["Codigo de Drusila","Cod Drusila"]),[searchableKeys]);
+  const codigoNuevoKey=useMemo(()=>findColumnKey(searchableKeys,"Codigo Nuevo",["Codigo Interno","CODIGO N° INTERNO","Interno"]),[searchableKeys]);
+  const descripcionEquipoKey=useMemo(()=>findColumnKey(searchableKeys,"Descripcion",["Descripción","Equipo","Tipo de Equipo","Tipo Equipo","Marca / Modelo","Modelo"]),[searchableKeys]);
   const horometroMap=useMemo(()=>buildHorometroMapForLista(rop02All,fechaHorometro),[rop02All,fechaHorometro]);
 
   const dataWithKey=useMemo(()=>data.map(r=>{
@@ -1232,17 +1236,83 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
     const realKey=col.special==="horometro"
       ? (horasKey||"HORAS")
       : (findColumnKey(searchableKeys,col.label,col.aliases)||col.label);
-    return{...col,key:realKey,inputType:col.label.toLowerCase().includes("fecha")?"date":"text"};
+    return{...col,key:realKey,inputType:isYearOnlyListaField(col.label)?"year":"text"};
   }),[searchableKeys,horasKey]);
+
+  const equipoEditOptions=useMemo(()=>dataWithKey.map((r,idx)=>{
+    const codDrusila=drusilaKey?String(r[drusilaKey]||"").trim():"";
+    const codNuevo=codigoNuevoKey?String(r[codigoNuevoKey]||"").trim():"";
+    const desc=descripcionEquipoKey?String(r[descripcionEquipoKey]||"").trim():"";
+    const title=[codDrusila,codNuevo].filter(Boolean).join(" / ") || `Fila ${idx+1}`;
+    return{value:String(idx),label:desc?`${title} — ${desc}`:title};
+  }),[dataWithKey,drusilaKey,codigoNuevoKey,descripcionEquipoKey]);
 
   const setNewEquipoValue=useCallback((key,value)=>{
     setNewEquipo(prev=>({...prev,[key]:value}));
   },[]);
 
+  const setEditEquipoValue=useCallback((key,value)=>{
+    setEditEquipo(prev=>({...prev,[key]:value}));
+  },[]);
+
+  const seleccionarEquipoEditar=useCallback((value)=>{
+    setEditSelected(value);
+    setEditMsg(null);
+    const row=dataWithKey[Number(value)];
+    if(!row){setEditEquipo({});return;}
+    const next={};
+    formFields.forEach(f=>{
+      const raw=row[f.key]===undefined||row[f.key]===null?"":String(row[f.key]);
+      next[f.key]=f.inputType==="year"?normalizeYearValue(raw):raw;
+    });
+    setEditEquipo(next);
+  },[dataWithKey,formFields]);
+
   const limpiarNuevoEquipo=useCallback(()=>{
     setNewEquipo({});
     setAddMsg(null);
   },[]);
+
+  const limpiarEdicionEquipo=useCallback(()=>{
+    setEditSelected("");
+    setEditEquipo({});
+    setEditMsg(null);
+  },[]);
+
+  const guardarEdicionEquipo=useCallback(async()=>{
+    const originalRow=dataWithKey[Number(editSelected)];
+    if(!originalRow){
+      setEditMsg({type:"error",text:"Seleccioná primero un equipo para modificar."});
+      return;
+    }
+    const codigoDrusila=drusilaKey?String(originalRow[drusilaKey]||"").trim():"";
+    const codigoNuevo=codigoNuevoKey?String(originalRow[codigoNuevoKey]||"").trim():"";
+    if(!codigoDrusila&&!codigoNuevo){
+      setEditMsg({type:"error",text:"El equipo seleccionado no tiene Código Drusila ni Código Nuevo para identificarlo."});
+      return;
+    }
+    setSavingEdit(true);
+    setEditMsg({type:"info",text:"Actualizando equipo en Google Sheets..."});
+    try{
+      const cleanRow={};
+      formFields.forEach(f=>{
+        const v=editEquipo[f.key];
+        cleanRow[f.key]=v===undefined||v===null?"":String(v).trim();
+      });
+      const res=await postUpdateListaEquipo({
+        codigoDrusila,
+        codigoNuevo,
+        codigoDrusilaHeader:drusilaKey||"",
+        codigoNuevoHeader:codigoNuevoKey||""
+      },cleanRow);
+      setEditMsg({type:"success",text:`Equipo actualizado en la fila ${res.rowNumber||"detectada"}.`});
+      if(onReloadLista)await onReloadLista();
+    }catch(err){
+      setEditMsg({type:"error",text:err.message});
+    }finally{
+      setSavingEdit(false);
+    }
+  },[dataWithKey,editSelected,drusilaKey,codigoNuevoKey,formFields,editEquipo,onReloadLista]);
 
   const guardarNuevoEquipo=useCallback(async()=>{
     const codigoDrusilaField=formFields.find(f=>cleanKey(f.label).includes("codigo drusila"));
@@ -1292,8 +1362,11 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
             <input type="date" value={fechaHorometro} onChange={e=>setFechaHorometro(e.target.value)} style={{background:"transparent",border:"none",color:C.text,fontSize:12,outline:"none",fontFamily:"Inter"}}/>
             {fechaHorometro&&<button onClick={()=>setFechaHorometro("")} title="Sin día: mostrar último horómetro" style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:6,color:C.red,padding:"3px 7px",fontSize:11,fontWeight:700,cursor:"pointer"}}>×</button>}
           </div>
-          <button onClick={()=>{setAddOpen(o=>!o);setAddMsg(null);}} style={{background:addOpen?C.accentDim:C.tealDim,border:`1px solid ${addOpen?C.accent+"55":C.teal+"44"}`,borderRadius:7,color:addOpen?C.accent:C.teal,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <button onClick={()=>{setAddOpen(o=>!o);setAddMsg(null);if(editOpen)setEditOpen(false);}} style={{background:addOpen?C.accentDim:C.tealDim,border:`1px solid ${addOpen?C.accent+"55":C.teal+"44"}`,borderRadius:7,color:addOpen?C.accent:C.teal,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
             + Cargar nuevo equipo
+          </button>
+          <button onClick={()=>{setEditOpen(o=>!o);setEditMsg(null);if(addOpen)setAddOpen(false);}} style={{background:editOpen?C.accentDim:C.yellowDim,border:`1px solid ${editOpen?C.accent+"55":C.yellow+"44"}`,borderRadius:7,color:editOpen?C.accent:C.yellow,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+            ✎ Modificar equipos
           </button>
           <button onClick={()=>generarExcelListaMaestra(filtered,cols,new Date().toISOString().slice(0,10).replace(/-/g,""))} style={{background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:7,color:C.green,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
             ⬇ Generar reporte
@@ -1305,6 +1378,43 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar equipo, tipo, marca, proyecto..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:240,outline:"none"}}/>
         </div>
       }>
+        {editOpen&&(
+          <div style={{margin:"0 0 14px",padding:14,background:C.surface,border:`1px solid ${C.yellow}33`,borderRadius:10}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:12}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:800,color:C.text}}>Modificar equipos</div>
+                <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>Seleccioná un equipo, editá cualquier celda y guardá. La modificación se actualiza en la planilla base Lista Maestra de Equipos.</div>
+              </div>
+              <button onClick={()=>{setEditOpen(false);limpiarEdicionEquipo();}} disabled={savingEdit} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"6px 10px",fontSize:12,fontWeight:700,cursor:savingEdit?"not-allowed":"pointer"}}>Cerrar</button>
+            </div>
+            {editMsg&&<div style={{marginBottom:12,padding:"9px 11px",borderRadius:8,fontSize:12,color:editMsg.type==="error"?C.red:editMsg.type==="success"?C.green:C.blue,background:(editMsg.type==="error"?C.redDim:editMsg.type==="success"?C.greenDim:C.blueDim),border:`1px solid ${(editMsg.type==="error"?C.red:editMsg.type==="success"?C.green:C.blue)}44`}}>{editMsg.text}</div>}
+            <div style={{display:"grid",gridTemplateColumns:"minmax(260px,420px) 1fr",gap:12,alignItems:"end",marginBottom:12}}>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                <label style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>Equipo a modificar</label>
+                <select value={editSelected} onChange={e=>seleccionarEquipoEditar(e.target.value)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"8px 10px",fontSize:12,outline:"none"}}>
+                  <option value="">Seleccionar equipo...</option>
+                  {equipoEditOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div style={{fontSize:11,color:C.textMuted}}>Identificación usada para guardar: <b style={{color:C.text}}>Código Drusila</b> o <b style={{color:C.text}}>Código Nuevo</b> original. Podés modificar el resto de las columnas y también esos códigos, siempre que no queden duplicados.</div>
+            </div>
+            {editSelected!==""&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
+              {formFields.map(f=>(
+                <div key={"edit_"+f.key+f.label} style={{display:"flex",flexDirection:"column",gap:4}}>
+                  <label style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>{f.label}{f.special==="horometro"&&<span style={{color:C.yellow}}> → HORAS</span>}</label>
+                  <ListaEquipoFieldInput field={f} value={editEquipo[f.key]||""} onChange={v=>setEditEquipoValue(f.key,v)}/>
+                </div>
+              ))}
+            </div>)}
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
+              <button onClick={limpiarEdicionEquipo} disabled={savingEdit} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:savingEdit?"not-allowed":"pointer"}}>Limpiar</button>
+              <button onClick={guardarEdicionEquipo} disabled={savingEdit||editSelected===""} style={{background:C.yellowDim,border:`1px solid ${C.yellow}55`,borderRadius:7,color:C.yellow,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:(savingEdit||editSelected==="")?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:7}}>
+                {savingEdit?<Spinner size={13}/>:<Icon name="check" size={13} color={C.yellow}/>}
+                {savingEdit?"Guardando...":"Guardar cambios"}
+              </button>
+            </div>
+          </div>
+        )}
         {addOpen&&(
           <div style={{margin:"0 0 14px",padding:14,background:C.surface,border:`1px solid ${C.teal}33`,borderRadius:10}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:12}}>
@@ -1319,7 +1429,7 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
               {formFields.map(f=>(
                 <div key={f.key+f.label} style={{display:"flex",flexDirection:"column",gap:4}}>
                   <label style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>{f.label}{f.special==="horometro"&&<span style={{color:C.yellow}}> → HORAS</span>}</label>
-                  <input type={f.inputType} value={newEquipo[f.key]||""} onChange={e=>setNewEquipoValue(f.key,e.target.value)} placeholder={f.special==="horometro"?"Valor inicial si no hay ROP02":""} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"8px 10px",fontSize:12,outline:"none"}}/>
+                  <ListaEquipoFieldInput field={f} value={newEquipo[f.key]||""} onChange={v=>setNewEquipoValue(f.key,v)} placeholder={f.special==="horometro"?"Valor inicial si no hay ROP02":""}/>
                 </div>
               ))}
             </div>
@@ -5380,104 +5490,266 @@ function normalizeExcelHeader(h,idx){
   const s=String(h||"").trim();
   return s||`col_${idx}`;
 }
-function putAliases(obj,value,aliases){
-  aliases.forEach(a=>{obj[a]=String(value??"").trim();});
+function cellStr(arr,idx){return String(arr?.[idx]??"").trim();}
+function looksLikeROP05IdPrefixedRow(arr){
+  // Soporta exportaciones de AppSheet/base normalizada:
+  // A = ID_Carga, B = FechaCarga, C = CorreoSupervisor, ...
+  // y también la plantilla histórica sin ID_Carga: A = FechaCarga.
+  const c0=cellStr(arr,0);
+  const c1=cellStr(arr,1);
+  const c2=cellStr(arr,2);
+  if(cleanKey(c0)==="id_carga")return true;
+  if((normDate(c1)||/^\d{4}-\d{2}-\d{2}/.test(c1)||/^\d{1,2}\/\d{1,2}\/\d{4}/.test(c1)) && String(c2||"").includes("@"))return true;
+  return false;
 }
+function buildROP05ImportObjectByPosition(arr){
+  const offset=looksLikeROP05IdPrefixedRow(arr)?1:0;
+  const fechaCarga=cellStr(arr,offset+0);
+  const supervisor=cellStr(arr,offset+1);
+  const proyecto=cellStr(arr,offset+2);
+  const grupo=cellStr(arr,offset+3);
+  const equipo=cellStr(arr,offset+4);
+  const parte=cellStr(arr,offset+5);
+  const tipoEquipo=cellStr(arr,offset+6);
+  const fechaParte=cellStr(arr,offset+7);
+  const tarea=cellStr(arr,offset+8);
+  const horas=cellStr(arr,offset+9);
+  const cantidad=cellStr(arr,offset+10);
+  const unidad=cellStr(arr,offset+11);
+  const obs=cellStr(arr,offset+12);
 
-// Importación por posición para archivos subidos.
-// ROP05 se lee por columnas A:M e ignora completamente los encabezados del Excel.
-// Además se cargan alias viejos y nuevos para que funcione aunque la planilla base
-// tenga encabezados nuevos (FechaCarga, Equipo, etc.) o los encabezados históricos.
-function rowByPositionForImport(target,arr){
-  const obj={};
-  const v=(i)=>String(arr?.[i]??"").trim();
-  if(target?.kind==="rop05"){
-    putAliases(obj,v(0),["FechaCarga","Marca Tmeporal","Marca Temporal"]);
-    putAliases(obj,v(1),["CorreoSupervisor","Supervisor"]);
-    putAliases(obj,v(2),["Proyecto"]);
-    putAliases(obj,v(3),["GrupoTrabajo","Grupo de trabajo"]);
-    putAliases(obj,v(4),["Equipo","Codigo Int","Código Int","Codigo interno","Código interno"]);
-    putAliases(obj,v(5),["NroParte","N° de Parte","Nro Parte","Numero de Parte","Número de Parte"]);
-    putAliases(obj,v(6),["TipoEquipo","Tipo Equipo","Tipo de máquina","Tipo de maquina"]);
-    putAliases(obj,v(7),["FechaParte","Fecha del Parte Diario","Fecha Parte"]);
-    putAliases(obj,v(8),["Tarea"]);
-    putAliases(obj,v(9),[
-      "HorasProductivas",
-      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS\n(SOLO CANTIDAD)",
-      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)",
-      "HS PRODUCTIVAS EFECTIVAS",
-      "Horas",
-      "Hs"
-    ]);
-    putAliases(obj,v(10),[
-      "CantidadProduccion",
-      "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA\n(SIN UNIDADES DE MEDIDA)",
-      "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)",
-      "CANTIDAD DE PRODUCCIÓN",
-      "CANTIDAD DE PRODUCCION",
-      "Cantidad"
-    ]);
-    putAliases(obj,v(11),["Unidad","UNIDAD DE PRODUCTIVIDAD"]);
-    putAliases(obj,v(12),[
-      "Observacion",
-      "Observación",
-      "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.",
-      "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA",
-      "OBSERVACION DE LA TAREA",
-      "OBSERVACIONES DE LA TAREA",
-      "OBSERVACIONES",
-      "Observaciones",
-      "Obs",
-      "OBS"
-    ]);
-    putAliases(obj,v(13),["Mes"]);
-    return obj;
-  }
-  return null;
+  // Importante: se cargan alias viejos y nuevos.
+  // Así el frontend analiza por columna y Apps Script puede escribir tanto
+  // en planillas con encabezados viejos como con encabezados nuevos.
+  return {
+    FechaCarga:fechaCarga,
+    "Marca Tmeporal":fechaCarga,
+    "Marca Temporal":fechaCarga,
+    CorreoSupervisor:supervisor,
+    Supervisor:supervisor,
+    Proyecto:proyecto,
+    GrupoTrabajo:grupo,
+    "Grupo de trabajo":grupo,
+    Equipo:equipo,
+    "Codigo Int":equipo,
+    "Código Int":equipo,
+    NroParte:parte,
+    "N° de Parte":parte,
+    "Nº de Parte":parte,
+    "N de Parte":parte,
+    TipoEquipo:tipoEquipo,
+    "Tipo Equipo":tipoEquipo,
+    "Tipo de máquina":tipoEquipo,
+    "Tipo de maquina":tipoEquipo,
+    FechaParte:fechaParte,
+    "Fecha del Parte Diario":fechaParte,
+    Tarea:tarea,
+    HorasProductivas:horas,
+    "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS\n(SOLO CANTIDAD)":horas,
+    "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)":horas,
+    "HS PRODUCTIVAS EFECTIVAS":horas,
+    CantidadProduccion:cantidad,
+    "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA\n(SIN UNIDADES DE MEDIDA)":cantidad,
+    "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)":cantidad,
+    "CANTIDAD DE PRODUCCIÓN":cantidad,
+    "CANTIDAD DE PRODUCCION":cantidad,
+    Unidad:unidad,
+    "UNIDAD DE PRODUCTIVIDAD":unidad,
+    Observacion:obs,
+    Observación:obs,
+    "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.":obs,
+    "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA":obs,
+    "OBSERVACION DE LA TAREA":obs,
+    "OBSERVACIONES":obs,
+    Mes:cellStr(arr,13),
+  };
 }
-
+function countValidROP05ImportRows(rows){
+  return normalizeROP05(rows||[]).length;
+}
+function pickBestSheetForTarget(wb,target,headerIdx){
+  // Para ROP05 NO confiar en la primera hoja. Los archivos pueden traer hojas auxiliares
+  // como Codigos/Equipos/Inicio. Elegimos la hoja con más filas ROP05 válidas.
+  if(target?.kind!=="rop05")return wb.SheetNames[0];
+  let bestName=wb.SheetNames[0];
+  let bestCount=-1;
+  wb.SheetNames.forEach(name=>{
+    const ws=wb.Sheets[name];
+    if(!ws)return;
+    const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false,dateNF:"yyyy-mm-dd"});
+    const rows=[];
+    for(let i=headerIdx+1;i<matrix.length;i++){
+      const arr=matrix[i]||[];
+      if(arr.every(v=>String(v||"").trim()===""))continue;
+      rows.push(buildROP05ImportObjectByPosition(arr));
+    }
+    const valid=countValidROP05ImportRows(rows);
+    if(valid>bestCount){bestCount=valid;bestName=name;}
+  });
+  return bestName;
+}
 function readExcelAsObjects(file,targetOrHeaderRow){
   return new Promise((resolve,reject)=>{
     const reader=new FileReader();
     reader.onerror=()=>reject(new Error("No se pudo leer el archivo Excel."));
     reader.onload=e=>{
       try{
-        const target=typeof targetOrHeaderRow==="object"?targetOrHeaderRow:{headerRow:targetOrHeaderRow};
-        const headerRow=target?.headerRow||1;
         const data=new Uint8Array(e.target.result);
         const wb=XLSX.read(data,{type:"array",cellDates:true});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        if(!ws)throw new Error("El Excel no contiene hojas.");
-        const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false,dateNF:"yyyy-mm-dd"});
+        if(!wb.SheetNames?.length)throw new Error("El Excel no contiene hojas.");
+        const target=typeof targetOrHeaderRow==="object"?targetOrHeaderRow:null;
+        const headerRow=target?.headerRow??targetOrHeaderRow;
         const headerIdx=Math.max(0,(headerRow||1)-1);
+        const selectedSheetName=pickBestSheetForTarget(wb,target,headerIdx);
+        const ws=wb.Sheets[selectedSheetName];
+        if(!ws)throw new Error("El Excel no contiene la hoja seleccionada.");
+        const matrix=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false,dateNF:"yyyy-mm-dd"});
+
+        // ROP05: leer SIEMPRE por posición e ignorar encabezados.
+        // A:M = formato histórico. Si existe ID_Carga en A, usa B:N automáticamente.
+        if(target?.kind==="rop05"){
+          const rows=[];
+          for(let i=headerIdx+1;i<matrix.length;i++){
+            const arr=matrix[i]||[];
+            if(arr.every(v=>String(v||"").trim()===""))continue;
+            rows.push(buildROP05ImportObjectByPosition(arr));
+          }
+          return resolve({
+            sheetName:selectedSheetName,
+            headers:["FechaCarga","CorreoSupervisor","Proyecto","GrupoTrabajo","Equipo","NroParte","TipoEquipo","FechaParte","Tarea","HorasProductivas","CantidadProduccion","Unidad","Observacion"],
+            rows
+          });
+        }
+
         const header=(matrix[headerIdx]||[]).map(normalizeExcelHeader);
         const rows=[];
         for(let i=headerIdx+1;i<matrix.length;i++){
           const arr=matrix[i]||[];
           if(arr.every(v=>String(v||"").trim()===""))continue;
-
-          // Para ROP05: no dependemos de los encabezados del Excel. Solo importa
-          // que la estructura de columnas sea A:M.
-          const byPos=rowByPositionForImport(target,arr);
-          if(byPos){
-            byPos._excelRow=i+1;
-            rows.push(byPos);
-            continue;
-          }
-
-          // Resto de planillas: se mantiene lectura por encabezado para no romper
-          // estructuras que tienen encabezados en filas distintas o más columnas.
           const obj={};
           header.forEach((h,j)=>{obj[h]=String(arr[j]??"").trim();});
-          obj._excelRow=i+1;
           rows.push(obj);
         }
-        resolve({sheetName:wb.SheetNames[0],headers:header,rows});
+        resolve({sheetName:selectedSheetName,headers:header,rows});
       }catch(err){reject(err);}
     };
     reader.readAsArrayBuffer(file);
   });
 }
+
+function parsePastedTable(text){
+  return String(text||"")
+    .replace(/\r\n/g,"\n")
+    .replace(/\r/g,"\n")
+    .split("\n")
+    .map(line=>line.split("\t").map(cell=>String(cell||"").trim()))
+    .filter(row=>row.some(cell=>cell!==""));
+}
+function rowLooksLikeHeaderROP05(row){
+  const joined=(row||[]).join(" ").toLowerCase();
+  return joined.includes("fechacarga")||joined.includes("marca temporal")||joined.includes("marca tmeporal")||joined.includes("correosupervisor")||joined.includes("codigo int")||joined.includes("fecha del parte")||joined.includes("horasproductivas");
+}
+function buildROP05RowsFromPastedText(text){
+  const matrix=parsePastedTable(text);
+  const data=matrix.filter((row,idx)=>!(idx===0&&rowLooksLikeHeaderROP05(row)));
+  return data.map(buildROP05ImportObjectByPosition).filter(r=>{
+    const fechaParte=String(r.FechaParte||r["Fecha del Parte Diario"]||"").trim();
+    const equipo=String(r.Equipo||r["Codigo Int"]||"").trim();
+    const tarea=String(r.Tarea||"").trim();
+    return fechaParte||equipo||tarea;
+  });
+}
+
+
+function rowLooksLikeGenericHeader(row){
+  const joined=(row||[]).join(" ").toLowerCase();
+  return ["fecha","marca temporal","supervisor","proyecto","codigo","código","interno","equipo","parte","tarea","cantidad","unidad","observacion","observación","descripcion","descripción","costo"].some(w=>joined.includes(w));
+}
+function buildROP02ImportObjectByPosition(arr,proyectoDefault){
+  const fecha=cellStr(arr,0);
+  const interno=cellStr(arr,1);
+  const operador=cellStr(arr,2);
+  const supervisorDelta=cellStr(arr,3);
+  const supervisorCliente=cellStr(arr,4);
+  const turno=cellStr(arr,5);
+  const parte=cellStr(arr,6);
+  const proyecto=cellStr(arr,7)||proyectoDefault||"";
+  const hi=cellStr(arr,8);
+  const hf=cellStr(arr,9);
+  const hs=cellStr(arr,10);
+  const combustible=cellStr(arr,11);
+  const aceite=cellStr(arr,12);
+  const descripcion=cellStr(arr,13);
+  const desgaste=cellStr(arr,14);
+  const observaciones=cellStr(arr,15);
+  return {
+    Fecha:fecha,Interno:interno,Operador:operador,"Supervisor Delta":supervisorDelta,"Supervisor Vial Cliente":supervisorCliente,
+    "Turno de trabajo":turno,"N° Parte":parte,Proyecto:proyecto,"Horómetro inicial":hi,"Horómetro final":hf,"Cant. Hs.":hs,
+    Combustible:combustible,Aceite:aceite,"Descripción de los trabajos realizados":descripcion,"Información sobre Desgaste":desgaste,Observaciones:observaciones
+  };
+}
+function buildRMA15ImportObjectByPosition(arr,proyectoDefault){
+  const obj={
+    "Fecha de OT":cellStr(arr,0),
+    "CODIGO N° INTERNO":cellStr(arr,1),
+    EQUIPO:cellStr(arr,2),
+    "TURNO EN QUE SE HIZO LA OT":cellStr(arr,3),
+    "TIPO DE MANTENIMIENTO":cellStr(arr,4),
+    "Km / hs":cellStr(arr,5),
+    "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":cellStr(arr,6),
+    "¿EQUIPO QUEDO OPERATIVO?":cellStr(arr,7),
+    OBSERVACIONES:cellStr(arr,8),
+    _proyectoForzado:proyectoDefault||"",
+  };
+  // Desde columna J en adelante: cantidad 1, codigo 1, nombre 1, cantidad 2, codigo 2, nombre 2...
+  for(let i=1;i<=10;i++){
+    const base=9+(i-1)*3;
+    obj[`cantidad ${i}`]=cellStr(arr,base);
+    obj[`codigo ${i}`]=cellStr(arr,base+1);
+    obj[`nombre ${i}`]=cellStr(arr,base+2);
+  }
+  return obj;
+}
+function buildInsumosImportObjectByPosition(arr){
+  return {
+    CODIGO:cellStr(arr,0),
+    "DESCRIPCIÓN":cellStr(arr,1),
+    "COSTO UNITARIO":cellStr(arr,2),
+    Codigo:cellStr(arr,0),
+    Descripcion:cellStr(arr,1),
+    Precio:cellStr(arr,2),
+  };
+}
+function buildRowsFromPastedTextForTarget(target,text){
+  const matrix=parsePastedTable(text);
+  const data=matrix.filter((row,idx)=>!(idx===0&&rowLooksLikeGenericHeader(row)));
+  if(target.kind==="rop05")return data.map(buildROP05ImportObjectByPosition).filter(r=>String(r.FechaParte||r["Fecha del Parte Diario"]||r.Equipo||r["Codigo Int"]||r.Tarea||"").trim());
+  if(target.kind==="rop02")return data.map(row=>buildROP02ImportObjectByPosition(row,target.proyecto)).filter(r=>String(r.Fecha||r.Interno||r["N° Parte"]||"").trim());
+  if(target.kind==="rma15")return data.map(row=>buildRMA15ImportObjectByPosition(row,target.proyecto)).filter(r=>String(r["Fecha de OT"]||r["CODIGO N° INTERNO"]||r["TIPO DE MANTENIMIENTO"]||"").trim());
+  if(target.kind==="insumos")return data.map(buildInsumosImportObjectByPosition).filter(r=>String(r.CODIGO||r["DESCRIPCIÓN"]||r["COSTO UNITARIO"]||"").trim());
+  return [];
+}
+function pasteStructureText(target){
+  if(target.kind==="rop05")return "A FechaCarga · B Supervisor · C Proyecto · D Grupo · E Equipo · F Parte · G Tipo · H FechaParte · I Tarea · J Horas · K Cantidad · L Unidad · M Observación. También acepta exportación con A ID_Carga y datos desde B:N.";
+  if(target.kind==="rop02")return "A Fecha · B Interno · C Operador · D Supervisor Delta · E Supervisor Cliente · F Turno · G N° Parte · H Proyecto · I Horómetro Inicial · J Horómetro Final · K Cant. Hs. · L Combustible · M Aceite · N Trabajo · O Desgaste · P Observaciones";
+  if(target.kind==="rma15")return "A Fecha OT · B Código interno · C Equipo · D Turno · E Tipo mantenimiento · F Km/hs · G Intervención · H Operativo · I Observaciones · desde J: cantidad/código/nombre de insumos";
+  if(target.kind==="insumos")return "A Código · B Artículo/Descripción · C Costo unitario";
+  return "Pegá las columnas en el mismo orden de la planilla base.";
+}
+function previewColsForPasteTarget(target){
+  if(target.kind==="rop05")return [
+    {key:"FechaCarga",label:"Fecha carga"},{key:"CorreoSupervisor",label:"Supervisor"},{key:"Proyecto",label:"Proyecto"},{key:"Equipo",label:"Equipo"},{key:"NroParte",label:"Parte"},{key:"FechaParte",label:"Fecha parte"},{key:"Tarea",label:"Tarea",wrap:true},{key:"HorasProductivas",label:"Horas"},{key:"CantidadProduccion",label:"Cantidad"},{key:"Unidad",label:"Unidad"}
+  ];
+  if(target.kind==="rop02")return [
+    {key:"Fecha",label:"Fecha"},{key:"Interno",label:"Equipo"},{key:"Operador",label:"Operador"},{key:"Supervisor Delta",label:"Supervisor"},{key:"Turno de trabajo",label:"Turno"},{key:"N° Parte",label:"Parte"},{key:"Horómetro inicial",label:"HI"},{key:"Horómetro final",label:"HF"},{key:"Cant. Hs.",label:"Hs"},{key:"Descripción de los trabajos realizados",label:"Trabajo",wrap:true}
+  ];
+  if(target.kind==="rma15")return [
+    {key:"Fecha de OT",label:"Fecha OT"},{key:"CODIGO N° INTERNO",label:"Equipo"},{key:"EQUIPO",label:"Tipo equipo"},{key:"TURNO EN QUE SE HIZO LA OT",label:"Turno"},{key:"TIPO DE MANTENIMIENTO",label:"Tipo Mant."},{key:"Km / hs",label:"Km/Hs"},{key:"INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)",label:"Intervención",wrap:true}
+  ];
+  if(target.kind==="insumos")return [{key:"CODIGO",label:"Código"},{key:"DESCRIPCIÓN",label:"Artículo",wrap:true},{key:"COSTO UNITARIO",label:"Costo"}];
+  return [];
+}
+
 function normalizeInsumoImportRow(r){
   const codigo=String(getValue(r,["CODIGO","Codigo","Código","Código insumo","Codigo insumo","Cod","cod"])||"").trim();
   const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","Detalle","Insumo","Nombre"])||"").trim();
@@ -5485,21 +5757,101 @@ function normalizeInsumoImportRow(r){
   const costoUnitario=toNumber(costoRaw);
   return {...r,codigo,descripcion,costoUnitario};
 }
+function normalizeImportKeyText(v){
+  return String(v??"")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[\r\n]+/g," ")
+    .replace(/\s+/g," ")
+    .trim()
+    .toUpperCase();
+}
+function parseComparableNumber(v){
+  if(typeof v==="number")return Number.isFinite(v)?v:0;
+  let s=String(v??"").trim();
+  if(!s)return 0;
+  s=s.replace(/[^\d,.-]/g,"");
+  const hasComma=s.includes(",");
+  const hasDot=s.includes(".");
+  if(hasComma&&hasDot){
+    if(s.lastIndexOf(",")>s.lastIndexOf("."))s=s.replace(/\./g,"").replace(",",".");
+    else s=s.replace(/,/g,"");
+  }else if(hasComma){
+    const parts=s.split(",");
+    if(parts.length===2&&parts[1].length<=2)s=parts[0].replace(/,/g,"")+"."+parts[1];
+    else s=s.replace(/,/g,"");
+  }else if(hasDot){
+    const parts=s.split(".");
+    if(parts.length>2)s=s.replace(/\./g,"");
+    else if(parts.length===2&&parts[1].length===3&&parts[0].length<=3)s=s.replace(/\./g,"");
+  }
+  const n=parseFloat(s);
+  return Number.isFinite(n)?n:0;
+}
+function roundComparableNumber(v,dec=3){
+  const n=parseComparableNumber(v);
+  const f=Math.pow(10,dec);
+  return Math.round(n*f)/f;
+}
+function normalizeComparableText(v){
+  return String(v??"")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[\r\n]+/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
 function importKey(kind,row){
-  if(kind==="insumos")return String(row.codigo||getValue(row,["CODIGO","Codigo","Código"] )||"").trim().toUpperCase();
-  if(kind==="rop02")return [row.proyecto,row.fecha,row.maquina,row.turno,row.parte].map(v=>String(v||"").trim().toUpperCase()).join("__");
-  if(kind==="rop05")return [row.proyecto,row.fecha,row.maquina,row.parte,row.tarea].map(v=>String(v||"").trim().toUpperCase()).join("__");
-  if(kind==="rma15")return [row.proyecto,row.fecha,row.maquina,row.tipoMant,row.kmHs,row.intervencion].map(v=>String(v||"").trim().toUpperCase()).join("__");
+  if(kind==="insumos")return normalizeImportKeyText(row.codigo||getValue(row,["CODIGO","Codigo","Código"] )||"");
+  if(kind==="rop02")return [row.proyecto,row.fecha,row.maquina,row.turno,row.parte].map(normalizeImportKeyText).join("__");
+  if(kind==="rop05")return [row.proyecto,row.fecha,row.maquina,row.parte,row.tarea].map(normalizeImportKeyText).join("__");
+  if(kind==="rma15")return [row.proyecto,row.fecha,row.maquina,row.tipoMant,row.kmHs,row.intervencion].map(normalizeImportKeyText).join("__");
   return JSON.stringify(row);
 }
 function comparableImportRow(kind,row){
   if(kind==="rop02")return {
-    fecha:row.fecha,maquina:row.maquina,operario:row.operario,supervisor:row.supervisor,turno:row.turno,parte:row.parte,proyecto:row.proyecto,
-    hi:row.horometroInicial,hf:row.horometroFinal,horas:row.horas,combustible:row.combustible,tarea:row.tipo_trabajo,obs:row.observaciones,estado:row.estado
+    fecha:normDate(row.fecha),
+    maquina:normalizeImportKeyText(cleanMachine(row.maquina)),
+    operario:normalizeComparableText(row.operario),
+    supervisor:normalizeComparableText(row.supervisor),
+    turno:normalizeImportKeyText(row.turno),
+    parte:normalizeImportKeyText(row.parte),
+    proyecto:normalizeImportKeyText(normProject(row.proyecto)),
+    hi:roundComparableNumber(row.horometroInicial),
+    hf:roundComparableNumber(row.horometroFinal),
+    horas:roundComparableNumber(row.horas),
+    combustible:roundComparableNumber(row.combustible),
+    tarea:normalizeComparableText(row.tipo_trabajo),
+    obs:normalizeComparableText(row.observaciones),
+    estado:normalizeImportKeyText(row.estado)
   };
-  if(kind==="rop05")return {fecha:row.fecha,maquina:row.maquina,supervisor:row.supervisor,parte:row.parte,proyecto:row.proyecto,tarea:row.tarea,horas:row.horas,cantidad:row.cantidad,unidad:row.unidad,obs:row.observaciones};
-  if(kind==="rma15")return {fecha:row.fecha,maquina:row.maquina,proyecto:row.proyecto,tipoMant:row.tipoMant,kmHs:row.kmHs,turno:row.turno,intervencion:row.intervencion,operativo:row.operativo,obs:row.observaciones,costoTotal:Math.round((row.costoTotal||0)*100)/100};
-  if(kind==="insumos")return {codigo:row.codigo,descripcion:row.descripcion,costoUnitario:Math.round((row.costoUnitario||0)*100)/100};
+  if(kind==="rop05")return {
+    fecha:normDate(row.fecha),
+    maquina:normalizeImportKeyText(cleanMachine(row.maquina)),
+    supervisor:normalizeComparableText(row.supervisor),
+    parte:normalizeImportKeyText(row.parte),
+    proyecto:normalizeImportKeyText(normProject(row.proyecto)),
+    tarea:normalizeComparableText(row.tarea),
+    horas:roundComparableNumber(row.horas),
+    cantidad:roundComparableNumber(row.cantidad),
+    unidad:normalizeImportKeyText(row.unidad),
+    obs:normalizeComparableText(row.observaciones)
+  };
+  if(kind==="rma15")return {
+    fecha:normDate(row.fecha),
+    maquina:normalizeImportKeyText(cleanMachine(row.maquina)),
+    proyecto:normalizeImportKeyText(normProject(row.proyecto)),
+    tipoMant:normalizeImportKeyText(row.tipoMant),
+    kmHs:roundComparableNumber(row.kmHs),
+    turno:normalizeImportKeyText(row.turno),
+    intervencion:normalizeComparableText(row.intervencion),
+    operativo:!!row.operativo,
+    obs:normalizeComparableText(row.observaciones),
+    costoTotal:roundComparableNumber(row.costoTotal,2)
+  };
+  if(kind==="insumos")return {
+    codigo:normalizeImportKeyText(row.codigo),
+    descripcion:normalizeComparableText(row.descripcion),
+    costoUnitario:roundComparableNumber(row.costoUnitario,2)
+  };
   return row;
 }
 function normalizeImportedRows(target,rawRows,insumosMap){
@@ -5510,38 +5862,88 @@ function normalizeImportedRows(target,rawRows,insumosMap){
   return [];
 }
 function buildImportPreview(target,rawRows,normalizedRows,currentRows){
-  const currentMap=new Map();
-  (currentRows||[]).filter(r=>!target.proyecto||r.proyecto===target.proyecto).forEach(r=>currentMap.set(importKey(target.kind,r),r));
-
-  const nuevos=[];const actualizados=[];const iguales=[];const duplicados=[];const seen=new Set();
+  // Algoritmo unificado de comparación por grupos.
+  // Resuelve el caso crítico de ROP05: puede haber varias filas con la misma
+  // clave de negocio, por lo que NO alcanza con un Map/Set simple por key.
+  const nuevos=[];
+  const actualizados=[];
+  const iguales=[];
+  const duplicados=[];
   const rowsToUpsert=[];
 
-  normalizedRows.forEach((r,idx)=>{
+  const validKey=(key)=>!!key && String(key).replace(/_/g,"").trim()!=="";
+  const comparableString=(row)=>JSON.stringify(comparableImportRow(target.kind,row));
+  const rawAt=(idx)=>rawRows?.[idx]||{};
+
+  // 1) Agrupar filas actuales de Google Sheets por clave de negocio,
+  // preservando el orden de aparición.
+  const currentGroups=new Map();
+  (currentRows||[])
+    .filter(r=>!target.proyecto||r.proyecto===target.proyecto)
+    .forEach((r,idx)=>{
+      const key=importKey(target.kind,r);
+      if(!validKey(key))return;
+      if(!currentGroups.has(key))currentGroups.set(key,[]);
+      currentGroups.get(key).push({...r,_sheetIndex:idx});
+    });
+
+  // 2) Deduplicar exactos dentro del Excel / datos pegados.
+  // Solo se descarta si tiene misma clave de negocio Y mismo contenido completo.
+  // Si tiene misma clave pero distinto contenido, se conserva porque puede ser
+  // una segunda carga válida del mismo equipo/parte/tarea.
+  const excelGroups=new Map();
+  const seenExact=new Set();
+
+  (normalizedRows||[]).forEach((r,idx)=>{
     const key=importKey(target.kind,r);
-    if(!key||key.replace(/_/g,"").trim()==="")return;
+    if(!validKey(key))return;
 
-    const raw=rawRows[idx]||{};
-    if(seen.has(key)){duplicados.push({...r,_row:idx+1,_key:key});return;}
-    seen.add(key);
+    const cmp=comparableString(r);
+    const exactKey=`${key}__${cmp}`;
 
-    const existing=currentMap.get(key);
-    if(!existing){
-      nuevos.push({...r,_row:idx+1,_key:key});
-      rowsToUpsert.push(raw);
+    if(seenExact.has(exactKey)){
+      duplicados.push({...r,_row:idx+1,_key:key,_reason:"duplicado exacto dentro del archivo"});
       return;
     }
+    seenExact.add(exactKey);
 
-    const a=JSON.stringify(comparableImportRow(target.kind,r));
-    const b=JSON.stringify(comparableImportRow(target.kind,existing));
-    if(a===b){
-      iguales.push({...r,_row:idx+1,_key:key});
-    }else{
-      actualizados.push({...r,_row:idx+1,_key:key,_before:existing});
-      rowsToUpsert.push(raw);
-    }
+    if(!excelGroups.has(key))excelGroups.set(key,[]);
+    excelGroups.get(key).push({row:r,raw:rawAt(idx),idx,key,cmp});
   });
 
-  return {nuevos,actualizados,iguales,duplicados,total:normalizedRows.length,rawRows,rowsToUpsert};
+  // 3) Emparejar por posición dentro de cada grupo.
+  // Excel fila N del grupo se compara con Sheets fila N del mismo grupo.
+  excelGroups.forEach((excelList,key)=>{
+    const currentList=currentGroups.get(key)||[];
+
+    excelList.forEach((item,pos)=>{
+      const existing=currentList[pos];
+
+      if(!existing){
+        nuevos.push({...item.row,_row:item.idx+1,_key:key,_groupPos:pos+1});
+        rowsToUpsert.push(item.raw);
+        return;
+      }
+
+      const existingCmp=comparableString(existing);
+      if(item.cmp===existingCmp){
+        iguales.push({...item.row,_row:item.idx+1,_key:key,_groupPos:pos+1});
+      }else{
+        actualizados.push({...item.row,_row:item.idx+1,_key:key,_groupPos:pos+1,_before:existing});
+        rowsToUpsert.push(item.raw);
+      }
+    });
+  });
+
+  return {
+    nuevos,
+    actualizados,
+    iguales,
+    duplicados,
+    total:(normalizedRows||[]).length,
+    rawRows,
+    rowsToUpsert
+  };
 }
 async function postImportUpsert(preview){
   const changedRows=preview.rowsToUpsert||[];
@@ -5570,6 +5972,20 @@ async function postAddListaEquipo(row){
   let json;
   try{json=JSON.parse(text);}catch(e){throw new Error("Apps Script no devolvió JSON al guardar el equipo. Revisá permisos/publicación.");}
   if(!json.ok)throw new Error(json.error?.message||"No se pudo guardar el equipo en Lista Maestra.");
+  return json;
+}
+async function postUpdateListaEquipo(originalKeys,row){
+  const payload=JSON.stringify({
+    action:"update_lista_equipo",
+    originalKeys,
+    row
+  });
+  const res=await fetch(APPS_SCRIPT_URL,{method:"POST",body:new URLSearchParams({payload}),redirect:"follow"});
+  if(!res.ok)throw new Error(`HTTP ${res.status} al modificar equipo`);
+  const text=await res.text();
+  let json;
+  try{json=JSON.parse(text);}catch(e){throw new Error("Apps Script no devolvió JSON al modificar el equipo. Revisá permisos/publicación.");}
+  if(!json.ok)throw new Error(json.error?.message||"No se pudo modificar el equipo en Lista Maestra.");
   return json;
 }
 function formatFileSize(bytes){
@@ -5682,6 +6098,57 @@ function ImportTargetLog({target,fileEntry,preview,result,onSelectPreview}){
   );
 }
 
+
+
+function PasteDataBox({targets,onLoadRows,disabled}){
+  const[open,setOpen]=useState(false);
+  const[selectedId,setSelectedId]=useState("rop05");
+  const[text,setText]=useState("");
+  const[preview,setPreview]=useState([]);
+  const[localError,setLocalError]=useState(null);
+  const target=targets.find(t=>t.id===selectedId)||targets[0];
+  const handleLoad=()=>{
+    setLocalError(null);
+    const rows=buildRowsFromPastedTextForTarget(target,text);
+    if(!rows.length){setLocalError(`No se detectaron filas válidas para ${target.sourceLabel}. Revisá que hayas copiado el rango completo y en el orden esperado.`);return;}
+    setPreview(rows.slice(0,10));
+    onLoadRows(target,rows,text.length);
+  };
+  const handleClear=()=>{setText("");setPreview([]);setLocalError(null);};
+  const changeTarget=(id)=>{setSelectedId(id);setPreview([]);setLocalError(null);};
+  const previewCols=previewColsForPasteTarget(target);
+  return(
+    <Card title="Carga por datos">
+      <div style={{padding:16,display:"flex",flexDirection:"column",gap:12}}>
+        <button onClick={()=>setOpen(o=>!o)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,width:"100%",padding:"10px 12px",borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.text,cursor:"pointer",fontFamily:"Inter",fontWeight:800}}>
+          <span style={{display:"flex",alignItems:"center",gap:8}}><Icon name="parts" size={16} color={C.green}/> Carga por datos — pegar rango desde Excel/Sheets</span>
+          <Icon name="chevronDown" size={17} color={C.textMuted} style={{transform:open?"rotate(180deg)":"none",transition:"transform .15s"}}/>
+        </button>
+        {open&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <AlertBanner type="info">Elegí la planilla, copiá el rango desde Excel/Sheets y pegalo acá. Se ignoran los encabezados si vienen incluidos; la carga se interpreta por posición de columna.</AlertBanner>
+            <Sel label="Planilla a cargar" value={target.id} onChange={changeTarget} options={targets.map(t=>({value:t.id,label:t.sourceLabel}))}/>
+            <div style={{fontSize:11,color:C.textMuted}}>Estructura esperada: <strong style={{color:C.textSub}}>{pasteStructureText(target)}</strong></div>
+            <textarea value={text} onChange={e=>setText(e.target.value)} disabled={disabled}
+              placeholder={`Pegá acá el rango de ${target.sourceLabel} copiado desde Excel o Google Sheets...`}
+              style={{width:"100%",minHeight:160,resize:"vertical",background:C.surface,color:C.text,border:`1px solid ${C.border}`,borderRadius:9,padding:12,fontFamily:"Consolas, monospace",fontSize:12,outline:"none"}}/>
+            <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              <button onClick={handleClear} disabled={disabled||!text} style={{padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:disabled||!text?"not-allowed":"pointer",fontWeight:700}}>Limpiar</button>
+              <button onClick={handleLoad} disabled={disabled||!text.trim()} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${target.color}55`,background:text.trim()?target.color+"22":C.surface,color:text.trim()?target.color:C.textMuted,cursor:disabled||!text.trim()?"not-allowed":"pointer",fontWeight:900}}>Cargar datos pegados</button>
+            </div>
+            {localError&&<AlertBanner type="error">{localError}</AlertBanner>}
+            {preview.length>0&&(
+              <Card title={`Vista previa — ${preview.length} primeras filas de ${target.sourceLabel}`}>
+                <Table cols={previewCols} rows={preview} maxH={260} disableTooltip/>
+              </Card>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
   const[busy,setBusy]=useState(false);
   const[busyLabel,setBusyLabel]=useState("");
@@ -5708,6 +6175,13 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
     setSelectedPreview(p=>p?.target?.id===target.id?null:p);
   };
 
+  const loadPastedRows=(target,rows,size=0)=>{
+    setError(null);setMessage(`Datos pegados cargados en memoria para ${target.sourceLabel}: ${rows.length} filas. Tocá Analizar cambios.`);setResults([]);
+    setFiles(p=>({...p,[target.id]:{target,pastedRows:rows,fileName:`Datos pegados ${target.sourceLabel}`,size,loadedAt:new Date().toISOString(),isPasted:true}}));
+    setPreviews(p=>{const n={...p};delete n[target.id];return n;});
+    setSelectedPreview(p=>p?.target?.id===target.id?null:p);
+  };
+
   const removeFile=(targetId)=>{
     setFiles(p=>{const n={...p};delete n[targetId];return n;});
     setPreviews(p=>{const n={...p};delete n[targetId];return n;});
@@ -5720,11 +6194,26 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
     setBusy(true);setBusyLabel("Analizando archivos cargados...");setProgress({done:0,total:entries.length});setError(null);setMessage(null);setResults([]);
     try{
       const built=[];
+      const needsFreshRop05=entries.some(entry=>entry.target?.kind==="rop05");
+      let freshRop05Rows=rop05;
+      if(needsFreshRop05){
+        try{
+          setBusyLabel("Leyendo ROP05 completo desde Google Sheets...");
+          const src=await fetchSource(APPS_SCRIPT_URL,"rop05",{force:true});
+          if(src?.ok&&Array.isArray(src.data))freshRop05Rows=normalizeROP05(src.data);
+        }catch(err){
+          console.warn("No se pudo refrescar ROP05 para comparación",err);
+        }
+        setBusyLabel("Analizando archivos cargados...");
+      }
+      const currentRowsForPreview=(target)=>target.kind==="rop05"?freshRop05Rows:currentForTarget(target);
       await Promise.all(entries.map(async(entry)=>{
         const target=entry.target;
-        const parsed=await readExcelAsObjects(entry.file,target);
+        const parsed=entry.pastedRows
+          ? {sheetName:"Pegado manual",headers:["FechaCarga","CorreoSupervisor","Proyecto","GrupoTrabajo","Equipo","NroParte","TipoEquipo","FechaParte","Tarea","HorasProductivas","CantidadProduccion","Unidad","Observacion"],rows:entry.pastedRows}
+          : await readExcelAsObjects(entry.file,target);
         const normalized=normalizeImportedRows(target,parsed.rows,insumos);
-        const prev=buildImportPreview(target,parsed.rows,normalized,currentForTarget(target));
+        const prev=buildImportPreview(target,parsed.rows,normalized,currentRowsForPreview(target));
         const full={target,fileName:entry.fileName,sheetName:parsed.sheetName,headers:parsed.headers,...prev,parsedAt:new Date().toISOString()};
         built.push(full);
         setProgress(p=>({done:p.done+1,total:p.total}));
@@ -5814,6 +6303,8 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
           </div>
         </div>
       </Card>
+
+      <PasteDataBox targets={targets} onLoadRows={loadPastedRows} disabled={busy}/>
 
       {loadedFiles.length>0&&(
         <Card title="Flujo de actualización por lote">
