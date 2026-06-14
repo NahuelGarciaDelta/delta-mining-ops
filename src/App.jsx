@@ -4570,7 +4570,9 @@ function InsumoSearch({value,onChange,opciones}){
 function CodeMultiSearch({value,onChange,options,label="Código"}){
   const[open,setOpen]=useState(false);
   const[search,setSearch]=useState("");
+  const[pos,setPos]=useState({top:0,left:0,width:310});
   const ref=useRef(null);
+  const btnRef=useRef(null);
   const selected=Array.isArray(value)?value:[];
   const isAll=!Array.isArray(value)||selected.length===0||value==="todos";
   const realOptions=(options||[]).filter(o=>o.value!=="todos");
@@ -4580,11 +4582,40 @@ function CodeMultiSearch({value,onChange,options,label="Código"}){
     return realOptions.filter(o=>cleanKey(o.value).includes(q)||cleanKey(o.label).includes(q));
   },[realOptions,search]);
 
+  const updatePos=useCallback(()=>{
+    const el=btnRef.current;
+    if(!el)return;
+    const r=el.getBoundingClientRect();
+    const width=310;
+    let left=r.right-width;
+    if(left<12)left=12;
+    if(left+width>window.innerWidth-12)left=window.innerWidth-width-12;
+    let top=r.bottom+6;
+    const maxH=360;
+    if(top+maxH>window.innerHeight-12)top=Math.max(12,r.top-maxH-6);
+    setPos({top,left,width});
+  },[]);
+
   useEffect(()=>{
-    const handler=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
+    const handler=e=>{
+      if(ref.current&&ref.current.contains(e.target))return;
+      if(e.target.closest&&e.target.closest('[data-code-multisearch-menu="true"]'))return;
+      setOpen(false);
+    };
     document.addEventListener("mousedown",handler);
     return()=>document.removeEventListener("mousedown",handler);
   },[]);
+
+  useEffect(()=>{
+    if(!open)return;
+    updatePos();
+    window.addEventListener("resize",updatePos);
+    window.addEventListener("scroll",updatePos,true);
+    return()=>{
+      window.removeEventListener("resize",updatePos);
+      window.removeEventListener("scroll",updatePos,true);
+    };
+  },[open,updatePos]);
 
   const emit=(arr)=>{
     const clean=[...new Set(arr.filter(Boolean).filter(v=>v!=="todos"))];
@@ -4598,36 +4629,40 @@ function CodeMultiSearch({value,onChange,options,label="Código"}){
   };
   const selectedText=isAll?"Todos":(selected.length===1?selected[0]:`${selected.length} códigos`);
 
+  const menu=open?ReactDOM.createPortal(
+    <div data-code-multisearch-menu="true" style={{position:"fixed",left:pos.left,top:pos.top,zIndex:1000000,width:pos.width,maxHeight:360,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:8}}>
+      <input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar código o insumo..." style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,outline:"none",marginBottom:8}}/>
+      <button type="button" onClick={()=>onChange("todos")} style={{width:"100%",textAlign:"left",background:isAll?C.blueDim:"transparent",border:"none",borderRadius:7,color:isAll?C.blue:C.textSub,padding:"7px 8px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Inter"}}>Todos</button>
+      <div style={{height:1,background:C.border,margin:"6px 0"}}/>
+      <div style={{maxHeight:250,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+        {filteredOptions.length===0?(
+          <div style={{padding:12,color:C.textMuted,fontSize:12,textAlign:"center"}}>Sin códigos coincidentes</div>
+        ):filteredOptions.map(o=>{
+          const checked=!isAll&&selected.includes(o.value);
+          return(
+            <label key={o.value} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:7,cursor:"pointer",background:checked?C.blueDim:"transparent",color:checked?C.text:C.textSub,fontSize:12}}>
+              <input type="checkbox" checked={checked} onChange={()=>toggle(o.value)} style={{accentColor:C.blue}}/>
+              <span style={{color:C.blue,fontWeight:800,minWidth:52}}>{o.value}</span>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label.replace(`${o.value} — `,"")}</span>
+            </label>
+          );
+        })}
+      </div>
+    </div>,
+    document.body
+  ):null;
+
   return(
     <div ref={ref} style={{position:"relative",minWidth:230}}>
-      <button type="button" onClick={()=>setOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:C.surface,border:`1px solid ${isAll?C.border:C.blue+"88"}`,borderRadius:8,color:isAll?C.textSub:C.blue,padding:"8px 10px",fontSize:12,fontWeight:700,fontFamily:"Inter",cursor:"pointer"}}>
+      <button ref={btnRef} type="button" onClick={()=>{updatePos();setOpen(o=>!o);}} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:C.surface,border:`1px solid ${isAll?C.border:C.blue+"88"}`,borderRadius:8,color:isAll?C.textSub:C.blue,padding:"8px 10px",fontSize:12,fontWeight:700,fontFamily:"Inter",cursor:"pointer"}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}: {selectedText}</span>
         <Icon name="chevronDown" size={14} color={isAll?C.textMuted:C.blue}/>
       </button>
-      {open&&(
-        <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",zIndex:50,width:310,maxHeight:360,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:8}}>
-          <input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar código o insumo..." style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,outline:"none",marginBottom:8}}/>
-          <button type="button" onClick={()=>onChange("todos")} style={{width:"100%",textAlign:"left",background:isAll?C.blueDim:"transparent",border:"none",borderRadius:7,color:isAll?C.blue:C.textSub,padding:"7px 8px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Inter"}}>Todos</button>
-          <div style={{height:1,background:C.border,margin:"6px 0"}}/>
-          <div style={{maxHeight:250,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
-            {filteredOptions.length===0?(
-              <div style={{padding:12,color:C.textMuted,fontSize:12,textAlign:"center"}}>Sin códigos coincidentes</div>
-            ):filteredOptions.map(o=>{
-              const checked=!isAll&&selected.includes(o.value);
-              return(
-                <label key={o.value} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:7,cursor:"pointer",background:checked?C.blueDim:"transparent",color:checked?C.text:C.textSub,fontSize:12}}>
-                  <input type="checkbox" checked={checked} onChange={()=>toggle(o.value)} style={{accentColor:C.blue}}/>
-                  <span style={{color:C.blue,fontWeight:800,minWidth:52}}>{o.value}</span>
-                  <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label.replace(`${o.value} — `,"")}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {menu}
     </div>
   );
 }
+
 
 // ─── ViewCostosUnitarios ──────────────────────────────────────────────────────
 function ViewCostosUnitarios({insumos,usdRate}){
