@@ -3239,6 +3239,19 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   },[filtered,fichaMaquina]);
 
   const fechasDisp=useMemo(()=>(equipoData||[]).map(d=>d.fecha),[equipoData]);
+  const equipoIdx=useMemo(()=>fichaMaquina?maquinas.indexOf(fichaMaquina):-1,[maquinas,fichaMaquina]);
+  const irEquipoAnterior=useCallback(()=>{
+    if(equipoIdx>0){
+      setMaquina([maquinas[equipoIdx-1]]);
+      setFechaSel("");
+    }
+  },[equipoIdx,maquinas]);
+  const irEquipoSiguiente=useCallback(()=>{
+    if(equipoIdx>=0&&equipoIdx<maquinas.length-1){
+      setMaquina([maquinas[equipoIdx+1]]);
+      setFechaSel("");
+    }
+  },[equipoIdx,maquinas]);
   const fichaActual=useMemo(()=>{
     if(!equipoData||equipoData.length===0)return null;
     const target=fechaSel&&fechasDisp.includes(fechaSel)?fechaSel:fechasDisp[0];
@@ -3516,11 +3529,22 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
               </tbody>
             </table>
           </div>
-          {fechasDisp.length>1&&(
-            <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:10,borderTop:`1px solid ${C.border}22`}}>
-              <span style={{fontSize:11,color:C.textSub}}>{fechasDisp.indexOf(fichaActual.fecha)+1} / {fechasDisp.length} fechas</span>
-              <button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i<fechasDisp.length-1)setFechaSel(fechasDisp[i+1]);}} style={{...selectStyle,padding:"4px 10px"}}>← Anterior</button>
-              <button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i>0)setFechaSel(fechasDisp[i-1]);}} style={{...selectStyle,padding:"4px 10px"}}>Siguiente →</button>
+          {(fechasDisp.length>1||maquinas.length>1)&&(
+            <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:8,borderTop:`1px solid ${C.border}22`}}>
+              {fechasDisp.length>1&&(
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <span style={{fontSize:11,color:C.textSub,minWidth:75}}>{fechasDisp.indexOf(fichaActual.fecha)+1} / {fechasDisp.length} fechas</span>
+                  <button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i<fechasDisp.length-1)setFechaSel(fechasDisp[i+1]);}} style={{...selectStyle,padding:"4px 10px"}}>← Anterior</button>
+                  <button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i>0)setFechaSel(fechasDisp[i-1]);}} style={{...selectStyle,padding:"4px 10px"}}>Siguiente →</button>
+                </div>
+              )}
+              {maquinas.length>1&&(
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingTop:fechasDisp.length>1?6:0,borderTop:fechasDisp.length>1?`1px solid ${C.border}18`:undefined}}>
+                  <span style={{fontSize:11,color:C.textSub,minWidth:75}}>{equipoIdx+1} / {maquinas.length} equipos</span>
+                  <button onClick={irEquipoAnterior} disabled={equipoIdx<=0} style={{...selectStyle,padding:"4px 10px",opacity:equipoIdx<=0?0.45:1,cursor:equipoIdx<=0?"not-allowed":"pointer"}}>← Equipo anterior</button>
+                  <button onClick={irEquipoSiguiente} disabled={equipoIdx<0||equipoIdx>=maquinas.length-1} style={{...selectStyle,padding:"4px 10px",opacity:(equipoIdx<0||equipoIdx>=maquinas.length-1)?0.45:1,cursor:(equipoIdx<0||equipoIdx>=maquinas.length-1)?"not-allowed":"pointer"}}>Equipo siguiente →</button>
+                </div>
+              )}
             </div>
           )}
         </Card>
