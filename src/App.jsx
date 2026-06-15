@@ -128,21 +128,13 @@ function fmtFecha(f){
   if(!y||!m||!d)return f;
   return`${d}/${m}/${y}`;
 }
-function uniq(arr){
-  // OPT: usar Set directamente y sortear solo al final
-  const s=new Set();
-  for(let i=0;i<arr.length;i++){const c=typeof arr[i]==="string"?arr[i].trim():arr[i];if(c)s.add(c);}
-  return Array.from(s).sort();
-}
+function uniq(arr){const s=new Set();const r=[];for(const v of arr){const c=typeof v==="string"?v.trim():v;if(c&&!s.has(c)){s.add(c);r.push(c);}}return r.sort();}
 function semaforo(pct){
   if(pct>=90)return{color:C.green,label:"ÓPTIMO",dim:C.greenDim};
   if(pct>=70)return{color:C.yellow,label:"ATENCIÓN",dim:C.yellowDim};
   return{color:C.red,label:"CRÍTICO",dim:C.redDim};
 }
-const _reDiacritics=/[\u0300-\u036f]/g;
-const _reNL=/[\r\n]+/g;
-const _reSP=/\s+/g;
-function cleanKey(v){return String(v||"").normalize("NFD").replace(_reDiacritics,"").replace(_reNL," ").replace(_reSP," ").trim().toLowerCase();}
+function cleanKey(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[\r\n]+/g," ").replace(/\s+/g," ").trim().toLowerCase();}
 function getValue(row,keys){
   const rk=Object.keys(row||{});const wk=keys.map(cleanKey);
   for(const k of rk){if(wk.includes(cleanKey(k)))return row[k];}
@@ -151,22 +143,15 @@ function getValue(row,keys){
 }
 function toNumber(v){
   if(v===null||v===undefined||v==="")return 0;
-  if(typeof v==="number")return Number.isFinite(v)?v:0;
-  // OPT: evitar crear regex nueva cada llamada
-  const s=String(v).replace(",",".").replace(_nonNumericRe,"").trim();
-  return parseFloat(s)||0;
+  return parseFloat(String(v).replace(",",".").replace(/[^\d.-]/g,"").trim())||0;
 }
-const _nonNumericRe=/[^\d.-]/g;
-// OPT: pre-compilar regex de normDate fuera de la función
-const _reDdMmYyyy=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/;
-const _reYyyyMmDd=/^(\d{4})-(\d{2})-(\d{2})/;
 function normDate(d){
   if(!d)return"";const t=String(d).trim();
   let iso="";
-  const m1=t.match(_reDdMmYyyy);
+  const m1=t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if(m1)iso=`${m1[3]}-${m1[2].padStart(2,"0")}-${m1[1].padStart(2,"0")}`;
   else{
-    const m2=t.match(_reYyyyMmDd);
+    const m2=t.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if(m2)iso=t.slice(0,10);
     else{
       const p=new Date(t);
@@ -174,6 +159,9 @@ function normDate(d){
     }
   }
   if(!iso)return"";
+  // Validar y corregir: año (1900-2100), mes (1-12), día (1-31).
+  // Si el mes quedó fuera de rango pero el día sí es un mes válido,
+  // probablemente vinieron invertidos (ej: "2026-31-05" → "2026-05-31").
   let[y,mo,da]=iso.split("-").map(Number);
   if(mo>12&&da>=1&&da<=12){const tmp=mo;mo=da;da=tmp;}
   if(y<1900||y>2100||mo<1||mo>12||da<1||da>31)return"";
@@ -335,20 +323,11 @@ function normalizeName(s){
 
 // Distancia de Levenshtein entre dos strings
 function levenshtein(a,b){
-  // OPT: early-exit si la diferencia de longitud ya supera el umbral (2)
-  if(Math.abs(a.length-b.length)>2)return 3;
   const m=a.length,n=b.length;
-  // OPT: usar dos arrays en vez de matriz completa → O(min(m,n)) memoria
-  let prev=Array.from({length:n+1},(_,j)=>j);
-  let curr=new Array(n+1);
-  for(let i=1;i<=m;i++){
-    curr[0]=i;
-    for(let j=1;j<=n;j++){
-      curr[j]=a[i-1]===b[j-1]?prev[j-1]:1+Math.min(prev[j],curr[j-1],prev[j-1]);
-    }
-    [prev,curr]=[curr,prev];
-  }
-  return prev[n];
+  const dp=Array.from({length:m+1},(_,i)=>Array.from({length:n+1},(_,j)=>i===0?j:j===0?i:0));
+  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)
+    dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+  return dp[m][n];
 }
 
 // Construye mapa canónico agrupando por:
@@ -716,7 +695,18 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
   const[scrollTop,setScrollTop]=useState(0);
   const[sortKey,setSortKey]=useState(null);
   const[sortDir,setSortDir]=useState("asc");
-  const onScroll=useCallback(e=>setScrollTop(e.target.scrollTop),[]);
+
+  // FIX VIBRACIÓN DE TABLAS:
+  // La virtualización anterior asumía filas de 36px. Cuando una columna tenía wrap
+  // (por ejemplo "Tarea (ROP02)"), las filas reales eran más altas. Al llegar al
+  // final del scroll, React recalculaba spacer + ancho de scrollbar y la tabla
+  // empezaba a moverse de izquierda a derecha. Para tablas con texto multilínea
+  // se desactiva la virtualización y se deja el layout estable.
+  const hasWrappedCols=useMemo(()=>cols.some(c=>c.wrap),[cols]);
+  const useVirtual=rows.length>250&&!hasWrappedCols;
+  const onScroll=useCallback(e=>{
+    if(useVirtual)setScrollTop(e.target.scrollTop);
+  },[useVirtual]);
 
   const handleSort=useCallback((key)=>{
     if(sortKey===key)setSortDir(d=>d==="asc"?"desc":"asc");
@@ -733,25 +723,31 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
     });
   },[rows,sortKey,sortDir]);
 
-  // Todos los hooks antes de cualquier return condicional
   const bufferRows=8;
   const visibleCount=Math.ceil(maxH/ROW_H);
-  const startIdx=Math.max(0,Math.floor(scrollTop/ROW_H)-bufferRows);
-  const endIdx=Math.min(sortedRows.length,startIdx+visibleCount+bufferRows*2);
+  const startIdx=useVirtual?Math.max(0,Math.floor(scrollTop/ROW_H)-bufferRows):0;
+  const endIdx=useVirtual?Math.min(sortedRows.length,startIdx+visibleCount+bufferRows*2):sortedRows.length;
   const visibleRows=sortedRows.slice(startIdx,endIdx);
-  const offsetY=startIdx*ROW_H;
+  const offsetY=useVirtual?startIdx*ROW_H:0;
 
   if(rows.length===0)return(
     <div style={{padding:"28px",textAlign:"center",color:C.textMuted,fontSize:12}}>{emptyMsg}</div>
   );
+
+  const tableMinWidth=cols.reduce((sum,c)=>{
+    const raw=c.width||c.minWidth||c.maxWidth||(c.wrap?140:120);
+    const n=typeof raw==="number"?raw:parseInt(String(raw),10);
+    return sum+(Number.isFinite(n)?n:120);
+  },0);
+
   return(
-    <div onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+    <div onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH,scrollbarGutter:"stable",overscrollBehavior:"contain",contain:"layout paint",transform:"translateZ(0)"}}>
+      <table style={{width:"100%",minWidth:tableMinWidth,borderCollapse:"separate",borderSpacing:0,fontSize:12,tableLayout:"fixed"}}>
         <thead><tr>{cols.map((c,i)=>{
           const sticky=stickyFirst&&i===0;
           return(
           <th key={i} onClick={()=>c.key&&handleSort(c.key)}
-            style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?3:1,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===c.key?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",maxWidth:c.width||c.maxWidth||(c.wrap?120:undefined),minWidth:c.width||c.minWidth, width:c.width||(c.wrap?120:undefined),lineHeight:1.3,cursor:c.key?"pointer":"default",userSelect:"none"}}>
+            style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?4:3,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===c.key?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:c.width||c.maxWidth||(c.wrap?140:undefined),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),lineHeight:1.3,cursor:c.key?"pointer":"default",userSelect:"none",boxShadow:sticky?`1px 0 0 ${C.border}`:undefined}}>
             {c.label}{sortKey===c.key?(sortDir==="asc"?" ↑":" ↓"):""}
           </th>
           );
@@ -764,7 +760,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
             const rowBg=absI%2===0?"transparent":C.surface+"66";
             return(
               <tr key={absI}
-                style={{background:rowBg,height:ROW_H,position:"relative",cursor:hasTooltip?"pointer":"default",transition:"background .1s"}}
+                style={{background:rowBg,height:useVirtual?ROW_H:undefined,position:"relative",cursor:hasTooltip?"pointer":"default",transition:"background .1s"}}
                 onMouseEnter={e=>{
                   e.currentTarget.dataset.bg=rowBg;
                   e.currentTarget.style.background=C.accent+"22";
@@ -783,13 +779,13 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
                 {cols.map((c,j)=>{
                   const sticky=stickyFirst&&j===0;
                   return(
-                  <td key={j} style={{padding:c.compact?"8px 6px":"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textAlign:c.align||"left",maxWidth:c.maxWidth||(c.wrap?undefined:300),minWidth:c.width||c.minWidth,width:c.width,position:sticky?"sticky":undefined,left:sticky?0:undefined,zIndex:sticky?1:undefined,background:sticky?C.card:(c.color?c.color+"0a":undefined)}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>
+                  <td key={j} style={{padding:c.compact?"8px 6px":"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",textAlign:c.align||"left",maxWidth:c.maxWidth||(c.wrap?undefined:300),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),position:sticky?"sticky":undefined,left:sticky?0:undefined,zIndex:sticky?2:undefined,background:sticky?C.card:(c.color?c.color+"0a":undefined),boxShadow:sticky?`1px 0 0 ${C.border}`:undefined,verticalAlign:"top",lineHeight:1.25}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>
                   );
                 })}
               </tr>
             );
           })}
-          {endIdx<sortedRows.length&&<tr style={{height:(sortedRows.length-endIdx)*ROW_H}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
+          {useVirtual&&endIdx<sortedRows.length&&<tr style={{height:(sortedRows.length-endIdx)*ROW_H}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
         </tbody>
       </table>
     </div>
@@ -3253,15 +3249,32 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     if(fechasDisp.length>0&&(!fechaSel||!fechasDisp.includes(fechaSel)))setFechaSel(fechasDisp[0]);
   },[fechasDisp]);// eslint-disable-line
 
+  const PINK="#f9a8c9";
+  const PINK_BG="rgba(249,168,201,0.22)";
+  const PINK_BORDER="rgba(249,168,201,0.70)";
+  const PinkBox=({children})=>(
+    <span style={{
+      display:"inline-block",
+      padding:"5px 10px",
+      borderRadius:8,
+      background:PINK_BG,
+      border:`1px solid ${PINK_BORDER}`,
+      color:PINK,
+      fontWeight:900,
+      lineHeight:1.25,
+      boxShadow:"0 0 0 1px rgba(249,168,201,0.10) inset",
+    }}>{children}</span>
+  );
+  const isSinCarga=v=>String(v||"").trim().toLowerCase()==="sin carga";
   const FILAS=[
     {key:"parte",      label:"Parte diario",    render:r=>r?.parte||"—"},
     {key:"hi",         label:"Hi",              render:r=>r?.horometroInicial!=null?r.horometroInicial:"—"},
     {key:"hf",         label:"Hf",              render:r=>r?.horometroFinal!=null?r.horometroFinal:"—"},
     {key:"tarea",      label:"Tarea realizada", render:r=>r?.tipo_trabajo||"—"},
     {key:"obs",        label:"Observaciones",   render:r=>r?.observaciones||"—"},
-    {key:"desgaste",   label:"Desgaste",        render:r=>r?.desgaste||"Sin consumo de desgaste"},
-    {key:"combustible",label:"Combustible",     render:r=>r?.combustible!=null&&Number(r.combustible)>0?fmtNum(r.combustible):"Sin Carga"},
-    {key:"aceite",     label:"Aceite",          render:r=>r?.aceite||"Sin Carga"},
+    {key:"desgaste",   label:"Desgaste",        render:r=>{const v=r?.desgaste||"Sin consumo de desgaste";return String(v).toLowerCase().includes("sin consumo de desgaste")?<PinkBox>{v}</PinkBox>:v;}},
+    {key:"combustible",label:"Combustible",     render:r=>{const v=r?.combustible!=null&&Number(r.combustible)>0?fmtNum(r.combustible):"Sin Carga";return isSinCarga(v)?<PinkBox>{v}</PinkBox>:v;}},
+    {key:"aceite",     label:"Aceite",          render:r=>{const v=r?.aceite||"Sin Carga";return isSinCarga(v)?<PinkBox>{v}</PinkBox>:v;}},
     {key:"horas",      label:"Cant. Hs.",       render:r=>r?.estado==="OD"||r?.estado==="FS"?r.estado:(r?.horas!=null?fmtNum(r.horas):"—")},
   ];
 
@@ -3486,7 +3499,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
                 </tr>
                 <tr>
                   <th style={{padding:"7px 14px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`}}/>
-                  {['TD','TN'].map(t=><th key={t} style={{padding:"8px 14px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`,textAlign:"center",fontSize:13,fontWeight:700,color:C.textSub,letterSpacing:".06em"}}>{t}</th>)}
+                  {['TD','TN'].map(t=><th key={t} style={{padding:"10px 16px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`,textAlign:"center",fontSize:16,fontWeight:900,color:C.textSub,letterSpacing:".06em"}}>{t}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -3494,9 +3507,9 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
                   const rTD=fichaActual.TD; const rTN=fichaActual.TN;
                   return(
                     <tr key={key}>
-                      <td style={{padding:"9px 14px",fontWeight:700,fontSize:12,color:C.textSub,background:C.surface+"55",borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`}}>{label}</td>
-                      <td style={{padding:"9px 14px",fontSize:12,color:cellColor(rTD),background:cellBg(rTD),borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`,verticalAlign:"top",lineHeight:1.5,fontWeight:rTD?.estado==="OD"||rTD?.estado==="FS"?700:400}}>{render(rTD)}</td>
-                      <td style={{padding:"9px 14px",fontSize:12,color:cellColor(rTN),background:cellBg(rTN),borderBottom:`1px solid ${C.border}22`,verticalAlign:"top",lineHeight:1.5,fontWeight:rTN?.estado==="OD"||rTN?.estado==="FS"?700:400}}>{render(rTN)}</td>
+                      <td style={{padding:"13px 18px",fontWeight:900,fontSize:15,color:C.textSub,background:C.surface+"55",borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`}}>{label}</td>
+                      <td style={{padding:"13px 18px",fontSize:16,color:cellColor(rTD),background:cellBg(rTD),borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`,verticalAlign:"top",lineHeight:1.65,fontWeight:800}}>{render(rTD)}</td>
+                      <td style={{padding:"13px 18px",fontSize:16,color:cellColor(rTN),background:cellBg(rTN),borderBottom:`1px solid ${C.border}22`,verticalAlign:"top",lineHeight:1.65,fontWeight:800}}>{render(rTN)}</td>
                     </tr>
                   );
                 })}
@@ -5901,16 +5914,13 @@ function normalizeInsumoImportRow(r){
   const costoUnitario=toNumber(costoRaw);
   return {...r,codigo,descripcion,costoUnitario};
 }
-// OPT: memoizar normalizeImportKeyText - se llama ~5 veces por fila × miles de filas
-const _normKeyCache=new Map();
 function normalizeImportKeyText(v){
-  const s=String(v??"");
-  let r=_normKeyCache.get(s);
-  if(r!==undefined)return r;
-  r=s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[\r\n]+/g," ").replace(/\s+/g," ").trim().toUpperCase();
-  if(_normKeyCache.size>8000)_normKeyCache.clear();
-  _normKeyCache.set(s,r);
-  return r;
+  return String(v??"")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[\r\n]+/g," ")
+    .replace(/\s+/g," ")
+    .trim()
+    .toUpperCase();
 }
 function parseComparableNumber(v){
   if(typeof v==="number")return Number.isFinite(v)?v:0;
@@ -6022,18 +6032,17 @@ function buildImportPreview(target,rawRows,normalizedRows,currentRows){
   const comparableString=(row)=>JSON.stringify(comparableImportRow(target.kind,row));
   const rawAt=(idx)=>rawRows?.[idx]||{};
 
-  // 1) Agrupar filas actuales de Google Sheets por clave de negocio.
-  // OPT: loop for en vez de filter+forEach → un solo pass, sin array intermedio
+  // 1) Agrupar filas actuales de Google Sheets por clave de negocio,
+  // preservando el orden de aparición.
   const currentGroups=new Map();
-  const _crows=currentRows||[];
-  for(let _ci=0;_ci<_crows.length;_ci++){
-    const r=_crows[_ci];
-    if(!(target.kind==="rop02"||!target.proyecto||r.proyecto===target.proyecto))continue;
-    const key=importKey(target.kind,r);
-    if(!validKey(key))continue;
-    if(!currentGroups.has(key))currentGroups.set(key,[]);
-    currentGroups.get(key).push({...r,_sheetIndex:_ci});
-  }
+  (currentRows||[])
+    .filter(r=>target.kind==="rop02"||!target.proyecto||r.proyecto===target.proyecto)
+    .forEach((r,idx)=>{
+      const key=importKey(target.kind,r);
+      if(!validKey(key))return;
+      if(!currentGroups.has(key))currentGroups.set(key,[]);
+      currentGroups.get(key).push({...r,_sheetIndex:idx});
+    });
 
   // 2) Deduplicar exactos dentro del Excel / datos pegados.
   // Solo se descarta si tiene misma clave de negocio Y mismo contenido completo.
@@ -6288,7 +6297,68 @@ function PasteDataBox({targets,onLoadRows,disabled}){
 }
 
 
-function PasteDataBoxInline({targets,onLoadRows,onRemove,loadedFiles,previews,resultByTarget,onSelectPreview,disabled,
+
+function rowHasAnyValue(row){
+  if(!row)return false;
+  return Object.values(row).some(v=>String(v??"").trim()!=="");
+}
+function dateForImportTargetRow(target,row){
+  if(!row||target?.kind==="insumos")return"";
+  if(target?.kind==="rop02"){
+    return normDate(row.fecha||row.Fecha||row["Fecha"]||row["Fecha:"]||"");
+  }
+  if(target?.kind==="rop05"){
+    // Para el cartel de Importar datos, ROP05 debe mostrar la FECHA DE CARGA
+    // de la última fila real, no la fecha del parte diario usada en controles.
+    return normDate(
+      row.fechaCarga||
+      row.FechaCarga||
+      row["FechaCarga"]||
+      row["Fecha de carga"]||
+      row["FECHA DE CARGA"]||
+      row["Marca Temporal"]||
+      row["Marca Tmeporal"]||
+      row["Timestamp"]||
+      row["Marca temporal"]||
+      ""
+    );
+  }
+  if(target?.kind==="rma15"){
+    return normDate(row.fecha||row["Fecha de OT"]||row["FECHA DE OT"]||row.Fecha||"");
+  }
+  return normDate(row.fecha||row.Fecha||row.FechaParte||row["Fecha del Parte Diario"]||row["Fecha de OT"]||"");
+}
+function lastRegisterInfoForTarget(target,currentRows){
+  // IMPORTANTE: esto debe mostrar la última fila física con datos de la planilla base,
+  // no la última fila "válida" después de normalizar/filtrar.
+  // Por eso se usa el último objeto no vacío recibido desde Apps Script y se calcula:
+  // fila real = fila de encabezado + posición del registro.
+  const rows=Array.isArray(currentRows)?currentRows:[];
+  if(!rows.length)return {label:"Último registro: sin datos",date:"",rowNumber:"—",raw:null};
+
+  let bestIdx=-1;
+  for(let i=rows.length-1;i>=0;i--){
+    if(rowHasAnyValue(rows[i])){bestIdx=i;break;}
+  }
+  if(bestIdx<0)return {label:"Último registro: sin datos",date:"",rowNumber:"—",raw:null};
+
+  const best=rows[bestIdx]||{};
+  let date=dateForImportTargetRow(target,best);
+  // Si la última fila física no trae fecha, buscar hacia arriba la última fecha disponible
+  // solo para mostrarla, sin cambiar el número de fila física.
+  if(!date&&target?.kind!=="insumos"){
+    for(let i=bestIdx-1;i>=0;i--){
+      date=dateForImportTargetRow(target,rows[i]);
+      if(date)break;
+    }
+  }
+  const rowNumber=(target.headerRow||1)+bestIdx+1;
+  const dateText=target.kind==="insumos"?"base actual":(date?fmtFecha(date):"sin fecha");
+  const dateHint=target.kind==="rop05"?" — Fecha de carga":"";
+  return {label:`Último registro: ${dateText}${dateHint} (fila ${rowNumber})`,date,rowNumber,raw:best};
+}
+
+function PasteDataBoxInline({targets,onLoadRows,onRemove,loadedFiles,previews,resultByTarget,onSelectPreview,disabled,lastInfoByTarget={},
   totalNuevas,totalActualizadas,totalIguales,totalCambios,
   allLoadedAnalyzed,busy,busyLabel,progress,onAnalyze,onConfirm,onClear,selectedPreview,setSelectedPreview}){
 
@@ -6327,6 +6397,9 @@ function PasteDataBoxInline({targets,onLoadRows,onRemove,loadedFiles,previews,re
                     <span style={{fontSize:13,fontWeight:800,color:t.color}}>{t.sourceLabel}</span>
                   </div>
                   <span style={{fontSize:10,color:C.textMuted,lineHeight:1.4}}>{pasteStructureText(t).slice(0,80)}…</span>
+                  <div style={{marginTop:4,padding:"5px 7px",borderRadius:7,background:C.card,border:`1px solid ${t.color}33`,color:t.color,fontSize:11,fontWeight:900,lineHeight:1.25}}>
+                    {lastInfoByTarget[t.id]?.label||"Último registro: sin datos"}
+                  </div>
                   {loaded&&(
                     <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:4}}>
                       {preview
@@ -6402,7 +6475,7 @@ function PasteDataBoxInline({targets,onLoadRows,onRemove,loadedFiles,previews,re
   );
 }
 
-function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
+function ViewImportExcel({rop02All,rop05,rma15,insumos,rawSources,onReload}){
   const[busy,setBusy]=useState(false);
   const[busyLabel,setBusyLabel]=useState("");
   const[progress,setProgress]=useState({done:0,total:0});
@@ -6415,12 +6488,23 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
   const targets=Object.values(IMPORT_TARGETS);
 
   const currentForTarget=(target)=>{
-    if(target.kind==="rop02")return rop02All;
+    if(target.kind==="rop02")return (rop02All||[]).filter(r=>!target.proyecto||normProject(r.proyecto)===target.proyecto);
     if(target.kind==="rop05")return rop05;
-    if(target.kind==="rma15")return rma15;
+    if(target.kind==="rma15")return (rma15||[]).filter(r=>!target.proyecto||normProject(r.proyecto)===target.proyecto);
     if(target.kind==="insumos")return Object.entries(insumos||{}).map(([codigo,info])=>({codigo,descripcion:info.descripcion||"",costoUnitario:info.costoUnitario||0}));
     return [];
   };
+
+  const rawForTarget=(target)=>{
+    const data=rawSources?.[target.id]?.ok&&Array.isArray(rawSources[target.id].data)?rawSources[target.id].data:null;
+    return data||currentForTarget(target);
+  };
+
+  const lastInfoByTarget=useMemo(()=>{
+    const map={};
+    targets.forEach(t=>{map[t.id]=lastRegisterInfoForTarget(t,rawForTarget(t));});
+    return map;
+  },[rawSources,rop02All,rop05,rma15,insumos]);
 
   const loadPastedRows=(target,rows,size=0)=>{
     setError(null);setMessage(null);setResults([]);
@@ -6535,6 +6619,7 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
         resultByTarget={resultByTarget}
         onSelectPreview={setSelectedPreview}
         disabled={busy}
+        lastInfoByTarget={lastInfoByTarget}
         // action bar props
         pendingAnalyze={pendingAnalyze}
         totalNuevas={totalNuevas}
@@ -6940,7 +7025,7 @@ export default function App(){
                 {view==="costosUnitarios"&&<ViewCostosUnitarios insumos={insumos} usdRate={usdRate}/>}
                 {view==="chc"&&<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>}
                 {view==="control"&&<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>}
-                {view==="importExcel"&&<ViewImportExcel rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} onReload={loadData}/>}
+                {view==="importExcel"&&<ViewImportExcel rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} rawSources={rawSources} onReload={loadData}/>}
               </>
             )}
           </div>
