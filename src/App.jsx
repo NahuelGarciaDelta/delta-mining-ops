@@ -128,13 +128,21 @@ function fmtFecha(f){
   if(!y||!m||!d)return f;
   return`${d}/${m}/${y}`;
 }
-function uniq(arr){const s=new Set();const r=[];for(const v of arr){const c=typeof v==="string"?v.trim():v;if(c&&!s.has(c)){s.add(c);r.push(c);}}return r.sort();}
+function uniq(arr){
+  // OPT: usar Set directamente y sortear solo al final
+  const s=new Set();
+  for(let i=0;i<arr.length;i++){const c=typeof arr[i]==="string"?arr[i].trim():arr[i];if(c)s.add(c);}
+  return Array.from(s).sort();
+}
 function semaforo(pct){
   if(pct>=90)return{color:C.green,label:"ÓPTIMO",dim:C.greenDim};
   if(pct>=70)return{color:C.yellow,label:"ATENCIÓN",dim:C.yellowDim};
   return{color:C.red,label:"CRÍTICO",dim:C.redDim};
 }
-function cleanKey(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[\r\n]+/g," ").replace(/\s+/g," ").trim().toLowerCase();}
+const _reDiacritics=/[\u0300-\u036f]/g;
+const _reNL=/[\r\n]+/g;
+const _reSP=/\s+/g;
+function cleanKey(v){return String(v||"").normalize("NFD").replace(_reDiacritics,"").replace(_reNL," ").replace(_reSP," ").trim().toLowerCase();}
 function getValue(row,keys){
   const rk=Object.keys(row||{});const wk=keys.map(cleanKey);
   for(const k of rk){if(wk.includes(cleanKey(k)))return row[k];}
@@ -143,15 +151,22 @@ function getValue(row,keys){
 }
 function toNumber(v){
   if(v===null||v===undefined||v==="")return 0;
-  return parseFloat(String(v).replace(",",".").replace(/[^\d.-]/g,"").trim())||0;
+  if(typeof v==="number")return Number.isFinite(v)?v:0;
+  // OPT: evitar crear regex nueva cada llamada
+  const s=String(v).replace(",",".").replace(_nonNumericRe,"").trim();
+  return parseFloat(s)||0;
 }
+const _nonNumericRe=/[^\d.-]/g;
+// OPT: pre-compilar regex de normDate fuera de la función
+const _reDdMmYyyy=/^(\d{1,2})\/(\d{1,2})\/(\d{4})/;
+const _reYyyyMmDd=/^(\d{4})-(\d{2})-(\d{2})/;
 function normDate(d){
   if(!d)return"";const t=String(d).trim();
   let iso="";
-  const m1=t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const m1=t.match(_reDdMmYyyy);
   if(m1)iso=`${m1[3]}-${m1[2].padStart(2,"0")}-${m1[1].padStart(2,"0")}`;
   else{
-    const m2=t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const m2=t.match(_reYyyyMmDd);
     if(m2)iso=t.slice(0,10);
     else{
       const p=new Date(t);
@@ -159,9 +174,6 @@ function normDate(d){
     }
   }
   if(!iso)return"";
-  // Validar y corregir: año (1900-2100), mes (1-12), día (1-31).
-  // Si el mes quedó fuera de rango pero el día sí es un mes válido,
-  // probablemente vinieron invertidos (ej: "2026-31-05" → "2026-05-31").
   let[y,mo,da]=iso.split("-").map(Number);
   if(mo>12&&da>=1&&da<=12){const tmp=mo;mo=da;da=tmp;}
   if(y<1900||y>2100||mo<1||mo>12||da<1||da>31)return"";
@@ -323,11 +335,20 @@ function normalizeName(s){
 
 // Distancia de Levenshtein entre dos strings
 function levenshtein(a,b){
+  // OPT: early-exit si la diferencia de longitud ya supera el umbral (2)
+  if(Math.abs(a.length-b.length)>2)return 3;
   const m=a.length,n=b.length;
-  const dp=Array.from({length:m+1},(_,i)=>Array.from({length:n+1},(_,j)=>i===0?j:j===0?i:0));
-  for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)
-    dp[i][j]=a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
-  return dp[m][n];
+  // OPT: usar dos arrays en vez de matriz completa → O(min(m,n)) memoria
+  let prev=Array.from({length:n+1},(_,j)=>j);
+  let curr=new Array(n+1);
+  for(let i=1;i<=m;i++){
+    curr[0]=i;
+    for(let j=1;j<=n;j++){
+      curr[j]=a[i-1]===b[j-1]?prev[j-1]:1+Math.min(prev[j],curr[j-1],prev[j-1]);
+    }
+    [prev,curr]=[curr,prev];
+  }
+  return prev[n];
 }
 
 // Construye mapa canónico agrupando por:
@@ -456,17 +477,21 @@ function normalizeROP02(rows,proyectoDefault){
     const trabajo=String(r["Descripción de los trabajos realizados"]||"").trim();
     const obs=String(r["Observaciones"]||"").trim();
     const maquina=cleanMachine(r["Interno"]);
+    // FIX: soportar encabezado "Fecha:" (con dos puntos) además de "Fecha"
+    const fechaRaw=r["Fecha"]??r["Fecha:"]??"";
+    // FIX: soportar encabezado "Cant.Hs/ KM" además de "Cant. Hs."
+    const cantHs=r["Cant. Hs."]??r["Cant.Hs/ KM"]??r["Cant.Hs"]??"";
     return{
-      fecha:normDate(r["Fecha"]),maquina,
+      fecha:normDate(fechaRaw),maquina,
       operario:normName(r["Operador"]),supervisor:normName(r["Supervisor Delta"]),
       supervisorCliente:String(r["Supervisor Vial Cliente"]||"").trim(),
       turno:String(r["Turno de trabajo"]||"").trim(),parte:String(r["N° Parte"]||"").trim(),
       proyecto:normProject(r["Proyecto"]||proyectoDefault),
       horometroInicial:toNumber(r["Horómetro inicial"]),horometroFinal:toNumber(r["Horómetro final"]),
-      horas:toNumber(r["Cant. Hs."]),combustible:toNumber(r["Combustible"]),
+      horas:toNumber(cantHs),combustible:toNumber(r["Combustible"]),
       aceite:String(r["Aceite"]||"").trim(),tipo_trabajo:trabajo,
       desgaste:String(r["Información sobre Desgaste"]||"").trim(),observaciones:obs,
-      estado:detectEstado(trabajo,obs,r["Cant. Hs."]),
+      estado:detectEstado(trabajo,obs,cantHs),
       // Precalculado una sola vez (en vez de recalcular isExcluded/getMachineType
       // —cada una con hasta ~24 regex— en cada render de cada vista)
       _excluded:isExcluded(maquina),_tipo:getMachineType(maquina)||"",
@@ -5602,7 +5627,11 @@ const IMPORT_TARGETS={
 };
 
 function normalizeExcelHeader(h,idx){
-  const s=String(h||"").trim();
+  let s=String(h||"").trim();
+  // Normalizar variantes conocidas de headers del Excel ROP02
+  if(s==="Fecha:")s="Fecha";
+  if(s==="Cant.Hs/ KM"||s==="Cant.Hs")s="Cant. Hs.";
+  if(s==="Proyecto ")s="Proyecto";
   return s||`col_${idx}`;
 }
 function cellStr(arr,idx){return String(arr?.[idx]??"").trim();}
@@ -5872,13 +5901,16 @@ function normalizeInsumoImportRow(r){
   const costoUnitario=toNumber(costoRaw);
   return {...r,codigo,descripcion,costoUnitario};
 }
+// OPT: memoizar normalizeImportKeyText - se llama ~5 veces por fila × miles de filas
+const _normKeyCache=new Map();
 function normalizeImportKeyText(v){
-  return String(v??"")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-    .replace(/[\r\n]+/g," ")
-    .replace(/\s+/g," ")
-    .trim()
-    .toUpperCase();
+  const s=String(v??"");
+  let r=_normKeyCache.get(s);
+  if(r!==undefined)return r;
+  r=s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[\r\n]+/g," ").replace(/\s+/g," ").trim().toUpperCase();
+  if(_normKeyCache.size>8000)_normKeyCache.clear();
+  _normKeyCache.set(s,r);
+  return r;
 }
 function parseComparableNumber(v){
   if(typeof v==="number")return Number.isFinite(v)?v:0;
@@ -5990,17 +6022,18 @@ function buildImportPreview(target,rawRows,normalizedRows,currentRows){
   const comparableString=(row)=>JSON.stringify(comparableImportRow(target.kind,row));
   const rawAt=(idx)=>rawRows?.[idx]||{};
 
-  // 1) Agrupar filas actuales de Google Sheets por clave de negocio,
-  // preservando el orden de aparición.
+  // 1) Agrupar filas actuales de Google Sheets por clave de negocio.
+  // OPT: loop for en vez de filter+forEach → un solo pass, sin array intermedio
   const currentGroups=new Map();
-  (currentRows||[])
-    .filter(r=>!target.proyecto||r.proyecto===target.proyecto)
-    .forEach((r,idx)=>{
-      const key=importKey(target.kind,r);
-      if(!validKey(key))return;
-      if(!currentGroups.has(key))currentGroups.set(key,[]);
-      currentGroups.get(key).push({...r,_sheetIndex:idx});
-    });
+  const _crows=currentRows||[];
+  for(let _ci=0;_ci<_crows.length;_ci++){
+    const r=_crows[_ci];
+    if(!(target.kind==="rop02"||!target.proyecto||r.proyecto===target.proyecto))continue;
+    const key=importKey(target.kind,r);
+    if(!validKey(key))continue;
+    if(!currentGroups.has(key))currentGroups.set(key,[]);
+    currentGroups.get(key).push({...r,_sheetIndex:_ci});
+  }
 
   // 2) Deduplicar exactos dentro del Excel / datos pegados.
   // Solo se descarta si tiene misma clave de negocio Y mismo contenido completo.
@@ -6045,7 +6078,7 @@ function buildImportPreview(target,rawRows,normalizedRows,currentRows){
         iguales.push({...item.row,_row:item.idx+1,_key:key,_groupPos:pos+1});
       }else{
         actualizados.push({...item.row,_row:item.idx+1,_key:key,_groupPos:pos+1,_before:existing});
-        rowsToUpsert.push(item.raw);
+        rowsToUpsert.push({...item.raw,_sheetIndex:existing._sheetIndex});
       }
     });
   });
@@ -6060,48 +6093,38 @@ function buildImportPreview(target,rawRows,normalizedRows,currentRows){
     rowsToUpsert
   };
 }
-async function postImportUpsert(preview){
-  const changedRows=preview.rowsToUpsert||[];
-  const payload=JSON.stringify({
-    action:"upsert_sparse",
-    target:preview.target.id,
-    rows:changedRows
-  });
-  const res=await fetch(APPS_SCRIPT_URL,{method:"POST",body:new URLSearchParams({payload}),redirect:"follow"});
+async function postToAppsScript(payloadObj){
+  const payloadStr=JSON.stringify(payloadObj);
+  // Apps Script redirige POST→GET perdiendo el body.
+  // Paso 1: detectar la URL final del redirect con manual redirect.
+  // Paso 2: POST directo a esa URL final.
+  let finalUrl=APPS_SCRIPT_URL;
+  try{
+    const probe=await fetch(APPS_SCRIPT_URL,{method:"POST",body:new URLSearchParams({payload:payloadStr}),redirect:"manual"});
+    if(probe.type==="opaqueredirect"||probe.status===302||probe.status===301){
+      const loc=probe.headers.get("location");
+      if(loc)finalUrl=loc;
+    }
+  }catch(e){}
+  // POST a la URL final (puede ser la misma o la redirigida)
+  const res=await fetch(finalUrl,{method:"POST",body:new URLSearchParams({payload:payloadStr}),redirect:"follow"});
   if(!res.ok)throw new Error(`HTTP ${res.status} al actualizar planilla`);
   const text=await res.text();
   let json;
-  try{json=JSON.parse(text);}catch(e){throw new Error("Apps Script no devolvió JSON al actualizar. Revisá permisos/publicación.");}
+  try{json=JSON.parse(text);}catch(e){throw new Error("Apps Script no devolvió JSON. Revisá permisos/publicación.");}
   if(!json.ok)throw new Error(json.error?.message||"No se pudo actualizar la planilla.");
   return json;
 }
+async function postImportUpsert(preview){
+  const changedRows=preview.rowsToUpsert||[];
+  return postToAppsScript({action:"upsert_sparse",target:preview.target.id,rows:changedRows});
+}
 
 async function postAddListaEquipo(row){
-  const payload=JSON.stringify({
-    action:"add_lista_equipo",
-    row
-  });
-  const res=await fetch(APPS_SCRIPT_URL,{method:"POST",body:new URLSearchParams({payload}),redirect:"follow"});
-  if(!res.ok)throw new Error(`HTTP ${res.status} al guardar equipo`);
-  const text=await res.text();
-  let json;
-  try{json=JSON.parse(text);}catch(e){throw new Error("Apps Script no devolvió JSON al guardar el equipo. Revisá permisos/publicación.");}
-  if(!json.ok)throw new Error(json.error?.message||"No se pudo guardar el equipo en Lista Maestra.");
-  return json;
+  return postToAppsScript({action:"add_lista_equipo",row});
 }
 async function postUpdateListaEquipo(originalKeys,row){
-  const payload=JSON.stringify({
-    action:"update_lista_equipo",
-    originalKeys,
-    row
-  });
-  const res=await fetch(APPS_SCRIPT_URL,{method:"POST",body:new URLSearchParams({payload}),redirect:"follow"});
-  if(!res.ok)throw new Error(`HTTP ${res.status} al modificar equipo`);
-  const text=await res.text();
-  let json;
-  try{json=JSON.parse(text);}catch(e){throw new Error("Apps Script no devolvió JSON al modificar el equipo. Revisá permisos/publicación.");}
-  if(!json.ok)throw new Error(json.error?.message||"No se pudo modificar el equipo en Lista Maestra.");
-  return json;
+  return postToAppsScript({action:"update_lista_equipo",originalKeys,row});
 }
 function formatFileSize(bytes){
   const n=Number(bytes||0);
@@ -6264,6 +6287,121 @@ function PasteDataBox({targets,onLoadRows,disabled}){
   );
 }
 
+
+function PasteDataBoxInline({targets,onLoadRows,onRemove,loadedFiles,previews,resultByTarget,onSelectPreview,disabled,
+  totalNuevas,totalActualizadas,totalIguales,totalCambios,
+  allLoadedAnalyzed,busy,busyLabel,progress,onAnalyze,onConfirm,onClear,selectedPreview,setSelectedPreview}){
+
+  // Un estado de texto por cada target
+  const[texts,setTexts]=useState(()=>Object.fromEntries(targets.map(t=>[t.id,""])));
+  const[errors,setErrors]=useState({});
+  const loadedFilesList=Object.values(loadedFiles);
+  const hasData=loadedFilesList.length>0;
+
+  const handleLoad=(target)=>{
+    const text=texts[target.id]||"";
+    setErrors(e=>({...e,[target.id]:null}));
+    const rows=buildRowsFromPastedTextForTarget(target,text);
+    if(!rows.length){setErrors(e=>({...e,[target.id]:"No se detectaron filas válidas. Revisá el orden de columnas."}));return;}
+    onLoadRows(target,rows,text.length);
+    setTexts(t=>({...t,[target.id]:""}));
+  };
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card title="Importar datos a planillas base">
+        <div style={{padding:16,display:"flex",flexDirection:"column",gap:10}}>
+
+          {/* Fila de cada planilla */}
+          {targets.map(t=>{
+            const text=texts[t.id]||"";
+            const loaded=loadedFiles[t.id];
+            const preview=previews[t.id];
+            const cambios=preview?(preview.nuevos.length+preview.actualizados.length):0;
+            return(
+              <div key={t.id} style={{display:"grid",gridTemplateColumns:"200px 1fr auto",gap:10,alignItems:"start",padding:"12px",borderRadius:10,border:`1px solid ${t.color}44`,background:loaded?t.color+"18":t.color+"08"}}>
+                {/* Columna izquierda: nombre + estado */}
+                <div style={{display:"flex",flexDirection:"column",gap:6,paddingTop:4,borderRight:`2px solid ${t.color}33`,paddingRight:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:t.color,flexShrink:0}}/>
+                    <span style={{fontSize:13,fontWeight:800,color:t.color}}>{t.sourceLabel}</span>
+                  </div>
+                  <span style={{fontSize:10,color:C.textMuted,lineHeight:1.4}}>{pasteStructureText(t).slice(0,80)}…</span>
+                  {loaded&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:4}}>
+                      {preview
+                        ? <Badge color={cambios>0?C.yellow:C.green}>{cambios>0?`${cambios} cambios`:"Sin cambios"}</Badge>
+                        : <Badge color={C.textMuted}>Sin analizar</Badge>
+                      }
+                      <button onClick={()=>onRemove(t.id)}
+                        style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,color:C.textMuted,cursor:"pointer",padding:"3px 8px",fontSize:11,width:"fit-content"}}>
+                        Quitar
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {/* Columna central: textarea */}
+                <textarea
+                  value={text}
+                  onChange={e=>setTexts(tx=>({...tx,[t.id]:e.target.value}))}
+                  disabled={disabled||!!loaded}
+                  placeholder={loaded?"✓ Datos cargados — quitalos para cargar nuevos":`Pegá acá el rango de ${t.sourceLabel}...`}
+                  style={{width:"100%",height:90,resize:"vertical",background:loaded?C.card:C.surface,color:loaded?C.textMuted:C.text,border:`1px solid ${errors[t.id]?C.red:t.color+"44"}`,borderRadius:8,padding:10,fontFamily:"Consolas,monospace",fontSize:11,outline:"none",opacity:loaded?0.6:1}}/>
+                {/* Columna derecha: botón */}
+                <div style={{display:"flex",flexDirection:"column",gap:6,paddingTop:4}}>
+                  <button onClick={()=>handleLoad(t)} disabled={disabled||!text.trim()||!!loaded}
+                    style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${t.color}55`,background:text.trim()&&!loaded?t.color+"22":C.surface,color:text.trim()&&!loaded?t.color:C.textMuted,cursor:disabled||!text.trim()||loaded?"not-allowed":"pointer",fontWeight:900,fontSize:12,whiteSpace:"nowrap"}}>
+                    Cargar
+                  </button>
+                  {text&&!loaded&&(
+                    <button onClick={()=>setTexts(tx=>({...tx,[t.id]:""}))}
+                      style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.textMuted,cursor:"pointer",fontWeight:700,fontSize:11}}>
+                      Limpiar
+                    </button>
+                  )}
+                </div>
+                {errors[t.id]&&<div style={{gridColumn:"1/-1",fontSize:11,color:C.red}}>{errors[t.id]}</div>}
+              </div>
+            );
+          })}
+
+          {/* Barra de acción — solo si hay datos cargados */}
+          {hasData&&(
+            <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",paddingTop:10,borderTop:`2px solid ${C.accent}33`,marginTop:4,background:C.accentDim,borderRadius:10,padding:12}}>
+              <div style={{display:"flex",gap:8,flex:1,flexWrap:"wrap"}}>
+                <StatCard icon="check" label="Nuevas" value={totalNuevas} color={C.green} small/>
+                <StatCard icon="refresh" label="Actualizadas" value={totalActualizadas} color={C.yellow} small/>
+                <StatCard icon="consist" label="Sin cambios" value={totalIguales} color={C.blue} small/>
+              </div>
+              <div style={{display:"flex",gap:8,flexShrink:0}}>
+                <button onClick={onClear} disabled={busy}
+                  style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:busy?"not-allowed":"pointer",fontWeight:600}}>
+                  Limpiar todo
+                </button>
+                <button disabled={busy||!hasData} onClick={onAnalyze}
+                  style={{padding:"9px 16px",borderRadius:8,border:`1px solid ${C.yellow}55`,background:hasData?C.yellowDim:C.surface,color:hasData?C.yellow:C.textMuted,cursor:hasData&&!busy?"pointer":"not-allowed",fontWeight:800}}>
+                  Analizar cambios
+                </button>
+                <button disabled={busy||!allLoadedAnalyzed||totalCambios===0} onClick={onConfirm}
+                  style={{padding:"9px 16px",borderRadius:8,border:`1px solid ${C.green}55`,background:(allLoadedAnalyzed&&totalCambios)?C.greenDim:C.surface,color:(allLoadedAnalyzed&&totalCambios)?C.green:C.textMuted,cursor:(allLoadedAnalyzed&&totalCambios&&!busy)?"pointer":"not-allowed",fontWeight:800}}>
+                  Actualizar Google Sheets
+                </button>
+              </div>
+            </div>
+          )}
+
+          {busy&&progress.total>0&&(
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.textSub,fontWeight:700}}><span>{busyLabel}</span><span>{progress.done}/{progress.total}</span></div>
+              <div style={{height:7,background:C.border,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.round((progress.done/progress.total)*100)}%`,background:C.accent,borderRadius:999,transition:"width .2s"}}/></div>
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
   const[busy,setBusy]=useState(false);
   const[busyLabel,setBusyLabel]=useState("");
@@ -6275,6 +6413,7 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
   const[error,setError]=useState(null);
   const[results,setResults]=useState([]);
   const targets=Object.values(IMPORT_TARGETS);
+
   const currentForTarget=(target)=>{
     if(target.kind==="rop02")return rop02All;
     if(target.kind==="rop05")return rop05;
@@ -6283,15 +6422,8 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
     return [];
   };
 
-  const loadFile=(target,file)=>{
-    setError(null);setMessage(null);setResults([]);
-    setFiles(p=>({...p,[target.id]:{target,file,fileName:file.name,size:file.size,loadedAt:new Date().toISOString()}}));
-    setPreviews(p=>{const n={...p};delete n[target.id];return n;});
-    setSelectedPreview(p=>p?.target?.id===target.id?null:p);
-  };
-
   const loadPastedRows=(target,rows,size=0)=>{
-    setError(null);setMessage(`Datos pegados cargados en memoria para ${target.sourceLabel}: ${rows.length} filas. Tocá Analizar cambios.`);setResults([]);
+    setError(null);setMessage(null);setResults([]);
     setFiles(p=>({...p,[target.id]:{target,pastedRows:rows,fileName:`Datos pegados ${target.sourceLabel}`,size,loadedAt:new Date().toISOString(),isPasted:true}}));
     setPreviews(p=>{const n={...p};delete n[target.id];return n;});
     setSelectedPreview(p=>p?.target?.id===target.id?null:p);
@@ -6305,8 +6437,8 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
 
   const analyzeAll=async()=>{
     const entries=Object.values(files);
-    if(!entries.length){setMessage("Primero cargá al menos un Excel.");return;}
-    setBusy(true);setBusyLabel("Analizando archivos cargados...");setProgress({done:0,total:entries.length});setError(null);setMessage(null);setResults([]);
+    if(!entries.length){setMessage("Primero pegá datos en al menos una planilla.");return;}
+    setBusy(true);setBusyLabel("Analizando datos...");setProgress({done:0,total:entries.length});setError(null);setMessage(null);setResults([]);
     try{
       const built=[];
       const needsFreshRop05=entries.some(entry=>entry.target?.kind==="rop05");
@@ -6316,25 +6448,20 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
           setBusyLabel("Leyendo ROP05 completo desde Google Sheets...");
           const src=await fetchSource(APPS_SCRIPT_URL,"rop05",{force:true});
           if(src?.ok&&Array.isArray(src.data))freshRop05Rows=normalizeROP05(src.data);
-        }catch(err){
-          console.warn("No se pudo refrescar ROP05 para comparación",err);
-        }
-        setBusyLabel("Analizando archivos cargados...");
+        }catch(err){console.warn("No se pudo refrescar ROP05",err);}
+        setBusyLabel("Analizando datos...");
       }
       const currentRowsForPreview=(target)=>target.kind==="rop05"?freshRop05Rows:currentForTarget(target);
       await Promise.all(entries.map(async(entry)=>{
         const target=entry.target;
-        const parsed=entry.pastedRows
-          ? {sheetName:"Pegado manual",headers:["FechaCarga","CorreoSupervisor","Proyecto","GrupoTrabajo","Equipo","NroParte","TipoEquipo","FechaParte","Tarea","HorasProductivas","CantidadProduccion","Unidad","Observacion"],rows:entry.pastedRows}
-          : await readExcelAsObjects(entry.file,target);
+        const parsed={sheetName:"Pegado manual",headers:["FechaCarga","CorreoSupervisor","Proyecto","GrupoTrabajo","Equipo","NroParte","TipoEquipo","FechaParte","Tarea","HorasProductivas","CantidadProduccion","Unidad","Observacion"],rows:entry.pastedRows};
         const normalized=normalizeImportedRows(target,parsed.rows,insumos);
         const prev=buildImportPreview(target,parsed.rows,normalized,currentRowsForPreview(target));
         const full={target,fileName:entry.fileName,sheetName:parsed.sheetName,headers:parsed.headers,...prev,parsedAt:new Date().toISOString()};
         built.push(full);
         setProgress(p=>({done:p.done+1,total:p.total}));
       }));
-      const map={};
-      built.forEach(p=>{map[p.target.id]=p;});
+      const map={};built.forEach(p=>{map[p.target.id]=p;});
       setPreviews(map);
       setSelectedPreview(built[0]||null);
       const nuevas=built.reduce((s,p)=>s+p.nuevos.length,0);
@@ -6353,14 +6480,10 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
   const totalIguales=loadedPreviews.reduce((s,p)=>s+p.iguales.length,0);
   const totalDuplicadas=loadedPreviews.reduce((s,p)=>s+p.duplicados.length,0);
   const totalCambios=totalNuevas+totalActualizadas;
-  const resultByTarget=useMemo(()=>{
-    const map={};
-    (results||[]).forEach(r=>{if(r?.target?.id)map[r.target.id]=r;});
-    return map;
-  },[results]);
+  const resultByTarget=useMemo(()=>{const map={};(results||[]).forEach(r=>{if(r?.target?.id)map[r.target.id]=r;});return map;},[results]);
 
   const confirmAll=async()=>{
-    if(!allLoadedAnalyzed){setMessage("Primero tocá Analizar cambios para preparar la actualización.");return;}
+    if(!allLoadedAnalyzed){setMessage("Primero tocá Analizar cambios.");return;}
     const toRun=Object.values(previews).filter(p=>(p.nuevos.length+p.actualizados.length)>0);
     if(!toRun.length){setMessage("No hay filas nuevas ni modificadas para actualizar.");return;}
     setBusy(true);setBusyLabel("Actualizando Google Sheets...");setProgress({done:0,total:toRun.length});setError(null);setMessage(null);setResults([]);
@@ -6376,10 +6499,8 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
       const updated=allResults.reduce((s,r)=>s+(r.updated||0),0);
       const unchanged=allResults.reduce((s,r)=>s+(r.unchanged||0),0);
       const groups=allResults.reduce((s,r)=>s+(r.updateGroups||0),0);
-      setMessage(`Actualización completa: ${added} agregadas, ${updated} actualizadas, ${unchanged} sin cambios. Escrituras de actualización agrupadas: ${groups}.`);
-      setFiles({});
-      setPreviews({});
-      setSelectedPreview(null);
+      setMessage(`Actualización completa: ${added} agregadas, ${updated} actualizadas, ${unchanged} sin cambios. Grupos: ${groups}.`);
+      setFiles({});setPreviews({});setSelectedPreview(null);
       if(onReload)await onReload();
     }catch(err){setError(err.message);}
     finally{setBusy(false);setBusyLabel("");setProgress({done:0,total:0});}
@@ -6391,71 +6512,47 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
   const sampleRows=detail?[...detail.nuevos.map(r=>({...r,_tipoImport:"Nueva"})),...detail.actualizados.map(r=>({...r,_tipoImport:"Actualiza"}))].slice(0,120):[];
   const cols=[
     {key:"_tipoImport",label:"Acción",render:v=><Badge color={v==="Nueva"?C.green:C.yellow}>{v}</Badge>},
-    {key:"codigo",label:"Código"},
-    {key:"descripcion",label:"Descripción",wrap:true},
-    {key:"costoUnitario",label:"Costo unit.",render:v=>v?"$"+fmtNum(v):"—"},
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
     {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v}</Badge>},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
     {key:"parte",label:"Parte"},
     {key:"tarea",label:"Tarea",wrap:true},
-    {key:"tipoMant",label:"Tipo Mant."},
     {key:"horas",label:"Hs",render:v=>fmtNum(v)},
     {key:"cantidad",label:"Cantidad",render:v=>fmtNum(v)},
+    {key:"codigo",label:"Código"},
+    {key:"descripcion",label:"Descripción",wrap:true},
+    {key:"costoUnitario",label:"Costo unit.",render:v=>v?"$"+fmtNum(v):"—"},
   ];
+
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
-      <Card title="Importar Excel a planillas base">
-        <div style={{padding:16,display:"flex",flexDirection:"column",gap:12}}>
-          <AlertBanner type="info">Primero cargá todos los Excel. La carga solo guarda los archivos en memoria. Después tocá <strong>Analizar cambios</strong> para ver nuevas/actualizadas, y finalmente <strong>Actualizar Google Sheets</strong>.</AlertBanner>
-          <div style={{display:"grid",gridTemplateColumns:"minmax(280px,1fr) minmax(280px,1fr)",gap:10,alignItems:"stretch"}}>
-            {targets.map(t=>(
-              <React.Fragment key={t.id}>
-                <ImportButton target={t} fileEntry={files[t.id]} preview={previews[t.id]} onFile={loadFile} onRemove={removeFile} onSelectPreview={setSelectedPreview}/>
-                <ImportTargetLog target={t} fileEntry={files[t.id]} preview={previews[t.id]} result={resultByTarget[t.id]} onSelectPreview={setSelectedPreview}/>
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      </Card>
-
-      <PasteDataBox targets={targets} onLoadRows={loadPastedRows} disabled={busy}/>
-
-      {loadedFiles.length>0&&(
-        <Card title="Flujo de actualización por lote">
-          <div style={{padding:16,display:"flex",flexDirection:"column",gap:14}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
-              <StatCard icon="parts" label="Archivos cargados" value={loadedFiles.length} color={C.purple} small/>
-              <StatCard icon="refresh" label="Pendientes de análisis" value={pendingAnalyze} color={pendingAnalyze?C.yellow:C.green} small/>
-              <StatCard icon="check" label="Nuevas" value={totalNuevas} color={C.green} small/>
-              <StatCard icon="refresh" label="Actualizadas" value={totalActualizadas} color={C.yellow} small/>
-              <StatCard icon="consist" label="Sin cambios" value={totalIguales} color={C.blue} small/>
-              <StatCard icon="warn" label="Duplicadas" value={totalDuplicadas} color={C.red} small/>
-            </div>
-            {loadedPreviews.length>0&&(
-              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                {loadedPreviews.map(p=>(
-                  <button key={p.target.id} onClick={()=>setSelectedPreview(p)} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 10px",borderRadius:8,border:`1px solid ${selectedPreview?.target?.id===p.target.id?p.target.color:C.border}`,background:selectedPreview?.target?.id===p.target.id?p.target.color+"22":C.surface,color:selectedPreview?.target?.id===p.target.id?p.target.color:C.textSub,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter"}}>
-                    {p.target.sourceLabel}
-                    <Badge color={(p.nuevos.length+p.actualizados.length)>0?C.yellow:C.green}>{p.nuevos.length+p.actualizados.length} cambios</Badge>
-                  </button>
-                ))}
-              </div>
-            )}
-            {busy&&progress.total>0&&(
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.textSub,fontWeight:700}}><span>{busyLabel}</span><span>{progress.done}/{progress.total}</span></div>
-                <div style={{height:7,background:C.border,borderRadius:999,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.round((progress.done/progress.total)*100)}%`,background:C.accent,borderRadius:999,transition:"width .2s"}}/></div>
-              </div>
-            )}
-            <div style={{display:"flex",justifyContent:"flex-end",gap:10,flexWrap:"wrap"}}>
-              <button onClick={clearAll} disabled={busy} style={{padding:"9px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:busy?"not-allowed":"pointer",fontWeight:600}}>Limpiar todo</button>
-              <button disabled={busy||loadedFiles.length===0} onClick={analyzeAll} style={{padding:"9px 16px",borderRadius:8,border:`1px solid ${C.yellow}55`,background:loadedFiles.length?C.yellowDim:C.surface,color:loadedFiles.length?C.yellow:C.textMuted,cursor:loadedFiles.length&&!busy?"pointer":"not-allowed",fontWeight:800}}>Analizar cambios</button>
-              <button disabled={busy||!allLoadedAnalyzed||totalCambios===0} onClick={confirmAll} style={{padding:"9px 16px",borderRadius:8,border:`1px solid ${C.green}55`,background:(allLoadedAnalyzed&&totalCambios)?C.greenDim:C.surface,color:(allLoadedAnalyzed&&totalCambios)?C.green:C.textMuted,cursor:(allLoadedAnalyzed&&totalCambios&&!busy)?"pointer":"not-allowed",fontWeight:800}}>Actualizar Google Sheets</button>
-            </div>
-          </div>
-        </Card>
-      )}
+      <PasteDataBoxInline
+        targets={targets}
+        onLoadRows={loadPastedRows}
+        onRemove={removeFile}
+        loadedFiles={files}
+        previews={previews}
+        resultByTarget={resultByTarget}
+        onSelectPreview={setSelectedPreview}
+        disabled={busy}
+        // action bar props
+        pendingAnalyze={pendingAnalyze}
+        totalNuevas={totalNuevas}
+        totalActualizadas={totalActualizadas}
+        totalIguales={totalIguales}
+        totalDuplicadas={totalDuplicadas}
+        totalCambios={totalCambios}
+        allLoadedAnalyzed={allLoadedAnalyzed}
+        busy={busy}
+        busyLabel={busyLabel}
+        progress={progress}
+        onAnalyze={analyzeAll}
+        onConfirm={confirmAll}
+        onClear={clearAll}
+        loadedPreviews={loadedPreviews}
+        selectedPreview={selectedPreview}
+        setSelectedPreview={setSelectedPreview}
+      />
 
       {busy&&<AlertBanner type="info">{busyLabel||"Procesando..."}</AlertBanner>}
       {error&&<AlertBanner type="error">{error}</AlertBanner>}
@@ -6482,14 +6579,12 @@ function ViewImportExcel({rop02All,rop05,rma15,insumos,onReload}){
         <Card title={`Vista previa — ${detail.target.sourceLabel}`} action={<button onClick={()=>setSelectedPreview(null)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"5px 10px",cursor:"pointer",fontSize:11}}>Cerrar</button>}>
           <div style={{padding:16,display:"flex",flexDirection:"column",gap:14}}>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
-              <StatCard icon="parts" label="Archivo" value={detail.fileName.length>18?detail.fileName.slice(0,16)+"…":detail.fileName} sub={detail.sheetName} color={detail.target.color} small/>
               <StatCard icon="check" label="Nuevas" value={detail.nuevos.length} color={C.green} small/>
               <StatCard icon="refresh" label="Actualizadas" value={detail.actualizados.length} color={C.yellow} small/>
               <StatCard icon="consist" label="Sin cambios" value={detail.iguales.length} color={C.blue} small/>
               <StatCard icon="warn" label="Duplicadas" value={detail.duplicados.length} color={C.red} small/>
             </div>
             {sampleRows.length>0?<Table cols={cols} rows={sampleRows} maxH={360} emptyMsg="No hay cambios para mostrar"/>:<AlertBanner type="success">No hay filas nuevas ni modificadas para esta fuente.</AlertBanner>}
-            {detail.duplicados.length>0&&<AlertBanner type="warn">El Excel tiene {detail.duplicados.length} filas duplicadas por clave. Apps Script salteará duplicadas para evitar pisadas.</AlertBanner>}
           </div>
         </Card>
       )}
@@ -6701,9 +6796,9 @@ export default function App(){
     {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.green},
   ];
   const adminNav={id:"grp_admin",icon:"gear",label:"ADMINISTRACIÓN",type:"group",color:C.red,children:[
-    {id:"importExcel",icon:"parts",label:"Importar Excel"},
+    {id:"importExcel",icon:"parts",label:"Actualización de datos"},
   ]};
-  const titles={dashboard:"Dashboard",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",importExcel:"Importar Excel"};
+  const titles={dashboard:"Dashboard",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",importExcel:"Actualización de datos"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -6718,7 +6813,7 @@ export default function App(){
     mant:"RMA15 = Registro de Mantenimiento: órdenes de trabajo (OT), insumos y costos de mantenimiento de cada equipo.",
     costosUnitarios:"Listado de artículos de la Base de datos costos: código, artículo y precio unitario usado para valorizar insumos de mantenimiento.",
     control:"Cruza ROP02 (partes diarios) contra ROP05 (producción) para detectar registros de un lado que no tienen su contraparte en el otro (turnos sin producción cargada o producción sin parte diario).",
-    importExcel:"Permite subir Excel actualizados y aplicar upsert: agregar filas nuevas y actualizar filas existentes que cambiaron.",
+    importExcel:"Pegá datos copiados desde Excel o Sheets para actualizar las planillas base. Podés cargar varias planillas a la vez, analizar los cambios y confirmar la actualización.",
   };
   const SW=sidebarOpen?240:52;
 
