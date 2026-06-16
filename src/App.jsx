@@ -462,6 +462,7 @@ function normalizeROP02(rows,proyectoDefault){
     const cantHs=r["Cant. Hs."]??r["Cant.Hs/ KM"]??r["Cant.Hs"]??"";
     return{
       fecha:normDate(fechaRaw),maquina,
+      _internoRaw:String(r["Interno"]||"").trim(),
       operario:normName(r["Operador"]),supervisor:normName(r["Supervisor Delta"]),
       supervisorCliente:String(r["Supervisor Vial Cliente"]||"").trim(),
       turno:String(r["Turno de trabajo"]||"").trim(),parte:String(r["N° Parte"]||"").trim(),
@@ -3262,6 +3263,31 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     if(fechasDisp.length>0&&(!fechaSel||!fechasDisp.includes(fechaSel)))setFechaSel(fechasDisp[0]);
   },[fechasDisp]);// eslint-disable-line
 
+  const [editMode,setEditMode]=React.useState(false);
+  const [editDraft,setEditDraft]=React.useState({TD:{},TN:{}});
+  const [editSaving,setEditSaving]=React.useState(false);
+  const [editError,setEditError]=React.useState(null);
+  const [editSuccess,setEditSuccess]=React.useState(false);
+  React.useEffect(()=>{
+    if(!fichaActual)return;
+    const mk=(r)=>r?{parte:String(r.parte||""),hi:r.horometroInicial!=null?String(r.horometroInicial):"",hf:r.horometroFinal!=null?String(r.horometroFinal):"",tarea:String(r.tipo_trabajo||""),obs:String(r.observaciones||""),desgaste:String(r.desgaste||""),combustible:r.combustible!=null&&Number(r.combustible)>0?String(r.combustible):"",aceite:String(r.aceite||""),horas:r.horas!=null?String(r.horas):""}:{};
+    setEditDraft({TD:mk(fichaActual.TD),TN:mk(fichaActual.TN)});
+    setEditError(null);setEditSuccess(false);
+  },[fichaActual,editMode]);// eslint-disable-line
+  const getTarget=(r)=>{const p=String(r?.proyecto||"").toUpperCase();if(p.includes("FILO SUR")||p.includes("FILOSUR"))return"rop02_filosur";if(p.includes("FILO DEL SOL")||p.includes("FDS")||p.includes("FILO"))return"rop02_fs";if(p.includes("JOSE MARIA")||p.includes("JM"))return"rop02_jm";const proj=Array.isArray(proyecto)?proyecto[0]:proyecto;const ps=String(proj||"").toUpperCase();if(ps.includes("FILO SUR")||ps.includes("FILOSUR"))return"rop02_filosur";if(ps.includes("FILO DEL SOL")||ps.includes("FDS")||ps.includes("FILO"))return"rop02_fs";return"rop02_jm";};
+  const handleSaveEdit=async()=>{
+    if(!fichaActual||editSaving)return;
+    setEditSaving(true);setEditError(null);setEditSuccess(false);
+    try{
+      const buildFields=(draft)=>({"N° Parte":draft.parte!==""?draft.parte:undefined,"Horómetro inicial":draft.hi!==""?Number(draft.hi):undefined,"Horómetro final":draft.hf!==""?Number(draft.hf):undefined,"Cant. Hs.":draft.horas!==""?Number(draft.horas):undefined,"Cant.Hs/ KM":draft.horas!==""?Number(draft.horas):undefined,"Combustible":draft.combustible!==""?Number(draft.combustible):undefined,"Aceite":draft.aceite!==""?draft.aceite:undefined,"Información sobre Desgaste":draft.desgaste!==""?draft.desgaste:undefined,"Descripción de los trabajos realizados":draft.tarea!==""?draft.tarea:undefined,"Observaciones":draft.obs!==""?draft.obs:undefined});
+      const calls=[];
+      for(const turno of["TD","TN"]){const r=fichaActual[turno];if(!r)continue;const target=getTarget(r);if(!target)continue;const rowKey={"Proyecto":r.proyecto||"","Fecha":r.fecha||"","Interno":r._internoRaw||r.maquina||"","Turno de trabajo":r.turno||"","N° Parte":r.parte||""};calls.push(postUpdateROP02Row(target,rowKey,buildFields(editDraft[turno])));}
+      await Promise.all(calls);
+      setEditSuccess(true);setEditMode(false);
+    }catch(err){setEditError(err.message||"Error al guardar");}
+    finally{setEditSaving(false);}
+  };
+
   const PINK="#f9a8c9";
   const PINK_BG="rgba(249,168,201,0.22)";
   const PINK_BORDER="rgba(249,168,201,0.70)";
@@ -3278,7 +3304,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
       boxShadow:"0 0 0 1px rgba(249,168,201,0.10) inset",
     }}>{children}</span>
   );
-  const isSinCarga=v=>String(v||"").trim().toLowerCase()==="sin carga";
+  const isSinCarga=v=>{const s=String(v||"").trim().toLowerCase().replace(/[^a-z]/g,"");return s==="sincarga"||s==="sincargar"||s==="sincargado";};
   const FILAS=[
     {key:"parte",      label:"Parte diario",    render:r=>r?.parte||"—"},
     {key:"hi",         label:"Hi",              render:r=>r?.horometroInicial!=null?r.horometroInicial:"—"},
@@ -3494,57 +3520,45 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
       ):(
         <Card>
           {multiIsAll(maquina,"todas")&&(
-            <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+            <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`}}>
               <AlertBanner type="info">Mostrando la primera máquina del filtro ({fichaMaquina}). Elegí otra desde el desplegable de la tabla para ver su ficha.</AlertBanner>
             </div>
           )}
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:560,tableLayout:"fixed"}}>
-              <colgroup><col style={{width:180}}/><col style={{width:"50%"}}/><col style={{width:"50%"}}/></colgroup>
-              <thead>
-                <tr>
-                  <th style={{padding:"10px 14px",background:C.surface,borderBottom:`2px solid ${C.border}`,textAlign:"left"}}>
-                    <select value={fichaMaquina||""} onChange={e=>setMaquina([e.target.value])} style={selectStyle}>{maquinas.map(m=><option key={m} value={m}>{m}</option>)}</select>
-                  </th>
-                  <th colSpan={2} style={{padding:"10px 14px",background:C.surface,borderBottom:`2px solid ${C.border}`,textAlign:"center"}}>
-                    <select value={fichaActual.fecha} onChange={e=>setFechaSel(e.target.value)} style={{...selectStyle,fontSize:13,fontWeight:700,color:C.accent,minWidth:140}}>{fechasDisp.map(f=><option key={f} value={f}>{fmtFecha(f)}</option>)}</select>
-                  </th>
-                </tr>
-                <tr>
-                  <th style={{padding:"7px 14px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`}}/>
-                  {['TD','TN'].map(t=><th key={t} style={{padding:"10px 16px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`,textAlign:"center",fontSize:16,fontWeight:900,color:C.textSub,letterSpacing:".06em"}}>{t}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {FILAS.map(({key,label,render})=>{
-                  const rTD=fichaActual.TD; const rTN=fichaActual.TN;
-                  return(
-                    <tr key={key}>
-                      <td style={{padding:"13px 18px",fontWeight:900,fontSize:15,color:C.textSub,background:C.surface+"55",borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`}}>{label}</td>
-                      <td style={{padding:"13px 18px",fontSize:16,color:cellColor(rTD),background:cellBg(rTD),borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`,verticalAlign:"top",lineHeight:1.65,fontWeight:800}}>{render(rTD)}</td>
-                      <td style={{padding:"13px 18px",fontSize:16,color:cellColor(rTN),background:cellBg(rTN),borderBottom:`1px solid ${C.border}22`,verticalAlign:"top",lineHeight:1.65,fontWeight:800}}>{render(rTN)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",borderBottom:`1px solid ${C.border}22`}}>
+            <select value={fichaMaquina||""} onChange={e=>{setMaquina([e.target.value]);setEditMode(false);}} style={selectStyle}>{maquinas.map(m=><option key={m} value={m}>{m}</option>)}</select>
+            <select value={fichaActual.fecha} onChange={e=>{setFechaSel(e.target.value);setEditMode(false);}} style={{...selectStyle,fontSize:13,fontWeight:700,color:C.accent,minWidth:140}}>{fechasDisp.map(f=><option key={f} value={f}>{fmtFecha(f)}</option>)}</select>
+            <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
+              {editSuccess&&!editMode&&<span style={{fontSize:12,color:"#4ade80",fontWeight:700}}>✓ Guardado</span>}
+              {!editMode
+                ?<button onClick={()=>{setEditMode(true);setEditSuccess(false);}} style={{padding:"7px 18px",borderRadius:7,border:`1px solid ${C.accent}66`,background:`${C.accent}22`,color:C.accent,cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"Inter"}}>✏ Modificar</button>
+                :<><button onClick={handleSaveEdit} disabled={editSaving} style={{padding:"7px 20px",borderRadius:7,border:"none",background:"#22c55e",color:"#fff",cursor:editSaving?"not-allowed":"pointer",fontSize:13,fontWeight:800,fontFamily:"Inter",opacity:editSaving?0.6:1}}>{editSaving?"Guardando…":"💾 Guardar"}</button><button onClick={()=>{setEditMode(false);setEditError(null);}} disabled={editSaving} style={{padding:"7px 14px",borderRadius:7,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"Inter"}}>Cancelar</button></>
+              }
+            </div>
           </div>
+          {editError&&<div style={{padding:"8px 14px",background:"rgba(220,38,38,0.18)",color:"#f87171",fontSize:12,fontWeight:600}}>{editError}</div>}
+          {(()=>{
+            const inpStyle={width:"100%",background:"rgba(255,255,255,0.06)",border:`1px solid ${C.accent}66`,borderRadius:6,color:C.text,fontSize:14,padding:"5px 8px",fontFamily:"Inter",outline:"none",boxSizing:"border-box"};
+            const FIELD_CFG={parte:{type:"text"},hi:{type:"number"},hf:{type:"number"},tarea:{type:"text"},obs:{type:"text"},desgaste:{type:"text"},combustible:{type:"number"},aceite:{type:"text"},horas:{type:"number"}};
+            return(
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",minWidth:480,tableLayout:"fixed"}}>
+                  <colgroup><col style={{width:190}}/><col style={{width:"50%"}}/><col style={{width:"50%"}}/></colgroup>
+                  <thead><tr><th style={{padding:"7px 14px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`}}/>{["TD","TN"].map(t=><th key={t} style={{padding:"10px 16px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`,textAlign:"center",fontSize:16,fontWeight:900,color:C.textSub,letterSpacing:".06em"}}>{t}</th>)}</tr></thead>
+                  <tbody>
+                    {FILAS.map(({key,label,render})=>{
+                      const rTD=fichaActual.TD; const rTN=fichaActual.TN;
+                      const renderCell=(turno,r)=>{if(!editMode)return render(r);if(!r)return <span style={{color:C.textMuted}}>—</span>;const val=editDraft[turno]?.[key]??"";return<input type={FIELD_CFG[key]?.type||"text"} value={val} onChange={e=>setEditDraft(d=>({...d,[turno]:{...d[turno],[key]:e.target.value}}))} style={inpStyle}/>;};
+                      return(<tr key={key}><td style={{padding:"11px 16px",fontWeight:900,fontSize:14,color:C.textSub,background:C.surface+"55",borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`}}>{label}</td><td style={{padding:editMode?"8px 10px":"13px 18px",fontSize:16,color:cellColor(rTD),background:cellBg(rTD),borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`,verticalAlign:"middle",lineHeight:1.5,fontWeight:800}}>{renderCell("TD",rTD)}</td><td style={{padding:editMode?"8px 10px":"13px 18px",fontSize:16,color:cellColor(rTN),background:cellBg(rTN),borderBottom:`1px solid ${C.border}22`,verticalAlign:"middle",lineHeight:1.5,fontWeight:800}}>{renderCell("TN",rTN)}</td></tr>);
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
           {(fechasDisp.length>1||maquinas.length>1)&&(
             <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:8,borderTop:`1px solid ${C.border}22`}}>
-              {fechasDisp.length>1&&(
-                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                  <span style={{fontSize:11,color:C.textSub,minWidth:75}}>{fechasDisp.indexOf(fichaActual.fecha)+1} / {fechasDisp.length} fechas</span>
-                  <button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i<fechasDisp.length-1)setFechaSel(fechasDisp[i+1]);}} style={{...selectStyle,padding:"4px 10px"}}>← Anterior</button>
-                  <button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i>0)setFechaSel(fechasDisp[i-1]);}} style={{...selectStyle,padding:"4px 10px"}}>Siguiente →</button>
-                </div>
-              )}
-              {maquinas.length>1&&(
-                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingTop:fechasDisp.length>1?6:0,borderTop:fechasDisp.length>1?`1px solid ${C.border}18`:undefined}}>
-                  <span style={{fontSize:11,color:C.textSub,minWidth:75}}>{equipoIdx+1} / {maquinas.length} equipos</span>
-                  <button onClick={irEquipoAnterior} disabled={equipoIdx<=0} style={{...selectStyle,padding:"4px 10px",opacity:equipoIdx<=0?0.45:1,cursor:equipoIdx<=0?"not-allowed":"pointer"}}>← Equipo anterior</button>
-                  <button onClick={irEquipoSiguiente} disabled={equipoIdx<0||equipoIdx>=maquinas.length-1} style={{...selectStyle,padding:"4px 10px",opacity:(equipoIdx<0||equipoIdx>=maquinas.length-1)?0.45:1,cursor:(equipoIdx<0||equipoIdx>=maquinas.length-1)?"not-allowed":"pointer"}}>Equipo siguiente →</button>
-                </div>
-              )}
+              {fechasDisp.length>1&&(<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}><span style={{fontSize:11,color:C.textSub,minWidth:75}}>{fechasDisp.indexOf(fichaActual.fecha)+1} / {fechasDisp.length} fechas</span><button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i<fechasDisp.length-1){setFechaSel(fechasDisp[i+1]);setEditMode(false);}}} style={{...selectStyle,padding:"4px 10px"}}>← Anterior</button><button onClick={()=>{const i=fechasDisp.indexOf(fichaActual.fecha);if(i>0){setFechaSel(fechasDisp[i-1]);setEditMode(false);}}} style={{...selectStyle,padding:"4px 10px"}}>Siguiente →</button></div>)}
+              {maquinas.length>1&&(<div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",paddingTop:fechasDisp.length>1?6:0,borderTop:fechasDisp.length>1?`1px solid ${C.border}18`:undefined}}><span style={{fontSize:11,color:C.textSub,minWidth:75}}>{equipoIdx+1} / {maquinas.length} equipos</span><button onClick={irEquipoAnterior} disabled={equipoIdx<=0} style={{...selectStyle,padding:"4px 10px",opacity:equipoIdx<=0?0.45:1,cursor:equipoIdx<=0?"not-allowed":"pointer"}}>← Equipo anterior</button><button onClick={irEquipoSiguiente} disabled={equipoIdx<0||equipoIdx>=maquinas.length-1} style={{...selectStyle,padding:"4px 10px",opacity:(equipoIdx<0||equipoIdx>=maquinas.length-1)?0.45:1,cursor:(equipoIdx<0||equipoIdx>=maquinas.length-1)?"not-allowed":"pointer"}}>Equipo siguiente →</button></div>)}
             </div>
           )}
         </Card>
@@ -5869,22 +5883,79 @@ function buildROP02ImportObjectByPosition(arr,proyectoDefault){
     Combustible:combustible,Aceite:aceite,"Descripción de los trabajos realizados":descripcion,"Información sobre Desgaste":desgaste,Observaciones:observaciones
   };
 }
+function looksLikeRMA15IdPrefixedRow(arr){
+  // Soporta pegar desde la planilla RMA15 cuando la columna A es ID/RowKey
+  // y los datos reales empiezan en la columna B.
+  // A puede ser número (1381) o un ID hex de 8 caracteres.
+  const c0=cellStr(arr,0);
+  const c1=cellStr(arr,1);
+  const c2=cellStr(arr,2);
+  const c3=cellStr(arr,3);
+  const c0IsId=/^\d+$/.test(c0)||/^[a-f0-9]{8}$/i.test(c0)||cleanKey(c0)==="id"||cleanKey(c0)==="id ot"||cleanKey(c0)==="id_ot";
+  const c1IsDate=!!normDate(c1)||/^\d{1,2}\/\d{1,2}\/\d{4}/.test(c1)||/^\d{4}-\d{2}-\d{2}/.test(c1);
+  const c2LooksTurno=/^(dia|día|noche|td|tn)$/i.test(String(c2||"").trim());
+  const c3LooksProyecto=cleanKey(c3).includes("jose")||cleanKey(c3).includes("filo")||cleanKey(c3).includes("vicu");
+  return c0IsId&&c1IsDate&&(c2LooksTurno||c3LooksProyecto);
+}
+function looksLikeRMA15OldOrder(arr,offset=0){
+  // Formato anterior: Fecha · Código interno · Equipo · Turno · Tipo mant. ...
+  const c1=cellStr(arr,offset+1);
+  const c3=cellStr(arr,offset+3);
+  const c1LooksMachine=/^[A-Z]{2,4}-?\d{2,5}(?:-JM)?$/i.test(c1)||/^(PREDIO|DELTA|TALLER)/i.test(c1);
+  const c3LooksTurno=/^(dia|día|noche|td|tn)$/i.test(String(c3||"").trim());
+  return c1LooksMachine&&c3LooksTurno;
+}
 function buildRMA15ImportObjectByPosition(arr,proyectoDefault){
-  const obj={
-    "Fecha de OT":cellStr(arr,0),
-    "CODIGO N° INTERNO":cellStr(arr,1),
-    EQUIPO:cellStr(arr,2),
-    "TURNO EN QUE SE HIZO LA OT":cellStr(arr,3),
-    "TIPO DE MANTENIMIENTO":cellStr(arr,4),
-    "Km / hs":cellStr(arr,5),
-    "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":cellStr(arr,6),
-    "¿EQUIPO QUEDO OPERATIVO?":cellStr(arr,7),
-    OBSERVACIONES:cellStr(arr,8),
-    _proyectoForzado:proyectoDefault||"",
+  // Formatos aceptados:
+  // 1) A Fecha OT · B Turno · C Proyecto · D Tipo mant. · E Equipo · F Código interno ...
+  // 2) A ID/RowKey · B Fecha OT · C Turno · D Proyecto · E Tipo mant. · F Equipo · G Código interno ...
+  // 3) Formato anterior: Fecha · Código interno · Equipo · Turno · Tipo mant. ...
+  // Si existe ID/RowKey en A, se ignora y se empieza a leer desde la fecha.
+  const offset=looksLikeRMA15IdPrefixedRow(arr)?1:0;
+  const oldOrder=looksLikeRMA15OldOrder(arr,offset);
+
+  // FIX PROYECTO RMA15:
+  // La hoja RMA15 no tiene encabezado "Proyecto"; la columna C se llama
+  // "LUGAR DONDE ESTAN LOS EQUIPOS". Por eso, además de "Proyecto"
+  // mandamos el valor con el nombre real de la columna para que upsert_sparse
+  // complete esa celda. Funciona igual para JM y Filo del Sol porque toma
+  // target.proyecto según el botón usado.
+  const proyectoPegado=oldOrder?"":cellStr(arr,offset+2);
+  const proyectoFinal=proyectoDefault||proyectoPegado||"";
+
+  const obj=oldOrder?{
+    "Fecha de OT":cellStr(arr,offset+0),
+    "TURNO EN QUE SE HIZO LA OT":cellStr(arr,offset+3),
+    Proyecto:proyectoFinal,
+    "LUGAR DONDE ESTAN LOS EQUIPOS":proyectoFinal,
+    "Lugar donde estan los equipos":proyectoFinal,
+    "TIPO DE MANTENIMIENTO":cellStr(arr,offset+4),
+    EQUIPO:cellStr(arr,offset+2),
+    "CODIGO N° INTERNO":cellStr(arr,offset+1),
+    "Km / hs":cellStr(arr,offset+5),
+    "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":cellStr(arr,offset+6),
+    "¿EQUIPO QUEDO OPERATIVO?":cellStr(arr,offset+7),
+    OBSERVACIONES:cellStr(arr,offset+8),
+    _proyectoForzado:proyectoFinal,
+  }:{
+    "Fecha de OT":cellStr(arr,offset+0),
+    "TURNO EN QUE SE HIZO LA OT":cellStr(arr,offset+1),
+    Proyecto:proyectoFinal,
+    "LUGAR DONDE ESTAN LOS EQUIPOS":proyectoFinal,
+    "Lugar donde estan los equipos":proyectoFinal,
+    "TIPO DE MANTENIMIENTO":cellStr(arr,offset+3),
+    EQUIPO:cellStr(arr,offset+4),
+    "CODIGO N° INTERNO":cellStr(arr,offset+5),
+    "Km / hs":cellStr(arr,offset+6),
+    "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":cellStr(arr,offset+7),
+    "¿EQUIPO QUEDO OPERATIVO?":cellStr(arr,offset+8),
+    OBSERVACIONES:cellStr(arr,offset+9),
+    _proyectoForzado:proyectoFinal,
   };
-  // Desde columna J en adelante: cantidad 1, codigo 1, nombre 1, cantidad 2, codigo 2, nombre 2...
+  // Desde la columna posterior a Observaciones: cantidad 1, codigo 1, nombre 1, cantidad 2, codigo 2, nombre 2...
+  const insumosStart=offset+(oldOrder?9:10);
   for(let i=1;i<=10;i++){
-    const base=9+(i-1)*3;
+    const base=insumosStart+(i-1)*3;
     obj[`cantidad ${i}`]=cellStr(arr,base);
     obj[`codigo ${i}`]=cellStr(arr,base+1);
     obj[`nombre ${i}`]=cellStr(arr,base+2);
@@ -5913,7 +5984,7 @@ function buildRowsFromPastedTextForTarget(target,text){
 function pasteStructureText(target){
   if(target.kind==="rop05")return "A FechaCarga · B Supervisor · C Proyecto · D Grupo · E Equipo · F Parte · G Tipo · H FechaParte · I Tarea · J Horas · K Cantidad · L Unidad · M Observación. También acepta exportación con A ID_Carga y datos desde B:N.";
   if(target.kind==="rop02")return "A Fecha · B Interno · C Operador · D Supervisor Delta · E Supervisor Cliente · F Turno · G N° Parte · H Proyecto · I Horómetro Inicial · J Horómetro Final · K Cant. Hs. · L Combustible · M Aceite · N Trabajo · O Desgaste · P Observaciones";
-  if(target.kind==="rma15")return "A Fecha OT · B Código interno · C Equipo · D Turno · E Tipo mantenimiento · F Km/hs · G Intervención · H Operativo · I Observaciones · desde J: cantidad/código/nombre de insumos";
+  if(target.kind==="rma15")return "A Fecha OT · B Turno · C Proyecto · D Tipo mantenimiento · E Equipo · F Código interno · G Km/hs · H Intervención · I Operativo · J Observaciones · desde K: cantidad/código/nombre. También acepta A ID/RowKey y datos desde B.";
   if(target.kind==="insumos")return "A Código · B Artículo/Descripción · C Costo unitario";
   return "Pegá las columnas en el mismo orden de la planilla base.";
 }
@@ -5984,7 +6055,7 @@ function importKey(kind,row){
   if(kind==="insumos")return normalizeImportKeyText(row.codigo||getValue(row,["CODIGO","Codigo","Código"] )||"");
   if(kind==="rop02")return [row.proyecto,row.fecha,row.maquina,row.turno,row.parte].map(normalizeImportKeyText).join("__");
   if(kind==="rop05")return [row.proyecto,row.fecha,row.maquina,row.parte,row.tarea].map(normalizeImportKeyText).join("__");
-  if(kind==="rma15")return [row.proyecto,row.fecha,row.maquina,row.tipoMant,row.kmHs,row.intervencion].map(normalizeImportKeyText).join("__");
+  if(kind==="rma15"){const kmNorm=String(Math.round(Number(row.kmHs)||0));return [row.proyecto,row.fecha,row.maquina,row.tipoMant,kmNorm,row.intervencion].map(normalizeImportKeyText).join("__");}
   return JSON.stringify(row);
 }
 function comparableImportRow(kind,row){
@@ -6158,6 +6229,9 @@ async function postAddListaEquipo(row){
 }
 async function postUpdateListaEquipo(originalKeys,row){
   return postToAppsScript({action:"update_lista_equipo",originalKeys,row});
+}
+async function postUpdateROP02Row(target,rowKey,fields){
+  return postToAppsScript({action:"update_rop02_row",target,rowKey,fields});
 }
 function formatFileSize(bytes){
   const n=Number(bytes||0);
