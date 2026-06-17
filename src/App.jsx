@@ -117,6 +117,9 @@ const STYLES=`
   .spin{animation:spin 1s linear infinite}
   input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.5);cursor:pointer}
   select option{background:${C.surface};color:${C.text}}
+  .insumo-tr{cursor:pointer;transition:background .12s;}
+  .insumo-tr:hover{background:rgba(232,0,29,0.13) !important;}
+  .insumo-tr.pinned{background:rgba(232,0,29,0.22) !important;}
 `;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -4851,9 +4854,10 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const insumosMap={};
   filtered.forEach(r=>r.insumos.forEach(i=>{
     if(!i.codigo)return;
-    if(!insumosMap[i.codigo])insumosMap[i.codigo]={nombre:i.nombre,cantidad:0,costo:0};
+    if(!insumosMap[i.codigo])insumosMap[i.codigo]={nombre:i.nombre,cantidad:0,costo:0,usos:[]};
     insumosMap[i.codigo].cantidad+=i.cantidad;
     insumosMap[i.codigo].costo+=i.costoTotal;
+    insumosMap[i.codigo].usos.push({fecha:r.fecha||"",maquina:r.maquina||"—",cantidad:i.cantidad});
   }));
   const topInsumos=Object.entries(insumosMap).sort((a,b)=>b[1].cantidad-a[1].cantidad).slice(0,10);
 
@@ -4929,6 +4933,10 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899"];
 
   const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(tipoMant,"todos")||!multiIsAll(maquina,"todas")||fechaD||fechaH||fechaDia||insumoFiltro||!multiIsAll(codigoGastoFiltro,"todos");
+  const [pinnedInsumo,setPinnedInsumo]=React.useState(null);
+  const [hoveredInsumo,setHoveredInsumo]=React.useState(null);
+  const [pinnedGasto,setPinnedGasto]=React.useState(null);
+  const [hoveredGasto,setHoveredGasto]=React.useState(null);
 
   // Lista de insumos únicos para el selector (código + nombre, ordenado alfabéticamente)
   const insumosDisponibles=useMemo(()=>{
@@ -5001,42 +5009,113 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
         <StatCard icon="prod" label="Costo total USD" value={fmtUSD(costoTotal,usdRate)} color={C.green} small/>
       </div>
 
-      {verGastosExcesivos&&(
+      {verGastosExcesivos&&(()=>{
+        const activeGastoKey=pinnedGasto||hoveredGasto;
+        const activeGasto=activeGastoKey?gastosExcesivosFiltrados.find(x=>`${x.codigo}__${x.maquina}`===activeGastoKey):null;
+        // Historial completo del insumo en esa máquina (todos los usos en filtered)
+        const historialGasto=activeGasto?(()=>{
+          const items=[];
+          filtered.forEach(r=>{
+            if(r.maquina!==activeGasto.maquina)return;
+            (r.insumos||[]).forEach(ins=>{
+              if(String(ins.codigo)!==String(activeGasto.codigo))return;
+              items.push({fecha:r.fecha,cantidad:ins.cantidad,precio:ins.costoTotal||0,tipoMant:r.tipoMant||""});
+            });
+          });
+          return items.sort((a,b)=>b.fecha.localeCompare(a.fecha));
+        })():[];
+        return(
         <Card title={`Gastos excesivos por máquina (${gastosExcesivosFiltrados.length} ítems)`} action={
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
             <span style={{fontSize:11,color:C.textMuted}}>Top 5 gastos individuales por máquina según el filtro aplicado</span>
             <CodeMultiSearch value={codigoGastoFiltro} onChange={setCodigoGastoFiltro} options={[{value:"todos",label:"Todos"},...codigosGastosExcesivos]}/>
           </div>
         }>
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-              <thead>
-                <tr style={{background:C.surface}}>
-                  {["Código","Insumo","Cantidad","Precio","Máquina","Proyecto","Fecha"].map((h,i)=>(
-                    <th key={i} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {gastosExcesivosFiltrados.length===0?
-                  <tr><td colSpan={7} style={{padding:28,textAlign:"center",color:C.textMuted}}>Sin gastos con costo para el filtro aplicado</td></tr>:
-                  gastosExcesivosFiltrados.map((x,i)=>(
-                    <tr key={`${x.codigo}-${x.maquina}-${x.fecha}-${i}`} style={{background:i%2===0?"transparent":C.surface+"55"}}>
-                      <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{x.codigo}</td>
-                      <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{x.insumo||"—"}</td>
-                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(x.cantidad)}</td>
-                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.yellow,fontWeight:700}}>{"$"+fmtNum(x.precio)}</td>
-                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{x.maquina}</Badge></td>
-                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(x.proyecto)}>{x.proyecto}</Badge></td>
-                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.textSub,fontWeight:600}}>{fmtFecha(x.fecha)}</td>
-                    </tr>
-                  ))
-                }
-              </tbody>
-            </table>
+          <div style={{display:"flex",gap:0}}>
+            <div style={{flex:1,overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead>
+                  <tr style={{background:C.surface}}>
+                    {["Código","Insumo","Cantidad","Precio","Máquina","Proyecto","Fecha"].map((h,i)=>(
+                      <th key={i} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {gastosExcesivosFiltrados.length===0?
+                    <tr><td colSpan={7} style={{padding:28,textAlign:"center",color:C.textMuted}}>Sin gastos con costo para el filtro aplicado</td></tr>:
+                    gastosExcesivosFiltrados.map((x,i)=>{
+                      const rowKey=`${x.codigo}__${x.maquina}`;
+                      const isActive=activeGastoKey===rowKey;
+                      const isPinned=pinnedGasto===rowKey;
+                      return(
+                      <tr key={`${x.codigo}-${x.maquina}-${x.fecha}-${i}`}
+                        className={"insumo-tr"+(isPinned?" pinned":"")}
+                        style={{background:isActive?"rgba(232,0,29,0.18)":i%2===0?"transparent":C.surface+"55",cursor:"pointer"}}
+                        onMouseEnter={()=>!pinnedGasto&&setHoveredGasto(rowKey)}
+                        onMouseLeave={()=>!pinnedGasto&&setHoveredGasto(null)}
+                        onClick={()=>setPinnedGasto(p=>p===rowKey?null:rowKey)}
+                      >
+                        <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{x.codigo}</td>
+                        <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{x.insumo||"—"}</td>
+                        <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(x.cantidad)}</td>
+                        <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.yellow,fontWeight:700}}>{"$"+fmtNum(x.precio)}</td>
+                        <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{x.maquina}</Badge></td>
+                        <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(x.proyecto)}>{x.proyecto}</Badge></td>
+                        <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.textSub,fontWeight:600}}>{fmtFecha(x.fecha)}</td>
+                      </tr>
+                      );
+                    })
+                  }
+                </tbody>
+              </table>
+            </div>
+            {/* Panel de detalle lateral */}
+            {activeGasto&&(
+              <div style={{width:360,flexShrink:0,borderLeft:`1px solid ${C.border}`,background:"rgba(232,0,29,0.06)",display:"flex",flexDirection:"column"}}>
+                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <div>
+                    <div style={{fontWeight:800,color:C.text,fontSize:13}}>{activeGasto.codigo} — {activeGasto.insumo||"—"}</div>
+                    <div style={{fontSize:11,color:C.purple,fontWeight:700,marginTop:2}}>{activeGasto.maquina}</div>
+                    <div style={{fontSize:11,color:C.textMuted,marginTop:1}}>{historialGasto.length} uso{historialGasto.length!==1?"s":""} en el período {pinnedGasto?"· fijado":"· hover"}</div>
+                  </div>
+                  {pinnedGasto&&(
+                    <button onClick={()=>setPinnedGasto(null)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,color:C.textMuted,cursor:"pointer",padding:"3px 8px",fontSize:11,fontFamily:"Inter"}}>✕</button>
+                  )}
+                </div>
+                <div style={{overflowY:"auto",flex:1,maxHeight:320}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead style={{position:"sticky",top:0,background:"#1a1d27",zIndex:1}}>
+                      <tr>
+                        {["Fecha","Cant.","Precio","Tipo"].map((h,hi)=>(
+                          <th key={hi} style={{padding:"7px 10px",textAlign:hi>0?"right":"left",color:C.textMuted,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}33`}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historialGasto.map((u,ui)=>(
+                        <tr key={ui} style={{background:ui%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+                          <td style={{padding:"5px 10px",color:C.textSub,whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}11`}}>{fmtFecha(u.fecha)}</td>
+                          <td style={{padding:"5px 10px",textAlign:"right",color:C.accent,fontWeight:700,borderBottom:`1px solid ${C.border}11`}}>{fmtNum(u.cantidad)}</td>
+                          <td style={{padding:"5px 10px",textAlign:"right",color:C.yellow,fontWeight:700,borderBottom:`1px solid ${C.border}11`}}>{"$"+fmtNum(u.precio)}</td>
+                          <td style={{padding:"5px 10px",textAlign:"right",color:C.textMuted,borderBottom:`1px solid ${C.border}11`,fontSize:11}}>{u.tipoMant||"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {historialGasto.length>0&&(
+                  <div style={{padding:"8px 14px",borderTop:`1px solid ${C.border}22`,display:"flex",justifyContent:"space-between",fontSize:11}}>
+                    <span style={{color:C.textMuted}}>Total</span>
+                    <span style={{color:C.yellow,fontWeight:700}}>{"$"+fmtNum(historialGasto.reduce((s,u)=>s+u.precio,0))}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </Card>
-      )}
+        );
+      })()}
 
       {/* Gráficos solo en período */}
       {modo==="periodo"&&(
@@ -5118,32 +5197,95 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
       )}
 
       {/* Top insumos solo en período */}
-      {modo==="periodo"&&topInsumos.length>0&&(
+      {modo==="periodo"&&topInsumos.length>0&&(()=>{
+        const activeInsumo=pinnedInsumo||hoveredInsumo;
+        const activeData=activeInsumo?topInsumos.find(([c])=>c===activeInsumo):null;
+        const usosActivos=activeData?(()=>{
+          const m={};
+          (activeData[1].usos||[]).forEach(u=>{
+            const k=u.fecha+"__"+u.maquina;
+            if(!m[k])m[k]={fecha:u.fecha,maquina:u.maquina,cantidad:0};
+            m[k].cantidad+=u.cantidad;
+          });
+          return Object.values(m).sort((a,b)=>b.cantidad-a.cantidad);
+        })():[];
+        return(
         <Card title="Insumos más utilizados (Top 10)">
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-              <thead>
-                <tr style={{background:C.surface}}>
-                  {["Código","Descripción","Cantidad total","Costo ARS","Costo USD"].map((h,i)=>(
-                    <th key={i} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {topInsumos.map(([cod,v],i)=>(
-                  <tr key={cod} style={{background:i%2===0?"transparent":C.surface+"55"}}>
-                    <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{cod}</td>
-                    <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{v.nombre||"—"}</td>
-                    <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(v.cantidad)}</td>
-                    <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:v.costo>0?C.yellow:C.textMuted,fontWeight:v.costo>0?700:400}}>{v.costo>0?"$"+fmtNum(v.costo):"—"}</td>
-                    <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:v.costo>0?C.green:C.textMuted,fontWeight:v.costo>0?700:400}}>{fmtUSD(v.costo,usdRate)}</td>
+          <div style={{display:"flex",gap:0}}>
+            {/* Tabla principal */}
+            <div style={{flex:1,overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                <thead>
+                  <tr style={{background:C.surface}}>
+                    {["Código","Descripción","Cantidad total","Costo ARS","Costo USD"].map((h,i)=>(
+                      <th key={i} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {topInsumos.map(([cod,v],i)=>{
+                    const isActive=activeInsumo===cod;
+                    const isPinned=pinnedInsumo===cod;
+                    return(
+                    <tr key={cod}
+                      className={"insumo-tr"+(isPinned?" pinned":"")}
+                      style={{background:isActive?"rgba(232,0,29,0.18)":i%2===0?"transparent":C.surface+"55",cursor:"pointer"}}
+                      onMouseEnter={()=>!pinnedInsumo&&setHoveredInsumo(cod)}
+                      onMouseLeave={()=>!pinnedInsumo&&setHoveredInsumo(null)}
+                      onClick={()=>setPinnedInsumo(p=>p===cod?null:cod)}
+                    >
+                      <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{cod}</td>
+                      <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{v.nombre||"—"}</td>
+                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:700}}>{fmtNum(v.cantidad)}</td>
+                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:v.costo>0?C.yellow:C.textMuted,fontWeight:v.costo>0?700:400}}>{v.costo>0?"$"+fmtNum(v.costo):"—"}</td>
+                      <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:v.costo>0?C.green:C.textMuted,fontWeight:v.costo>0?700:400}}>{fmtUSD(v.costo,usdRate)}</td>
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {/* Panel de detalle lateral */}
+            {activeInsumo&&activeData&&(
+              <div style={{
+                width:360,flexShrink:0,borderLeft:`1px solid ${C.border}`,
+                background:"rgba(232,0,29,0.06)",display:"flex",flexDirection:"column",
+              }}>
+                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                  <div>
+                    <div style={{fontWeight:800,color:C.text,fontSize:13}}>{activeData[0]} — {activeData[1].nombre||"—"}</div>
+                    <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>{usosActivos.length} combinaciones equipo/fecha {pinnedInsumo?"· fijado":"· hover"}</div>
+                  </div>
+                  {pinnedInsumo&&(
+                    <button onClick={()=>setPinnedInsumo(null)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,color:C.textMuted,cursor:"pointer",padding:"3px 8px",fontSize:11,fontFamily:"Inter"}}>✕</button>
+                  )}
+                </div>
+                <div style={{overflowY:"auto",flex:1,maxHeight:320}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead style={{position:"sticky",top:0,background:"#1a1d27",zIndex:1}}>
+                      <tr>
+                        {["Fecha","Equipo","Cant."].map((h,hi)=>(
+                          <th key={hi} style={{padding:"7px 12px",textAlign:hi===2?"right":"left",color:C.textMuted,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}33`}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usosActivos.map((u,ui)=>(
+                        <tr key={ui} style={{background:ui%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+                          <td style={{padding:"5px 12px",color:C.textSub,whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}11`}}>{fmtFecha(u.fecha)}</td>
+                          <td style={{padding:"5px 12px",color:C.blue,fontWeight:600,borderBottom:`1px solid ${C.border}11`}}>{u.maquina}</td>
+                          <td style={{padding:"5px 12px",textAlign:"right",color:C.accent,fontWeight:700,borderBottom:`1px solid ${C.border}11`}}>{fmtNum(u.cantidad)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
-      )}
+        );
+      })()}
 
       {/* Dashboard Por día */}
       {modo==="dia"&&(
@@ -6890,7 +7032,7 @@ export default function App(){
         const cod=String(r["CODIGO"]||r["Codigo"]||r["código"]||"").trim();
         if(cod)insumosMap[cod]={
           descripcion:String(r["DESCRIPCIÓN"]||r["DESCRIPCION"]||r["Descripción"]||"").trim(),
-          costoUnitario:parseFloat(String(r["COSTO UNITARIO"]||r["Costo Unitario"]||"0").replace(/[^0-9.]/g,""))||0,
+          costoUnitario:toNumber(r["COSTO UNITARIO"]||r["Costo Unitario"]||"0"),
         };
       });
       setInsumos(insumosMap);
