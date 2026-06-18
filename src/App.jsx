@@ -7318,11 +7318,17 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     Object.fromEntries(Object.entries(monthlyDollar||{}).map(([k,v])=>[k,String(v)]))
   );
   const costoMensualScrollRef=React.useRef(null);
+  const costoMensualScrollLeftRef=React.useRef(Number(initialCostosMantState.costoMensualScrollLeft)||0);
+  const rememberCostoMensualScroll=React.useCallback(()=>{
+    if(costoMensualScrollRef.current)costoMensualScrollLeftRef.current=costoMensualScrollRef.current.scrollLeft||0;
+    return costoMensualScrollLeftRef.current||0;
+  },[]);
   const restoreCostoMensualScroll=React.useCallback((left)=>{
+    const target=Number.isFinite(Number(left))?Number(left):(costoMensualScrollLeftRef.current||0);
     window.requestAnimationFrame(()=>{
-      if(costoMensualScrollRef.current)costoMensualScrollRef.current.scrollLeft=left;
+      if(costoMensualScrollRef.current)costoMensualScrollRef.current.scrollLeft=target;
       window.requestAnimationFrame(()=>{
-        if(costoMensualScrollRef.current)costoMensualScrollRef.current.scrollLeft=left;
+        if(costoMensualScrollRef.current)costoMensualScrollRef.current.scrollLeft=target;
       });
     });
   },[]);
@@ -7345,6 +7351,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify({
         tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,
         modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,monthlyDollar,
+        costoMensualScrollLeft:costoMensualScrollLeftRef.current||0,
         useListaVidaUtil,vidaUtilOverride
       }));
     }catch(_){}
@@ -7838,14 +7845,18 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     XLSX.writeFile(wb,`${nombre}.xlsx`);
   };
 
+  const tablaCostosUsdRate=Number(usdRate2)||1;
+  const costoToUSD=v=>(Number(v)||0)/tablaCostosUsdRate;
+  const fmtCostoTablaUSD=v=>v==null||Number(v)===0?"U$S 0":"U$S "+fmtNum(Math.round(costoToUSD(v)));
+
   const rowsTablaCostosExcel=(datos,tot)=>[
     ...(datos||[]).map(x=>({
       Equipo:x.equipo,
-      Preventivo_ARS:Math.round(x.prev||0),
-      Correctivo_ARS:Math.round(x.corr||0),
-      Total_ARS:Math.round(x.total||0),
+      Preventivo_USD:Math.round(costoToUSD(x.prev||0)),
+      Correctivo_USD:Math.round(costoToUSD(x.corr||0)),
+      Total_USD:Math.round(costoToUSD(x.total||0)),
     })),
-    {Equipo:"TOTAL",Preventivo_ARS:Math.round(tot?.prev||0),Correctivo_ARS:Math.round(tot?.corr||0),Total_ARS:Math.round(tot?.total||0)}
+    {Equipo:"TOTAL",Preventivo_USD:Math.round(costoToUSD(tot?.prev||0)),Correctivo_USD:Math.round(costoToUSD(tot?.corr||0)),Total_USD:Math.round(costoToUSD(tot?.total||0))}
   ];
 
   const rowsAcumuladoExcel=React.useMemo(()=>{
@@ -7976,6 +7987,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
   },[historialAcumuladoFiltrado,mesesFijosAcumuladoMensual,rma15Filtrado,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
 
+  React.useLayoutEffect(()=>{
+    if(tab==="t6")restoreCostoMensualScroll();
+  },[tab,restoreCostoMensualScroll,costoMensualAcumulado.length,mesesCostoMensual.length,monthlyDollar,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad]);
+
   const costoMensualTotales=React.useMemo(()=>{
     const mk=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesCostoMensual||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
     const out={FS:mk(),JM:mk(),TOTAL:mk()};
@@ -8026,7 +8041,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   };
 
   const commitDollarMesCosto=(key,val)=>{
-    const scrollLeft=costoMensualScrollRef.current?.scrollLeft||0;
+    const scrollLeft=rememberCostoMensualScroll();
     const n=Number(String(val).replace(",","."));
     if(Number.isFinite(n)&&n>0){
       setMonthlyDollar(prev=>({...prev,[key]:n}));
@@ -8539,7 +8554,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
     return(
       <Card title={`Costo mensual acumulado (${proyectoTitulo}) (${costoMensualAcumulado.length} equipos)`} action={<BotonDescargar onClick={()=>descargarExcel("Costo_mensual_acumulado",rowsCostoMensualExcel)}/>}> 
-        <div ref={costoMensualScrollRef} style={{overflowX:"auto",overflowY:"scroll",maxHeight:620,scrollbarGutter:"stable",borderTop:`1px solid ${C.border}`}}>
+        <div ref={costoMensualScrollRef} onScroll={rememberCostoMensualScroll} style={{overflowX:"auto",overflowY:"scroll",maxHeight:620,scrollbarGutter:"stable",borderTop:`1px solid ${C.border}`}}>
           <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,minWidth:Math.max(1250,180+(mesesCostoMensual.length*270)+120+270+220),width:"max-content",tableLayout:"fixed"}}>
             <thead>
               <tr>
@@ -8681,21 +8696,21 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             {datos.map((x,i)=>(
               <tr key={x.equipo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
                 <td style={tdL}>{x.equipo}</td>
-                <td style={tdS}>{x.prev>0?"$"+fmtNum(Math.round(x.prev)):"$0"}</td>
-                <td style={tdS}>{x.corr>0?"$"+fmtNum(Math.round(x.corr)):"$0"}</td>
-                <td style={{...tdS,color:C.yellow,fontWeight:700}}>{"$"+fmtNum(Math.round(x.total))}</td>
+                <td style={tdS}>{fmtCostoTablaUSD(x.prev)}</td>
+                <td style={tdS}>{fmtCostoTablaUSD(x.corr)}</td>
+                <td style={{...tdS,color:C.yellow,fontWeight:700}}>{fmtCostoTablaUSD(x.total)}</td>
               </tr>
             ))}
             <tr><td style={{...tdL,background:C.surface+"55",color:C.text}}>TOTAL</td>
-              <td style={tdT}>{"$"+fmtNum(Math.round(tot.prev))}</td>
-              <td style={tdT}>{"$"+fmtNum(Math.round(tot.corr))}</td>
-              <td style={{...tdT,color:C.accent}}>{"$"+fmtNum(Math.round(tot.total))}</td>
+              <td style={tdT}>{fmtCostoTablaUSD(tot.prev)}</td>
+              <td style={tdT}>{fmtCostoTablaUSD(tot.corr)}</td>
+              <td style={{...tdT,color:C.accent}}>{fmtCostoTablaUSD(tot.total)}</td>
             </tr>
           </tbody>
         </table>
       </div>
       <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
-        Costos calculados desde RMA15 en pesos argentinos.
+        Costos calculados desde RMA15 y convertidos a USD con el valor del dólar cargado en Parámetros.
       </div>
     </Card>
   );
@@ -8724,8 +8739,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             {label:"USD/ARS",val:usdRate2,set:setUsdRate2,w:78},
             {label:"Hs ef. JM",val:hsEfJM,set:setHsEfJM,w:58},
             {label:"Hs ef. FS",val:hsEfFS,set:setHsEfFS,w:58},
-            {label:"Mec. Unit",val:costMec,set:setCostMec,w:88},
-            {label:"CTA Unit",val:costCTA,set:setCostCTA,w:82},
+            {label:"Mec. Unit (USD/mes)",val:costMec,set:setCostMec,w:88},
+            {label:"CTA Unit (USD/mes)",val:costCTA,set:setCostCTA,w:82},
             {label:"Mec. JM",val:mecJM,set:setMecJM,w:52},
             {label:"CTA MEC. JM",val:ctaMecJM,set:setCtaMecJM,w:62},
             {label:"Mec. FS",val:mecFS,set:setMecFS,w:52},
@@ -8896,14 +8911,22 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   );
 }
 
+const APP_FILTERS_STATE_KEY="dm_app_filters_state_v1";
+function readSavedAppFilters(){
+  try{return JSON.parse(window.localStorage.getItem(APP_FILTERS_STATE_KEY)||"{}");}
+  catch(_){return{};}
+}
+
 export default function App(){
+  const savedAppFilters=readSavedAppFilters();
+  const savedOr=(key,def)=>savedAppFilters&&savedAppFilters[key]!==undefined?savedAppFilters[key]:def;
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
-  const[view,setView]=useState("dashboard");
+  const[view,setView]=useState(()=>savedOr("view","dashboard"));
   const[loading,setLoading]=useState(false);
   const[rop02All,setRop02All]=useState([]);
   const[rop05,setRop05]=useState([]);
   const[lastUpdate,setLastUpdate]=useState(null);
-  const[sidebarOpen,setSidebarOpen]=useState(true);
+  const[sidebarOpen,setSidebarOpen]=useState(()=>savedOr("sidebarOpen",true));
   const[errors,setErrors]=useState([]);
   const[fatalError,setFatalError]=useState(null);
   const[health,setHealth]=useState(null);
@@ -8912,12 +8935,12 @@ export default function App(){
   const[listaEquipos,setListaEquipos]=useState([]);
   const control=useMemo(()=>calcControl(rop02All,rop05),[rop02All,rop05]);
   // Estados persistentes de filtros por pestaña
-  const[dashSt,setDashSt]=useState({proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""});
+  const[dashSt,setDashSt]=useState(()=>savedOr("dashSt",{proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""}));
   const[rma15,setRma15]=useState([]);
-  const[stMant,setStMant]=useState({modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:"",verGastosExcesivos:false});
-  const[stCHC,setStCHC]=useState({proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()});
-  const[stRanking,setStRanking]=useState({proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""});
-  const[navOpen,setNavOpen]=useState({grp_rop02:true,grp_rop05:true,grp_rma15:true,grp_admin:true});
+  const[stMant,setStMant]=useState(()=>savedOr("stMant",{modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:"",verGastosExcesivos:false}));
+  const[stCHC,setStCHC]=useState(()=>savedOr("stCHC",{proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()}));
+  const[stRanking,setStRanking]=useState(()=>savedOr("stRanking",{proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""}));
+  const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_rop05:true,grp_rma15:true,grp_admin:true}));
   const[usdRate,setUsdRate]=useState(null);
 
   // Obtener tipo de cambio ARS→USD al cargar
@@ -8934,13 +8957,21 @@ export default function App(){
       });
   },[]);
   const[insumos,setInsumos]=useState({});
-  const[st02,setSt02]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
-  const[stHorometros,setStHorometros]=useState({mode:"periodo",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
-  const[stVeh,setStVeh]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
-  const[stComb,setStComb]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}});
-  const[stCtrlEquipo,setStCtrlEquipo]=useState({proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:"",controlActivo:"numeracion"});
-  const[st05,setSt05]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}});
-  const[stCtrl,setStCtrl]=useState({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}});
+  const[st02,setSt02]=useState(()=>savedOr("st02",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
+  const[stHorometros,setStHorometros]=useState(()=>savedOr("stHorometros",{mode:"periodo",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
+  const[stVeh,setStVeh]=useState(()=>savedOr("stVeh",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
+  const[stComb,setStComb]=useState(()=>savedOr("stComb",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
+  const[stCtrlEquipo,setStCtrlEquipo]=useState(()=>savedOr("stCtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:"",controlActivo:"numeracion"}));
+  const[st05,setSt05]=useState(()=>savedOr("st05",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}}));
+  const[stCtrl,setStCtrl]=useState(()=>savedOr("stCtrl",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}}));
+
+  useEffect(()=>{
+    try{
+      window.localStorage.setItem(APP_FILTERS_STATE_KEY,JSON.stringify({
+        view,sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stCtrlEquipo,st05,stCtrl
+      }));
+    }catch(_){}
+  },[view,sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stCtrlEquipo,st05,stCtrl]);
 
 
 
@@ -9085,6 +9116,7 @@ export default function App(){
     ranking:"Ranking de operarios según horas trabajadas, días activos y equipos operados.",
     chc:"ICHC = Indicador de Control de Horas Contratadas: compara las horas efectivamente trabajadas contra las horas pactadas por contrato (180 hs/mes por equipo).",
     mant:"RMA15 = Registro de Mantenimiento: órdenes de trabajo (OT), insumos y costos de mantenimiento de cada equipo.",
+    costosMant:"Resume los costos de mantenimiento, mano de obra y amortización. Permite analizar costos mensuales acumulados y obtener costos por hora en USD por equipo.",
     costosUnitarios:"Listado de artículos de la Base de datos costos: código, artículo y precio unitario usado para valorizar insumos de mantenimiento.",
     control:"Cruza ROP02 (partes diarios) contra ROP05 (producción) para detectar registros de un lado que no tienen su contraparte en el otro (turnos sin producción cargada o producción sin parte diario).",
     importExcel:"Pegá datos copiados desde Excel o Sheets para actualizar las planillas base. Podés cargar varias planillas a la vez, analizar los cambios y confirmar la actualización.",
