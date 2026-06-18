@@ -3,7 +3,7 @@ import ReactDOM from "react-dom";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw4PInO2952O0g5Y0gLhBkXyEUlobAQq-nrG2SBSa5R5RilHJyq9XEWrlsXIBA5TFSXvQ/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxHyZPSNlYFI0LhMhdeByEfYygtMvA-sVEFpCaMAvCLpjLt8VnhWNB2t0cz7mmUomH9/exec";
 
 // ─── Máquinas excluidas (camionetas, camiones, auxiliares) ────────────────────
 const EXCLUDED_TYPES = new Set([
@@ -215,6 +215,28 @@ function mainMachineCode(maquina){
   if(i===-1)return s;
   return s.slice(0,i).replace(/[-\s]+$/,"");
 }
+
+// Claves equivalentes para cruzar Lista Maestra ↔ ROP02.
+// Sirve para máquinas, camiones y camionetas: prueba Código Drusila,
+// Código Nuevo y cualquier variante con/sin paréntesis, guiones o espacios.
+function machineLookupVariants(...values){
+  const out=[];
+  const add=(v)=>{
+    const raw=String(v||"").trim();
+    if(!raw)return;
+    const variants=[raw,mainMachineCode(raw),raw.replace(/\((.*?)\)/g," $1 ")];
+    variants.forEach(x=>{
+      const a=cleanMachine(x);
+      const b=normalizeMachineCode(x);
+      [a,b,String(a).replace(/[-_\s]/g,""),String(b).replace(/[-_\s]/g,"")].forEach(k=>{
+        const kk=String(k||"").trim().toUpperCase();
+        if(kk&&!out.includes(kk))out.push(kk);
+      });
+    });
+  };
+  values.forEach(add);
+  return out;
+}
 function turnoOrder(turno){
   return String(turno||"").toUpperCase().includes("NOCHE")?1:0;
 }
@@ -256,14 +278,15 @@ function buildHorometroMapForLista(rop02All, fechaFiltro){
 
   (rop02All||[]).forEach(r=>{
     if(!r.maquina||!(Number(r.horometroFinal)>0))return;
-    const code=mainMachineCode(r.maquina);
-    if(!code)return;
-    (allGroups[code]=allGroups[code]||[]).push(r);
-
-    if(fechaFiltro){
-      if(r.fecha===fechaFiltro)(dayGroups[code]=dayGroups[code]||[]).push(r);
-      if(r.fecha&&r.fecha<=fechaFiltro)(previousGroups[code]=previousGroups[code]||[]).push(r);
-    }
+    const keys=machineLookupVariants(r.maquina);
+    if(!keys.length)return;
+    keys.forEach(code=>{
+      (allGroups[code]=allGroups[code]||[]).push(r);
+      if(fechaFiltro){
+        if(r.fecha===fechaFiltro)(dayGroups[code]=dayGroups[code]||[]).push(r);
+        if(r.fecha&&r.fecha<=fechaFiltro)(previousGroups[code]=previousGroups[code]||[]).push(r);
+      }
+    });
   });
 
   const pickLast=(list)=>{
@@ -1080,6 +1103,7 @@ const VIEW_SOURCES={
   ranking:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
   control:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
   mant:["insumos","rma15_fs","rma15_jm"],
+  costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos"],
   costosUnitarios:["insumos"],
   listaEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
   importExcel:["rop02_fs","rop02_jm","rop05","rma15_fs","rma15_jm","insumos"],
@@ -1162,8 +1186,13 @@ function generarExcelListaMaestra(rows, cols, label){
 }
 
 function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
-  const[search,setSearch]=useState("");
-  const[fechaHorometro,setFechaHorometro]=useState("");
+  const LISTA_MAESTRA_STORAGE_KEY="delta_lista_maestra_equipos_filters_v1";
+  const readListaMaestraSaved=(key,def="")=>{
+    try{return localStorage.getItem(`${LISTA_MAESTRA_STORAGE_KEY}_${key}`)??def;}
+    catch(_){return def;}
+  };
+  const[search,setSearch]=useState(()=>readListaMaestraSaved("search",""));
+  const[fechaHorometro,setFechaHorometro]=useState(()=>readListaMaestraSaved("fechaHorometro",""));
   const[filtersOpen,setFiltersOpen]=useState(false);
   const[addOpen,setAddOpen]=useState(false);
   const[newEquipo,setNewEquipo]=useState({});
@@ -1174,6 +1203,17 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   const[editSelected,setEditSelected]=useState("");
   const[savingEdit,setSavingEdit]=useState(false);
   const[editMsg,setEditMsg]=useState(null);
+
+  useEffect(()=>{
+    try{localStorage.setItem(`${LISTA_MAESTRA_STORAGE_KEY}_search`,search||"");}
+    catch(_){}
+  },[search]);
+
+  useEffect(()=>{
+    try{localStorage.setItem(`${LISTA_MAESTRA_STORAGE_KEY}_fechaHorometro`,fechaHorometro||"");}
+    catch(_){}
+  },[fechaHorometro]);
+
   const data=useMemo(()=>rows||[],[rows]);
   const allKeys=useMemo(()=>{
     const set=new Set();
@@ -1196,8 +1236,12 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   const horometroMap=useMemo(()=>buildHorometroMapForLista(rop02All,fechaHorometro),[rop02All,fechaHorometro]);
 
   const dataWithKey=useMemo(()=>data.map(r=>{
-    const maquinaKey=cleanMachine(r[drusilaKey]||"");
-    const ropInfo=horometroMap[maquinaKey]||null;
+    const maquinaKeys=machineLookupVariants(
+      drusilaKey?r[drusilaKey]:"",
+      codigoNuevoKey?r[codigoNuevoKey]:""
+    );
+    const maquinaKey=maquinaKeys[0]||cleanMachine(r[drusilaKey]||r[codigoNuevoKey]||"");
+    const ropInfo=maquinaKeys.map(k=>horometroMap[k]).find(Boolean)||null;
     const fallbackRaw=horasKey?String(r[horasKey]||"").trim():"";
     const fallbackNum=fallbackRaw?parseFloat(fallbackRaw.replace(/[^0-9.-]/g,"")):NaN;
     // Prioridad del horómetro:
@@ -1212,7 +1256,7 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
       _horometroValue:horometroValue,
       _horometroDisplay:horometroValue!=null?fmtNum(horometroValue):"",
     };
-  }),[data,drusilaKey,horometroMap,horasKey,fechaHorometro]);
+  }),[data,drusilaKey,codigoNuevoKey,horometroMap,horasKey,fechaHorometro]);
 
   const q=cleanKey(search);
   const searched=useMemo(()=>{
@@ -1255,7 +1299,7 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
       .map(c=>({key:c.filterKey,label:c.label,color:c.color}));
   },[cols]);
   const filterKeysOnly=useMemo(()=>filterFields.map(f=>f.key),[filterFields]);
-  const{vals:fVals,set:fSet,opts:fOpts,filtered,reset:fReset,hayFiltros}=useSimpleFacetedFilters(searched,filterKeysOnly);
+  const{vals:fVals,set:fSet,opts:fOpts,filtered,reset:fReset,hayFiltros}=useSimpleFacetedFilters(searched,filterKeysOnly,`${LISTA_MAESTRA_STORAGE_KEY}_columnFilters`);
 
   const formFields=useMemo(()=>LISTA_COLUMNS.map(col=>{
     const realKey=col.special==="horometro"
@@ -1312,8 +1356,10 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
     }
     const codigoDrusila=drusilaKey?String(originalRow[drusilaKey]||"").trim():"";
     const codigoNuevo=codigoNuevoKey?String(originalRow[codigoNuevoKey]||"").trim():"";
-    if(!codigoDrusila&&!codigoNuevo){
-      setEditMsg({type:"error",text:"El equipo seleccionado no tiene Código Drusila ni Código Nuevo para identificarlo."});
+    const rowNum=Number(editSelected)+2; // fila real en la planilla (col header=1, datos desde fila 2)
+    // Permitir guardar si tenemos rowNumber aunque los códigos estén vacíos
+    if(!codigoDrusila&&!codigoNuevo&&rowNum<=2){
+      setEditMsg({type:"error",text:"El equipo no tiene Código Drusila ni Código Nuevo y no se pudo calcular la fila. No se puede guardar."});
       return;
     }
     setSavingEdit(true);
@@ -1324,13 +1370,21 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
         const v=editEquipo[f.key];
         cleanRow[f.key]=v===undefined||v===null?"":String(v).trim();
       });
+      const originalLookupKeys=machineLookupVariants(codigoDrusila,codigoNuevo);
       const res=await postUpdateListaEquipo({
         codigoDrusila,
         codigoNuevo,
+        codigoPrincipal:mainMachineCode(codigoDrusila||codigoNuevo),
+        codigoDrusilaNorm:normalizeMachineCode(codigoDrusila),
+        codigoNuevoNorm:normalizeMachineCode(codigoNuevo),
+        lookupKeys:originalLookupKeys,
         codigoDrusilaHeader:drusilaKey||"",
-        codigoNuevoHeader:codigoNuevoKey||""
+        codigoNuevoHeader:codigoNuevoKey||"",
+        rowIndex:Number(editSelected),
+        rowNumber:rowNum,
+        useRowNumber:true, // el Apps Script debe priorizar buscar por número de fila
       },cleanRow);
-      setEditMsg({type:"success",text:`Equipo actualizado en la fila ${res.rowNumber||"detectada"}.`});
+      setEditMsg({type:"success",text:`Equipo actualizado en la fila ${res.rowNumber||rowNum}.`});
       if(onReloadLista)await onReloadLista();
     }catch(err){
       setEditMsg({type:"error",text:err.message});
@@ -1404,36 +1458,64 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
         </div>
       }>
         {editOpen&&(
-          <div style={{margin:"0 0 14px",padding:14,background:C.surface,border:`1px solid ${C.yellow}33`,borderRadius:10}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:12}}>
+          <div style={{margin:"0 0 14px",padding:"18px 18px 14px",background:C.surface,border:`1px solid ${C.yellow}44`,borderRadius:10,boxShadow:"0 2px 12px rgba(0,0,0,.2)"}}>
+            {/* ── Header ── */}
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12,marginBottom:14}}>
               <div>
-                <div style={{fontSize:13,fontWeight:800,color:C.text}}>Modificar equipos</div>
-                <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>Seleccioná un equipo, editá cualquier celda y guardá. La modificación se actualiza en la planilla base Lista Maestra de Equipos.</div>
+                <div style={{fontSize:14,fontWeight:800,color:C.text,letterSpacing:".01em"}}>Modificar equipos</div>
+                <div style={{fontSize:11,color:C.textMuted,marginTop:3,lineHeight:1.5}}>Seleccioná un equipo, editá cualquier celda y guardá. La modificación se actualiza en la planilla base Lista Maestra de Equipos.</div>
               </div>
-              <button onClick={()=>{setEditOpen(false);limpiarEdicionEquipo();}} disabled={savingEdit} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"6px 10px",fontSize:12,fontWeight:700,cursor:savingEdit?"not-allowed":"pointer"}}>Cerrar</button>
+              <button onClick={()=>{setEditOpen(false);limpiarEdicionEquipo();}} disabled={savingEdit}
+                style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"6px 13px",fontSize:12,fontWeight:700,cursor:savingEdit?"not-allowed":"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                Cerrar
+              </button>
             </div>
-            {editMsg&&<div style={{marginBottom:12,padding:"9px 11px",borderRadius:8,fontSize:12,color:editMsg.type==="error"?C.red:editMsg.type==="success"?C.green:C.blue,background:(editMsg.type==="error"?C.redDim:editMsg.type==="success"?C.greenDim:C.blueDim),border:`1px solid ${(editMsg.type==="error"?C.red:editMsg.type==="success"?C.green:C.blue)}44`}}>{editMsg.text}</div>}
-            <div style={{display:"grid",gridTemplateColumns:"minmax(260px,420px) 1fr",gap:12,alignItems:"end",marginBottom:12}}>
+            {/* ── Mensaje de estado ── */}
+            {editMsg&&(
+              <div style={{marginBottom:13,padding:"10px 13px",borderRadius:8,fontSize:12,fontWeight:500,
+                color:editMsg.type==="error"?C.red:editMsg.type==="success"?C.green:C.blue,
+                background:editMsg.type==="error"?C.redDim:editMsg.type==="success"?C.greenDim:C.blueDim,
+                border:`1px solid ${editMsg.type==="error"?C.red:editMsg.type==="success"?C.green:C.blue}55`}}>
+                {editMsg.text}
+              </div>
+            )}
+            {/* ── Selector de equipo ── */}
+            <div style={{display:"grid",gridTemplateColumns:"minmax(240px,400px) 1fr",gap:12,alignItems:"end",marginBottom:14}}>
               <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                <label style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>Equipo a modificar</label>
-                <select value={editSelected} onChange={e=>seleccionarEquipoEditar(e.target.value)} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"8px 10px",fontSize:12,outline:"none"}}>
+                <label style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".07em"}}>Equipo a modificar</label>
+                <select value={editSelected} onChange={e=>seleccionarEquipoEditar(e.target.value)}
+                  style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"8px 10px",fontSize:12,outline:"none",cursor:"pointer"}}>
                   <option value="">Seleccionar equipo...</option>
                   {equipoEditOptions.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
-              <div style={{fontSize:11,color:C.textMuted}}>Identificación usada para guardar: <b style={{color:C.text}}>Código Drusila</b> o <b style={{color:C.text}}>Código Nuevo</b> original. Podés modificar el resto de las columnas y también esos códigos, siempre que no queden duplicados.</div>
+              <div style={{fontSize:11,color:C.textMuted,lineHeight:1.5}}>
+                Identificación usada para guardar: <b style={{color:C.text}}>Código Drusila</b> principal y variantes normalizadas. Podés modificar el resto de las columnas y también esos códigos, siempre que no queden duplicados.
+              </div>
             </div>
-            {editSelected!==""&&(<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
-              {formFields.map(f=>(
-                <div key={"edit_"+f.key+f.label} style={{display:"flex",flexDirection:"column",gap:4}}>
-                  <label style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>{f.label}{f.special==="horometro"&&<span style={{color:C.yellow}}> → HORAS</span>}</label>
-                  <ListaEquipoFieldInput field={f} value={editEquipo[f.key]||""} onChange={v=>setEditEquipoValue(f.key,v)}/>
-                </div>
-              ))}
-            </div>)}
-            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:14}}>
-              <button onClick={limpiarEdicionEquipo} disabled={savingEdit} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"8px 12px",fontSize:12,fontWeight:700,cursor:savingEdit?"not-allowed":"pointer"}}>Limpiar</button>
-              <button onClick={guardarEdicionEquipo} disabled={savingEdit||editSelected===""} style={{background:C.yellowDim,border:`1px solid ${C.yellow}55`,borderRadius:7,color:C.yellow,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:(savingEdit||editSelected==="")?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:7}}>
+            {/* ── Campos ── */}
+            {editSelected!==""&&(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:2}}>
+                {formFields.map(f=>(
+                  <div key={"edit_"+f.key+f.label} style={{display:"flex",flexDirection:"column",gap:4}}>
+                    <label style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>
+                      {f.label}{f.special==="horometro"&&<span style={{color:C.yellow,fontWeight:800}}> → HORAS</span>}
+                    </label>
+                    <ListaEquipoFieldInput field={f} value={editEquipo[f.key]||""} onChange={v=>setEditEquipoValue(f.key,v)}/>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* ── Acciones ── */}
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:16,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+              <button onClick={limpiarEdicionEquipo} disabled={savingEdit}
+                style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:savingEdit?"not-allowed":"pointer"}}>
+                Limpiar
+              </button>
+              <button onClick={guardarEdicionEquipo} disabled={savingEdit||editSelected===""}
+                style={{background:C.yellowDim,border:`1px solid ${C.yellow}66`,borderRadius:7,color:C.yellow,padding:"8px 16px",fontSize:12,fontWeight:800,
+                  cursor:(savingEdit||editSelected==="")?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:7,
+                  opacity:(savingEdit||editSelected==="")?0.55:1,transition:"opacity .15s"}}>
                 {savingEdit?<Spinner size={13}/>:<Icon name="check" size={13} color={C.yellow}/>}
                 {savingEdit?"Guardando...":"Guardar cambios"}
               </button>
@@ -2104,19 +2186,19 @@ function useFacetedFilters(allRows, filterKeys, extState, setExtState){
     return byFecha.filter(r=>activeFilters.every(f=>matchMulti(r[f.key],vals[f.key],f.defaultVal)));
   },[byFecha,vals,fkKeys]);// eslint-disable-line
 
-  // opts: opciones facetadas
+  // opts: opciones encadenadas de izquierda a derecha.
+  // Cada filtro sólo toma en cuenta los filtros anteriores en el orden visual,
+  // para que las opciones de la derecha dependan de lo elegido a la izquierda.
   const opts=useMemo(()=>{
     const result={};
-    const valsEntries=Object.entries(vals);
-    filterKeys.forEach(f=>{
-      const otherActives=valsEntries.filter(([k,v])=>k!==f.key&&!multiIsAll(v,fkDefaults[k]));
-      if(otherActives.length===0){
-        result[f.key]=uniq(byFecha.map(r=>r[f.key]));
-      } else {
-        result[f.key]=uniq(byFecha.filter(r=>
-          otherActives.every(([k,v])=>matchMulti(r[k],v,fkDefaults[k]))
-        ).map(r=>r[f.key]));
-      }
+    filterKeys.forEach((f,idx)=>{
+      const prevActives=filterKeys
+        .slice(0,idx)
+        .filter(prev=>!multiIsAll(vals[prev.key],prev.defaultVal));
+      const base=prevActives.length
+        ? byFecha.filter(r=>prevActives.every(prev=>matchMulti(r[prev.key],vals[prev.key],prev.defaultVal)))
+        : byFecha;
+      result[f.key]=uniq(base.map(r=>r[f.key]).filter(v=>v!==undefined&&v!==null&&String(v).trim()!==""));
     });
     return result;
   },[byFecha,vals,fkKeys]);// eslint-disable-line
@@ -2139,8 +2221,14 @@ function sortFacetValues(arr){
     return String(a).localeCompare(String(b),"es");
   });
 }
-function useSimpleFacetedFilters(rows, keys){
-  const[vals,setVals]=useState({});
+function useSimpleFacetedFilters(rows, keys, storageKey){
+  const[vals,setVals]=useState(()=>{
+    if(!storageKey)return{};
+    try{
+      const raw=localStorage.getItem(storageKey);
+      return raw?JSON.parse(raw):{};
+    }catch(_){return{};}
+  });
   useEffect(()=>{
     setVals(prev=>{
       let changed=false;
@@ -2150,6 +2238,13 @@ function useSimpleFacetedFilters(rows, keys){
       return changed?next:prev;
     });
   },[keys]);
+
+  useEffect(()=>{
+    if(!storageKey)return;
+    try{localStorage.setItem(storageKey,JSON.stringify(vals||{}));}
+    catch(_){}
+  },[storageKey,vals]);
+
   const filtered=useMemo(()=>{
     const active=keys.filter(k=>!multiIsAll(vals[k]));
     if(!active.length)return rows;
@@ -2157,9 +2252,9 @@ function useSimpleFacetedFilters(rows, keys){
   },[rows,vals,keys]);
   const opts=useMemo(()=>{
     const result={};
-    keys.forEach(k=>{
-      const others=keys.filter(o=>o!==k&&!multiIsAll(vals[o]));
-      const base=others.length?rows.filter(r=>others.every(o=>matchMulti(r[o],vals[o]))):rows;
+    keys.forEach((k,idx)=>{
+      const prevKeys=keys.slice(0,idx).filter(o=>!multiIsAll(vals[o]));
+      const base=prevKeys.length?rows.filter(r=>prevKeys.every(o=>matchMulti(r[o],vals[o]))):rows;
       result[k]=sortFacetValues(uniq(base.map(r=>r[k])).filter(v=>v!==undefined&&v!==null&&String(v).trim()!==""));
     });
     return result;
@@ -4816,12 +4911,12 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const proyectos=useMemo(()=>uniq(rma15.map(r=>r.proyecto).filter(Boolean)),[rma15]);
 
   const tiposMant=useMemo(()=>uniq(rma15.filter(r=>{
+    // Encadenado izquierda → derecha: Tipo depende de Proyecto + Fecha, no de Máquina.
     if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
-    if(!matchMulti(r.maquina,maquina,"todas"))return false;
     if(modo==="dia"){if(fechaDia&&r.fecha!==fechaDia)return false;}
     else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
     return true;
-  }).map(r=>{const t=normTipo(r.tipoMant);return t.includes("prev")?"Preventivo":t.includes("corr")?"Correctivo":r.tipoMant;}).filter(Boolean)),[rma15,proyecto,maquina,fechaD,fechaH,fechaDia,modo]);
+  }).map(r=>{const t=normTipo(r.tipoMant);return t.includes("prev")?"Preventivo":t.includes("corr")?"Correctivo":r.tipoMant;}).filter(Boolean)),[rma15,proyecto,fechaD,fechaH,fechaDia,modo]);
 
   const maquinas=useMemo(()=>uniq(rma15.filter(r=>{
     if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
@@ -4937,6 +5032,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const [hoveredInsumo,setHoveredInsumo]=React.useState(null);
   const [pinnedGasto,setPinnedGasto]=React.useState(null);
   const [hoveredGasto,setHoveredGasto]=React.useState(null);
+  const [gastoPanelTop,setGastoPanelTop]=React.useState(0);
 
   // Lista de insumos únicos para el selector (código + nombre, ordenado alfabéticamente)
   const insumosDisponibles=useMemo(()=>{
@@ -5031,7 +5127,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
             <CodeMultiSearch value={codigoGastoFiltro} onChange={setCodigoGastoFiltro} options={[{value:"todos",label:"Todos"},...codigosGastosExcesivos]}/>
           </div>
         }>
-          <div style={{display:"flex",gap:0}}>
+          <div data-gastos-wrap="true" style={{display:"flex",gap:0,position:"relative",alignItems:"flex-start"}}>
             <div style={{flex:1,overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead>
@@ -5052,9 +5148,26 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                       <tr key={`${x.codigo}-${x.maquina}-${x.fecha}-${i}`}
                         className={"insumo-tr"+(isPinned?" pinned":"")}
                         style={{background:isActive?"rgba(232,0,29,0.18)":i%2===0?"transparent":C.surface+"55",cursor:"pointer"}}
-                        onMouseEnter={()=>!pinnedGasto&&setHoveredGasto(rowKey)}
+                        onMouseEnter={(e)=>{
+                          if(pinnedGasto)return;
+                          setHoveredGasto(rowKey);
+                          const cont=e.currentTarget.closest('[data-gastos-wrap="true"]');
+                          if(cont){
+                            const contRect=cont.getBoundingClientRect();
+                            const rowRect=e.currentTarget.getBoundingClientRect();
+                            setGastoPanelTop(Math.max(0,rowRect.top-contRect.top));
+                          }
+                        }}
                         onMouseLeave={()=>!pinnedGasto&&setHoveredGasto(null)}
-                        onClick={()=>setPinnedGasto(p=>p===rowKey?null:rowKey)}
+                        onClick={(e)=>{
+                          const cont=e.currentTarget.closest('[data-gastos-wrap="true"]');
+                          if(cont){
+                            const contRect=cont.getBoundingClientRect();
+                            const rowRect=e.currentTarget.getBoundingClientRect();
+                            setGastoPanelTop(Math.max(0,rowRect.top-contRect.top));
+                          }
+                          setPinnedGasto(p=>p===rowKey?null:rowKey);
+                        }}
                       >
                         <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{x.codigo}</td>
                         <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{x.insumo||"—"}</td>
@@ -5072,7 +5185,17 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
             </div>
             {/* Panel de detalle lateral */}
             {activeGasto&&(
-              <div style={{width:360,flexShrink:0,borderLeft:`1px solid ${C.border}`,background:"rgba(232,0,29,0.06)",display:"flex",flexDirection:"column"}}>
+              <div style={{
+                width:360,
+                flexShrink:0,
+                borderLeft:`1px solid ${C.border}`,
+                background:"rgba(232,0,29,0.06)",
+                display:"flex",
+                flexDirection:"column",
+                marginTop:gastoPanelTop,
+                maxHeight:"calc(100vh - 90px)",
+                overflow:"hidden"
+              }}>
                 <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
                   <div>
                     <div style={{fontWeight:800,color:C.text,fontSize:13}}>{activeGasto.codigo} — {activeGasto.insumo||"—"}</div>
@@ -6948,6 +7071,1621 @@ function HealthDashboard({health,onLoadAll,loading}){
   );
 }
 
+// ─── ViewCostosMant ──────────────────────────────────────────────────────────
+
+function tipoEquipoCosto(maquina){
+  const tipo=String(getMachineType(maquina)||"").toUpperCase();
+  const code=String(maquina||"").toUpperCase();
+
+  if(tipo.includes("CAMIONETA")||/^CTA/.test(code)||/^AG[0-9]/.test(code)||/^AH[0-9]/.test(code))return "CAMIONETAS";
+  if(tipo.includes("CAMION")||/^CAR/.test(code)||/^CAV/.test(code)||/^CAA/.test(code)||/^CAT-[0-9]/.test(code))return "CAMIONES";
+
+  // IMPORTANTE: MINICARGADORA va antes que CARGADORA FRONTAL.
+  // Si se evalúa "CARGADORA" primero, MCA-0005 cae mal como cargadora frontal.
+  if(tipo.includes("MINICARGADORA"))return "MINICARGADORA";
+
+  if(tipo.includes("EXCAVADORA"))return "EXCAVADORA";
+  if(tipo.includes("CARGADORA FRONTAL"))return "CARGADORA FRONTAL";
+  if(tipo.includes("MOTONIVELADORA"))return "MOTONIVELADORA";
+  if(tipo.includes("TOPADORA"))return "TOPADORA";
+  if(tipo.includes("RETROPALA"))return "RETROPALA";
+  if(tipo.includes("VIBROCOMPACTADOR"))return "VIBROCOMPACTADOR";
+  return "OTROS";
+}
+function esMaquinaCosto(tipo){
+  return ["EXCAVADORA","CARGADORA FRONTAL","MOTONIVELADORA","TOPADORA","RETROPALA","VIBROCOMPACTADOR","MINICARGADORA"].includes(String(tipo||"").toUpperCase());
+}
+
+const MESES_ES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+function monthKeyCosto(fecha){
+  const f=String(fecha||"").slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(f))return "";
+  return f.slice(0,7);
+}
+function monthLabelCosto(key){
+  const m=Number(String(key||"").slice(5,7));
+  return MESES_ES[m-1]||key;
+}
+function addMonthCosto(key){
+  const y=Number(key.slice(0,4));
+  const m=Number(key.slice(5,7));
+  const d=new Date(y,m,1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+function buildMonthKeysCosto(rows,modoFecha,fechaDia,fechaD,fechaH){
+  let minKey="",maxKey="";
+
+  if(modoFecha==="dia"&&fechaDia){
+    minKey=maxKey=monthKeyCosto(fechaDia);
+  }else if(modoFecha==="periodo"&&(fechaD||fechaH)){
+    const keys=(rows||[]).map(r=>monthKeyCosto(r.fecha)).filter(Boolean).sort();
+    minKey=fechaD?monthKeyCosto(fechaD):(keys[0]||"");
+    maxKey=fechaH?monthKeyCosto(fechaH):(keys[keys.length-1]||"");
+  }else{
+    const keys=[...new Set((rows||[]).map(r=>monthKeyCosto(r.fecha)).filter(Boolean))].sort();
+    return keys.map(k=>({key:k,label:monthLabelCosto(k)}));
+  }
+
+  if(!minKey||!maxKey)return [];
+  const out=[];
+  for(let k=minKey;k<=maxKey;k=addMonthCosto(k)){
+    out.push({key:k,label:monthLabelCosto(k)});
+    if(out.length>36)break;
+  }
+  return out;
+}
+
+const HIST_COSTO_MENSUAL_ACUMULADO = {"months":[{"key":"2025-09","label":"Septiembre","dollar":1380.0},{"key":"2025-10","label":"Octubre","dollar":1450.0},{"key":"2025-11","label":"Noviembre","dollar":1430.0},{"key":"2025-12","label":"Diciembre","dollar":1530.0},{"key":"2026-01","label":"Enero","dollar":1480.0},{"key":"2026-02","label":"Febrero","dollar":1420.0},{"key":"2026-03","label":"Marzo","dollar":1400.0}],"rows":[{"equipo":"CFN-0041","section":"FS","months":{"2025-09":{"prev":348.5078260869565,"corr":365.3884057971014,"total":713.8962318840579},"2025-10":{"prev":405.43219565217396,"corr":111.94538405797101,"total":517.3775797101449},"2025-11":{"prev":837.8138689655173,"corr":807.5525310344827,"total":1645.3663999999999},"2025-12":{"prev":16.751853146853147,"corr":528.5891608391609,"total":545.341013986014},"2026-01":{"prev":31.313921568627453,"corr":248.9506535947712,"total":280.26457516339866},"2026-02":{"prev":373.93756756756756,"corr":695.1014594594595,"total":1069.039027027027},"2026-03":{"prev":22.81442857142857,"corr":1402.9197142857145,"total":1425.734143}}},{"equipo":"CFN-0043","section":"FS","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":23.042115942028985,"corr":123.60761594202899,"total":146.64973188405799},"2025-11":{"prev":0.0,"corr":1643.6143448275861,"total":1643.6143448275861},"2025-12":{"prev":0.0,"corr":1082.2257972027971,"total":1082.2257972027971},"2026-01":{"prev":31.313921568627453,"corr":0.0,"total":31.313921568627453},"2026-02":{"prev":46.59824324324324,"corr":1.2729594594594595,"total":47.871202702702696},"2026-03":{"prev":22.81442857142857,"corr":18.288128571428572,"total":41.10255714}}},{"equipo":"CFN-0044","section":"FS","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":0.0,"corr":0.0,"total":0.0},"2026-01":{"prev":325.0995294117647,"corr":100.1843137254902,"total":425.2838431372549},"2026-02":{"prev":361.4773716216216,"corr":10.790608108108108,"total":372.26797972972975},"2026-03":{"prev":86.10323214285714,"corr":22.81442857142857,"total":108.9176607}}},{"equipo":"CFN-0101","section":"FS","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":0.0,"corr":0.0,"total":0.0},"2026-01":{"prev":0.0,"corr":0.0,"total":0.0},"2026-02":{"prev":0.0,"corr":4.864864864864865,"total":4.864864864864865},"2026-03":{"prev":0.0,"corr":207.21160714285713,"total":207.2116071}}},{"equipo":"EXC-0005","section":"FS","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":0.0,"corr":0.0,"total":0.0},"2026-01":{"prev":361.5345751633987,"corr":687.8063464052287,"total":1049.3409215686274},"2026-02":{"prev":373.93756756756756,"corr":366.6463513513513,"total":740.5839189189189},"2026-03":{"prev":22.81442857142857,"corr":10.714285714285714,"total":33.52871429}}},{"equipo":"EXC-0014","section":"FS","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":0.0,"corr":0.0,"total":0.0},"2026-01":{"prev":387.04937908496737,"corr":67.40196078431373,"total":454.45133986928107},"2026-02":{"prev":494.55332432432436,"corr":352.5432094594595,"total":847.0965337837839},"2026-03":{"prev":11.407214285714286,"corr":417.2775,"total":428.6847143}}},{"equipo":"EXC-0017","section":"FS","months":{"2025-09":{"prev":49.83739130434782,"corr":1186.9492753623188,"total":1236.7866666666666},"2025-10":{"prev":208.60268840579712,"corr":843.4442101449275,"total":1052.0468985507246},"2025-11":{"prev":244.06108965517242,"corr":534.2553448275862,"total":778.3164344827587},"2025-12":{"prev":0.0,"corr":0.0,"total":0.0},"2026-01":{"prev":0.0,"corr":0.0,"total":0.0},"2026-02":{"prev":0.0,"corr":0.0,"total":0.0},"2026-03":{"prev":0.0,"corr":0.0,"total":0.0}}},{"equipo":"EXC-0019","section":"FS","months":{"2025-09":{"prev":49.83739130434782,"corr":1455.8052173913045,"total":1505.6426086956521},"2025-10":{"prev":24.963768115942027,"corr":1629.2989130434783,"total":1654.2626811594203},"2025-11":{"prev":75.93806896551725,"corr":654.4065931034484,"total":730.3446620689655},"2025-12":{"prev":60.49185314685315,"corr":476.62617482517476,"total":537.1180279720279},"2026-01":{"prev":10.437973856209151,"corr":85.72882352941177,"total":96.16679738562092},"2026-02":{"prev":856.0957905405404,"corr":293.75712837837835,"total":1149.8529189189187},"2026-03":{"prev":434.65673214285715,"corr":217.73639285714287,"total":652.393125}}},{"equipo":"MOT-0014","section":"FS","months":{"2025-09":{"prev":2459.9315942028984,"corr":592.0321739130434,"total":3051.9744927536235},"2025-10":{"prev":763.5998043478261,"corr":787.1183623188407,"total":1550.7181666666665},"2025-11":{"prev":593.6788275862069,"corr":2727.972517241379,"total":3321.6513448275864},"2025-12":{"prev":11.167902097902099,"corr":271.30374125874124,"total":282.4716433566433},"2026-01":{"prev":497.9692418300653,"corr":351.8586862745098,"total":849.8279281045751},"2026-02":{"prev":503.46897297297295,"corr":241.9207094594595,"total":745.3896824324324},"2026-03":{"prev":215.45284999999998,"corr":1242.8909571428571,"total":1458.343807}}},{"equipo":"MOT-0024","section":"FS","months":{"2025-09":{"prev":377.70028985507247,"corr":1558.8153623188407,"total":1936.5156521739132},"2025-10":{"prev":1980.2522463768116,"corr":623.570652173913,"total":2603.822898550725},"2025-11":{"prev":186.08333103448277,"corr":1678.986103448276,"total":1865.0694344827587},"2025-12":{"prev":413.2360909090909,"corr":314.72146853146853,"total":727.9575594405595},"2026-01":{"prev":324.28740522875813,"corr":479.7783006535948,"total":804.065705882353},"2026-02":{"prev":10.790608108108108,"corr":1150.215506756757,"total":1161.0061148648651},"2026-03":{"prev":609.5412535714285,"corr":399.93832142857144,"total":1009.479575}}},{"equipo":"ROD-0001","section":"FS","months":{"2025-09":{"prev":39.595362318840586,"corr":8.440289855072464,"total":48.03565217391304},"2025-10":{"prev":144.26027536231882,"corr":905.7471594202899,"total":1050.0074347826087},"2025-11":{"prev":0.0,"corr":42.133482758620694,"total":42.133482758620694},"2025-12":{"prev":24.434629370629374,"corr":181.63206293706295,"total":206.0666923076923},"2026-01":{"prev":84.79234640522876,"corr":0.0,"total":84.79234640522876},"2026-02":{"prev":0.0,"corr":0.0,"total":0.0},"2026-03":{"prev":0.0,"corr":0.0,"total":0.0}}},{"equipo":"RPC-0039","section":"FS","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":0.0,"corr":0.0,"total":0.0},"2026-01":{"prev":0.0,"corr":0.0,"total":0.0},"2026-02":{"prev":0.0,"corr":35.905925675675675,"total":35.905925675675675},"2026-03":{"prev":176.2475785714286,"corr":0.0,"total":176.2475786}}},{"equipo":"RTP-0010","section":"FS","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":515.9855507246377,"corr":0.0,"total":515.9855507246377},"2025-11":{"prev":0.0,"corr":165.8136827586207,"total":165.8136827586207},"2025-12":{"prev":0.0,"corr":3.4265734265734267,"total":3.4265734265734267},"2026-01":{"prev":37.446098039215684,"corr":0.0,"total":37.446098039215684},"2026-02":{"prev":29.674172297297297,"corr":87.75652702702702,"total":117.43069932432432},"2026-03":{"prev":85.11617857142856,"corr":92.14226428571429,"total":177.2584429}}},{"equipo":"RTP-0012","section":"FS","months":{"2025-09":{"prev":516.7130434782608,"corr":190.28724637681162,"total":707.0002898550724},"2025-10":{"prev":13.442028985507246,"corr":154.52105072463766,"total":167.9630797101449},"2025-11":{"prev":0.0,"corr":138.43582068965517,"total":138.43582068965517},"2025-12":{"prev":0.0,"corr":34.20503496503497,"total":34.20503496503497},"2026-01":{"prev":158.5613006535948,"corr":0.08853594771241831,"total":158.64983660130721},"2026-02":{"prev":40.464780405405406,"corr":121.3055472972973,"total":161.7703277027027},"2026-03":{"prev":166.58325714285715,"corr":259.9679642857143,"total":426.5512214}}},{"equipo":"TOP-0014","section":"FS","months":{"2025-09":{"prev":972.027536231884,"corr":26.554202898550727,"total":998.592463768116},"2025-10":{"prev":594.7802898550725,"corr":794.7245144927537,"total":1389.504804347826},"2025-11":{"prev":711.2898137931035,"corr":2737.6868275862066,"total":3448.9766413793104},"2025-12":{"prev":231.62269230769232,"corr":831.4660559440559,"total":1063.0887482517483},"2026-01":{"prev":10.437973856209151,"corr":231.6484640522876,"total":242.08643790849672},"2026-02":{"prev":50.80390202702702,"corr":748.6368243243244,"total":799.4407263513513},"2026-03":{"prev":45.16832142857143,"corr":1104.4501642857142,"total":1149.618486}}},{"equipo":"TOP-0022","section":"FS","months":{"2025-09":{"prev":544.5542028985507,"corr":136.02057971014491,"total":680.5747826086957},"2025-10":{"prev":261.30847826086955,"corr":761.8321159420291,"total":1023.1405942028986},"2025-11":{"prev":729.7755310344828,"corr":1315.6088,"total":2045.3843310344826},"2025-12":{"prev":311.3010629370629,"corr":692.4191118881118,"total":1003.7201748251747},"2026-01":{"prev":20.875947712418302,"corr":662.0385947712418,"total":682.9145424836602},"2026-02":{"prev":0.0,"corr":82.96858108108108,"total":82.96858108108108},"2026-03":{"prev":0.0,"corr":0.0,"total":0.0}}},{"equipo":"TOP-0059","section":"FS","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":0.0,"corr":0.0,"total":0.0},"2026-01":{"prev":0.0,"corr":0.0,"total":0.0},"2026-02":{"prev":0.0,"corr":134.50202702702703,"total":134.50202702702703},"2026-03":{"prev":88.49449999999999,"corr":326.36288571428577,"total":414.8573857}}},{"equipo":"EXC-0055","section":"JM","months":{"2025-09":{"prev":1139.6,"corr":865.0492753623189,"total":865.8750724637682},"2025-10":{"prev":498.0994827586207,"corr":17.65750344827586,"total":515.7569862068965},"2025-11":{"prev":0.0,"corr":117.71223776223776,"total":117.71223776223776},"2025-12":{"prev":0.0,"corr":2.6094934640522878,"total":2.6094934640522878},"2026-01":{"prev":74.27942432432432,"corr":18.495905405405406,"total":92.77532972972973},"2026-02":{"prev":554.4042781690141,"corr":110.99378169014084,"total":665.3980598591548},"2026-03":{"prev":56.084500000000006,"corr":5.703607142857143,"total":61.78810714}}},{"equipo":"MCA-0005","section":"JM","months":{"2025-09":{"prev":0.0,"corr":90.18347826086958,"total":90.18347826086958},"2025-10":{"prev":71.88327586206897,"corr":0.0,"total":71.88327586206897},"2025-11":{"prev":74.11930069930071,"corr":0.0,"total":74.11930069930071},"2025-12":{"prev":33.96182026143791,"corr":1.512450980392157,"total":35.47427124183007},"2026-01":{"prev":142.50583108108108,"corr":4.261199324324325,"total":146.76703040540542},"2026-02":{"prev":8.434911971830987,"corr":0.04769718309859155,"total":8.482609154929577},"2026-03":{"prev":136.12622857142858,"corr":10.178607142857143,"total":146.3048357}}},{"equipo":"MOT-0049","section":"JM","months":{"2025-09":{"prev":472.0127536231884,"corr":683.0521739130435,"total":1155.0542028985508},"2025-10":{"prev":360.69586206896554,"corr":137.46618620689657,"total":498.16204827586205},"2025-11":{"prev":0.22954405594405594,"corr":253.46819580419583,"total":483.01225174825174},"2025-12":{"prev":5.2189869281045755,"corr":220.9673366013072,"total":226.18632352941177},"2026-01":{"prev":14.64166081081081,"corr":249.91703040540543,"total":264.55869121621623},"2026-02":{"prev":595.3845950704226,"corr":102.78710563380282,"total":698.1717007042255},"2026-03":{"prev":247.18933928571428,"corr":14.571685714285715,"total":261.761025}}},{"equipo":"MOT-0051","section":"JM","months":{"2025-09":{"prev":284.15999999999997,"corr":1102.0959420289855,"total":1386.2559420289854},"2025-10":{"prev":726.0951724137931,"corr":262.6001379310345,"total":988.6953103448276},"2025-11":{"prev":0.0,"corr":880.4901678321678,"total":880.4901678321678},"2025-12":{"prev":815.1252450980393,"corr":348.9840032679739,"total":1164.109248366013},"2026-01":{"prev":797.2408182432433,"corr":7.589753378378379,"total":804.8305716216216},"2026-02":{"prev":22.493098591549295,"corr":102.74422535211266,"total":125.23732394366198},"2026-03":{"prev":481.0490142857143,"corr":333.9539642857143,"total":815.0029786}}},{"equipo":"MOT-0069","section":"JM","months":{"2025-09":{"prev":0.0,"corr":2.112753623188406,"total":2.112753623188406},"2025-10":{"prev":295.47172413793106,"corr":23.59415172413793,"total":319.065875862069},"2025-11":{"prev":589.2367972027972,"corr":0.0,"total":589.2367972027972},"2025-12":{"prev":408.00957189542487,"corr":2.6094934640522878,"total":410.61906535947713},"2026-01":{"prev":866.6221418918919,"corr":2.697652027027027,"total":869.3197939189189},"2026-02":{"prev":470.44323943661965,"corr":0.0,"total":470.44323943661965},"2026-03":{"prev":103.87544642857142,"corr":5.446446428571428,"total":109.3218929}}},{"equipo":"PCA-0017","section":"JM","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":0.0,"corr":0.0,"total":0.0},"2026-01":{"prev":0.0,"corr":0.0,"total":0.0},"2026-02":{"prev":331.1230704225352,"corr":9.894077464788733,"total":341.017147887324},"2026-03":{"prev":5.703607142857143,"corr":127.64215714285713,"total":133.3457643}}},{"equipo":"PCA-0021","section":"JM","months":{"2025-09":{"prev":0.0,"corr":2056.7817391304347,"total":2056.7817391304347},"2025-10":{"prev":965.4568275862068,"corr":63.45584137931034,"total":1028.9126689655172},"2025-11":{"prev":679.227041958042,"corr":718.4825104895104,"total":1397.7095524475524},"2025-12":{"prev":236.7075588235294,"corr":2.6094934640522878,"total":239.3170522875817},"2026-01":{"prev":243.94930405405404,"corr":369.8343378378379,"total":613.7836418918919},"2026-02":{"prev":0.0,"corr":0.0,"total":0.0},"2026-03":{"prev":0.0,"corr":0.0,"total":0.0}}},{"equipo":"PCA-0051","section":"JM","months":{"2025-09":{"prev":0.0,"corr":591.5602898550725,"total":591.5602898550725},"2025-10":{"prev":149.84910344827588,"corr":0.0,"total":149.84910344827588},"2025-11":{"prev":327.2303636363636,"corr":652.7208391608392,"total":979.9512027972028},"2025-12":{"prev":5.2189869281045755,"corr":705.704362745098,"total":710.9233496732027},"2026-01":{"prev":16.570379054054055,"corr":2.697652027027027,"total":19.268031081081084},"2026-02":{"prev":11.246549295774647,"corr":700.253309859155,"total":711.4998591549296},"2026-03":{"prev":188.38643214285716,"corr":5.703607142857143,"total":194.0900393}}},{"equipo":"PCA-0070","section":"JM","months":{"2025-09":{"prev":0.0,"corr":12.655072463768116,"total":12.655072463768116},"2025-10":{"prev":3.6551724137931036,"corr":0.0,"total":3.6551724137931036},"2025-11":{"prev":0.0,"corr":303.3062237762238,"total":303.3062237762238},"2025-12":{"prev":2.6094934640522878,"corr":342.47086601307194,"total":345.0803594771242},"2026-01":{"prev":293.69117297297294,"corr":21.016131756756756,"total":314.70730472972974},"2026-02":{"prev":806.9072711267605,"corr":0.0,"total":806.9072711267605},"2026-03":{"prev":1069.5405714285714,"corr":7.5707571428571425,"total":1077.111329}}},{"equipo":"PCA-0074","section":"JM","months":{"2025-09":{"prev":0.0,"corr":14.263768115942028,"total":14.263768115942028},"2025-10":{"prev":140.13662758620688,"corr":51.64408275862069,"total":191.7807103448276},"2025-11":{"prev":0.0,"corr":409.77048951048954,"total":409.77048951048954},"2025-12":{"prev":0.0,"corr":341.28377450980395,"total":341.28377450980395},"2026-01":{"prev":16.185912162162165,"corr":141.13834594594596,"total":157.3242581081081},"2026-02":{"prev":210.53488732394365,"corr":0.0,"total":210.53488732394365},"2026-03":{"prev":13.442770714285714,"corr":694.914625,"total":708.3573957}}},{"equipo":"PCA-0101","section":"JM","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":0.0,"corr":90.12450980392157,"total":90.12450980392157},"2026-01":{"prev":10.790608108108108,"corr":221.52232094594598,"total":232.31292905405405},"2026-02":{"prev":369.6175690140845,"corr":134.31783450704225,"total":503.9354035211267},"2026-03":{"prev":115.19075,"corr":3223.9950642857143,"total":3339.185814}}},{"equipo":"RPC-0016","section":"JM","months":{"2025-09":{"prev":3.4962318840579707,"corr":346.3092753623189,"total":349.81623188405797},"2025-10":{"prev":23.72348965517241,"corr":0.0,"total":23.72348965517241},"2025-11":{"prev":0.0,"corr":406.57690209790206,"total":406.57690209790206},"2025-12":{"prev":200.4335163398693,"corr":153.12577450980393,"total":353.55929084967323},"2026-01":{"prev":70.29945202702703,"corr":2.7434155405405405,"total":73.04286756756758},"2026-02":{"prev":28.670654929577466,"corr":1607.8374021126758,"total":1636.5080570422533},"2026-03":{"prev":27.546714285714287,"corr":5.703607142857143,"total":33.25032143}}},{"equipo":"RPC-0036","section":"JM","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":2.6094934640522878,"corr":394.0415261437908,"total":396.6510196078431},"2026-01":{"prev":16.185912162162165,"corr":2.697652027027027,"total":18.88356418918919},"2026-02":{"prev":262.4614964788732,"corr":25.72075352112676,"total":288.18224999999995},"2026-03":{"prev":20.002321428571427,"corr":17.329693571428574,"total":37.332015}}},{"equipo":"RTP-0018","section":"JM","months":{"2025-09":{"prev":28.044927536231885,"corr":84.5208695652174,"total":112.56579710144926},"2025-10":{"prev":12.793103448275861,"corr":147.06141379310344,"total":159.8545172413793},"2025-11":{"prev":0.0,"corr":149.25002097902097,"total":149.25002097902097},"2025-12":{"prev":2.6094934640522878,"corr":109.99019934640522,"total":112.5996928104575},"2026-01":{"prev":10.790608108108108,"corr":120.65105405405406,"total":131.44166216216217},"2026-02":{"prev":73.77120070422535,"corr":3.380281690140845,"total":77.1514823943662},"2026-03":{"prev":97.05791214285713,"corr":2.8518035714285714,"total":99.90971571}}},{"equipo":"RTP-0030","section":"JM","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":12.793103448275861,"corr":147.06141379310344,"total":159.8545172413793},"2025-11":{"prev":0.0,"corr":59.75779020979021,"total":59.75779020979021},"2025-12":{"prev":2.6094934640522878,"corr":2.6094934640522878,"total":5.2189869281045755},"2026-01":{"prev":72.54669932432432,"corr":2.697652027027027,"total":75.24435135135134},"2026-02":{"prev":70.9595633802817,"corr":20.149295774647886,"total":91.10885915492958},"2026-03":{"prev":12.204303571428573,"corr":2.8518035714285714,"total":15.05610714}}},{"equipo":"TOP-0036","section":"JM","months":{"2025-09":{"prev":0.0,"corr":6.327536231884058,"total":6.327536231884058},"2025-10":{"prev":7.310344827586207,"corr":0.0,"total":7.310344827586207},"2025-11":{"prev":0.0,"corr":329.45,"total":329.45},"2025-12":{"prev":0.0,"corr":2.6094934640522878,"total":2.6094934640522878},"2026-01":{"prev":289.30918918918917,"corr":1034.6410067567567,"total":1323.950195945946},"2026-02":{"prev":303.9558309859155,"corr":411.40582746478873,"total":715.3616584507042},"2026-03":{"prev":98.00311285714287,"corr":645.9351857142857,"total":743.9382986}}},{"equipo":"TOP-0048","section":"JM","months":{"2025-09":{"prev":1.6515942028985509,"corr":633.3434782608695,"total":634.9950724637681},"2025-10":{"prev":368.5119724137931,"corr":0.0,"total":368.5119724137931},"2025-11":{"prev":1003.1024475524475,"corr":961.7473076923076,"total":1964.8497552447552},"2025-12":{"prev":0.0,"corr":2.6094934640522878,"total":2.6094934640522878},"2026-01":{"prev":166.92587837837837,"corr":14.64166081081081,"total":181.56753918918918},"2026-02":{"prev":293.5173591549296,"corr":2.558098591549296,"total":296.0754577464789},"2026-03":{"prev":30.50357142857143,"corr":83.292,"total":113.7955714}}},{"equipo":"TOP-0051","section":"JM","months":{"2025-09":{"prev":0.0,"corr":0.0,"total":0.0},"2025-10":{"prev":0.0,"corr":0.0,"total":0.0},"2025-11":{"prev":0.0,"corr":0.0,"total":0.0},"2025-12":{"prev":5.2189869281045755,"corr":721.6454738562092,"total":726.8644607843137},"2026-01":{"prev":447.81667567567564,"corr":257.3913851351351,"total":705.2080608108108},"2026-02":{"prev":420.12953802816895,"corr":279.4591725352113,"total":699.5887105633802},"2026-03":{"prev":28.518035714285713,"corr":84.17322142857144,"total":112.6912571}}}]};
+
+function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
+  // Persistencia local para que los filtros no se pierdan al salir y volver a entrar
+  // a la pestaña Costo de Mantenimientos.
+  const COSTOS_MANT_STATE_KEY="delta_costos_mant_state_v1";
+  const readCostosMantState=React.useCallback(()=>{
+    try{
+      const raw=window.localStorage.getItem(COSTOS_MANT_STATE_KEY);
+      if(!raw)return{};
+      const parsed=JSON.parse(raw);
+      return parsed&&typeof parsed==="object"?parsed:{};
+    }catch(_){return{};}
+  },[]);
+  const initialCostosMantState=React.useMemo(()=>readCostosMantState(),[readCostosMantState]);
+
+  const [tab,setTab]=React.useState(initialCostosMantState.tab||"t1");
+  const [usdRate2,setUsdRate2]=React.useState(Number(initialCostosMantState.usdRate2)||1400);
+  const [hsEfJM,setHsEfJM]=React.useState(Number(initialCostosMantState.hsEfJM)||180);
+  const [hsEfFS,setHsEfFS]=React.useState(Number(initialCostosMantState.hsEfFS)||180);
+  const [mecJM,setMecJM]=React.useState(Number(initialCostosMantState.mecJM)||8);
+  const [ctaMecJM,setCtaMecJM]=React.useState(Number(initialCostosMantState.ctaMecJM)||Number(initialCostosMantState.ctaMec)||2);
+  const [mecFS,setMecFS]=React.useState(Number(initialCostosMantState.mecFS)||8);
+  const [ctaMecFS,setCtaMecFS]=React.useState(Number(initialCostosMantState.ctaMecFS)||Number(initialCostosMantState.ctaMec)||1);
+  const [ctaJM,setCtaJM]=React.useState(Number(initialCostosMantState.ctaJM)||2);
+  const [ctaFS,setCtaFS]=React.useState(Number(initialCostosMantState.ctaFS)||1);
+  const [costMec,setCostMec]=React.useState(Number(initialCostosMantState.costMec)||2390.27);
+  const [costCTA,setCostCTA]=React.useState(Number(initialCostosMantState.costCTA)||3000);
+  const [monthlyDollar,setMonthlyDollar]=React.useState(()=>({
+    ...Object.fromEntries((HIST_COSTO_MENSUAL_ACUMULADO.months||[]).map(m=>[m.key,Number(m.dollar)||1400])),
+    ...(initialCostosMantState.monthlyDollar||{})
+  }));
+  // Borrador separado para que escribir el dólar no recalcule ni mueva la tabla
+  // en cada tecla. Se recalcula recién al salir del input o apretar Enter.
+  const [monthlyDollarDraft,setMonthlyDollarDraft]=React.useState(()=>
+    Object.fromEntries(Object.entries(monthlyDollar||{}).map(([k,v])=>[k,String(v)]))
+  );
+  const costoMensualScrollRef=React.useRef(null);
+  const restoreCostoMensualScroll=React.useCallback((left)=>{
+    window.requestAnimationFrame(()=>{
+      if(costoMensualScrollRef.current)costoMensualScrollRef.current.scrollLeft=left;
+      window.requestAnimationFrame(()=>{
+        if(costoMensualScrollRef.current)costoMensualScrollRef.current.scrollLeft=left;
+      });
+    });
+  },[]);
+  const [acumData,setAcumData]=React.useState(null);
+  const [acumError,setAcumError]=React.useState(null);
+  const [acumParsing,setAcumParsing]=React.useState(false);
+  const [modoFecha,setModoFecha]=React.useState("periodo");
+  const [fechaDia,setFechaDia]=React.useState(initialCostosMantState.fechaDia||"");
+  const [fechaD,setFechaD]=React.useState(initialCostosMantState.fechaD||"");
+  const [fechaH,setFechaH]=React.useState(initialCostosMantState.fechaH||"");
+  const [fMaquinas,setFMaquinas]=React.useState(initialCostosMantState.fMaquinas||"todos");
+  const [fTipoEquipo,setFTipoEquipo]=React.useState(initialCostosMantState.fTipoEquipo||"todos");
+  const [fProyecto,setFProyecto]=React.useState(initialCostosMantState.fProyecto||"todos");
+  const [fPropiedad,setFPropiedad]=React.useState(initialCostosMantState.fPropiedad||"todos");
+
+  React.useEffect(()=>{
+    try{
+      window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify({
+        tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,
+        modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,monthlyDollar
+      }));
+    }catch(_){}
+  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad]);
+
+  const rma15PorFecha=React.useMemo(()=>byDateFilter(rma15||[],modoFecha,fechaDia,fechaD,fechaH),[rma15,modoFecha,fechaDia,fechaD,fechaH]);
+
+  // Mapa de Lista Maestra para correlación.
+  // REGLA DEFINITIVA:
+  // - El Código Viejo se usa SOLO para encontrar el equipo en Lista Maestra.
+  // - En las tablas NO se muestra ni se concatena el Código Viejo.
+  // - Si en RMA15 viene algo como "MOT-0024-(MOT-0047)", para mostrar se usa
+  //   el Código Drusila real de Lista Maestra o, como respaldo, el código externo.
+  const isInvalidEquipoCodeCosto=React.useCallback((code)=>{
+    const raw=String(code||"").trim().toUpperCase();
+    const compact=raw.replace(/[^A-Z0-9]/g,"");
+    return !raw || raw==="-" || raw==="—" || raw==="S/D" || raw==="SD" || raw==="N/A" || raw==="NA" || raw==="NO TIENE" || raw==="SIN DATO" || compact==="";
+  },[]);
+
+  const codeLookupVariantsCosto=React.useCallback((code)=>{
+    const raw=String(code||"").trim().toUpperCase();
+    if(isInvalidEquipoCodeCosto(raw))return[];
+    const clean=cleanMachine(raw);
+    const norm=normalizeMachineCode(raw);
+    const noParen=raw.replace(/\s*\(.*?\)/g,"").replace(/[-\s]+$/g,"");
+    const compact=raw.replace(/[^A-Z0-9]/g,"");
+    const cleanCompact=String(clean||"").replace(/[^A-Z0-9]/g,"");
+    const normCompact=String(norm||"").replace(/[^A-Z0-9]/g,"");
+    return [...new Set([raw,clean,norm,noParen,compact,cleanCompact,normCompact].map(v=>String(v||"").trim().toUpperCase()).filter(v=>v&&!isInvalidEquipoCodeCosto(v)))];
+  },[isInvalidEquipoCodeCosto]);
+
+  // Correlación definitiva de códigos de equipos.
+  // - El código viejo SOLO se usa para encontrar la fila de Lista Maestra.
+  // - Para mostrar en tablas se usa Código Drusila si existe; si no, el código real sin paréntesis.
+  // - Se aceptan variantes con/sin guion: MOT-0049 = MOT0049.
+  // - Si una clave aparece en varias columnas, gana Código Drusila > Código Nuevo > Código Viejo.
+  const extraerCodigosCosto=React.useCallback((maquina)=>{
+    const raw=String(maquina||"").trim().toUpperCase();
+    const main=mainMachineCode(raw);
+    const sinParentesis=raw.replace(/\s*\(.*?\)/g,"").replace(/[-\s]+$/g,"");
+    const viejos=[];
+    const re=/\(([^()]+)\)/g;
+    let m;
+    while((m=re.exec(raw))!==null){
+      const cod=String(m[1]||"").trim().toUpperCase();
+      if(cod)viejos.push(cod);
+    }
+    return {raw,main,sinParentesis,viejos};
+  },[]);
+
+  const machineLookupKeysCosto=React.useCallback((maquina)=>{
+    const {raw,main,sinParentesis,viejos}=extraerCodigosCosto(maquina);
+    // Primero código real / externo. Código viejo entre paréntesis queda al final,
+    // sólo como respaldo de correlación.
+    const base=[main,sinParentesis,raw,...viejos];
+    const keys=[];
+    base.forEach(code=>{
+      codeLookupVariantsCosto(code).forEach(k=>keys.push(k));
+    });
+    return [...new Set(keys)];
+  },[extraerCodigosCosto,codeLookupVariantsCosto]);
+
+  const listaEquiposIndex=React.useMemo(()=>{
+    const bestMap={};
+    const allMap={};
+
+    const getListaVal=(e,mainLabel,aliases=[])=>{
+      const keys=Object.keys(e||{});
+      const k=findColumnKey(keys,mainLabel,aliases);
+      return k?e[k]:"";
+    };
+
+    const put=(code,e,priority)=>{
+      codeLookupVariantsCosto(code).forEach(k=>{
+        if(!k)return;
+        if(!allMap[k])allMap[k]=[];
+        allMap[k].push({row:e,priority});
+        if(!bestMap[k]||priority>bestMap[k].priority){
+          bestMap[k]={row:e,priority};
+        }
+      });
+    };
+
+    (listaEquipos||[]).forEach(e=>{
+      const codDrusila=getListaVal(e,"Código Drusila",["Codigo Drusila","Código de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila"]);
+      const codNuevo=getListaVal(e,"Código Nuevo",["Codigo Nuevo","Código nuevo","Codigo nuevo","Codigo Interno","Código Interno","CODIGO N° INTERNO","Interno","Código Actual","Codigo Actual"]);
+      const codViejo=getListaVal(e,"Código Viejo",["Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo","Cod viejo","Cod. viejo","Código Antiguo","Codigo Antiguo","Código Alternativo","Codigo Alternativo"]);
+
+      // Se cargan TODAS las coincidencias en allMap.
+      // Para mostrar equipo se sigue usando el mejor match, pero para el filtro
+      // Propiedad se consideran todas las propiedades posibles asociadas al código.
+      // Así no se pierden equipos cuando RMA15 usa Código Viejo o variantes sin guion.
+      put(codViejo,e,60);
+      put(codNuevo,e,90);
+      put(codDrusila,e,100);
+    });
+
+    return {bestMap,allMap};
+  },[listaEquipos,codeLookupVariantsCosto]);
+
+  const getEquipoListaMaestra=React.useCallback((maquina)=>{
+    const keys=machineLookupKeysCosto(maquina);
+    let best=null;
+    for(const k of keys){
+      const hit=listaEquiposIndex.bestMap[k];
+      if(hit&&(!best||hit.priority>best.priority))best=hit;
+      if(best&&best.priority>=100)break;
+    }
+    return best?.row||null;
+  },[listaEquiposIndex,machineLookupKeysCosto]);
+
+  const getEquiposListaMaestraAll=React.useCallback((maquina)=>{
+    const keys=machineLookupKeysCosto(maquina);
+    const seen=new WeakSet();
+    const out=[];
+    keys.forEach(k=>{
+      (listaEquiposIndex.allMap[k]||[]).forEach(hit=>{
+        const row=hit.row;
+        if(!row)return;
+        if(seen.has(row))return;
+        seen.add(row);
+        out.push(row);
+      });
+    });
+    return out;
+  },[listaEquiposIndex,machineLookupKeysCosto]);
+
+  const equipoCostoDisplay=React.useCallback((maquina)=>{
+    const eq=getEquipoListaMaestra(maquina);
+    const codDrusila=getValue(eq||{},["Código Drusila","Codigo Drusila","Código drusila","Codigo drusila"]);
+    if(codDrusila)return cleanMachine(codDrusila);
+    const {main,sinParentesis}=extraerCodigosCosto(maquina);
+    return cleanMachine(main||sinParentesis||maquina)||"—";
+  },[getEquipoListaMaestra,extraerCodigosCosto]);
+
+  const getPropiedadFromListaRow=React.useCallback((eq)=>{
+    const keys=Object.keys(eq||{});
+    const k=findColumnKey(keys,"Propiedad",["PROPIEDAD","Dueño","Dueno","Empresa","Proveedor","Propietario","Titular","Empresa Propietaria","Empresa propietaria","Owner","Rental","Arrendadora"]);
+    return String(k?eq[k]:"S/D").trim().toUpperCase()||"S/D";
+  },[]);
+
+  const propiedadesEquipo=React.useCallback((maquina)=>{
+    const raw=String(maquina||"").trim().toUpperCase();
+    if(isInvalidEquipoCodeCosto(raw))return ["S/D"];
+
+    const rows=getEquiposListaMaestraAll(maquina);
+    const props=uniq(rows.map(getPropiedadFromListaRow).filter(Boolean));
+
+    // Regla: S/D sólo se usa cuando el equipo NO tiene una propiedad real.
+    // Si un equipo cruza con DELTA, SULLAIR, DIESEL LANGE, etc., no debe aparecer
+    // también dentro de S/D por culpa de filas con Código Viejo = "-".
+    const reales=props.filter(p=>p&&p!=="S/D"&&p!=="-"&&p!=="—");
+    return reales.length?reales:["S/D"];
+  },[getEquiposListaMaestraAll,getPropiedadFromListaRow,isInvalidEquipoCodeCosto]);
+
+  const propiedadEquipo=React.useCallback((maquina)=>{
+    const props=propiedadesEquipo(maquina);
+    const real=props.find(p=>p&&p!=="S/D");
+    return real||props[0]||"S/D";
+  },[propiedadesEquipo]);
+
+  const matchPropiedadEquipo=React.useCallback((maquina,seleccion)=>{
+    if(multiIsAll(seleccion,"todos"))return true;
+    const props=propiedadesEquipo(maquina);
+    const sel=Array.isArray(seleccion)?seleccion:[seleccion].filter(Boolean);
+    return sel.some(p=>props.includes(String(p||"").trim().toUpperCase()));
+  },[propiedadesEquipo]);
+
+  // Cache liviana por equipo para que los filtros no recalculen la correlación
+  // contra Lista Maestra miles de veces en cada render. No cambia resultados:
+  // sólo guarda display, propiedades y tipo ya calculados para cada máquina
+  // visible dentro del rango de fecha actual.
+  const rma15MetaMap=React.useMemo(()=>{
+    const map=new Map();
+    (rma15PorFecha||[]).forEach(r=>{
+      const key=String(r.maquina||"");
+      if(map.has(key))return;
+      const props=propiedadesEquipo(r.maquina);
+      const real=props.find(p=>p&&p!=="S/D");
+      map.set(key,{
+        display:equipoCostoDisplay(r.maquina),
+        props,
+        propiedad:real||props[0]||"S/D",
+        tipo:tipoEquipoCosto(r.maquina),
+      });
+    });
+    return map;
+  },[rma15PorFecha,propiedadesEquipo,equipoCostoDisplay]);
+
+  const metaEquipoCosto=React.useCallback((maquina)=>{
+    const key=String(maquina||"");
+    return rma15MetaMap.get(key)||{
+      display:equipoCostoDisplay(maquina),
+      props:propiedadesEquipo(maquina),
+      propiedad:propiedadEquipo(maquina),
+      tipo:tipoEquipoCosto(maquina),
+    };
+  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,propiedadEquipo]);
+
+  const matchPropiedadMeta=React.useCallback((meta,seleccion)=>{
+    if(multiIsAll(seleccion,"todos"))return true;
+    const props=meta?.props||[];
+    const sel=Array.isArray(seleccion)?seleccion:[seleccion].filter(Boolean);
+    return sel.some(p=>props.includes(String(p||"").trim().toUpperCase()));
+  },[]);
+
+  const costoRowsProyectoOpts=React.useMemo(()=>rma15PorFecha||[],[rma15PorFecha]);
+
+  const costoRowsPropiedadOpts=React.useMemo(()=>
+    costoRowsProyectoOpts.filter(r=>matchMulti(r.proyecto,fProyecto,"todos")),
+    [costoRowsProyectoOpts,fProyecto]
+  );
+
+  const costoRowsTipoEquipoOpts=React.useMemo(()=>
+    costoRowsPropiedadOpts.filter(r=>matchPropiedadMeta(metaEquipoCosto(r.maquina),fPropiedad)),
+    [costoRowsPropiedadOpts,fPropiedad,metaEquipoCosto,matchPropiedadMeta]
+  );
+
+  const costoRowsMaquinaOpts=React.useMemo(()=>
+    costoRowsTipoEquipoOpts.filter(r=>{
+      if(multiIsAll(fTipoEquipo,"todos"))return true;
+      const tipo=metaEquipoCosto(r.maquina).tipo;
+      const sel=Array.isArray(fTipoEquipo)?fTipoEquipo:[];
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+    }),
+    [costoRowsTipoEquipoOpts,fTipoEquipo,metaEquipoCosto]
+  );
+
+  const proyectoOpts=React.useMemo(()=>[
+    {value:"todos",label:"Todos los proyectos"},
+    ...uniq(costoRowsProyectoOpts.map(r=>r.proyecto).filter(Boolean)).map(p=>({value:p,label:p}))
+  ],[costoRowsProyectoOpts]);
+
+  const propiedadOpts=React.useMemo(()=>[
+    {value:"todos",label:"Todas las propiedades"},
+    ...uniq(costoRowsPropiedadOpts.flatMap(r=>metaEquipoCosto(r.maquina).props||[]).filter(Boolean)).map(p=>({value:p,label:p}))
+  ],[costoRowsPropiedadOpts,metaEquipoCosto]);
+
+  const tipoEquipoOpts=React.useMemo(()=>{
+    const presentes=new Set(costoRowsTipoEquipoOpts.map(r=>metaEquipoCosto(r.maquina).tipo).filter(Boolean));
+    const base=[
+      {value:"todos",label:"Todos los equipos"},
+      {value:"MAQUINAS",label:"Máquinas"},
+      {value:"CAMIONES",label:"Camiones"},
+      {value:"CAMIONETAS",label:"Camionetas"},
+      {value:"EXCAVADORA",label:"Excavadoras"},
+      {value:"CARGADORA FRONTAL",label:"Cargadoras frontales"},
+      {value:"MOTONIVELADORA",label:"Motoniveladoras"},
+      {value:"TOPADORA",label:"Topadoras"},
+      {value:"RETROPALA",label:"Retropalas"},
+      {value:"VIBROCOMPACTADOR",label:"Vibrocompactadores"},
+      {value:"MINICARGADORA",label:"Minicargadoras"},
+      {value:"OTROS",label:"Otros"},
+    ];
+    return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||presentes.has(o.value));
+  },[costoRowsTipoEquipoOpts,metaEquipoCosto]);
+
+  const maquinaOpts=React.useMemo(()=>[
+    {value:"todos",label:"Todas"},
+    ...uniq(costoRowsMaquinaOpts.map(r=>metaEquipoCosto(r.maquina).display).filter(Boolean)).map(m=>({value:m,label:m}))
+  ],[costoRowsMaquinaOpts,metaEquipoCosto]);
+
+  React.useEffect(()=>{
+    setFProyecto(v=>normalizeMultiValue(v,proyectoOpts));
+  },[proyectoOpts]);
+  React.useEffect(()=>{
+    setFPropiedad(v=>normalizeMultiValue(v,propiedadOpts));
+  },[propiedadOpts]);
+  React.useEffect(()=>{
+    setFMaquinas(v=>normalizeMultiValue(v,maquinaOpts));
+  },[maquinaOpts]);
+  React.useEffect(()=>{
+    setFTipoEquipo(v=>normalizeMultiValue(v,tipoEquipoOpts));
+  },[tipoEquipoOpts]);
+
+  const rma15Filtrado=React.useMemo(()=>{
+    return (rma15PorFecha||[]).filter(r=>{
+      const meta=metaEquipoCosto(r.maquina);
+      if(!matchMulti(r.proyecto,fProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,fPropiedad))return false;
+      if(!matchMulti(meta.display,fMaquinas,"todos"))return false;
+      if(multiIsAll(fTipoEquipo,"todos"))return true;
+      const tipo=meta.tipo;
+      const sel=Array.isArray(fTipoEquipo)?fTipoEquipo:[];
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+    });
+  },[rma15PorFecha,fProyecto,fPropiedad,fMaquinas,fTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+
+  const fmtU=v=>v==null||v===0?"—":"$"+fmtNum(Math.round(v));
+  const fmtUSD2=v=>v==null||v===0?"—":"U$S "+fmtNum(Math.round(v));
+
+  // Tabla de costos desde RMA15
+  const tabla1=React.useMemo(()=>{
+    const map={};
+    (rma15Filtrado||[]).forEach(r=>{
+      const eq=metaEquipoCosto(r.maquina).display;
+      if(!map[eq])map[eq]={equipo:eq,prev:0,corr:0};
+      (r.insumos||[]).forEach(ins=>{
+        const t=String(r.tipoMant||"").toUpperCase();
+        if(t.includes("PREV"))map[eq].prev+=ins.costoTotal||0;
+        else map[eq].corr+=ins.costoTotal||0;
+      });
+    });
+    return Object.values(map).filter(x=>x.prev>0||x.corr>0).sort((a,b)=>a.equipo.localeCompare(b.equipo)).map(x=>({...x,total:x.prev+x.corr}));
+  },[rma15Filtrado,metaEquipoCosto]);
+
+  const tabla2=React.useMemo(()=>{
+    const map={};
+    (rma15Filtrado||[]).forEach(r=>{
+      const eq=metaEquipoCosto(r.maquina).display;
+      if(!map[eq])map[eq]={equipo:eq,prev:0,corr:0};
+      (r.insumos||[]).forEach(ins=>{
+        const t=String(r.tipoMant||"").toUpperCase();
+        if(t.includes("PREV"))map[eq].prev+=ins.costoTotal||0;
+        else map[eq].corr+=ins.costoTotal||0;
+      });
+    });
+    return Object.values(map).filter(x=>x.prev>0||x.corr>0).sort((a,b)=>a.equipo.localeCompare(b.equipo)).map(x=>({...x,total:x.prev+x.corr}));
+  },[rma15Filtrado,metaEquipoCosto]);
+
+  const mesesAcumulado=React.useMemo(()=>
+    buildMonthKeysCosto(rma15Filtrado||[],modoFecha,fechaDia,fechaD,fechaH),
+    [rma15Filtrado,modoFecha,fechaDia,fechaD,fechaH]
+  );
+
+  // Debe calcularse ANTES de acumuladoEquipos. Si queda debajo, React intenta usar
+  // subtotalJM/subtotalFS antes de inicializarlos y la pestaña se pone en blanco.
+  const subtotalJM=(Number(mecJM)||0)*(Number(costMec)||0)+(Number(ctaMecJM)||0)*(Number(costCTA)||0);
+  const subtotalFS=(Number(mecFS)||0)*(Number(costMec)||0)+(Number(ctaMecFS)||0)*(Number(costCTA)||0);
+
+  const acumuladoEquipos=React.useMemo(()=>{
+    const map={};
+    (rma15Filtrado||[]).forEach(r=>{
+      const mes=monthKeyCosto(r.fecha);
+      if(!mes)return;
+      const proy=String(r.proyecto||"").toUpperCase();
+      const section=(proy.includes("JOSE")||proy.includes("JM"))?"JM":"FS";
+      const equipo=metaEquipoCosto(r.maquina).display;
+      const key=section+"__"+equipo;
+      if(!map[key]){
+        map[key]={equipo,section,months:{},prev:0,corr:0,total:0};
+      }
+      if(!map[key].months[mes])map[key].months[mes]={prev:0,corr:0,total:0};
+      const esPrev=String(r.tipoMant||"").toUpperCase().includes("PREV");
+      (r.insumos||[]).forEach(ins=>{
+        const usd=(Number(ins.costoTotal)||0)/(Number(usdRate2)||1);
+        if(esPrev){
+          map[key].months[mes].prev+=usd;
+          map[key].prev+=usd;
+        }else{
+          map[key].months[mes].corr+=usd;
+          map[key].corr+=usd;
+        }
+        map[key].months[mes].total+=usd;
+        map[key].total+=usd;
+      });
+    });
+
+    return Object.values(map)
+      .filter(x=>x.total>0)
+      .map(x=>{
+        const mesesConDatos=mesesAcumulado.filter(m=>Number(x.months[m.key]?.total)>0).length;
+        const hsEf=x.section==="JM"?Number(hsEfJM)||180:Number(hsEfFS)||180;
+        const moTotal=x.section==="JM"?subtotalJM:subtotalFS;
+        const cantEq=Object.values(map).filter(e=>e.section===x.section&&e.total>0).length||1;
+        const mo=cantEq>0?moTotal/cantEq:0;
+        const promedio=mesesConDatos>0?x.total/mesesConDatos:0;
+        return {...x,promedio,mo,hsEf,usdHs:hsEf>0?(x.total+mo)/hsEf:0};
+      })
+      .sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
+  },[rma15Filtrado,mesesAcumulado,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,metaEquipoCosto]);
+
+  const acumuladoSubtotales=React.useMemo(()=>{
+    const mk=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesAcumulado||[]).map(m=>[m.key,{prev:0,corr:0,total:0}])),promedio:0,mo:0,hsEf:0,usdHs:0});
+    const out={FS:mk(),JM:mk(),TOTAL:mk()};
+    (acumuladoEquipos||[]).forEach(x=>{
+      const sec=out[x.section]||out.FS;
+      [sec,out.TOTAL].forEach(t=>{
+        t.prev+=x.prev||0;t.corr+=x.corr||0;t.total+=x.total||0;t.promedio+=x.promedio||0;t.mo+=x.mo||0;
+        (mesesAcumulado||[]).forEach(m=>{
+          t.months[m.key].prev+=x.months[m.key]?.prev||0;
+          t.months[m.key].corr+=x.months[m.key]?.corr||0;
+          t.months[m.key].total+=x.months[m.key]?.total||0;
+        });
+      });
+    });
+    out.FS.hsEf=Number(hsEfFS)||0;out.JM.hsEf=Number(hsEfJM)||0;out.TOTAL.hsEf=out.FS.hsEf+out.JM.hsEf;
+    out.FS.usdHs=out.FS.hsEf>0?(out.FS.total+out.FS.mo)/out.FS.hsEf:0;
+    out.JM.usdHs=out.JM.hsEf>0?(out.JM.total+out.JM.mo)/out.JM.hsEf:0;
+    out.TOTAL.usdHs=out.TOTAL.hsEf>0?(out.TOTAL.total+out.TOTAL.mo)/out.TOTAL.hsEf:0;
+    return out;
+  },[acumuladoEquipos,mesesAcumulado,hsEfFS,hsEfJM]);
+
+  const totJM=React.useMemo(()=>({
+    prev:tabla1.reduce((s,x)=>s+x.prev,0),
+    corr:tabla1.reduce((s,x)=>s+x.corr,0),
+    total:tabla1.reduce((s,x)=>s+x.total,0),
+  }),[tabla1]);
+
+  const totFS=React.useMemo(()=>({
+    prev:tabla2.reduce((s,x)=>s+x.prev,0),
+    corr:tabla2.reduce((s,x)=>s+x.corr,0),
+    total:tabla2.reduce((s,x)=>s+x.total,0),
+  }),[tabla2]);
+
+  const totCostos=totJM;
+
+  const proyectoSeleccionadoArr=React.useMemo(()=>multiIsAll(fProyecto,"todos")?[]:(Array.isArray(fProyecto)?fProyecto:[fProyecto]).filter(Boolean),[fProyecto]);
+  const incluyeJM=React.useMemo(()=>multiIsAll(fProyecto,"todos")||proyectoSeleccionadoArr.some(p=>String(p).toUpperCase().includes("JOSE")||String(p).toUpperCase().includes("JM")),[fProyecto,proyectoSeleccionadoArr]);
+  const incluyeFS=React.useMemo(()=>multiIsAll(fProyecto,"todos")||proyectoSeleccionadoArr.some(p=>String(p).toUpperCase().includes("FILO")||String(p).toUpperCase().includes("FS")),[fProyecto,proyectoSeleccionadoArr]);
+  const subtotalProyecto=(incluyeJM?subtotalJM:0)+(incluyeFS?subtotalFS:0);
+  const hsEfProyecto=(incluyeJM?(Number(hsEfJM)||0):0)+(incluyeFS?(Number(hsEfFS)||0):0);
+
+  const proyectoTitulo=React.useMemo(()=>{
+    if(multiIsAll(fProyecto,"todos"))return "Todos los proyectos";
+    const arr=Array.isArray(fProyecto)?fProyecto:[fProyecto];
+    return arr.filter(Boolean).join(" + ")||"Todos los proyectos";
+  },[fProyecto]);
+
+  const handleAcumUpload=async(e)=>{
+    const file=e.target.files?.[0];
+    if(!file)return;
+    setAcumParsing(true);setAcumError(null);
+    try{
+      const buf=await file.arrayBuffer();
+      const arr=new Uint8Array(buf);
+      // Use SheetJS from CDN if available
+      if(typeof XLSX==="undefined"){setAcumError("Librería XLSX no disponible. Recargá la página.");setAcumParsing(false);return;}
+      const wb=XLSX.read(arr,{type:"array"});
+      const ws=wb.Sheets["Acumulado"]||wb.Sheets[wb.SheetNames[0]];
+      const raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null});
+      const monthRow=raw[2]||[];
+      const months=[];
+      for(let i=1;i<monthRow.length;i++){
+        if(monthRow[i]&&String(monthRow[i])!=="-"&&isNaN(Number(monthRow[i]))){
+          months.push({name:String(monthRow[i]),col:i});
+          i+=2; // skip the 3 cols per month, next month starts 3 cols later
+        }
+      }
+      const dataRows=raw.slice(4);
+      let section="FS";
+      const equipos=[];
+      dataRows.forEach((row,ri)=>{
+        if(!row||!row[0])return;
+        const eq=String(row[0]);
+        if(eq==="Subtotal FS"||eq==="Subtotal FS "){section="JM";return;}
+        if(eq.startsWith("Subtotal JM")||eq==="TOTAL A"||eq==="-")return;
+        const mdata={};
+        months.forEach(m=>{
+          const prev=parseFloat(row[m.col])||0;
+          const corr=parseFloat(row[m.col+1])||0;
+          const tot=parseFloat(row[m.col+2])||(prev+corr);
+          mdata[m.name]={prev,corr,total:tot};
+        });
+        const lastDataCol=months.length>0?months[months.length-1].col+3:4;
+        equipos.push({
+          equipo:eq,section,months:mdata,
+          totalB:parseFloat(row[lastDataCol])||0,
+          promedio:parseFloat(row[lastDataCol+1])||0,
+          mo:parseFloat(row[lastDataCol+3])||0,
+          hsEf:parseFloat(row[lastDataCol+4])||180,
+          usdHs:parseFloat(row[lastDataCol+5])||0,
+        });
+      });
+      setAcumData({months,equipos});
+    }catch(err){setAcumError("Error: "+err.message);}
+    setAcumParsing(false);
+  };
+
+  const thS={padding:"7px 10px",fontSize:10,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:".05em",background:C.surface,borderBottom:`1px solid ${C.border}`,textAlign:"right",whiteSpace:"nowrap"};
+  const thL={...thS,textAlign:"left"};
+  const tdS={padding:"7px 10px",borderBottom:`1px solid ${C.border}18`,fontSize:12,textAlign:"right",color:C.text};
+  const tdL={...tdS,textAlign:"left",fontWeight:600,color:C.blue};
+  const tdT={...tdS,fontWeight:700,background:C.surface+"55"};
+  const inp={background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,color:C.text,padding:"5px 9px",fontSize:12,fontFamily:"Inter",outline:"none",width:"100%"};
+
+  const TabBtn=({id,label})=>(
+    <button onClick={()=>setTab(id)} style={{padding:"8px 16px",borderRadius:7,border:"none",
+      background:tab===id?C.accent:"transparent",color:tab===id?"#fff":C.textSub,
+      cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",transition:"all .15s"}}>
+      {label}
+    </button>
+  );
+
+  const excelBtnStyle={background:C.greenDim,border:`1px solid ${C.green}55`,borderRadius:7,color:C.green,padding:"7px 10px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"Inter"};
+
+  const descargarExcel=(nombre,rows)=>{
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.json_to_sheet(rows||[]);
+    XLSX.utils.book_append_sheet(wb,ws,"Datos");
+    XLSX.writeFile(wb,`${nombre}.xlsx`);
+  };
+
+  const rowsTablaCostosExcel=(datos,tot)=>[
+    ...(datos||[]).map(x=>({
+      Equipo:x.equipo,
+      Preventivo_ARS:Math.round(x.prev||0),
+      Correctivo_ARS:Math.round(x.corr||0),
+      Total_ARS:Math.round(x.total||0),
+    })),
+    {Equipo:"TOTAL",Preventivo_ARS:Math.round(tot?.prev||0),Correctivo_ARS:Math.round(tot?.corr||0),Total_ARS:Math.round(tot?.total||0)}
+  ];
+
+  const rowsAcumuladoExcel=React.useMemo(()=>{
+    const rows=[];
+    [{id:"FS",label:"FILO DEL SOL"},{id:"JM",label:"JOSE MARIA"}].forEach(sec=>{
+      (acumuladoEquipos||[]).filter(x=>x.section===sec.id).forEach(x=>{
+        const row={Proyecto:sec.label,Equipo:x.equipo};
+        (mesesAcumulado||[]).forEach(m=>{
+          const d=x.months[m.key]||{prev:0,corr:0,total:0};
+          row[`${m.label} Preventivo USD`]=Math.round(d.prev||0);
+          row[`${m.label} Correctivo USD`]=Math.round(d.corr||0);
+          row[`${m.label} Total USD`]=Math.round(d.total||0);
+        });
+        row["Total B USD"]=Math.round(x.total||0);
+        row["Promedio USD"]=Math.round(x.promedio||0);
+        row["MO USD"]=Math.round(x.mo||0);
+        row["Hs Ef."]=x.hsEf||0;
+        row["USD/Hs"]=Math.round(x.usdHs||0);
+        rows.push(row);
+      });
+    });
+    return rows;
+  },[acumuladoEquipos,mesesAcumulado]);
+
+
+
+
+  const monthInFechaFiltroCosto=React.useCallback((key)=>{
+    if(!key)return false;
+    if(fechaD&&key<monthKeyCosto(fechaD))return false;
+    if(fechaH&&key>monthKeyCosto(fechaH))return false;
+    return true;
+  },[fechaD,fechaH]);
+
+  const sectionProyectoCosto=React.useCallback((section)=>{
+    return section==="JM"?"JOSE MARIA":"FILO DEL SOL";
+  },[]);
+
+  const historialAcumuladoFiltrado=React.useMemo(()=>{
+    return (HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
+      const proyecto=sectionProyectoCosto(x.section);
+      const meta=metaEquipoCosto(x.equipo);
+      if(!matchMulti(proyecto,fProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,fPropiedad))return false;
+      if(!matchMulti(meta.display,fMaquinas,"todos")&&!matchMulti(x.equipo,fMaquinas,"todos"))return false;
+      if(!multiIsAll(fTipoEquipo,"todos")){
+        const tipo=meta.tipo;
+        const sel=Array.isArray(fTipoEquipo)?fTipoEquipo:[];
+        if(!(sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo))))return false;
+      }
+      return true;
+    });
+  },[fProyecto,fPropiedad,fMaquinas,fTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
+
+  const mesesFijosAcumuladoMensual=React.useMemo(()=>
+    (HIST_COSTO_MENSUAL_ACUMULADO.months||[]).filter(m=>monthInFechaFiltroCosto(m.key)),
+    [monthInFechaFiltroCosto]
+  );
+
+  const mesesDinamicosAcumuladoMensual=React.useMemo(()=>{
+    const set=new Set();
+    (rma15Filtrado||[]).forEach(r=>{
+      const k=monthKeyCosto(r.fecha);
+      if(k&&k>="2026-04")set.add(k);
+    });
+    return [...set].sort().map(k=>({key:k,label:monthLabelCosto(k),dollar:Number(monthlyDollar[k])||Number(usdRate2)||1400}));
+  },[rma15Filtrado,monthlyDollar,usdRate2]);
+
+  const mesesCostoMensual=React.useMemo(()=>{
+    const map=new Map();
+    [...mesesFijosAcumuladoMensual,...mesesDinamicosAcumuladoMensual].forEach(m=>map.set(m.key,{...m,dollar:Number(monthlyDollar[m.key])||Number(m.dollar)||Number(usdRate2)||1400}));
+    return [...map.values()].sort((a,b)=>a.key.localeCompare(b.key));
+  },[mesesFijosAcumuladoMensual,mesesDinamicosAcumuladoMensual,monthlyDollar,usdRate2]);
+
+  const ultimoDolarCostoMensual=React.useMemo(()=>{
+    const meses=[...(mesesCostoMensual||[])].filter(m=>m?.key).sort((a,b)=>String(a.key).localeCompare(String(b.key)));
+    const ultimo=meses[meses.length-1];
+    if(!ultimo)return Number(usdRate2)||1400;
+    return Number(monthlyDollar[ultimo.key])||Number(ultimo.dollar)||Number(usdRate2)||1400;
+  },[mesesCostoMensual,monthlyDollar,usdRate2]);
+
+  const costoMensualAcumulado=React.useMemo(()=>{
+    const map={};
+    const ensure=(equipo,section)=>{
+      const key=section+"__"+equipo;
+      if(!map[key])map[key]={equipo,section,months:{},prev:0,corr:0,total:0};
+      return map[key];
+    };
+
+    historialAcumuladoFiltrado.forEach(x=>{
+      const equipo=x.equipo;
+      const row=ensure(equipo,x.section);
+      mesesFijosAcumuladoMensual.forEach(m=>{
+        const d=x.months?.[m.key]||{prev:0,corr:0,total:0};
+        if(!row.months[m.key])row.months[m.key]={prev:0,corr:0,total:0};
+        row.months[m.key].prev+=Number(d.prev)||0;
+        row.months[m.key].corr+=Number(d.corr)||0;
+        row.months[m.key].total+=Number(d.total)||((Number(d.prev)||0)+(Number(d.corr)||0));
+      });
+    });
+
+    (rma15Filtrado||[]).forEach(r=>{
+      const mes=monthKeyCosto(r.fecha);
+      if(!mes||mes<"2026-04")return;
+      const proy=String(r.proyecto||"").toUpperCase();
+      const section=(proy.includes("JOSE")||proy.includes("JM"))?"JM":"FS";
+      const equipo=metaEquipoCosto(r.maquina).display;
+      const row=ensure(equipo,section);
+      if(!row.months[mes])row.months[mes]={prev:0,corr:0,total:0};
+      const esPrev=String(r.tipoMant||"").toUpperCase().includes("PREV");
+      const rate=Number(monthlyDollar[mes])||Number(usdRate2)||1;
+      (r.insumos||[]).forEach(ins=>{
+        const usd=(Number(ins.costoTotal)||0)/rate;
+        if(esPrev)row.months[mes].prev+=usd;
+        else row.months[mes].corr+=usd;
+        row.months[mes].total+=usd;
+      });
+    });
+
+    Object.values(map).forEach(row=>{
+      (mesesCostoMensual||[]).forEach(m=>{
+        const d=row.months[m.key]||{prev:0,corr:0,total:0};
+        row.prev+=Number(d.prev)||0;
+        row.corr+=Number(d.corr)||0;
+        row.total+=Number(d.total)||0;
+      });
+    });
+    return Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
+  },[historialAcumuladoFiltrado,mesesFijosAcumuladoMensual,rma15Filtrado,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
+
+  const costoMensualTotales=React.useMemo(()=>{
+    const mk=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesCostoMensual||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
+    const out={FS:mk(),JM:mk(),TOTAL:mk()};
+    (costoMensualAcumulado||[]).forEach(x=>{
+      const sec=out[x.section]||out.FS;
+      [sec,out.TOTAL].forEach(t=>{
+        t.prev+=x.prev||0;t.corr+=x.corr||0;t.total+=x.total||0;
+        (mesesCostoMensual||[]).forEach(m=>{
+          const d=x.months[m.key]||{};
+          if(!t.months[m.key])t.months[m.key]={prev:0,corr:0,total:0};
+          t.months[m.key].prev+=d.prev||0;
+          t.months[m.key].corr+=d.corr||0;
+          t.months[m.key].total+=d.total||0;
+        });
+      });
+    });
+    return out;
+  },[costoMensualAcumulado,mesesCostoMensual]);
+
+  const rowsCostoMensualExcel=React.useMemo(()=>{
+    const rows=[];
+    (costoMensualAcumulado||[]).forEach(x=>{
+      const row={Proyecto:sectionProyectoCosto(x.section),Equipo:x.equipo};
+      let sumPrev=0,sumCorr=0,sumTotal=0,cantPrev=0,cantCorr=0,cantTotal=0;
+      (mesesCostoMensual||[]).forEach(m=>{
+        const d=x.months[m.key]||{};
+        const prev=Number(d.prev)||0;
+        const corr=Number(d.corr)||0;
+        const total=Number(d.total)||0;
+        row[`${m.label} Preventivo`]=Math.round(prev);
+        row[`${m.label} Correctivo`]=Math.round(corr);
+        row[`${m.label} Total`]=Math.round(total);
+        if(prev!==0){sumPrev+=prev;cantPrev++;}
+        if(corr!==0){sumCorr+=corr;cantCorr++;}
+        if(total!==0){sumTotal+=total;cantTotal++;}
+      });
+      row["Total B"]=Math.round(x.total||0);
+      row["Promedio Preventivo"]=cantPrev?Math.round(sumPrev/cantPrev):0;
+      row["Promedio Correctivo"]=cantCorr?Math.round(sumCorr/cantCorr):0;
+      row["Promedio Total"]=cantTotal?Math.round(sumTotal/cantTotal):0;
+      rows.push(row);
+    });
+    return rows;
+  },[costoMensualAcumulado,mesesCostoMensual,sectionProyectoCosto]);
+
+  const setDollarMesCostoDraft=(key,val)=>{
+    setMonthlyDollarDraft(prev=>({...prev,[key]:val}));
+  };
+
+  const commitDollarMesCosto=(key,val)=>{
+    const scrollLeft=costoMensualScrollRef.current?.scrollLeft||0;
+    const n=Number(String(val).replace(",","."));
+    if(Number.isFinite(n)&&n>0){
+      setMonthlyDollar(prev=>({...prev,[key]:n}));
+      setMonthlyDollarDraft(prev=>({...prev,[key]:String(n)}));
+      restoreCostoMensualScroll(scrollLeft);
+    }else{
+      const fallback=String(monthlyDollar[key]||usdRate2||1400);
+      setMonthlyDollarDraft(prev=>({...prev,[key]:fallback}));
+      restoreCostoMensualScroll(scrollLeft);
+    }
+  };
+
+  const promedioCostoMensual=(x)=>{
+    const meses=mesesCostoMensual||[];
+    const acc=meses.reduce((a,m)=>{
+      const d=x.months?.[m.key]||{};
+      const prev=Number(d.prev)||0;
+      const corr=Number(d.corr)||0;
+      const total=Number(d.total)||0;
+      if(prev!==0){a.prev+=prev;a.nPrev++;}
+      if(corr!==0){a.corr+=corr;a.nCorr++;}
+      if(total!==0){a.total+=total;a.nTotal++;}
+      return a;
+    },{prev:0,corr:0,total:0,nPrev:0,nCorr:0,nTotal:0});
+    return {
+      prev:acc.nPrev?acc.prev/acc.nPrev:0,
+      corr:acc.nCorr?acc.corr/acc.nCorr:0,
+      total:acc.nTotal?acc.total/acc.nTotal:0,
+    };
+  };
+
+  const promedioTotalesCostoMensual=(section)=>{
+    const meses=mesesCostoMensual||[];
+    const src=costoMensualTotales?.[section]?.months||{};
+    const acc=meses.reduce((a,m)=>{
+      const d=src[m.key]||{};
+      const prev=Number(d.prev)||0;
+      const corr=Number(d.corr)||0;
+      const total=Number(d.total)||0;
+      if(prev!==0){a.prev+=prev;a.nPrev++;}
+      if(corr!==0){a.corr+=corr;a.nCorr++;}
+      if(total!==0){a.total+=total;a.nTotal++;}
+      return a;
+    },{prev:0,corr:0,total:0,nPrev:0,nCorr:0,nTotal:0});
+    return {
+      prev:acc.nPrev?acc.prev/acc.nPrev:0,
+      corr:acc.nCorr?acc.corr/acc.nCorr:0,
+      total:acc.nTotal?acc.total/acc.nTotal:0,
+    };
+  };
+
+  const getCostoLocalUSDEquipo=React.useCallback((maquina)=>{
+    const eq=getEquipoListaMaestra(maquina);
+    if(!eq)return 0;
+    const keys=Object.keys(eq||{});
+    const k=findColumnKey(keys,"Costo local USD",[
+      "Costo Local USD",
+      "Costo Local USD (s/IVA)",
+      "Costo local USD (s/IVA)",
+      "Costo local usd",
+      "Costo Local",
+      "Costo local",
+      "Costo USD",
+      "Valor USD",
+      "Valor local USD",
+      "Costo adquisición USD",
+      "Costo de adquisición USD"
+    ]);
+    return toNumber(k?eq[k]:0);
+  },[getEquipoListaMaestra]);
+
+  const getCostoLocalUSDFromListaRow=React.useCallback((eq)=>{
+    const keys=Object.keys(eq||{});
+    const k=findColumnKey(keys,"Costo local USD",[
+      "Costo Local USD",
+      "Costo Local USD (s/IVA)",
+      "Costo local USD (s/IVA)",
+      "Costo local usd",
+      "Costo Local",
+      "Costo local",
+      "Costo USD",
+      "Valor USD",
+      "Valor local USD",
+      "Costo adquisición USD",
+      "Costo de adquisición USD"
+    ]);
+    return toNumber(k?eq[k]:0);
+  },[]);
+
+  const costoAdquisicionPromedioCamionetas=React.useMemo(()=>{
+    const valores=(listaEquipos||[])
+      .filter(eq=>{
+        const familia=String(getValue(eq,["Familia","FAMILIA"])||"").trim().toUpperCase();
+        return familia.includes("CAMIONETA");
+      })
+      .map(eq=>getCostoLocalUSDFromListaRow(eq))
+      .filter(v=>Number(v)>0);
+    return valores.length?valores.reduce((s,v)=>s+Number(v),0)/valores.length:0;
+  },[listaEquipos,getCostoLocalUSDFromListaRow]);
+
+  const totalMantenimientoPromedioPorProyecto=React.useMemo(()=>{
+    const out={JM:0,FS:0};
+    (costoMensualAcumulado||[]).forEach(x=>{
+      const section=x.section==="JM"?"JM":"FS";
+      out[section]+=Number(promedioCostoMensual(x).total)||0;
+    });
+    return out;
+  },[costoMensualAcumulado,mesesCostoMensual]);
+
+  const esCamionetaManoObra=React.useCallback((maquina, rowRma15=null)=>{
+    // Para las filas CTA no dependemos sólo de Lista Maestra: en RMA15 muchas
+    // camionetas vienen por patente/código y no siempre cruzan perfecto contra
+    // Código Drusila/Código Viejo. Por eso se consideran todas estas señales:
+    // 1) columna EQUIPO de RMA15, 2) tipo/familia de Lista Maestra,
+    // 3) códigos visibles típicos de camioneta (CTA, AG, AH).
+    const tipoRma=String(rowRma15?.tipoEquipo||rowRma15?.equipo||"").toUpperCase();
+    if(tipoRma.includes("CAMIONETA"))return true;
+
+    const meta=metaEquipoCosto(maquina);
+    const tipo=String(meta?.tipo||"").toUpperCase();
+    const code=String(maquina||"").toUpperCase().replace(/\s+/g,"");
+    const display=String(meta?.display||"").toUpperCase().replace(/\s+/g,"");
+
+    if(tipo==="CAMIONETAS"||tipo==="CAMIONETA"||tipo.includes("CAMIONETA"))return true;
+    if(/^CTA/.test(code)||/^CTA/.test(display)||/^AG-?[0-9]/.test(code)||/^AH-?[0-9]/.test(code)||/^AG-?[0-9]/.test(display)||/^AH-?[0-9]/.test(display))return true;
+
+    const filas=getEquiposListaMaestraAll(maquina)||[];
+    return filas.some(eq=>{
+      const familia=String(getValue(eq,["Familia","FAMILIA","Tipo","Tipo de equipo","Tipo Equipo","EQUIPO"])||"").toUpperCase();
+      const codDrusila=String(getValue(eq,["Código Drusila","Codigo Drusila"])||"").toUpperCase().replace(/\s+/g,"");
+      const codNuevo=String(getValue(eq,["Código Nuevo","Codigo Nuevo","Codigo Interno","Código Interno"])||"").toUpperCase().replace(/\s+/g,"");
+      const codViejo=String(getValue(eq,["Código Viejo","Codigo Viejo","Codigo Anterior","Código Anterior"])||"").toUpperCase().replace(/\s+/g,"");
+      return familia.includes("CAMIONETA")||/^CTA/.test(codDrusila)||/^CTA/.test(codNuevo)||/^CTA/.test(codViejo)||/^AG-?[0-9]/.test(codDrusila+codNuevo+codViejo)||/^AH-?[0-9]/.test(codDrusila+codNuevo+codViejo);
+    });
+  },[metaEquipoCosto,getEquiposListaMaestraAll]);
+
+  const ctaStatsManoObra=React.useMemo(()=>{
+    const build=(section)=>{
+      const cantManual=section==="JM"?Number(ctaJM)||0:Number(ctaFS)||0;
+      const byCamioneta=new Map();
+
+      const rateCTA=Number(ultimoDolarCostoMensual)||Number(usdRate2)||1400;
+
+      // Usar RMA15 filtrado sólo por fecha, NO rma15Filtrado completo.
+      // Si se usaba rma15Filtrado, al tener Tipo de equipo = Máquinas,
+      // Propiedad o Máquina seleccionada, las camionetas quedaban afuera y
+      // el mantenimiento de CTA daba vacío.
+      (rma15PorFecha||[]).forEach(r=>{
+        const proy=String(r.proyecto||"").toUpperCase();
+        const sec=(proy.includes("JOSE")||proy.includes("JM"))?"JM":"FS";
+        if(sec!==section)return;
+        if(!esCamionetaManoObra(r.maquina,r))return;
+
+        const equipo=metaEquipoCosto(r.maquina).display||cleanMachine(r.maquina)||r.maquina;
+        if(!byCamioneta.has(equipo))byCamioneta.set(equipo,{total:0,months:new Set()});
+        const acc=byCamioneta.get(equipo);
+        acc.total+=(Number(r.costoTotal)||0)/rateCTA;
+        if(r.fecha)acc.months.add(String(r.fecha).slice(0,7));
+      });
+
+      const promedios=[...byCamioneta.values()]
+        .map(acc=>{
+          const divisor=Math.max(1,acc.months.size||mesesCostoMensual.length||1);
+          return Number(acc.total||0)/divisor;
+        })
+        .filter(v=>Number(v)>0);
+
+      const mantenimientoPromedio=promedios.length
+        ? promedios.reduce((s,v)=>s+v,0)/promedios.length
+        : 0;
+
+      const cantidadBase=cantManual>0?cantManual:byCamioneta.size;
+
+      return {
+        section,
+        cantidad:cantidadBase,
+        mantenimientoPromedio,
+        mantenimientoPeso:mantenimientoPromedio*Math.max(1,cantidadBase||0),
+        costoAdquisicionPromedio:costoAdquisicionPromedioCamionetas,
+        tieneFila:(cantidadBase>0||mantenimientoPromedio>0||costoAdquisicionPromedioCamionetas>0),
+      };
+    };
+    return {FS:build("FS"),JM:build("JM")};
+  },[rma15PorFecha,ctaJM,ctaFS,esCamionetaManoObra,metaEquipoCosto,mesesCostoMensual,costoAdquisicionPromedioCamionetas,ultimoDolarCostoMensual,usdRate2]);
+
+  const totalMantenimientoConCTAPorProyecto=React.useMemo(()=>({
+    // El % de mantenimiento se calcula contra la misma columna visible
+    // "Mantenimiento (USD)". Para CTA no se usa el peso oculto por cantidad,
+    // porque si no una CTA con mantenimiento visible menor podía llevarse más
+    // porcentaje que una máquina con mantenimiento visible mayor.
+    FS:(Number(totalMantenimientoPromedioPorProyecto.FS)||0)+(Number(ctaStatsManoObra.FS?.mantenimientoPromedio)||0),
+    JM:(Number(totalMantenimientoPromedioPorProyecto.JM)||0)+(Number(ctaStatsManoObra.JM?.mantenimientoPromedio)||0),
+  }),[totalMantenimientoPromedioPorProyecto,ctaStatsManoObra]);
+
+  const ctaManoObraRows=React.useMemo(()=>{
+    const build=(section)=>{
+      const st=ctaStatsManoObra[section];
+      if(!st?.tieneFila)return null;
+
+      const proyecto=sectionProyectoCosto(section);
+      if(!multiIsAll(fProyecto,"todos")&&!matchMulti(proyecto,fProyecto,"todos"))return null;
+      const totalProyecto=Number(totalMantenimientoConCTAPorProyecto[section])||0;
+      const subtotal=section==="JM"?Number(subtotalJM)||0:Number(subtotalFS)||0;
+      const porcentaje=totalProyecto>0?(Number(st.mantenimientoPromedio)||0)/totalProyecto:0;
+      const manoObra=subtotal*porcentaje;
+
+      return {
+        equipo:section==="JM"?"CTA JM":"CTA FS",
+        proyecto,
+        mantenimiento:Number(st.mantenimientoPromedio)||0,
+        porcentaje,
+        manoObra,
+        costoAdquisicion:(Number(st.costoAdquisicionPromedio)||0)*(Number(st.cantidad)||0),
+        total:(Number(st.mantenimientoPromedio)||0)+manoObra,
+        isCTA:true,
+        cantidadCTA:st.cantidad||0,
+        sortCTA:0,
+      };
+    };
+    return [build("FS"),build("JM")].filter(Boolean);
+  },[ctaStatsManoObra,sectionProyectoCosto,totalMantenimientoConCTAPorProyecto,subtotalJM,subtotalFS,fProyecto]);
+
+  const rowsManoObra=React.useMemo(()=>{
+    const base=(costoMensualAcumulado||[]).map(x=>{
+      const section=x.section==="JM"?"JM":"FS";
+      const proyecto=sectionProyectoCosto(section);
+      const mantenimiento=Number(promedioCostoMensual(x).total)||0;
+      const totalProyecto=Number(totalMantenimientoConCTAPorProyecto[section])||0;
+      const subtotal=section==="JM"?Number(subtotalJM)||0:Number(subtotalFS)||0;
+      const porcentaje=totalProyecto>0?mantenimiento/totalProyecto:0;
+      const manoObra=subtotal*porcentaje;
+      const costoAdquisicion=getCostoLocalUSDEquipo(x.equipo);
+      return {
+        equipo:x.equipo,
+        proyecto,
+        mantenimiento,
+        porcentaje,
+        manoObra,
+        costoAdquisicion,
+        total:mantenimiento+manoObra,
+        isCTA:false,
+      };
+    });
+    return [...base,...(ctaManoObraRows||[])]
+      .sort((a,b)=>a.proyecto.localeCompare(b.proyecto)||(a.isCTA?0:1)-(b.isCTA?0:1)||a.equipo.localeCompare(b.equipo));
+  },[costoMensualAcumulado,mesesCostoMensual,sectionProyectoCosto,totalMantenimientoConCTAPorProyecto,subtotalJM,subtotalFS,getCostoLocalUSDEquipo,ctaManoObraRows]);
+
+  const rowsManoObraExcel=React.useMemo(()=>
+    (rowsManoObra||[]).map(x=>({
+      Equipo:x.equipo,
+      Proyecto:x.proyecto,
+      "Mantenimiento USD":Math.round(x.mantenimiento||0),
+      "% del mantenimiento del proyecto":x.porcentaje||0,
+      "Mano de Obra USD":Math.round(x.manoObra||0),
+      "Costo de adquisición USD":Math.round(x.costoAdquisicion||0),
+      "Cantidad CTA":x.cantidadCTA||"",
+      "Total USD":Math.round(x.total||0),
+    })),
+    [rowsManoObra]
+  );
+
+
+  const monthThemeCosto=(key)=>{
+    const n=Number(String(key||"").slice(5,7))||0;
+    const themes={
+      1:{head:"#1e40af",sub:"#2563eb",soft:"rgba(37,99,235,.07)",line:"rgba(37,99,235,.35)"},
+      2:{head:"#b91c1c",sub:"#dc2626",soft:"rgba(220,38,38,.07)",line:"rgba(220,38,38,.35)"},
+      3:{head:"#0891b2",sub:"#06b6d4",soft:"rgba(6,182,212,.07)",line:"rgba(6,182,212,.35)"},
+      4:{head:"#15803d",sub:"#22c55e",soft:"rgba(34,197,94,.07)",line:"rgba(34,197,94,.35)"},
+      5:{head:"#166534",sub:"#16a34a",soft:"rgba(22,163,74,.08)",line:"rgba(22,163,74,.35)"},
+      6:{head:"#7c3aed",sub:"#8b5cf6",soft:"rgba(139,92,246,.07)",line:"rgba(139,92,246,.35)"},
+      7:{head:"#c2410c",sub:"#f97316",soft:"rgba(249,115,22,.07)",line:"rgba(249,115,22,.35)"},
+      8:{head:"#0f766e",sub:"#14b8a6",soft:"rgba(20,184,166,.07)",line:"rgba(20,184,166,.35)"},
+      9:{head:"#1e3a8a",sub:"#3b82f6",soft:"rgba(59,130,246,.07)",line:"rgba(59,130,246,.35)"},
+      10:{head:"#0e7490",sub:"#06b6d4",soft:"rgba(6,182,212,.07)",line:"rgba(6,182,212,.35)"},
+      11:{head:"#166534",sub:"#22c55e",soft:"rgba(34,197,94,.07)",line:"rgba(34,197,94,.35)"},
+      12:{head:"#5b21b6",sub:"#7c3aed",soft:"rgba(124,58,237,.07)",line:"rgba(124,58,237,.35)"},
+    };
+    return themes[n]||{head:"#334155",sub:"#475569",soft:"rgba(71,85,105,.08)",line:"rgba(148,163,184,.35)"};
+  };
+
+  const cellMonthStyleCosto=(key,extra={})=>{
+    const t=monthThemeCosto(key);
+    return {...tdS,background:t.soft,borderBottom:`1px solid ${C.border}20`,borderLeft:`1px solid ${t.line}`,...extra};
+  };
+
+  const rowProyectoStyleCosto=(sec)=>({
+    padding:"9px 12px",
+    textAlign:"center",
+    fontWeight:900,
+    letterSpacing:".08em",
+    fontSize:12,
+    color:"#fff",
+    background:sec==="JM"?"#0e7490":"#991b1b",
+    borderTop:`2px solid ${sec==="JM"?"#06b6d4":"#ef4444"}`,
+    borderBottom:`2px solid ${C.border}`
+  });
+
+  const rowSubtotalStyleCosto={
+    background:"#78350f",
+    color:"#fde68a",
+    fontWeight:900,
+    borderTop:"2px solid rgba(245,158,11,.65)",
+    borderBottom:"2px solid rgba(245,158,11,.35)"
+  };
+
+  const rowTotalStyleCosto={
+    background:"#7f1d1d",
+    color:"#fecaca",
+    fontWeight:900,
+    borderTop:"2px solid rgba(239,68,68,.75)",
+    borderBottom:"2px solid rgba(239,68,68,.45)"
+  };
+
+
+  const getManoObraCostoMensual=React.useCallback((x)=>{
+    const proyecto=sectionProyectoCosto(x?.section);
+    const eqKey=String(x?.equipo||"").trim().toUpperCase();
+    const proyKey=String(proyecto||"").trim().toUpperCase();
+    const row=(rowsManoObra||[]).find(r=>
+      !r.isCTA &&
+      String(r.equipo||"").trim().toUpperCase()===eqKey &&
+      String(r.proyecto||"").trim().toUpperCase()===proyKey
+    );
+    return Number(row?.manoObra)||0;
+  },[rowsManoObra,sectionProyectoCosto]);
+
+  const getUsdHoraCostoMensual=React.useCallback((x)=>{
+    const p=promedioCostoMensual(x);
+    const mo=getManoObraCostoMensual(x);
+    const hs=x?.section==="JM"?(Number(hsEfJM)||0):(Number(hsEfFS)||0);
+    return hs>0?((Number(p.total)||0)+mo)/hs:0;
+  },[getManoObraCostoMensual,hsEfJM,hsEfFS,mesesCostoMensual]);
+
+  const getManoObraTotalCostoMensual=React.useCallback((section)=>{
+    if(section==="TOTAL")return (costoMensualAcumulado||[]).reduce((sum,x)=>sum+getManoObraCostoMensual(x),0);
+    return (costoMensualAcumulado||[])
+      .filter(x=>x.section===section)
+      .reduce((sum,x)=>sum+getManoObraCostoMensual(x),0);
+  },[costoMensualAcumulado,getManoObraCostoMensual]);
+
+  const getUsdHoraTotalCostoMensual=React.useCallback((section)=>{
+    const p=promedioTotalesCostoMensual(section);
+    const mo=getManoObraTotalCostoMensual(section);
+    const hs=section==="JM"?(Number(hsEfJM)||0):(section==="FS"?(Number(hsEfFS)||0):(Number(hsEfJM)||0)+(Number(hsEfFS)||0));
+    return hs>0?((Number(p.total)||0)+mo)/hs:0;
+  },[promedioTotalesCostoMensual,getManoObraTotalCostoMensual,hsEfJM,hsEfFS]);
+
+
+  const tipoEquipoListaMaestra=React.useCallback((equipo)=>{
+    const eq=getEquipoListaMaestra(equipo);
+    const v=getValue(eq||{},["Familia","FAMILIA","Tipo","Tipo de equipo","Tipo Equipo","EQUIPO"]);
+    return String(v||getMachineType(equipo)||"S/D").trim().toUpperCase()||"S/D";
+  },[getEquipoListaMaestra]);
+
+  const getVidaUtilEquipo=React.useCallback((equipo)=>{
+    const eq=getEquipoListaMaestra(equipo);
+    if(!eq)return 8000;
+    const keys=Object.keys(eq||{});
+    const k=findColumnKey(keys,"Vida Útil hs",[
+      "Vida Util hs","Vida Útil hs/km","Vida Util hs/km","Vida útil","Vida Util",
+      "Vida útil hs/km","Vida util hs/km","Vida útil horas","Vida util horas"
+    ]);
+    const v=toNumber(k?eq[k]:0);
+    return v>0?v:8000;
+  },[getEquipoListaMaestra]);
+
+  const AMORTIZACION_GRUPOS=React.useMemo(()=>[
+    // Orden y agrupación definitiva para Amortización.
+    // 1) Primero se respeta la coincidencia exacta de equipos especiales.
+    // 2) Después, los equipos nuevos entran por prefijo en el grupo indicado.
+    {tipo:"MOTONIVELADORA 1", equipos:["MOT-0014","MOT-0024","MOT-0049","MOT-0051","MOT-0069"], prefixes:["MOT"]},
+    {tipo:"CARGADORA 1", equipos:["CFN-0043"], prefixes:[]},
+    {tipo:"MINICARGADORA", equipos:["MCA-0005","MNC-0001","MNC-001"], prefixes:["MCA","MNC"]},
+    {tipo:"EXCAVADORA 1", equipos:["EXC-0014"], prefixes:[]},
+    {tipo:"EXCAVADORA", equipos:["EXC-0005","EXC-0017","EXC-0019","EXC-0055"], prefixes:["EXC"]},
+    {tipo:"CARGADORA", equipos:["CFN-0041","CFN-0044","CFN-0101","PCA-0017","PCA-0021","PCA-0051","PCA-0070","PCA-0074","PCA-0101"], prefixes:["CFN","PCA"]},
+    {tipo:"COMPACTACIÓN", equipos:["ROD-0001","RCP-0016","RPC-0016","RCP-0036","RPC-0036","RPC-0039"], prefixes:["ROD","RCP","RPC"]},
+    {tipo:"RETROPALA", equipos:["RTP-0010","RTP-0011","RTP-0012","RTP-0018","RTP-0030"], prefixes:["RTP"]},
+    {tipo:"TOPADORA", equipos:["TOP-0014","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0059"], prefixes:["TOP"]},
+  ],[]);
+
+  const amortizacionGrupoInfo=React.useCallback((equipo)=>{
+    const code=cleanMachine(mainMachineCode(equipo));
+    const prefix=String(code||"").split("-")[0];
+
+    // 1) Coincidencia exacta: respeta equipos aislados y orden fijo.
+    for(let gi=0;gi<AMORTIZACION_GRUPOS.length;gi++){
+      const idx=AMORTIZACION_GRUPOS[gi].equipos.findIndex(e=>cleanMachine(e)===code);
+      if(idx!==-1)return {grupo:AMORTIZACION_GRUPOS[gi].tipo,grupoIndex:gi,orden:idx};
+    }
+
+    // 2) Equipos nuevos: entran automáticamente al grupo por prefijo.
+    for(let gi=0;gi<AMORTIZACION_GRUPOS.length;gi++){
+      const g=AMORTIZACION_GRUPOS[gi];
+      if((g.prefixes||[]).includes(prefix)){
+        return {grupo:g.tipo,grupoIndex:gi,orden:1000};
+      }
+    }
+
+    const fallback=tipoEquipoListaMaestra(equipo)||getMachineType(equipo)||"S/D";
+    return {grupo:fallback,grupoIndex:999,orden:9999};
+  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra]);
+
+  const rowsAmortizacion=React.useMemo(()=>{
+    const base=(costoMensualAcumulado||[]).map(x=>{
+      const eq=getEquipoListaMaestra(x.equipo);
+      const adq=getCostoLocalUSDEquipo(x.equipo);
+      const vida=getVidaUtilEquipo(x.equipo);
+      const amort=vida>0?adq/vida:0;
+      const mantUSDhs=getUsdHoraCostoMensual(x);
+      const totalUSDhs=amort+mantUSDhs;
+      const g=amortizacionGrupoInfo(x.equipo);
+      const pctMant=amort>0?mantUSDhs/amort:0; // % Mant. = Mant. USD/hs ÷ Amortiz. USD/hs
+      return {
+        equipo:x.equipo,
+        proyecto:sectionProyectoCosto(x.section),
+        tipo:g.grupo,
+        modelo:eq?.["Marca"]||eq?.["Modelo"]||"",
+        adq,vida,amort,mantUSDhs,totalUSDhs,
+        pctMant,
+        promTipo:0,
+        _firstTipo:false,
+        _grupoSize:0,
+        _grupoIndex:g.grupoIndex,
+        _ordenGrupo:g.orden,
+      };
+    }).filter(x=>x.equipo);
+
+    const grupos={};
+    base.forEach(x=>{(grupos[x.tipo]=grupos[x.tipo]||[]).push(x);});
+    Object.values(grupos).forEach(arr=>{
+      const vals=arr.map(x=>Number(x.pctMant)||0).filter(v=>v>0);
+      const prom=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+      arr.sort((a,b)=>a._ordenGrupo-b._ordenGrupo||a.equipo.localeCompare(b.equipo));
+      arr.forEach((x,i)=>{x.promTipo=prom;x._firstTipo=i===0;x._grupoSize=i===0?arr.length:0;});
+    });
+
+    return base.sort((a,b)=>
+      a._grupoIndex-b._grupoIndex ||
+      a._ordenGrupo-b._ordenGrupo ||
+      a.equipo.localeCompare(b.equipo)
+    );
+  },[costoMensualAcumulado,getEquipoListaMaestra,getCostoLocalUSDEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto]);
+
+  const rowsAmortizacionExcel=React.useMemo(()=>(rowsAmortizacion||[]).map(x=>({
+    Equipo:x.equipo,
+    Proyecto:x.proyecto,
+    Tipo:x.tipo,
+    Modelo:x.modelo||"",
+    "C. Adq. USD":Math.round(x.adq||0),
+    "Vida Útil hs":Math.round(x.vida||0),
+    "Amortiz. USD/hs":Math.round(x.amort||0),
+    "Mant. USD/hs":Math.round(x.mantUSDhs||0),
+    "Total USD/hs":Math.round(x.totalUSDhs||0),
+    "% Mant.":x.pctMant||0,
+    "Promedio tipo":x.promTipo||0,
+  })),[rowsAmortizacion]);
+
+
+  const costoMensualRowsPorSection=React.useCallback((section)=>
+    (costoMensualAcumulado||[]).filter(x=>x.section===section),[costoMensualAcumulado]);
+
+  const sumCostoMensualVisible=React.useCallback((section,kind,monthKey=null)=>{
+    const rows=section==="TOTAL"?(costoMensualAcumulado||[]):costoMensualRowsPorSection(section);
+    return rows.reduce((sum,x)=>{
+      if(monthKey){
+        const d=x.months?.[monthKey]||{};
+        return sum+Math.round(Number(d[kind])||0);
+      }
+      if(kind==="totalB")return sum+Math.round(Number(x.total)||0);
+      if(kind==="mo")return sum+Math.round(Number(getManoObraCostoMensual(x))||0);
+      if(kind==="usdHs")return sum+Math.round(Number(getUsdHoraCostoMensual(x))||0);
+      const p=promedioCostoMensual(x);
+      return sum+Math.round(Number(p[kind])||0);
+    },0);
+  },[costoMensualAcumulado,costoMensualRowsPorSection,getManoObraCostoMensual,getUsdHoraCostoMensual,mesesCostoMensual]);
+
+  const TablaCostoMensualAcumulado=()=>{
+    const sections=[{id:"FS",label:"FILO DEL SOL"},{id:"JM",label:"JOSE MARIA"}].filter(sec=>
+      (costoMensualAcumulado||[]).some(x=>x.section===sec.id)
+    );
+
+    const DollarMesInput=({m})=>{
+      const initial=String(monthlyDollar[m.key]??m.dollar??usdRate2??1400);
+      const commit=(el)=>commitDollarMesCosto(m.key,el.value);
+      return <input type="text" inputMode="decimal" defaultValue={initial}
+        onBlur={e=>commit(e.currentTarget)}
+        onKeyDown={e=>{if(e.key==="Enter"){commit(e.currentTarget);e.currentTarget.blur();}}}
+        style={{...inp,width:86,minWidth:86,maxWidth:86,textAlign:"center",padding:"3px 6px",background:"rgba(0,0,0,.18)",color:"#fff",border:"1px solid rgba(255,255,255,.32)",boxShadow:"inset 0 1px 0 rgba(255,255,255,.12)"}}/>;
+    };
+
+    return(
+      <Card title={`Costo mensual acumulado (${proyectoTitulo}) (${costoMensualAcumulado.length} equipos)`} action={<BotonDescargar onClick={()=>descargarExcel("Costo_mensual_acumulado",rowsCostoMensualExcel)}/>}> 
+        <div ref={costoMensualScrollRef} style={{overflowX:"auto",overflowY:"scroll",maxHeight:620,scrollbarGutter:"stable",borderTop:`1px solid ${C.border}`}}>
+          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,minWidth:Math.max(1250,180+(mesesCostoMensual.length*270)+120+270+220),width:"max-content",tableLayout:"fixed"}}>
+            <thead>
+              <tr>
+                <th style={{...thL,position:"sticky",left:0,top:0,zIndex:8,minWidth:170,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</th>
+                {mesesCostoMensual.map(m=>{
+                  const t=monthThemeCosto(m.key);
+                  return(
+                  <th key={m.key+"usd"} colSpan={3} style={{...thS,textAlign:"center",background:t.head,color:"#fff",top:0,position:"sticky",zIndex:6,borderLeft:`1px solid ${t.line}`}}>
+                    <DollarMesInput m={m}/>
+                  </th>
+                  );
+                })}
+                <th style={{...thS,position:"sticky",top:0,zIndex:6,minWidth:110,background:"#166534",color:"#fff"}}>Total B</th>
+                <th colSpan={3} style={{...thS,textAlign:"center",background:"#7c2d12",color:"#fff",top:0,position:"sticky",zIndex:6}}>Promedio</th>
+                <th colSpan={2} style={{...thS,textAlign:"center",background:"#312e81",color:"#fff",top:0,position:"sticky",zIndex:6}}>Mano de obra</th>
+              </tr>
+              <tr>
+                <th style={{...thL,position:"sticky",left:0,top:31,zIndex:8,background:"#2563eb",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</th>
+                {mesesCostoMensual.map(m=>{
+                  const t=monthThemeCosto(m.key);
+                  return <th key={m.key+"label"} colSpan={3} style={{...thS,textAlign:"center",background:t.sub,color:"#fff",top:31,position:"sticky",zIndex:6,borderLeft:`1px solid ${t.line}`,fontWeight:900}}>{m.label}</th>;
+                })}
+                <th style={{...thS,top:31,position:"sticky",zIndex:6,background:"#15803d",color:"#fff"}}>Total B</th>
+                <th colSpan={3} style={{...thS,textAlign:"center",background:"#9a3412",color:"#fff",top:31,position:"sticky",zIndex:6}}>PROMEDIO</th>
+                <th colSpan={2} style={{...thS,textAlign:"center",background:"#3730a3",color:"#fff",top:31,position:"sticky",zIndex:6}}>MANO DE OBRA</th>
+              </tr>
+              <tr>
+                <th style={{...thL,position:"sticky",left:0,top:62,zIndex:8,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}> </th>
+                {mesesCostoMensual.map(m=>{
+                  const t=monthThemeCosto(m.key);
+                  return(
+                  <React.Fragment key={m.key+"heads"}>
+                    <th style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#e5e7eb",borderLeft:`1px solid ${t.line}`}}>Preventivo</th>
+                    <th style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#e5e7eb"}}>Correctivo</th>
+                    <th style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#fff",fontWeight:900}}>Total</th>
+                  </React.Fragment>
+                  );
+                })}
+                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#052e16",color:"#bbf7d0"}}>Total</th>
+                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Preventivo</th>
+                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Correctivo</th>
+                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Total</th>
+                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Mano de Obra</th>
+                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/hora</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sections.map(sec=>(
+                <React.Fragment key={sec.id}>
+                  <tr><td colSpan={4+mesesCostoMensual.length*3+3} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
+                  {costoMensualAcumulado.filter(x=>x.section===sec.id).map((x,i)=>(
+                    <tr key={sec.id+"__"+x.equipo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
+                      <td style={{...tdL,position:"sticky",left:0,zIndex:2,background:i%2===0?C.card:C.surface}}>{x.equipo}</td>
+                      {mesesCostoMensual.map(m=>{
+                        const d=x.months[m.key]||{};
+                        return(
+                          <React.Fragment key={x.equipo+m.key}>
+                            <td style={cellMonthStyleCosto(m.key)}>{fmtU(d.prev||0)}</td>
+                            <td style={cellMonthStyleCosto(m.key)}>{fmtU(d.corr||0)}</td>
+                            <td style={cellMonthStyleCosto(m.key,{fontWeight:800,color:"#fff"})}>{fmtU(d.total||0)}</td>
+                          </React.Fragment>
+                        );
+                      })}
+                      <td style={{...tdS,color:C.yellow,fontWeight:800}}>{fmtU(x.total||0)}</td>
+                      {(()=>{const p=promedioCostoMensual(x);return(
+                        <>
+                          <td style={{...tdS,background:C.yellow+"10"}}>{fmtU(p.prev||0)}</td>
+                          <td style={{...tdS,background:C.yellow+"10"}}>{fmtU(p.corr||0)}</td>
+                          <td style={{...tdS,background:C.yellow+"10",fontWeight:800}}>{fmtU(p.total||0)}</td>
+                        </>
+                      )})()}
+                      <td style={{...tdS,background:C.purple+"12",color:C.purple,fontWeight:800}}>{fmtU(getManoObraCostoMensual(x))}</td>
+                      <td style={{...tdS,background:C.purple+"12",color:"#ddd",fontWeight:800}}>{fmtU(getUsdHoraCostoMensual(x))}</td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td style={{...tdL,position:"sticky",left:0,zIndex:2,...rowSubtotalStyleCosto}}>Subtotal {sec.id}</td>
+                    {mesesCostoMensual.map(m=>{
+                      const d=costoMensualTotales[sec.id]?.months?.[m.key]||{};
+                      return(
+                        <React.Fragment key={sec.id+m.key+"sub"}>
+                          <td style={{...tdT,...rowSubtotalStyleCosto}}>{fmtU(sumCostoMensualVisible(sec.id,"prev",m.key))}</td>
+                          <td style={{...tdT,...rowSubtotalStyleCosto}}>{fmtU(sumCostoMensualVisible(sec.id,"corr",m.key))}</td>
+                          <td style={{...tdT,...rowSubtotalStyleCosto,color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"total",m.key))}</td>
+                        </React.Fragment>
+                      );
+                    })}
+                    <td style={{...tdT,...rowSubtotalStyleCosto,color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"totalB"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e"}}>{fmtU(sumCostoMensualVisible(sec.id,"prev"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e"}}>{fmtU(sumCostoMensualVisible(sec.id,"corr"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e",color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"total"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"mo"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"usdHs"))}</td>
+                  </tr>
+                </React.Fragment>
+              ))}
+              <tr>
+                <td style={{...tdL,position:"sticky",left:0,zIndex:2,...rowTotalStyleCosto,color:"#fff"}}>TOTAL</td>
+                {mesesCostoMensual.map(m=>{
+                  const d=costoMensualTotales.TOTAL?.months?.[m.key]||{};
+                  return(
+                    <React.Fragment key={m.key+"total"}>
+                      <td style={{...tdT,...rowTotalStyleCosto}}>{fmtU(sumCostoMensualVisible("TOTAL","prev",m.key))}</td>
+                      <td style={{...tdT,...rowTotalStyleCosto}}>{fmtU(sumCostoMensualVisible("TOTAL","corr",m.key))}</td>
+                      <td style={{...tdT,...rowTotalStyleCosto,color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","total",m.key))}</td>
+                    </React.Fragment>
+                  );
+                })}
+                <td style={{...tdT,...rowTotalStyleCosto,color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","totalB"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b"}}>{fmtU(sumCostoMensualVisible("TOTAL","prev"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b"}}>{fmtU(sumCostoMensualVisible("TOTAL","corr"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b",color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","total"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","mo"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","usdHs"))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
+          Septiembre a Marzo quedan fijos desde el Excel histórico. Desde Abril en adelante se calcula desde RMA15 con el dólar indicado arriba de cada mes.
+        </div>
+      </Card>
+    );
+  };
+
+  const BotonDescargar=({onClick})=><button onClick={onClick} style={excelBtnStyle}>Descargar Excel</button>;
+
+  const TablaCostos=({datos,tot,titulo,filename})=>(
+    <Card title={titulo} action={<BotonDescargar onClick={()=>descargarExcel(filename,rowsTablaCostosExcel(datos,tot))}/>}>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead><tr>
+            <th style={thL}>Equipo</th>
+            <th style={thS}>Preventivo</th>
+            <th style={thS}>Correctivo</th>
+            <th style={thS}>Total</th>
+          </tr></thead>
+          <tbody>
+            {datos.map((x,i)=>(
+              <tr key={x.equipo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
+                <td style={tdL}>{x.equipo}</td>
+                <td style={tdS}>{x.prev>0?"$"+fmtNum(Math.round(x.prev)):"$0"}</td>
+                <td style={tdS}>{x.corr>0?"$"+fmtNum(Math.round(x.corr)):"$0"}</td>
+                <td style={{...tdS,color:C.yellow,fontWeight:700}}>{"$"+fmtNum(Math.round(x.total))}</td>
+              </tr>
+            ))}
+            <tr><td style={{...tdL,background:C.surface+"55",color:C.text}}>TOTAL</td>
+              <td style={tdT}>{"$"+fmtNum(Math.round(tot.prev))}</td>
+              <td style={tdT}>{"$"+fmtNum(Math.round(tot.corr))}</td>
+              <td style={{...tdT,color:C.accent}}>{"$"+fmtNum(Math.round(tot.total))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
+        Costos calculados desde RMA15 en pesos argentinos.
+      </div>
+    </Card>
+  );
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* Filtros de fecha */}
+      <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"nowrap",overflowX:"auto",padding:"10px 14px",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`}}>
+        <span style={{fontWeight:800,fontSize:13,color:C.text}}>Filtros</span>
+        <PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/>
+        <DateIn label="Desde" value={fechaD} onChange={setFechaD}/>
+        <DateIn label="Hasta" value={fechaH} onChange={setFechaH}/>
+        <MultiSel label="Proyecto" value={fProyecto} onChange={setFProyecto} options={proyectoOpts}/>
+        <MultiSel label="Propiedad" value={fPropiedad} onChange={setFPropiedad} options={propiedadOpts}/>
+        <MultiSel label="Tipo de equipo" value={fTipoEquipo} onChange={setFTipoEquipo} options={tipoEquipoOpts}/>
+        <MultiSel label="Máquinas" value={fMaquinas} onChange={setFMaquinas} options={maquinaOpts}/>
+        <button onClick={()=>{setFechaDia("");setFechaD("");setFechaH("");setFProyecto("todos");setFPropiedad("todos");setFTipoEquipo("todos");setFMaquinas("todos");}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer"}}>Limpiar filtros</button>
+        <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Registros RMA15 filtrados: <b style={{color:C.text}}>{rma15Filtrado.length}</b> / {rma15?.length||0}</span>
+      </div>
+
+      {/* Header parámetros */}
+      <div style={{display:"flex",flexDirection:"column",gap:8,padding:"10px 14px",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontWeight:800,fontSize:13,color:C.text,marginRight:2}}>Parámetros</span>
+          {[
+            {label:"USD/ARS",val:usdRate2,set:setUsdRate2,w:78},
+            {label:"Hs ef. JM",val:hsEfJM,set:setHsEfJM,w:58},
+            {label:"Hs ef. FS",val:hsEfFS,set:setHsEfFS,w:58},
+            {label:"Mec. Unit",val:costMec,set:setCostMec,w:88},
+            {label:"CTA Unit",val:costCTA,set:setCostCTA,w:82},
+            {label:"Mec. JM",val:mecJM,set:setMecJM,w:52},
+            {label:"CTA MEC. JM",val:ctaMecJM,set:setCtaMecJM,w:62},
+            {label:"Mec. FS",val:mecFS,set:setMecFS,w:52},
+            {label:"CTA MEC. FS",val:ctaMecFS,set:setCtaMecFS,w:62},
+          ].map(({label,val,set,w})=>(
+            <div key={label} style={{display:"flex",alignItems:"center",gap:5,flex:"0 0 auto"}}>
+              <span style={{fontSize:10,color:C.textMuted,whiteSpace:"nowrap"}}>{label}</span>
+              <input type="number" value={val} onChange={e=>set(Number(e.target.value))}
+                style={{...inp,width:w,padding:"6px 8px"}}/>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",paddingTop:6,borderTop:`1px solid ${C.border}55`}}>
+          <span style={{fontSize:12,fontWeight:800,color:C.text}}>Subtotal mecánico</span>
+          <span style={{fontSize:12,color:C.green}}>JM: <b>U$S {fmtNum(Math.round(subtotalJM))}</b></span>
+          <span style={{fontSize:12,color:C.teal}}>FS: <b>U$S {fmtNum(Math.round(subtotalFS))}</b></span>
+          <span style={{fontSize:11,color:C.textMuted}}>Mec. Unit × Mec. + CTA Unit × CTA MEC.</span>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {[["t1","Tabla de costos"],["t6","Costo mensual acumulado"],["t4","Mano de Obra"],["t5","Amortización"]].map(([id,lbl])=>(
+          <TabBtn key={id} id={id} label={lbl}/>
+        ))}
+      </div>
+
+      {tab==="t1"&&<TablaCostos datos={tabla1} tot={totCostos} titulo={`Tabla de costos (${proyectoTitulo}) (${tabla1.length} equipos)`} filename="Tabla_de_costos_filtrada"/>}
+
+      {tab==="t6"&&<TablaCostoMensualAcumulado/>}
+
+      {tab==="t4"&&(
+        <Card title="Mano de Obra" action={<BotonDescargar onClick={()=>descargarExcel("Mano_de_Obra",rowsManoObraExcel)}/>}>
+          <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:C.surface+"55"}}>
+            <span style={{fontSize:12,fontWeight:800,color:C.text}}>Cantidad de camionetas</span>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:C.textSub}}>CTA FS
+              <input type="number" value={ctaFS} onChange={e=>setCtaFS(Number(e.target.value)||0)} style={{...inp,width:70}}/>
+            </label>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:C.textSub}}>CTA JM
+              <input type="number" value={ctaJM} onChange={e=>setCtaJM(Number(e.target.value)||0)} style={{...inp,width:70}}/>
+            </label>
+            <span style={{fontSize:11,color:C.textMuted}}>Las filas CTA usan el promedio de mantenimiento y de costo de adquisición de las camionetas del proyecto.</span>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+              <thead><tr>
+                <th style={thL}>Equipo</th>
+                <th style={thS}>Proyecto</th>
+                <th style={thS}>Mantenimiento (USD)</th>
+                <th style={thS}>% Mantenimiento</th>
+                <th style={thS}>Mano de Obra (USD)</th>
+                <th style={thS}>Costo de adquisición (USD)</th>
+                <th style={thS}>Total (USD)</th>
+              </tr></thead>
+              <tbody>
+                {rowsManoObra.map((x,i)=>(
+                  <tr key={x.proyecto+"__"+x.equipo} style={{background:x.isCTA?C.tealDim:(i%2===0?"transparent":C.surface+"33")}}>
+                    <td style={{...tdL,fontWeight:x.isCTA?900:700,color:x.isCTA?C.teal:C.text}}>{x.equipo}{x.isCTA&&x.cantidadCTA?` (${x.cantidadCTA})`:""}</td>
+                    <td style={{...tdS,textAlign:"left"}}><Badge color={proyColor(x.proyecto)}>{x.proyecto}</Badge></td>
+                    <td style={tdS}>{x.mantenimiento>0?"U$S "+fmtNum(Math.round(x.mantenimiento)):"—"}</td>
+                    <td style={{...tdS,color:C.textSub}}>{x.porcentaje>0?(x.porcentaje*100).toFixed(2)+"%":"—"}</td>
+                    <td style={{...tdS,color:C.purple}}>{x.manoObra>0?"U$S "+fmtNum(Math.round(x.manoObra)):"—"}</td>
+                    <td style={{...tdS,color:C.yellow}}>{x.costoAdquisicion>0?"U$S "+fmtNum(Math.round(x.costoAdquisicion)):"—"}</td>
+                    <td style={{...tdS,color:C.accent,fontWeight:700}}>{x.total>0?"U$S "+fmtNum(Math.round(x.total)):"—"}</td>
+                  </tr>
+                ))}
+                <tr><td colSpan={7} style={{padding:"4px 10px",background:C.surface+"55",fontSize:11,color:C.textMuted,fontWeight:600}}>
+                  Total filtrado: U$S {fmtNum(Math.round((rowsManoObra||[]).reduce((s,x)=>s+(x.total||0),0)))}
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {tab==="t5"&&(
+        <Card title="Costo horario de amortización y mantenimiento" action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",rowsAmortizacionExcel)}/>}> 
+          {(!listaEquipos||listaEquipos.length===0)?(
+            <div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:13}}>
+              Cargá la <b>Lista Maestra de Equipos</b> desde el menú lateral para ver esta tabla.
+            </div>
+          ):(
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
+                <thead><tr>
+                  <th style={thL}>Equipo</th>
+                  <th style={thS}>Tipo</th>
+                  <th style={thS}>Modelo</th>
+                  <th style={thS}>C. Adq. (USD)</th>
+                  <th style={thS}>Vida Útil (hs)</th>
+                  <th style={thS}>Amortiz. (USD/hs)</th>
+                  <th style={thS}>Mant. (USD/hs)</th>
+                  <th style={thS}>Total (USD/hs)</th>
+                  <th style={thS}>% Mant.</th>
+                  <th style={thS}>Promedio por tipo</th>
+                </tr></thead>
+                <tbody>
+                  {rowsAmortizacion.map((x,i)=>(
+                    <tr key={x.equipo} style={{background:i%2===0?"transparent":C.surface+"33",borderTop:x._firstTipo?`2px solid ${C.borderLight}`:undefined}}>
+                      <td style={tdL}>{x.equipo}</td>
+                      <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:700}}>{x.tipo||"S/D"}</td>
+                      <td style={{...tdS,textAlign:"left",color:C.textSub}}>{x.modelo||"—"}</td>
+                      <td style={tdS}>{x.adq>0?"U$S "+fmtNum(Math.round(x.adq)):"—"}</td>
+                      <td style={tdS}>{x.vida>0?fmtNum(Math.round(x.vida)):"—"}</td>
+                      <td style={{...tdS,color:C.yellow,fontWeight:700}}>{x.amort>0?"U$S "+fmtNum(Math.round(x.amort)):"—"}</td>
+                      <td style={{...tdS,color:C.purple,fontWeight:700}}>{x.mantUSDhs>0?"U$S "+fmtNum(Math.round(x.mantUSDhs)):"—"}</td>
+                      <td style={{...tdS,color:C.accent,fontWeight:800}}>{x.totalUSDhs>0?"U$S "+fmtNum(Math.round(x.totalUSDhs)):"—"}</td>
+                      <td style={{...tdS,color:C.textSub}}>{x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—"}</td>
+                      {x._firstTipo&&(
+                        <td rowSpan={x._grupoSize||1} style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,verticalAlign:"middle",fontSize:16,borderLeft:`2px solid ${C.blue}55`,borderBottom:`2px solid ${C.borderLight}`}}>
+                          {x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function App(){
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
   const[view,setView]=useState("dashboard");
@@ -7114,6 +8852,7 @@ export default function App(){
     ]},
     {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
       {id:"mant",icon:"gear",label:"Mantenimiento"},
+      {id:"costosMant",icon:"dollar",label:"Costo de Mantenimientos"},
       {id:"costosUnitarios",icon:"dollar",label:"Costos Unitarios"},
     ]},
     {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:control.problemas>0?control.problemas:null},
@@ -7123,7 +8862,7 @@ export default function App(){
   const adminNav={id:"grp_admin",icon:"gear",label:"ADMINISTRACIÓN",type:"group",color:C.red,children:[
     {id:"importExcel",icon:"parts",label:"Actualización de datos"},
   ]};
-  const titles={dashboard:"Dashboard",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",importExcel:"Actualización de datos"};
+  const titles={dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",importExcel:"Actualización de datos"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -7262,6 +9001,7 @@ export default function App(){
                 {view==="rop05"&&<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>}
                 {view==="ranking"&&<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>}
                 {view==="mant"&&<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>}
+                {view==="costosMant"&&<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>}
                 {view==="costosUnitarios"&&<ViewCostosUnitarios insumos={insumos} usdRate={usdRate}/>}
                 {view==="chc"&&<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>}
                 {view==="control"&&<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>}
