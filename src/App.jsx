@@ -117,7 +117,7 @@ const STYLES=`
   .spin{animation:spin 1s linear infinite}
   input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.5);cursor:pointer}
   select option{background:${C.surface};color:${C.text}}
-  .insumo-tr{cursor:pointer;transition:background .12s;}
+  .insumo-tr{cursor:pointer;transition:background .12s;will-change:background-color;}
   .insumo-tr:hover{background:rgba(232,0,29,0.13) !important;}
   .insumo-tr.pinned{background:rgba(232,0,29,0.22) !important;}
 `;
@@ -685,6 +685,7 @@ const PATHS={
   filter:"M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z",
   person:"M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z",
   dollar:"M11 2h2v2.06c2.28.28 4 1.55 4 3.44h-2c0-.86-.9-1.55-2-1.55h-2c-1.1 0-2 .69-2 1.55s.9 1.55 2 1.55h2c2.21 0 4 1.43 4 3.2 0 1.9-1.72 3.16-4 3.44V18h-2v-2.06c-2.28-.28-4-1.55-4-3.44h2c0 .86.9 1.55 2 1.55h2c1.1 0 2-.69 2-1.55s-.9-1.55-2-1.55h-2c-2.21 0-4-1.43-4-3.2 0-1.9 1.72-3.16 4-3.44V2z",
+  report:"M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
 };
 function Icon({name,size=18,color="currentColor",style}){
   const p=PATHS[name];if(!p)return null;
@@ -2429,6 +2430,10 @@ function ViewROP02({rop02All,extState,setExtState}){
   ],[]);
   // Ordenar de más reciente a más viejo
   const filteredSorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
+  const [rop05TipRow,setRop05TipRow]=React.useState(null);   // fila en hover
+  const [rop05PinnedRow,setRop05PinnedRow]=React.useState(null); // fila fijada por click
+  const [rop05TipPos,setRop05TipPos]=React.useState({x:0,y:0});
+  const rop05ActiveRow=rop05PinnedRow||rop05TipRow;
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
       <Card>
@@ -2902,6 +2907,10 @@ function ViewROP05({rop05,extState,setExtState}){
 
   const totalHoras05=useMemo(()=>filtered.reduce((s,r)=>s+r.horas,0),[filtered]);
   const filteredSorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
+  const [rop05TipRow,setRop05TipRow]=React.useState(null);   // fila en hover
+  const [rop05PinnedRow,setRop05PinnedRow]=React.useState(null); // fila fijada por click
+  const [rop05TipPos,setRop05TipPos]=React.useState({x:0,y:0});
+  const rop05ActiveRow=rop05PinnedRow||rop05TipRow;
   const cols=useMemo(()=>[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
@@ -3183,7 +3192,94 @@ function ViewROP05({rop05,extState,setExtState}){
         );
       })()}
       <Card title={`Registros (${filtered.length})`}>
-        <Table cols={cols} rows={filteredSorted} maxH={400} emptyMsg="Sin registros con los filtros seleccionados"/>
+        <div style={{overflowX:"auto",overflowY:"auto",maxHeight:400,position:"relative"}}>
+          {filteredSorted.length===0?(
+            <div style={{padding:28,textAlign:"center",color:C.textMuted,fontSize:12}}>Sin registros con los filtros seleccionados</div>
+          ):(
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,tableLayout:"fixed",minWidth:700}}>
+              <thead>
+                <tr>
+                  {[["fecha","Fecha",90],["maquina","Máquina",110],["tipo_maquina","Tipo",90],["tarea","Tarea",220],["horas","Horas",70],["cantidad","Cantidad",80],["unidad","Unidad",80],["proyecto","Proyecto",110]].map(([k,lbl,w])=>(
+                    <th key={k} style={{padding:"9px 10px",textAlign:k==="tarea"?"left":"center",fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",color:C.textSub,borderBottom:`2px solid ${C.border}`,position:"sticky",top:0,background:C.surface,zIndex:2,width:w,minWidth:w}}>
+                      {lbl}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSorted.map((r,i)=>{
+                  const isActive=rop05ActiveRow===i;
+                  const isPinned=rop05PinnedRow===i;
+                  return(
+                    <tr key={i}
+                      style={{background:isActive?"rgba(232,0,29,0.15)":i%2===0?"transparent":C.surface+"33",cursor:"pointer",transition:"background .1s",borderTop:isPinned?`1px solid ${C.red}44`:undefined}}
+                      onMouseMove={e=>{
+                        if(rop05PinnedRow!==null)return;
+                        setRop05TipRow(i);
+                        setRop05TipPos({x:e.clientX,y:e.clientY});
+                      }}
+                      onMouseLeave={()=>{if(rop05PinnedRow===null)setRop05TipRow(null);}}
+                      onClick={e=>{
+                        e.stopPropagation();
+                        if(rop05PinnedRow===i){setRop05PinnedRow(null);setRop05TipRow(null);}
+                        else{setRop05PinnedRow(i);setRop05TipPos({x:e.clientX,y:e.clientY});}
+                      }}
+                    >
+                      <td style={{padding:"8px 10px",textAlign:"center",color:C.textSub,borderBottom:`1px solid ${C.border}18`}}>{fmtFecha(r.fecha)}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{r.maquina||"—"}</Badge></td>
+                      <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.textSub}>{r.tipo_maquina||r._tipo||"—"}</Badge></td>
+                      <td style={{padding:"8px 10px",textAlign:"left",borderBottom:`1px solid ${C.border}18`,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:220,color:C.text}} title={r.tarea}>{r.tarea||"—"}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:600}}>{fmtNum(r.horas)}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{fmtNum(r.cantidad)}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.teal}>{r.unidad||"—"}</Badge></td>
+                      <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(r.proyecto)}>{r.proyecto||"—"}</Badge></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {/* Tooltip flotante fixed */}
+        {rop05ActiveRow!==null&&filteredSorted[rop05ActiveRow]&&(()=>{
+          const r=filteredSorted[rop05ActiveRow];
+          const isPinned=rop05PinnedRow!==null;
+          const vw=window.innerWidth;
+          const vh=window.innerHeight;
+          const W=260,H=210;
+          let x=rop05TipPos.x;
+          let y=rop05TipPos.y-H-12;
+          if(x+W>vw-8)x=vw-W-8;
+          if(x<8)x=8;
+          if(y<8)y=rop05TipPos.y+20;
+          return(
+            <div
+              onClick={e=>{e.stopPropagation();if(isPinned){setRop05PinnedRow(null);setRop05TipRow(null);}}}
+              style={{position:"fixed",left:x,top:y,zIndex:9999,width:W,
+                background:C.card,border:`1px solid ${isPinned?C.red+"88":C.border}`,
+                borderRadius:10,padding:"12px 14px",boxShadow:"0 8px 32px rgba(0,0,0,.55)",
+                pointerEvents:isPinned?"auto":"none"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:11,fontWeight:800,color:C.text,textTransform:"uppercase",letterSpacing:".04em"}}>Detalle del registro</span>
+                {isPinned&&<span style={{fontSize:10,color:C.red,fontWeight:700,cursor:"pointer"}}>✕ soltar</span>}
+              </div>
+              {[
+                ["Equipo", r.maquina||"—", C.purple],
+                ["Proyecto", r.proyecto||"—", proyColor(r.proyecto)],
+                ["Día", fmtFecha(r.fecha), C.textSub],
+                ["Insumo / Tarea", r.tarea||"—", C.text],
+                ["Cantidad", r.cantidad!=null?fmtNum(r.cantidad)+" "+(r.unidad||""):"—", C.blue],
+                ["Costo Unitario", r.costoUnitario!=null?"U$S "+fmtNum(r.costoUnitario):r.costo_unitario!=null?"U$S "+fmtNum(r.costo_unitario):"—", C.yellow],
+              ].map(([lbl,val,col])=>(
+                <div key={lbl} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6,marginBottom:5}}>
+                  <span style={{fontSize:11,color:C.textMuted,flexShrink:0}}>{lbl}</span>
+                  <span style={{fontSize:11,color:col,fontWeight:700,textAlign:"right",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={String(val)}>{val}</span>
+                </div>
+              ))}
+              {!isPinned&&<div style={{marginTop:6,fontSize:10,color:C.textMuted,textAlign:"center"}}>Click para fijar</div>}
+            </div>
+          );
+        })()}
       </Card>
     </div>
   );
@@ -4013,6 +4109,10 @@ function ViewVehiculos({rop02All,extState,setExtState}){
   ],[]);
 
   const filteredSorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
+  const [rop05TipRow,setRop05TipRow]=React.useState(null);   // fila en hover
+  const [rop05PinnedRow,setRop05PinnedRow]=React.useState(null); // fila fijada por click
+  const [rop05TipPos,setRop05TipPos]=React.useState({x:0,y:0});
+  const rop05ActiveRow=rop05PinnedRow||rop05TipRow;
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -4952,7 +5052,15 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
     if(!insumosMap[i.codigo])insumosMap[i.codigo]={nombre:i.nombre,cantidad:0,costo:0,usos:[]};
     insumosMap[i.codigo].cantidad+=i.cantidad;
     insumosMap[i.codigo].costo+=i.costoTotal;
-    insumosMap[i.codigo].usos.push({fecha:r.fecha||"",maquina:r.maquina||"—",cantidad:i.cantidad});
+    insumosMap[i.codigo].usos.push({
+      fecha:r.fecha||"",
+      maquina:r.maquina||"—",
+      proyecto:r.proyecto||"—",
+      cantidad:Number(i.cantidad)||0,
+      insumo:i.nombre||i.codigo,
+      costoUnitario:(Number(i.cantidad)||0)>0?(Number(i.costoTotal)||0)/(Number(i.cantidad)||1):(Number(i.costoTotal)||0),
+      costoTotal:Number(i.costoTotal)||0,
+    });
   }));
   const topInsumos=Object.entries(insumosMap).sort((a,b)=>b[1].cantidad-a[1].cantidad).slice(0,10);
 
@@ -4970,6 +5078,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
           insumo:i.nombre||i.codigo,
           cantidad:Number(i.cantidad)||0,
           precio,
+          costoUnitario:(Number(i.cantidad)||0)>0?precio/(Number(i.cantidad)||1):precio,
           maquina:maq,
           proyecto:r.proyecto||"—",
           fecha:r.fecha||"",
@@ -5033,6 +5142,47 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const [pinnedGasto,setPinnedGasto]=React.useState(null);
   const [hoveredGasto,setHoveredGasto]=React.useState(null);
   const [gastoPanelTop,setGastoPanelTop]=React.useState(0);
+  const [gastoTooltipPos,setGastoTooltipPos]=React.useState({x:0,y:0});
+  const [insumoTooltipPos,setInsumoTooltipPos]=React.useState({x:0,y:0});
+
+  // Tooltips de Mantenimiento: evitar renders pesados mientras se barre la tabla.
+  // El hover se abre con un delay mínimo; si el cursor solo pasa por arriba, no recalcula nada.
+  // El tooltip en hover no captura mouse, así no genera leave/enter en bucle.
+  const gastoHoverTimerRef=React.useRef(null);
+  const insumoHoverTimerRef=React.useRef(null);
+  const clearGastoHover=React.useCallback(()=>{
+    if(gastoHoverTimerRef.current){window.clearTimeout(gastoHoverTimerRef.current);gastoHoverTimerRef.current=null;}
+  },[]);
+  const clearInsumoHover=React.useCallback(()=>{
+    if(insumoHoverTimerRef.current){window.clearTimeout(insumoHoverTimerRef.current);insumoHoverTimerRef.current=null;}
+  },[]);
+  React.useEffect(()=>()=>{clearGastoHover();clearInsumoHover();},[clearGastoHover,clearInsumoHover]);
+  const openGastoHover=React.useCallback((e,rowKey)=>{
+    if(pinnedGasto)return;
+    const x=e.clientX,y=e.clientY;
+    clearGastoHover();
+    gastoHoverTimerRef.current=window.setTimeout(()=>{
+      setGastoTooltipPos({x,y});
+      setHoveredGasto(rowKey);
+    },90);
+  },[pinnedGasto,clearGastoHover]);
+  const closeGastoHover=React.useCallback(()=>{
+    clearGastoHover();
+    if(!pinnedGasto)setHoveredGasto(null);
+  },[pinnedGasto,clearGastoHover]);
+  const openInsumoHover=React.useCallback((e,cod)=>{
+    if(pinnedInsumo)return;
+    const x=e.clientX,y=e.clientY;
+    clearInsumoHover();
+    insumoHoverTimerRef.current=window.setTimeout(()=>{
+      setInsumoTooltipPos({x,y});
+      setHoveredInsumo(cod);
+    },90);
+  },[pinnedInsumo,clearInsumoHover]);
+  const closeInsumoHover=React.useCallback(()=>{
+    clearInsumoHover();
+    if(!pinnedInsumo)setHoveredInsumo(null);
+  },[pinnedInsumo,clearInsumoHover]);
 
   // Lista de insumos únicos para el selector (código + nombre, ordenado alfabéticamente)
   const insumosDisponibles=useMemo(()=>{
@@ -5127,7 +5277,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
             <CodeMultiSearch value={codigoGastoFiltro} onChange={setCodigoGastoFiltro} options={[{value:"todos",label:"Todos"},...codigosGastosExcesivos]}/>
           </div>
         }>
-          <div data-gastos-wrap="true" style={{display:"flex",gap:0,position:"relative",alignItems:"flex-start"}}>
+          <div data-gastos-wrap="true" style={{position:"relative"}}>
             <div style={{flex:1,overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead>
@@ -5148,24 +5298,13 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                       <tr key={`${x.codigo}-${x.maquina}-${x.fecha}-${i}`}
                         className={"insumo-tr"+(isPinned?" pinned":"")}
                         style={{background:isActive?"rgba(232,0,29,0.18)":i%2===0?"transparent":C.surface+"55",cursor:"pointer"}}
-                        onMouseEnter={(e)=>{
-                          if(pinnedGasto)return;
-                          setHoveredGasto(rowKey);
-                          const cont=e.currentTarget.closest('[data-gastos-wrap="true"]');
-                          if(cont){
-                            const contRect=cont.getBoundingClientRect();
-                            const rowRect=e.currentTarget.getBoundingClientRect();
-                            setGastoPanelTop(Math.max(0,rowRect.top-contRect.top));
-                          }
-                        }}
-                        onMouseLeave={()=>!pinnedGasto&&setHoveredGasto(null)}
+                        onMouseEnter={(e)=>openGastoHover(e,rowKey)}
+                        onMouseMove={()=>{}}
+                        onMouseLeave={closeGastoHover}
                         onClick={(e)=>{
-                          const cont=e.currentTarget.closest('[data-gastos-wrap="true"]');
-                          if(cont){
-                            const contRect=cont.getBoundingClientRect();
-                            const rowRect=e.currentTarget.getBoundingClientRect();
-                            setGastoPanelTop(Math.max(0,rowRect.top-contRect.top));
-                          }
+                          clearGastoHover();
+                          setHoveredGasto(null);
+                          setGastoTooltipPos({x:e.clientX,y:e.clientY});
                           setPinnedGasto(p=>p===rowKey?null:rowKey);
                         }}
                       >
@@ -5183,58 +5322,42 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                 </tbody>
               </table>
             </div>
-            {/* Panel de detalle lateral */}
-            {activeGasto&&(
-              <div style={{
-                width:360,
-                flexShrink:0,
-                borderLeft:`1px solid ${C.border}`,
-                background:"rgba(232,0,29,0.06)",
-                display:"flex",
-                flexDirection:"column",
-                marginTop:gastoPanelTop,
-                maxHeight:"calc(100vh - 90px)",
-                overflow:"hidden"
-              }}>
-                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-                  <div>
-                    <div style={{fontWeight:800,color:C.text,fontSize:13}}>{activeGasto.codigo} — {activeGasto.insumo||"—"}</div>
-                    <div style={{fontSize:11,color:C.purple,fontWeight:700,marginTop:2}}>{activeGasto.maquina}</div>
-                    <div style={{fontSize:11,color:C.textMuted,marginTop:1}}>{historialGasto.length} uso{historialGasto.length!==1?"s":""} en el período {pinnedGasto?"· fijado":"· hover"}</div>
+            {activeGasto&&(()=>{
+              const w=390;
+              const h=245;
+              const left=Math.max(12,Math.min((gastoTooltipPos.x||0)+8,window.innerWidth-w-12));
+              const top=Math.max(12,Math.min((gastoTooltipPos.y||0)+8,window.innerHeight-h-12));
+              const cantidad=Number(activeGasto.cantidad)||0;
+              const unitario=Number(activeGasto.costoUnitario)||((Number(activeGasto.precio)||0)/(cantidad||1));
+              return ReactDOM.createPortal(
+                <div style={{
+                  position:"fixed",left,top,width:w,zIndex:999999,
+                  background:C.card,border:`1px solid ${pinnedGasto?C.accent:C.borderLight}`,
+                  borderRadius:12,boxShadow:"0 18px 50px rgba(0,0,0,.75)",
+                  overflow:"hidden",pointerEvents:pinnedGasto?"auto":"none",willChange:"transform"
+                }}>
+                  <div style={{padding:"10px 12px",background:pinnedGasto?C.accentDim:"rgba(255,255,255,.03)",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+                      <div>
+                        <div style={{fontWeight:900,color:C.text,fontSize:13,lineHeight:1.25}}>{activeGasto.codigo} — {activeGasto.insumo||"—"}</div>
+                        <div style={{fontSize:11,color:C.textMuted,marginTop:3}}>{pinnedGasto?"Tooltip fijado · click en la fila para soltar":"Hover · click en la fila para fijar"}</div>
+                      </div>
+                      {pinnedGasto&&<button onClick={()=>setPinnedGasto(null)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub,cursor:"pointer",padding:"2px 7px",fontSize:11}}>✕</button>}
+                    </div>
                   </div>
-                  {pinnedGasto&&(
-                    <button onClick={()=>setPinnedGasto(null)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,color:C.textMuted,cursor:"pointer",padding:"3px 8px",fontSize:11,fontFamily:"Inter"}}>✕</button>
-                  )}
-                </div>
-                <div style={{overflowY:"auto",flex:1,maxHeight:320}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead style={{position:"sticky",top:0,background:"#1a1d27",zIndex:1}}>
-                      <tr>
-                        {["Fecha","Cant.","Precio","Tipo"].map((h,hi)=>(
-                          <th key={hi} style={{padding:"7px 10px",textAlign:hi>0?"right":"left",color:C.textMuted,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}33`}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historialGasto.map((u,ui)=>(
-                        <tr key={ui} style={{background:ui%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-                          <td style={{padding:"5px 10px",color:C.textSub,whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}11`}}>{fmtFecha(u.fecha)}</td>
-                          <td style={{padding:"5px 10px",textAlign:"right",color:C.accent,fontWeight:700,borderBottom:`1px solid ${C.border}11`}}>{fmtNum(u.cantidad)}</td>
-                          <td style={{padding:"5px 10px",textAlign:"right",color:C.yellow,fontWeight:700,borderBottom:`1px solid ${C.border}11`}}>{"$"+fmtNum(u.precio)}</td>
-                          <td style={{padding:"5px 10px",textAlign:"right",color:C.textMuted,borderBottom:`1px solid ${C.border}11`,fontSize:11}}>{u.tipoMant||"—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {historialGasto.length>0&&(
-                  <div style={{padding:"8px 14px",borderTop:`1px solid ${C.border}22`,display:"flex",justifyContent:"space-between",fontSize:11}}>
-                    <span style={{color:C.textMuted}}>Total</span>
-                    <span style={{color:C.yellow,fontWeight:700}}>{"$"+fmtNum(historialGasto.reduce((s,u)=>s+u.precio,0))}</span>
+                  <div style={{padding:12,display:"grid",gridTemplateColumns:"92px 1fr",gap:"7px 10px",fontSize:12}}>
+                    <span style={{color:C.textMuted,fontWeight:700}}>Equipo</span><span style={{color:C.purple,fontWeight:800}}>{activeGasto.maquina}</span>
+                    <span style={{color:C.textMuted,fontWeight:700}}>Proyecto</span><span><Badge color={proyColor(activeGasto.proyecto)}>{activeGasto.proyecto||"—"}</Badge></span>
+                    <span style={{color:C.textMuted,fontWeight:700}}>Día</span><span style={{color:C.text,fontWeight:700}}>{fmtFecha(activeGasto.fecha)}</span>
+                    <span style={{color:C.textMuted,fontWeight:700}}>Cantidad</span><span style={{color:C.accent,fontWeight:900}}>{fmtNum(cantidad)}</span>
+                    <span style={{color:C.textMuted,fontWeight:700}}>Insumo</span><span style={{color:C.text,fontWeight:700,lineHeight:1.25}}>{activeGasto.insumo||"—"}</span>
+                    <span style={{color:C.textMuted,fontWeight:700}}>Costo unit.</span><span style={{color:C.yellow,fontWeight:900}}>{unitario>0?"$"+fmtNum(unitario):"—"}</span>
+                    <span style={{color:C.textMuted,fontWeight:700}}>Costo total</span><span style={{color:C.yellow,fontWeight:900}}>{activeGasto.precio>0?"$"+fmtNum(activeGasto.precio):"—"}</span>
                   </div>
-                )}
-              </div>
-            )}
+                </div>,
+                document.body
+              );
+            })()}
           </div>
         </Card>
         );
@@ -5323,20 +5446,25 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
       {modo==="periodo"&&topInsumos.length>0&&(()=>{
         const activeInsumo=pinnedInsumo||hoveredInsumo;
         const activeData=activeInsumo?topInsumos.find(([c])=>c===activeInsumo):null;
-        const usosActivos=activeData?(()=>{
-          const m={};
-          (activeData[1].usos||[]).forEach(u=>{
-            const k=u.fecha+"__"+u.maquina;
-            if(!m[k])m[k]={fecha:u.fecha,maquina:u.maquina,cantidad:0};
-            m[k].cantidad+=u.cantidad;
-          });
-          return Object.values(m).sort((a,b)=>b.cantidad-a.cantidad);
-        })():[];
+        const usosActivos=activeData?Object.values((activeData[1].usos||[]).reduce((acc,u)=>{
+          const k=[u.fecha,u.maquina,u.proyecto,u.insumo,Number(u.costoUnitario)||0].join("__");
+          if(!acc[k])acc[k]={
+            fecha:u.fecha||"",
+            maquina:u.maquina||"—",
+            proyecto:u.proyecto||"—",
+            cantidad:0,
+            insumo:u.insumo||activeData[1].nombre||activeData[0],
+            costoUnitario:Number(u.costoUnitario)||0,
+            costoTotal:0,
+          };
+          acc[k].cantidad+=Number(u.cantidad)||0;
+          acc[k].costoTotal+=Number(u.costoTotal)||0;
+          return acc;
+        },{})).sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||String(a.maquina||"").localeCompare(String(b.maquina||""))):[];
         return(
         <Card title="Insumos más utilizados (Top 10)">
-          <div style={{display:"flex",gap:0}}>
-            {/* Tabla principal */}
-            <div style={{flex:1,overflowX:"auto"}}>
+          <div style={{position:"relative"}}>
+            <div style={{width:"100%",overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead>
                   <tr style={{background:C.surface}}>
@@ -5353,9 +5481,15 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                     <tr key={cod}
                       className={"insumo-tr"+(isPinned?" pinned":"")}
                       style={{background:isActive?"rgba(232,0,29,0.18)":i%2===0?"transparent":C.surface+"55",cursor:"pointer"}}
-                      onMouseEnter={()=>!pinnedInsumo&&setHoveredInsumo(cod)}
-                      onMouseLeave={()=>!pinnedInsumo&&setHoveredInsumo(null)}
-                      onClick={()=>setPinnedInsumo(p=>p===cod?null:cod)}
+                      onMouseEnter={(e)=>openInsumoHover(e,cod)}
+                      onMouseMove={()=>{}}
+                      onMouseLeave={closeInsumoHover}
+                      onClick={(e)=>{
+                        clearInsumoHover();
+                        setHoveredInsumo(null);
+                        setInsumoTooltipPos({x:e.clientX,y:e.clientY});
+                        setPinnedInsumo(p=>p===cod?null:cod);
+                      }}
                     >
                       <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{cod}</td>
                       <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text}}>{v.nombre||"—"}</td>
@@ -5368,43 +5502,54 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                 </tbody>
               </table>
             </div>
-            {/* Panel de detalle lateral */}
-            {activeInsumo&&activeData&&(
-              <div style={{
-                width:360,flexShrink:0,borderLeft:`1px solid ${C.border}`,
-                background:"rgba(232,0,29,0.06)",display:"flex",flexDirection:"column",
-              }}>
-                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-                  <div>
-                    <div style={{fontWeight:800,color:C.text,fontSize:13}}>{activeData[0]} — {activeData[1].nombre||"—"}</div>
-                    <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>{usosActivos.length} combinaciones equipo/fecha {pinnedInsumo?"· fijado":"· hover"}</div>
+            {activeInsumo&&activeData&&(()=>{
+              const w=520;
+              const h=315;
+              const left=Math.max(12,Math.min(insumoTooltipPos.x||0,window.innerWidth-w-12));
+              const top=Math.max(12,Math.min(insumoTooltipPos.y||0,window.innerHeight-h-12));
+              return ReactDOM.createPortal(
+                <div style={{
+                  position:"fixed",left,top,width:w,zIndex:999999,
+                  background:C.card,border:`1px solid ${pinnedInsumo?C.accent:C.borderLight}`,
+                  borderRadius:12,boxShadow:"0 18px 50px rgba(0,0,0,.75)",
+                  overflow:"hidden",pointerEvents:pinnedInsumo?"auto":"none",willChange:"transform"
+                }}>
+                  <div style={{padding:"10px 12px",background:pinnedInsumo?C.accentDim:"rgba(255,255,255,.03)",borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+                      <div>
+                        <div style={{fontWeight:900,color:C.text,fontSize:13,lineHeight:1.25}}>{activeData[0]} — {activeData[1].nombre||"—"}</div>
+                        <div style={{fontSize:11,color:C.textMuted,marginTop:3}}>{usosActivos.length} usos en el período · {pinnedInsumo?"Tooltip fijado · click en la fila para soltar":"Hover · click en la fila para fijar"}</div>
+                      </div>
+                      {pinnedInsumo&&<button onClick={()=>setPinnedInsumo(null)} style={{background:"transparent",border:`1px solid ${C.border}`,borderRadius:6,color:C.textSub,cursor:"pointer",padding:"2px 7px",fontSize:11}}>✕</button>}
+                    </div>
                   </div>
-                  {pinnedInsumo&&(
-                    <button onClick={()=>setPinnedInsumo(null)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,color:C.textMuted,cursor:"pointer",padding:"3px 8px",fontSize:11,fontFamily:"Inter"}}>✕</button>
-                  )}
-                </div>
-                <div style={{overflowY:"auto",flex:1,maxHeight:320}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead style={{position:"sticky",top:0,background:"#1a1d27",zIndex:1}}>
-                      <tr>
-                        {["Fecha","Equipo","Cant."].map((h,hi)=>(
-                          <th key={hi} style={{padding:"7px 12px",textAlign:hi===2?"right":"left",color:C.textMuted,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}33`}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usosActivos.map((u,ui)=>(
-                        <tr key={ui} style={{background:ui%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
-                          <td style={{padding:"5px 12px",color:C.textSub,whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}11`}}>{fmtFecha(u.fecha)}</td>
-                          <td style={{padding:"5px 12px",color:C.blue,fontWeight:600,borderBottom:`1px solid ${C.border}11`}}>{u.maquina}</td>
-                          <td style={{padding:"5px 12px",textAlign:"right",color:C.accent,fontWeight:700,borderBottom:`1px solid ${C.border}11`}}>{fmtNum(u.cantidad)}</td>
+                  <div style={{maxHeight:250,overflow:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead style={{position:"sticky",top:0,background:"#1a1d27",zIndex:1}}>
+                        <tr>
+                          {["Equipo","Proyecto","Día","Cant.","Insumo","Costo unit."].map((h,i)=>(
+                            <th key={i} style={{padding:"7px 9px",textAlign:i===3||i===5?"right":"left",color:C.textMuted,fontWeight:700,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+                      </thead>
+                      <tbody>
+                        {usosActivos.map((u,ui)=>(
+                          <tr key={ui} style={{background:ui%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
+                            <td style={{padding:"6px 9px",color:C.purple,fontWeight:800,borderBottom:`1px solid ${C.border}11`,whiteSpace:"nowrap"}}>{u.maquina}</td>
+                            <td style={{padding:"6px 9px",borderBottom:`1px solid ${C.border}11`,whiteSpace:"nowrap"}}><Badge color={proyColor(u.proyecto)}>{u.proyecto||"—"}</Badge></td>
+                            <td style={{padding:"6px 9px",color:C.textSub,fontWeight:700,borderBottom:`1px solid ${C.border}11`,whiteSpace:"nowrap"}}>{fmtFecha(u.fecha)}</td>
+                            <td style={{padding:"6px 9px",textAlign:"right",color:C.accent,fontWeight:900,borderBottom:`1px solid ${C.border}11`}}>{fmtNum(u.cantidad)}</td>
+                            <td style={{padding:"6px 9px",color:C.text,borderBottom:`1px solid ${C.border}11`,maxWidth:165,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.insumo||"—"}</td>
+                            <td style={{padding:"6px 9px",textAlign:"right",color:C.yellow,fontWeight:900,borderBottom:`1px solid ${C.border}11`,whiteSpace:"nowrap"}}>{u.costoUnitario>0?"$"+fmtNum(u.costoUnitario):"—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>,
+                document.body
+              );
+            })()}
           </div>
         </Card>
         );
@@ -7192,15 +7337,18 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const [fTipoEquipo,setFTipoEquipo]=React.useState(initialCostosMantState.fTipoEquipo||"todos");
   const [fProyecto,setFProyecto]=React.useState(initialCostosMantState.fProyecto||"todos");
   const [fPropiedad,setFPropiedad]=React.useState(initialCostosMantState.fPropiedad||"todos");
+  const [useListaVidaUtil,setUseListaVidaUtil]=React.useState(()=>initialCostosMantState.useListaVidaUtil||{});
+  const [vidaUtilOverride,setVidaUtilOverride]=React.useState(()=>initialCostosMantState.vidaUtilOverride||{});
 
   React.useEffect(()=>{
     try{
       window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify({
         tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,
-        modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,monthlyDollar
+        modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,monthlyDollar,
+        useListaVidaUtil,vidaUtilOverride
       }));
     }catch(_){}
-  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad]);
+  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,useListaVidaUtil,vidaUtilOverride]);
 
   const rma15PorFecha=React.useMemo(()=>byDateFilter(rma15||[],modoFecha,fechaDia,fechaD,fechaH),[rma15,modoFecha,fechaDia,fechaD,fechaH]);
 
@@ -8235,6 +8383,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[getEquipoListaMaestra]);
 
   const getVidaUtilEquipo=React.useCallback((equipo)=>{
+    if(useListaVidaUtil[equipo]===false){
+      const ov=Number(vidaUtilOverride[equipo]||0);
+      return ov>0?ov:8000;
+    }
     const eq=getEquipoListaMaestra(equipo);
     if(!eq)return 8000;
     const keys=Object.keys(eq||{});
@@ -8244,17 +8396,17 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     ]);
     const v=toNumber(k?eq[k]:0);
     return v>0?v:8000;
-  },[getEquipoListaMaestra]);
+  },[getEquipoListaMaestra,useListaVidaUtil,vidaUtilOverride]);
 
   const AMORTIZACION_GRUPOS=React.useMemo(()=>[
     // Orden y agrupación definitiva para Amortización.
     // 1) Primero se respeta la coincidencia exacta de equipos especiales.
     // 2) Después, los equipos nuevos entran por prefijo en el grupo indicado.
     {tipo:"MOTONIVELADORA 1", equipos:["MOT-0014","MOT-0024","MOT-0049","MOT-0051","MOT-0069"], prefixes:["MOT"]},
-    {tipo:"CARGADORA 1", equipos:["CFN-0043"], prefixes:[]},
     {tipo:"MINICARGADORA", equipos:["MCA-0005","MNC-0001","MNC-001"], prefixes:["MCA","MNC"]},
     {tipo:"EXCAVADORA 1", equipos:["EXC-0014"], prefixes:[]},
     {tipo:"EXCAVADORA", equipos:["EXC-0005","EXC-0017","EXC-0019","EXC-0055"], prefixes:["EXC"]},
+    {tipo:"CARGADORA 1", equipos:["CFN-0043"], prefixes:[]},
     {tipo:"CARGADORA", equipos:["CFN-0041","CFN-0044","CFN-0101","PCA-0017","PCA-0021","PCA-0051","PCA-0070","PCA-0074","PCA-0101"], prefixes:["CFN","PCA"]},
     {tipo:"COMPACTACIÓN", equipos:["ROD-0001","RCP-0016","RPC-0016","RCP-0036","RPC-0036","RPC-0039"], prefixes:["ROD","RCP","RPC"]},
     {tipo:"RETROPALA", equipos:["RTP-0010","RTP-0011","RTP-0012","RTP-0018","RTP-0030"], prefixes:["RTP"]},
@@ -8284,18 +8436,32 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra]);
 
   const rowsAmortizacion=React.useMemo(()=>{
-    const base=(costoMensualAcumulado||[]).map(x=>{
-      const eq=getEquipoListaMaestra(x.equipo);
-      const adq=getCostoLocalUSDEquipo(x.equipo);
-      const vida=getVidaUtilEquipo(x.equipo);
+    // Colapsar por equipo: si un equipo opera en FS y JM aparece dos veces en
+    // costoMensualAcumulado. Sumamos mantUSDhs de todas las secciones y mostramos
+    // una sola fila por equipo (adq y vida son propiedades del equipo, no de la sección).
+    const byEquipo={};
+    (costoMensualAcumulado||[]).forEach(x=>{
+      if(!x.equipo)return;
+      if(!byEquipo[x.equipo]){
+        byEquipo[x.equipo]={equipo:x.equipo,mantUSDhsTotal:0,proyectos:[]};
+      }
+      byEquipo[x.equipo].mantUSDhsTotal+=getUsdHoraCostoMensual(x);
+      const p=sectionProyectoCosto(x.section);
+      if(p&&!byEquipo[x.equipo].proyectos.includes(p))byEquipo[x.equipo].proyectos.push(p);
+    });
+
+    const base=Object.values(byEquipo).map(e=>{
+      const eq=getEquipoListaMaestra(e.equipo);
+      const adq=getCostoLocalUSDEquipo(e.equipo);
+      const vida=getVidaUtilEquipo(e.equipo);
       const amort=vida>0?adq/vida:0;
-      const mantUSDhs=getUsdHoraCostoMensual(x);
+      const mantUSDhs=e.mantUSDhsTotal;
       const totalUSDhs=amort+mantUSDhs;
-      const g=amortizacionGrupoInfo(x.equipo);
-      const pctMant=amort>0?mantUSDhs/amort:0; // % Mant. = Mant. USD/hs ÷ Amortiz. USD/hs
+      const g=amortizacionGrupoInfo(e.equipo);
+      const pctMant=amort>0?mantUSDhs/amort:0;
       return {
-        equipo:x.equipo,
-        proyecto:sectionProyectoCosto(x.section),
+        equipo:e.equipo,
+        proyecto:e.proyectos.join(" + ")||"—",
         tipo:g.grupo,
         modelo:eq?.["Marca"]||eq?.["Modelo"]||"",
         adq,vida,amort,mantUSDhs,totalUSDhs,
@@ -8306,7 +8472,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         _grupoIndex:g.grupoIndex,
         _ordenGrupo:g.orden,
       };
-    }).filter(x=>x.equipo);
+    });
 
     const grupos={};
     base.forEach(x=>{(grupos[x.tipo]=grupos[x.tipo]||[]).push(x);});
@@ -8649,7 +8815,28 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                   <th style={thS}>Tipo</th>
                   <th style={thS}>Modelo</th>
                   <th style={thS}>C. Adq. (USD)</th>
-                  <th style={thS}>Vida Útil (hs)</th>
+                  <th style={{...thS,minWidth:180}}>
+                    <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
+                      <span>Vida Útil (hs)</span>
+                      <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontWeight:500,fontSize:10,textTransform:"none",letterSpacing:0,color:C.textSub,whiteSpace:"nowrap"}}
+                        title="Al tildar, cada fila usa la Vida Útil de la Lista Maestra de Equipos. Al destildar, podés ingresar el valor manualmente.">
+                        <input type="checkbox"
+                          checked={Object.keys(useListaVidaUtil).length===0||Object.values(useListaVidaUtil).every(v=>v!==false)}
+                          onChange={e=>{
+                            if(e.target.checked){
+                              setUseListaVidaUtil({});
+                            }else{
+                              const next={};
+                              rowsAmortizacion.forEach(x=>{next[x.equipo]=false;});
+                              setUseListaVidaUtil(next);
+                            }
+                          }}
+                          style={{accentColor:C.teal,cursor:"pointer"}}
+                        />
+                        Datos de Lista de Equipos
+                      </label>
+                    </div>
+                  </th>
                   <th style={thS}>Amortiz. (USD/hs)</th>
                   <th style={thS}>Mant. (USD/hs)</th>
                   <th style={thS}>Total (USD/hs)</th>
@@ -8663,7 +8850,30 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                       <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:700}}>{x.tipo||"S/D"}</td>
                       <td style={{...tdS,textAlign:"left",color:C.textSub}}>{x.modelo||"—"}</td>
                       <td style={tdS}>{x.adq>0?"U$S "+fmtNum(Math.round(x.adq)):"—"}</td>
-                      <td style={tdS}>{x.vida>0?fmtNum(Math.round(x.vida)):"—"}</td>
+                      <td style={{...tdS,padding:"4px 6px"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}>
+                          <input type="checkbox"
+                            title="Trabajar con datos de Lista de Equipos"
+                            checked={useListaVidaUtil[x.equipo]!==false}
+                            onChange={e=>setUseListaVidaUtil(s=>({...s,[x.equipo]:e.target.checked}))}
+                            style={{accentColor:C.teal,cursor:"pointer",flexShrink:0}}
+                          />
+                          {useListaVidaUtil[x.equipo]!==false?(
+                            <span style={{color:C.textSub,minWidth:60,textAlign:"right"}}>{x.vida>0?fmtNum(Math.round(x.vida)):"—"}</span>
+                          ):(
+                            <input
+                              type="number"
+                              min={1}
+                              value={vidaUtilOverride[x.equipo]||""}
+                              onChange={e=>setVidaUtilOverride(s=>({...s,[x.equipo]:e.target.value}))}
+                              onBlur={e=>setVidaUtilOverride(s=>({...s,[x.equipo]:Number(e.target.value)||0}))}
+                              placeholder="hs"
+                              style={{width:72,background:C.card,border:`1px solid ${C.yellow}88`,borderRadius:5,color:C.yellow,
+                                fontWeight:700,fontSize:12,padding:"3px 6px",outline:"none",textAlign:"right",fontFamily:"Inter"}}
+                            />
+                          )}
+                        </div>
+                      </td>
                       <td style={{...tdS,color:C.yellow,fontWeight:700}}>{x.amort>0?"U$S "+fmtNum(Math.round(x.amort)):"—"}</td>
                       <td style={{...tdS,color:C.purple,fontWeight:700}}>{x.mantUSDhs>0?"U$S "+fmtNum(Math.round(x.mantUSDhs)):"—"}</td>
                       <td style={{...tdS,color:C.accent,fontWeight:800}}>{x.totalUSDhs>0?"U$S "+fmtNum(Math.round(x.totalUSDhs)):"—"}</td>
@@ -8852,7 +9062,7 @@ export default function App(){
     ]},
     {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
       {id:"mant",icon:"gear",label:"Mantenimiento"},
-      {id:"costosMant",icon:"dollar",label:"Costo de Mantenimientos"},
+      {id:"costosMant",icon:"report",label:"Informe de Costos"},
       {id:"costosUnitarios",icon:"dollar",label:"Costos Unitarios"},
     ]},
     {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:control.problemas>0?control.problemas:null},
