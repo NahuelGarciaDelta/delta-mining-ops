@@ -146,7 +146,120 @@ function getValue(row,keys){
 }
 function toNumber(v){
   if(v===null||v===undefined||v==="")return 0;
-  return parseFloat(String(v).replace(",",".").replace(/[^\d.-]/g,"").trim())||0;
+  if(typeof v==="number")return Number.isFinite(v)?v:0;
+  let s=String(v).trim().replace(/[^\d,.-]/g,"");
+  if(!s)return 0;
+  const lastComma=s.lastIndexOf(",");
+  const lastDot=s.lastIndexOf(".");
+  if(lastComma!==-1&&lastDot!==-1){
+    if(lastComma>lastDot){
+      s=s.replace(/\./g,"").replace(",",".");
+    }else{
+      s=s.replace(/,/g,"");
+    }
+  }else if(lastComma!==-1){
+    const dec=s.length-lastComma-1;
+    s=dec>0&&dec<=2?s.replace(/\./g,"").replace(",","."):s.replace(/,/g,"");
+  }else if(lastDot!==-1){
+    const dec=s.length-lastDot-1;
+    s=dec>0&&dec<=2?s.replace(/,/g,""):s.replace(/\./g,"");
+  }
+  return parseFloat(s)||0;
+}
+function normalizeInflatedMoneyValue(n){
+  if(!Number.isFinite(n))return 0;
+  const sign=n<0?-1:1;
+  let abs=Math.abs(n);
+
+  // Rescate para valores ya inflados por parseos anteriores.
+  // La causa real queda corregida en toMoneyNumber, pero esto evita que un
+  // valor guardado como 57099999999999990 siga rompiendo la tabla.
+  if(abs>=1000000000000){
+    abs=abs/1000000000000;
+    const rounded=Math.round(abs);
+    if(Math.abs(abs-rounded)<0.01){
+      if(rounded>50000&&rounded%100===0)abs=rounded/1000;
+      else if(rounded>20000)abs=rounded/100;
+    }
+  }
+
+  return sign*Math.round(abs*100)/100;
+}
+function toMoneyNumber(v){
+  if(v===null||v===undefined||v==="")return 0;
+
+  // La columna "Precio unitario" de la base viene como NÚMERO.
+  // Si Sheets/Excel lo entrega numérico, no se toca ningún separador.
+  if(typeof v==="number"){
+    const n=Number.isFinite(v)?v:0;
+    return Math.round(n*100)/100;
+  }
+
+  let s=String(v).trim();
+  if(!s)return 0;
+  s=s.replace(/\s/g,"").replace(/[^\d,.-]/g,"");
+  if(!s)return 0;
+
+  const neg=s.includes("-")?-1:1;
+  s=s.replace(/-/g,"");
+
+  const commaCount=(s.match(/,/g)||[]).length;
+  const dotCount=(s.match(/\./g)||[]).length;
+  const lastComma=s.lastIndexOf(",");
+  const lastDot=s.lastIndexOf(".");
+
+  if(commaCount>0&&dotCount>0){
+    // Mixto: el último separador es decimal.
+    // 15,296.77 -> 15296.77 | 15.296,77 -> 15296.77
+    if(lastComma>lastDot)s=s.replace(/\./g,"").replace(",",".");
+    else s=s.replace(/,/g,"");
+  }else if(commaCount>0){
+    const parts=s.split(",");
+    if(commaCount===1){
+      const left=parts[0], right=parts[1]||"";
+      // 15,296 puede ser miles; 15296,77 o 3941,6 es decimal.
+      if(right.length===3&&left.length<=3)s=left+right;
+      else s=left+"."+right;
+    }else{
+      const last=parts[parts.length-1]||"";
+      if(last.length<=2)s=parts.slice(0,-1).join("")+"."+last;
+      else s=parts.join("");
+    }
+  }else if(dotCount>0){
+    const parts=s.split(".");
+    if(dotCount===1){
+      const left=parts[0], right=parts[1]||"";
+      // CRÍTICO: valores numéricos de Sheets a veces llegan como string con
+      // muchos decimales binarios: "57.09999999999999". Eso es 57.10, NO miles.
+      if(right.length===3&&left.length<=3)s=left+right;
+      else s=left+"."+right;
+    }else{
+      const last=parts[parts.length-1]||"";
+      if(last.length<=2)s=parts.slice(0,-1).join("")+"."+last;
+      else s=parts.join("");
+    }
+  }
+
+  const n=Number(s);
+  return Number.isFinite(n)?normalizeInflatedMoneyValue(neg*n):0;
+}
+function getExactValue(row,keys){
+  const rk=Object.keys(row||{});
+  const wk=keys.map(cleanKey);
+  for(const k of rk){if(wk.includes(cleanKey(k)))return row[k];}
+  return"";
+}
+function getInsumoExtra(row,descripcion){
+  // La base de costos tiene columnas fijas:
+  // A Codigo · B Descripcion · C Precio unitario · D Descripcion adicional.
+  // NO buscar en otras columnas porque en la hoja existen columnas auxiliares
+  // a la derecha y eso hacía que "Descripción adicional" trajera cualquier dato.
+  const exact=String(getExactValue(row,[
+    "Descripcion adicional","DESCRIPCION ADICIONAL","Descripción adicional","DESCRIPCIÓN ADICIONAL",
+    "descripcion adicional","descripción adicional"
+  ])||"").trim();
+  if(exact&&cleanKey(exact)!==cleanKey(descripcion))return exact;
+  return "";
 }
 function normDate(d){
   if(!d)return"";const t=String(d).trim();
@@ -746,20 +859,68 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
     if(useVirtual)setScrollTop(e.target.scrollTop);
   },[useVirtual]);
 
+  // Ordenamiento global para TODAS las tablas:
+  // al tocar cualquier encabezado ordena A-Z / menor-mayor y al volver a tocar invierte.
+  const colSortId=useCallback((c,i)=>c.sortKey||c.key||`__col_${i}` ,[]);
   const handleSort=useCallback((key)=>{
     if(sortKey===key)setSortDir(d=>d==="asc"?"desc":"asc");
     else{setSortKey(key);setSortDir("asc");}
   },[sortKey]);
 
+  const normalizeSortValue=useCallback((v)=>{
+    if(v===null||v===undefined||v==="")return{type:"empty",value:""};
+    if(typeof v==="number"&&Number.isFinite(v))return{type:"number",value:v};
+    const raw=String(v).trim();
+    if(!raw)return{type:"empty",value:""};
+
+    const dmy=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if(dmy){
+      const yy=dmy[3].length===2?`20${dmy[3]}`:dmy[3];
+      const ms=new Date(`${yy}-${dmy[2].padStart(2,"0")}-${dmy[1].padStart(2,"0")}T00:00:00`).getTime();
+      if(Number.isFinite(ms))return{type:"date",value:ms};
+    }
+    const iso=raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(iso){
+      const ms=new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`).getTime();
+      if(Number.isFinite(ms))return{type:"date",value:ms};
+    }
+
+    const numericRaw=raw
+      .replace(/^U\$S\s*/i,"")
+      .replace(/^ARS\s*/i,"")
+      .replace(/[$%\s]/g,"");
+    if(/^-?[\d.,]+$/.test(numericRaw)){
+      let normalized=numericRaw;
+      if(normalized.includes(",")) normalized=normalized.replace(/\./g,"").replace(",",".");
+      else normalized=normalized.replace(/,/g,"");
+      const n=Number(normalized);
+      if(Number.isFinite(n))return{type:"number",value:n};
+    }
+
+    return{type:"text",value:raw.toLocaleLowerCase("es-AR")};
+  },[]);
+
   const sortedRows=useMemo(()=>{
     if(!sortKey)return rows;
+    const sortCol=cols.find((c,i)=>colSortId(c,i)===sortKey);
+    if(!sortCol)return rows;
+    const getSortValue=(row)=>{
+      if(typeof sortCol.sortValue==="function")return sortCol.sortValue(row);
+      if(sortCol.sortKey&&row[sortCol.sortKey]!==undefined)return row[sortCol.sortKey];
+      if(sortCol.key&&row[sortCol.key]!==undefined)return row[sortCol.key];
+      return "";
+    };
     return [...rows].sort((a,b)=>{
-      const av=a[sortKey],bv=b[sortKey];
-      if(av==null)return 1;if(bv==null)return -1;
-      const cmp=typeof av==="number"?av-bv:String(av).localeCompare(String(bv));
+      const av=normalizeSortValue(getSortValue(a));
+      const bv=normalizeSortValue(getSortValue(b));
+      if(av.type==="empty"&&bv.type!=="empty")return 1;
+      if(bv.type==="empty"&&av.type!=="empty")return -1;
+      let cmp=0;
+      if((av.type==="number"&&bv.type==="number")||(av.type==="date"&&bv.type==="date"))cmp=av.value-bv.value;
+      else cmp=String(av.value).localeCompare(String(bv.value),"es-AR",{numeric:true,sensitivity:"base"});
       return sortDir==="asc"?cmp:-cmp;
     });
-  },[rows,sortKey,sortDir]);
+  },[rows,cols,sortKey,sortDir,colSortId,normalizeSortValue]);
 
   const bufferRows=8;
   const visibleCount=Math.ceil(maxH/ROW_H);
@@ -783,10 +944,11 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
       <table style={{width:"100%",minWidth:tableMinWidth,borderCollapse:"separate",borderSpacing:0,fontSize:12,tableLayout:"fixed"}}>
         <thead><tr>{cols.map((c,i)=>{
           const sticky=stickyFirst&&i===0;
+          const sKey=colSortId(c,i);
           return(
-          <th key={i} onClick={()=>c.key&&handleSort(c.key)}
-            style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?4:3,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===c.key?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:c.width||c.maxWidth||(c.wrap?140:undefined),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),lineHeight:1.3,cursor:c.key?"pointer":"default",userSelect:"none",boxShadow:sticky?`1px 0 0 ${C.border}`:undefined}}>
-            {c.label}{sortKey===c.key?(sortDir==="asc"?" ↑":" ↓"):""}
+          <th key={i} onClick={()=>handleSort(sKey)}
+            style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?4:3,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===sKey?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:c.width||c.maxWidth||(c.wrap?140:undefined),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),lineHeight:1.3,cursor:"pointer",userSelect:"none",boxShadow:sticky?`1px 0 0 ${C.border}`:undefined}}>
+            {c.label}{sortKey===sKey?(sortDir==="asc"?" ↑":" ↓"):""}
           </th>
           );
         })}</tr></thead>
@@ -829,6 +991,48 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
     </div>
   );
 }
+
+function tableSortValue(v){
+  if(v===null||v===undefined)return "";
+  if(typeof v==="boolean")return v?1:0;
+  if(typeof v==="number")return v;
+  const str=String(v).trim();
+  if(!str)return "";
+  const iso=normDate(str);
+  if(iso)return iso;
+  const num=toNumber(str);
+  if(/^-?\d+(?:[.,]\d+)?$/.test(str.replace(/\s/g,"")))return num;
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+}
+function compareTableValues(a,b){
+  const av=tableSortValue(a),bv=tableSortValue(b);
+  if(av===""&&bv!=="")return 1;
+  if(bv===""&&av!=="")return -1;
+  if(typeof av==="number"&&typeof bv==="number")return av-bv;
+  return String(av).localeCompare(String(bv),"es-AR",{numeric:true,sensitivity:"base"});
+}
+function sortRowsForTable(rows,sort,getters={}){
+  if(!sort?.key)return rows;
+  const getter=getters[sort.key]||((r)=>r?.[sort.key]);
+  return [...(rows||[])].sort((a,b)=>{
+    const cmp=compareTableValues(getter(a),getter(b));
+    return sort.dir==="desc"?-cmp:cmp;
+  });
+}
+function SortableTH({sortId,sortKey,sorts,setSorts,children,style}){
+  const active=sorts?.[sortId]?.key===sortKey;
+  const dir=sorts?.[sortId]?.dir||"asc";
+  return(
+    <th onClick={()=>setSorts(prev=>{
+      const cur=prev?.[sortId];
+      const next=cur?.key===sortKey&&cur.dir==="asc"?"desc":"asc";
+      return {...prev,[sortId]:{key:sortKey,dir:next}};
+    })} style={{...style,cursor:"pointer",userSelect:"none",color:active?C.accent:(style?.color||C.textSub)}}>
+      {children}{active?(dir==="asc"?" ↑":" ↓"):""}
+    </th>
+  );
+}
+
 function Sel({label,value,onChange,options}){
   // Si el valor actual no existe en las opciones, caer al default (primera opción)
   const safeValue=options.some(o=>o.value===value)?value:(options[0]?.value??value);
@@ -1128,6 +1332,7 @@ const LISTA_COLUMNS=[
   {label:"Código Nuevo",aliases:["Codigo Nuevo","Codigo Interno","Código Interno","CODIGO N° INTERNO","Interno"],group:"id"},
   {label:"Familia",aliases:["Familia","Tipo de equipo","Tipo"],group:"id"},
   {label:"Marca",aliases:["Marca"],group:"id"},
+  {label:"Modelo",aliases:["Modelo","Modelo Equipo","Modelo de Equipo","Modelo Maquina","Modelo Máquina","Marca / Modelo","Marca Modelo","Marca y Modelo"],group:"id"},
   {label:"Propiedad",aliases:["Propiedad"],group:"id"},
   {label:"N° Serie",aliases:["N Serie","Nro Serie","Numero de Serie","N° de Serie"],group:"id"},
   {label:"Potencia",aliases:["Potencia"],group:"tec"},
@@ -4953,11 +5158,13 @@ function ViewCostosUnitarios({insumos,usdRate}){
 
   const rows=useMemo(()=>{
     return Object.entries(insumos||{}).map(([codigo,info])=>{
-      const precioARS=Number(info?.costoUnitario)||0;
+      const precioARS=toMoneyNumber(info?.costoUnitario ?? getValue(info||{},["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"]));
+      const articulo=String(info?.descripcion||getValue(info||{},["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Insumo","Nombre"])||"").trim()||codigo;
+      const extra=String(info?.descripcionAdicional||"").trim()||getInsumoExtra(info||{},articulo);
       return{
         codigo,
-        articulo:String(info?.descripcion||"").trim()||codigo,
-        descripcionAdicional:String(info?.descripcionAdicional||"").trim(),
+        articulo,
+        descripcionAdicional:extra,
         precioARS,
         precioUSD:usdRate&&precioARS>0 ? precioARS/usdRate : 0,
       };
@@ -5015,6 +5222,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const setFiltroCosto=v=>set("filtroCosto",v);
   const setInsumoFiltro=v=>set("insumoFiltro",v);
   const setCodigoGastoFiltro=v=>set("codigoGastoFiltro",v);
+  const [rma15Sorts,setRma15Sorts]=React.useState({});
 
   // Normalizar tipo para comparación case-insensitive
   const normTipo=v=>String(v||"").trim().toLowerCase();
@@ -5074,37 +5282,64 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
     });
   }));
   const topInsumos=Object.entries(insumosMap).sort((a,b)=>b[1].cantidad-a[1].cantidad).slice(0,10);
+  const topInsumosOrdenados=useMemo(()=>sortRowsForTable(topInsumos,rma15Sorts.topInsumos,{
+    codigo:r=>r[0],descripcion:r=>r[1]?.nombre,cantidad:r=>r[1]?.cantidad,costoARS:r=>r[1]?.costo,costoUSD:r=>usdRate&&r[1]?.costo?(Number(r[1].costo)||0)/usdRate:0,
+  }),[topInsumos,rma15Sorts.topInsumos,usdRate]);
 
-  // Gastos excesivos por máquina: top 5 gastos individuales por insumo para cada máquina, según filtros activos
+  // Gastos excesivos por máquina: agrupa por máquina + código de insumo,
+  // suma cantidades y costos, y luego muestra el top 5 de insumos por cada máquina.
   const gastosExcesivosPorMaquina=useMemo(()=>{
     const porMaquina={};
     filtered.forEach(r=>{
+      const maq=r.maquina||"—";
+      if(!porMaquina[maq])porMaquina[maq]={};
       (r.insumos||[]).forEach(i=>{
         const precio=Number(i.costoTotal)||0;
-        if(!i.codigo||precio<=0)return;
-        const maq=r.maquina||"—";
-        if(!porMaquina[maq])porMaquina[maq]=[];
-        porMaquina[maq].push({
-          codigo:i.codigo,
-          insumo:i.nombre||i.codigo,
-          cantidad:Number(i.cantidad)||0,
-          precio,
-          costoUnitario:(Number(i.cantidad)||0)>0?precio/(Number(i.cantidad)||1):precio,
-          maquina:maq,
-          proyecto:r.proyecto||"—",
-          fecha:r.fecha||"",
-        });
+        const codigo=String(i.codigo||"").trim();
+        if(!codigo||precio<=0)return;
+        const key=codigo;
+        if(!porMaquina[maq][key]){
+          porMaquina[maq][key]={
+            codigo,
+            insumo:i.nombre||codigo,
+            cantidad:0,
+            precio:0,
+            costoUnitario:0,
+            maquina:maq,
+            proyecto:r.proyecto||"—",
+            proyectos:new Set(),
+            fechas:[],
+            fecha:"",
+            fechaLabel:"",
+          };
+        }
+        const item=porMaquina[maq][key];
+        item.cantidad+=Number(i.cantidad)||0;
+        item.precio+=precio;
+        item.proyectos.add(r.proyecto||"—");
+        if(r.fecha)item.fechas.push(r.fecha);
+        if(i.nombre&&!item.insumo)item.insumo=i.nombre;
       });
     });
 
     return Object.entries(porMaquina)
-      .sort(([a],[b])=>a.localeCompare(b))
-      .flatMap(([,items])=>
-        items
+      .sort(([a],[b])=>a.localeCompare(b,"es-AR",{numeric:true,sensitivity:"base"}))
+      .flatMap(([,itemsByCodigo])=>
+        Object.values(itemsByCodigo)
+          .map(item=>{
+            const fechas=uniq(item.fechas).sort();
+            const proyectos=[...item.proyectos].filter(Boolean);
+            return{
+              ...item,
+              costoUnitario:(Number(item.cantidad)||0)>0?(Number(item.precio)||0)/(Number(item.cantidad)||1):(Number(item.precio)||0),
+              proyecto:proyectos.length===1?proyectos[0]:proyectos.join(" / "),
+              fecha:fechas[fechas.length-1]||"",
+              fechaLabel:fechas.length>1?`${fmtFecha(fechas[0])} - ${fmtFecha(fechas[fechas.length-1])}`:(fechas[0]?fmtFecha(fechas[0]):"—"),
+            };
+          })
           .sort((a,b)=>(Number(b.precio)||0)-(Number(a.precio)||0))
           .slice(0,5)
-      )
-      .sort((a,b)=>(Number(b.precio)||0)-(Number(a.precio)||0));
+      );
   },[filtered]);
 
   const codigosGastosExcesivos=useMemo(()=>{
@@ -5119,6 +5354,9 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
     if(multiIsAll(codigoGastoFiltro,"todos"))return gastosExcesivosPorMaquina;
     return gastosExcesivosPorMaquina.filter(x=>matchMulti(String(x.codigo||""),codigoGastoFiltro,"todos"));
   },[gastosExcesivosPorMaquina,codigoGastoFiltro]);
+  const gastosExcesivosOrdenados=useMemo(()=>sortRowsForTable(gastosExcesivosFiltrados,rma15Sorts.gastosExcesivos,{
+    codigo:x=>x.codigo,insumo:x=>x.insumo,cantidad:x=>x.cantidad,precio:x=>x.precio,maquina:x=>x.maquina,proyecto:x=>x.proyecto,fecha:x=>x.fecha,
+  }),[gastosExcesivosFiltrados,rma15Sorts.gastosExcesivos]);
 
   // OTs por equipo
   const otsPorMaq={};
@@ -5223,6 +5461,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
     {key:"costoTotal",label:"Costo USD",render:v=><span style={{color:v>0?C.green:C.textMuted,fontWeight:600}}>{fmtUSD(v,usdRate)}</span>},
     {key:"observaciones",label:"Observaciones",wrap:true},
   ],[]);
+  const filteredPeriodoOrdenado=useMemo(()=>sortRowsForTable(filtered,rma15Sorts.ordenesPeriodo,{fecha:r=>r.fecha,proyecto:r=>r.proyecto,maquina:r=>r.maquina,tipoMant:r=>r.tipoMant,intervencion:r=>r.intervencion,operativo:r=>r.operativo?1:0,costoTotal:r=>r.costoTotal,observaciones:r=>r.observaciones}),[filtered,rma15Sorts.ordenesPeriodo]);
 
   // colsDia no se usa más — tabla de insumos se arma inline en el dashboard
 
@@ -5284,7 +5523,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
         return(
         <Card title={`Gastos excesivos por máquina (${gastosExcesivosFiltrados.length} ítems)`} action={
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
-            <span style={{fontSize:11,color:C.textMuted}}>Top 5 gastos individuales por máquina según el filtro aplicado</span>
+            <span style={{fontSize:11,color:C.textMuted}}>Top 5 insumos agrupados por código y máquina según el filtro aplicado</span>
             <CodeMultiSearch value={codigoGastoFiltro} onChange={setCodigoGastoFiltro} options={[{value:"todos",label:"Todos"},...codigosGastosExcesivos]}/>
           </div>
         }>
@@ -5293,15 +5532,17 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead>
                   <tr style={{background:C.surface}}>
-                    {["Código","Insumo","Cantidad","Precio","Máquina","Proyecto","Fecha"].map((h,i)=>(
-                      <th key={i} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                    {[
+                      {key:"codigo",label:"Código"},{key:"insumo",label:"Insumo"},{key:"cantidad",label:"Cantidad"},{key:"precio",label:"Precio"},{key:"maquina",label:"Máquina"},{key:"proyecto",label:"Proyecto"},{key:"fecha",label:"Fecha"}
+                    ].map((c,i)=>(
+                      <SortableTH key={c.key} sortId="gastosExcesivos" sortKey={c.key} sorts={rma15Sorts} setSorts={setRma15Sorts} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{c.label}</SortableTH>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {gastosExcesivosFiltrados.length===0?
                     <tr><td colSpan={7} style={{padding:28,textAlign:"center",color:C.textMuted}}>Sin gastos con costo para el filtro aplicado</td></tr>:
-                    gastosExcesivosFiltrados.map((x,i)=>{
+                    gastosExcesivosOrdenados.map((x,i)=>{
                       const rowKey=`${x.codigo}__${x.maquina}`;
                       const isActive=activeGastoKey===rowKey;
                       const isPinned=pinnedGasto===rowKey;
@@ -5325,7 +5566,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                         <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.yellow,fontWeight:700}}>{"$"+fmtNum(x.precio)}</td>
                         <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{x.maquina}</Badge></td>
                         <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(x.proyecto)}>{x.proyecto}</Badge></td>
-                        <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.textSub,fontWeight:600}}>{fmtFecha(x.fecha)}</td>
+                        <td style={{padding:"8px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.textSub,fontWeight:600}}>{x.fechaLabel||fmtFecha(x.fecha)}</td>
                       </tr>
                       );
                     })
@@ -5359,7 +5600,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                   <div style={{padding:12,display:"grid",gridTemplateColumns:"92px 1fr",gap:"7px 10px",fontSize:12}}>
                     <span style={{color:C.textMuted,fontWeight:700}}>Equipo</span><span style={{color:C.purple,fontWeight:800}}>{activeGasto.maquina}</span>
                     <span style={{color:C.textMuted,fontWeight:700}}>Proyecto</span><span><Badge color={proyColor(activeGasto.proyecto)}>{activeGasto.proyecto||"—"}</Badge></span>
-                    <span style={{color:C.textMuted,fontWeight:700}}>Día</span><span style={{color:C.text,fontWeight:700}}>{fmtFecha(activeGasto.fecha)}</span>
+                    <span style={{color:C.textMuted,fontWeight:700}}>Día</span><span style={{color:C.text,fontWeight:700}}>{activeGasto.fechaLabel||fmtFecha(activeGasto.fecha)}</span>
                     <span style={{color:C.textMuted,fontWeight:700}}>Cantidad</span><span style={{color:C.accent,fontWeight:900}}>{fmtNum(cantidad)}</span>
                     <span style={{color:C.textMuted,fontWeight:700}}>Insumo</span><span style={{color:C.text,fontWeight:700,lineHeight:1.25}}>{activeGasto.insumo||"—"}</span>
                     <span style={{color:C.textMuted,fontWeight:700}}>Costo unit.</span><span style={{color:C.yellow,fontWeight:900}}>{unitario>0?"$"+fmtNum(unitario):"—"}</span>
@@ -5479,13 +5720,15 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead>
                   <tr style={{background:C.surface}}>
-                    {["Código","Descripción","Cantidad total","Costo ARS","Costo USD"].map((h,i)=>(
-                      <th key={i} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                    {[
+                      {key:"codigo",label:"Código"},{key:"descripcion",label:"Descripción"},{key:"cantidad",label:"Cantidad total"},{key:"costoARS",label:"Costo ARS"},{key:"costoUSD",label:"Costo USD"}
+                    ].map((c,i)=>(
+                      <SortableTH key={c.key} sortId="topInsumos" sortKey={c.key} sorts={rma15Sorts} setSorts={setRma15Sorts} style={{padding:"9px 12px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:11,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{c.label}</SortableTH>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {topInsumos.map(([cod,v],i)=>{
+                  {topInsumosOrdenados.map(([cod,v],i)=>{
                     const isActive=activeInsumo===cod;
                     const isPinned=pinnedInsumo===cod;
                     return(
@@ -5518,6 +5761,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
               const h=315;
               const left=Math.max(12,Math.min(insumoTooltipPos.x||0,window.innerWidth-w-12));
               const top=Math.max(12,Math.min(insumoTooltipPos.y||0,window.innerHeight-h-12));
+              const usosActivosOrdenados=sortRowsForTable(usosActivos,rma15Sorts.historialTopInsumos,{equipo:u=>u.maquina,proyecto:u=>u.proyecto,dia:u=>u.fecha,cantidad:u=>u.cantidad,insumo:u=>u.insumo,costoUnitario:u=>u.costoUnitario});
               return ReactDOM.createPortal(
                 <div style={{
                   position:"fixed",left,top,width:w,zIndex:999999,
@@ -5538,13 +5782,15 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead style={{position:"sticky",top:0,background:"#1a1d27",zIndex:1}}>
                         <tr>
-                          {["Equipo","Proyecto","Día","Cant.","Insumo","Costo unit."].map((h,i)=>(
-                            <th key={i} style={{padding:"7px 9px",textAlign:i===3||i===5?"right":"left",color:C.textMuted,fontWeight:700,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                          {[
+                            {key:"equipo",label:"Equipo"},{key:"proyecto",label:"Proyecto"},{key:"dia",label:"Día"},{key:"cantidad",label:"Cant."},{key:"insumo",label:"Insumo"},{key:"costoUnitario",label:"Costo unit."}
+                          ].map((c,i)=>(
+                            <SortableTH key={c.key} sortId="historialTopInsumos" sortKey={c.key} sorts={rma15Sorts} setSorts={setRma15Sorts} style={{padding:"7px 9px",textAlign:i===3||i===5?"right":"left",color:C.textMuted,fontWeight:700,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{c.label}</SortableTH>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {usosActivos.map((u,ui)=>(
+                        {usosActivosOrdenados.map((u,ui)=>(
                           <tr key={ui} style={{background:ui%2===0?"transparent":"rgba(255,255,255,0.02)"}}>
                             <td style={{padding:"6px 9px",color:C.purple,fontWeight:800,borderBottom:`1px solid ${C.border}11`,whiteSpace:"nowrap"}}>{u.maquina}</td>
                             <td style={{padding:"6px 9px",borderBottom:`1px solid ${C.border}11`,whiteSpace:"nowrap"}}><Badge color={proyColor(u.proyecto)}>{u.proyecto||"—"}</Badge></td>
@@ -5598,14 +5844,19 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
               insMap[i.codigo].costo+=i.costoTotal;
             }));
             const topIns=Object.entries(insMap).sort((a,b)=>b[1].cantidad-a[1].cantidad);
+            const topInsOrdenados=sortRowsForTable(topIns,rma15Sorts.topInsDia,{codigo:r=>r[0],descripcion:r=>r[1]?.nombre,cantidad:r=>r[1]?.cantidad,costoARS:r=>r[1]?.costo,costoUSD:r=>usdRate&&r[1]?.costo?(Number(r[1].costo)||0)/usdRate:0});
             // Equipos del día con tipo
             const eqData=filtered.map(r=>({
+              proyecto:r.proyecto,
               maquina:r.maquina,
               tipo:normTipo(r.tipoMant).includes("prev")?"Preventivo":"Correctivo",
               operativo:r.operativo,
               costo:r.costoTotal,
+              costoUSD:usdRate&&r.costoTotal?(Number(r.costoTotal)||0)/usdRate:0,
               intervencion:r.intervencion,
+              ot:r,
             }));
+            const eqDataOrdenado=sortRowsForTable(eqData,rma15Sorts.equiposDia,{proyecto:x=>x.proyecto,maquina:x=>x.maquina,tipo:x=>x.tipo,operativo:x=>x.operativo?1:0,intervencion:x=>x.intervencion,costoARS:x=>x.costo,costoUSD:x=>x.costoUSD});
             // Torta tipo
             const tipoCount={Preventivo:0,Correctivo:0};
             filtered.forEach(r=>{const t=normTipo(r.tipoMant).includes("prev")?"Preventivo":"Correctivo";tipoCount[t]++;});
@@ -5671,19 +5922,21 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                         <thead>
                           <tr style={{background:C.surface}}>
-                            {["Proyecto","Máquina","Tipo","Operativo","Intervención","Costo ARS","Costo USD"].map((h,i)=>(
-                              <th key={i} style={{padding:"8px 12px",textAlign:i===0||i===3?"left":"center",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.surface}}>{h}</th>
+                            {[
+                              {key:"proyecto",label:"Proyecto"},{key:"maquina",label:"Máquina"},{key:"tipo",label:"Tipo"},{key:"operativo",label:"Operativo"},{key:"intervencion",label:"Intervención"},{key:"costoARS",label:"Costo ARS"},{key:"costoUSD",label:"Costo USD"}
+                            ].map((c,i)=>(
+                              <SortableTH key={c.key} sortId="equiposDia" sortKey={c.key} sorts={rma15Sorts} setSorts={setRma15Sorts} style={{padding:"8px 12px",textAlign:i===0||i===3?"left":"center",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.surface}}>{c.label}</SortableTH>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {eqData.map((r,i)=>(
+                          {eqDataOrdenado.map((r,i)=>(
                             <tr key={i}
                             style={{background:i%2===0?"transparent":C.surface+"55",cursor:"pointer",transition:"background .1s"}}
                             onMouseEnter={e=>{
                               e.currentTarget.dataset.bg=e.currentTarget.style.background||"transparent";
                               e.currentTarget.style.background=C.accent+"22";
-                              const ot=filtered[i];const ins=ot?.insumos?.filter(x=>x.codigo)||[];
+                              const ot=r.ot;const ins=ot?.insumos?.filter(x=>x.codigo)||[];
                               if(!ins.length)return;
                               const tip=document.createElement("div");tip.id="mant-tip2";
                               tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
@@ -5694,7 +5947,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                             }}
                             onMouseLeave={e=>{e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";const t=document.getElementById("mant-tip2");if(t)t.remove();}}
                           >
-                              <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(filtered[i]?.proyecto)}>{filtered[i]?.proyecto||"—"}</Badge></td>
+                              <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={proyColor(r.proyecto)}>{r.proyecto||"—"}</Badge></td>
                               <td style={{padding:"7px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={C.purple}>{r.maquina}</Badge></td>
                               <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={r.tipo==="Preventivo"?C.green:C.red}>{r.tipo}</Badge></td>
                               <td style={{padding:"7px 12px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}><Badge color={r.operativo?C.green:C.red}>{r.operativo?"SÍ":"NO"}</Badge></td>
@@ -5719,13 +5972,15 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                           <thead>
                             <tr style={{background:C.surface}}>
-                              {["Código","Descripción","Cant.","Costo ARS","Costo USD"].map((h,i)=>(
-                                <th key={i} style={{padding:"8px 10px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.surface}}>{h}</th>
+                              {[
+                                {key:"codigo",label:"Código"},{key:"descripcion",label:"Descripción"},{key:"cantidad",label:"Cant."},{key:"costoARS",label:"Costo ARS"},{key:"costoUSD",label:"Costo USD"}
+                              ].map((c,i)=>(
+                                <SortableTH key={c.key} sortId="topInsDia" sortKey={c.key} sorts={rma15Sorts} setSorts={setRma15Sorts} style={{padding:"8px 10px",textAlign:i<2?"left":"center",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,position:"sticky",top:0,background:C.surface}}>{c.label}</SortableTH>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
-                            {topIns.map(([cod,v],i)=>(
+                            {topInsOrdenados.map(([cod,v],i)=>(
                               <tr key={cod} style={{background:i%2===0?"transparent":C.surface+"55"}}>
                                 <td style={{padding:"7px 10px",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600,fontSize:11}}>{cod}</td>
                                 <td style={{padding:"7px 10px",borderBottom:`1px solid ${C.border}18`,color:C.text,fontSize:11}}>{v.nombre||"—"}</td>
@@ -5773,19 +6028,22 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
                     });
                   });
                   if(!allIns.length)return null;
+                  const allInsOrdenados=sortRowsForTable(allIns,rma15Sorts.insumosDia,{maquina:x=>x.maquina,tipo:x=>x.tipoMant,codigo:x=>x.codigo,descripcion:x=>x.nombre,cantidad:x=>x.cantidad,costoARS:x=>x.costoARS,costoUSD:x=>usdRate&&x.costoARS?(Number(x.costoARS)||0)/usdRate:0});
                   return(
                     <Card title={`Insumos utilizados — ${fmtFecha(fechaDia)} (${allIns.length} registros)`}>
                       <div style={{overflowX:"auto",overflowY:"auto",maxHeight:400}}>
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                           <thead>
                             <tr style={{background:C.surface}}>
-                              {["Máquina","Tipo","Código","Descripción","Cantidad","Costo ARS","Costo USD"].map((h,i)=>(
-                                <th key={i} style={{padding:"9px 12px",textAlign:i>4?"center":"left",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:1}}>{h}</th>
+                              {[
+                                {key:"maquina",label:"Máquina"},{key:"tipo",label:"Tipo"},{key:"codigo",label:"Código"},{key:"descripcion",label:"Descripción"},{key:"cantidad",label:"Cantidad"},{key:"costoARS",label:"Costo ARS"},{key:"costoUSD",label:"Costo USD"}
+                              ].map((c,i)=>(
+                                <SortableTH key={c.key} sortId="insumosDia" sortKey={c.key} sorts={rma15Sorts} setSorts={setRma15Sorts} style={{padding:"9px 12px",textAlign:i>4?"center":"left",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:1}}>{c.label}</SortableTH>
                               ))}
                             </tr>
                           </thead>
                           <tbody>
-                            {allIns.map((x,i)=>{
+                            {allInsOrdenados.map((x,i)=>{
                               // Buscar la OT completa para el tooltip
                               const ot=filtered.find(r=>r.maquina===x.maquina&&r.insumos.some(ins=>ins.codigo===x.codigo));
                               const otIns=ot?.insumos?.filter(ins=>ins.codigo)||[];
@@ -5834,13 +6092,13 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
             <table style={{width:"100%",tableLayout:"fixed",borderCollapse:"collapse",fontSize:12}}>
               <thead>
                 <tr style={{background:C.surface}}>
-                  {colsPeriodo.map((c,i)=><th key={i} style={{padding:"9px 12px",textAlign:"left",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:1}}>{c.label}</th>)}
+                  {colsPeriodo.map((c,i)=><SortableTH key={i} sortId="ordenesPeriodo" sortKey={c.key} sorts={rma15Sorts} setSorts={setRma15Sorts} style={{padding:"9px 12px",textAlign:"left",color:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",position:"sticky",top:0,background:C.surface,zIndex:1}}>{c.label}</SortableTH>)}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length===0
                   ?<tr><td colSpan={colsPeriodo.length} style={{padding:28,textAlign:"center",color:C.textMuted}}>Sin registros</td></tr>
-                  :filtered.map((r,i)=>{
+                  :filteredPeriodoOrdenado.map((r,i)=>{
                     const ins=r.insumos?.filter(x=>x.codigo)||[];
                     return(
                       <tr key={i}
@@ -6406,7 +6664,7 @@ function pasteStructureText(target){
   if(target.kind==="rop05")return "A FechaCarga · B Supervisor · C Proyecto · D Grupo · E Equipo · F Parte · G Tipo · H FechaParte · I Tarea · J Horas · K Cantidad · L Unidad · M Observación. También acepta exportación con A ID_Carga y datos desde B:N.";
   if(target.kind==="rop02")return "A Fecha · B Interno · C Operador · D Supervisor Delta · E Supervisor Cliente · F Turno · G N° Parte · H Proyecto · I Horómetro Inicial · J Horómetro Final · K Cant. Hs. · L Combustible · M Aceite · N Trabajo · O Desgaste · P Observaciones";
   if(target.kind==="rma15")return "A Fecha OT · B Turno · C Proyecto · D Tipo mantenimiento · E Equipo · F Código interno · G Km/hs · H Intervención · I Operativo · J Observaciones · desde K: cantidad/código/nombre. También acepta A ID/RowKey y datos desde B.";
-  if(target.kind==="insumos")return "A Código · B Artículo/Descripción · C Costo unitario";
+  if(target.kind==="insumos")return "A Código · B Descripción · C Precio unitario · D Descripción adicional";
   return "Pegá las columnas en el mismo orden de la planilla base.";
 }
 function previewColsForPasteTarget(target){
@@ -6419,16 +6677,17 @@ function previewColsForPasteTarget(target){
   if(target.kind==="rma15")return [
     {key:"Fecha de OT",label:"Fecha OT"},{key:"CODIGO N° INTERNO",label:"Equipo"},{key:"EQUIPO",label:"Tipo equipo"},{key:"TURNO EN QUE SE HIZO LA OT",label:"Turno"},{key:"TIPO DE MANTENIMIENTO",label:"Tipo Mant."},{key:"Km / hs",label:"Km/Hs"},{key:"INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)",label:"Intervención",wrap:true}
   ];
-  if(target.kind==="insumos")return [{key:"CODIGO",label:"Código"},{key:"DESCRIPCIÓN",label:"Artículo",wrap:true},{key:"COSTO UNITARIO",label:"Costo"}];
+  if(target.kind==="insumos")return [{key:"Codigo",label:"Código"},{key:"Descripcion",label:"Descripción",wrap:true},{key:"Precio unitario",label:"Precio unitario"},{key:"Descripcion adicional",label:"Descripción adicional",wrap:true}];
   return [];
 }
 
 function normalizeInsumoImportRow(r){
-  const codigo=String(getValue(r,["CODIGO","Codigo","Código","Código insumo","Codigo insumo","Cod","cod"])||"").trim();
-  const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","Detalle","Insumo","Nombre"])||"").trim();
-  const costoRaw=getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio","PRECIO","Costo","COSTO"]);
-  const costoUnitario=toNumber(costoRaw);
-  return {...r,codigo,descripcion,costoUnitario};
+  const codigo=String(getValue(r,["CODIGO","Codigo","Código","codigo","código","Código insumo","Codigo insumo","Cod","cod"])||"").trim();
+  const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Detalle","Insumo","Nombre"])||"").trim();
+  const descripcionAdicional=getInsumoExtra(r,descripcion);
+  const costoRaw=getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"]);
+  const costoUnitario=toMoneyNumber(costoRaw);
+  return {...r,codigo,descripcion,descripcionAdicional,costoUnitario};
 }
 function normalizeImportKeyText(v){
   return String(v??"")
@@ -7356,6 +7615,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const [fPropiedad,setFPropiedad]=React.useState(initialCostosMantState.fPropiedad||"todos");
   const [useListaVidaUtil,setUseListaVidaUtil]=React.useState(()=>initialCostosMantState.useListaVidaUtil||{});
   const [vidaUtilOverride,setVidaUtilOverride]=React.useState(()=>initialCostosMantState.vidaUtilOverride||{});
+  const [costosMantSorts,setCostosMantSorts]=React.useState({});
 
   React.useEffect(()=>{
     try{
@@ -7864,6 +8124,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const costoToUSD=v=>(Number(v)||0)/tablaCostosUsdRate;
   const fmtCostoTablaUSD=v=>v==null||Number(v)===0?"U$S 0":"U$S "+fmtNum(Math.round(costoToUSD(v)));
 
+  const sortableCostHead=(sortId,sortKey,children,style)=>
+    <SortableTH sortId={sortId} sortKey={sortKey} sorts={costosMantSorts} setSorts={setCostosMantSorts} style={style}>{children}</SortableTH>;
+
   const rowsTablaCostosExcel=(datos,tot)=>[
     ...(datos||[]).map(x=>({
       Equipo:x.equipo,
@@ -8318,6 +8581,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     [rowsManoObra]
   );
 
+  const rowsManoObraOrdenadas=React.useMemo(()=>sortRowsForTable(rowsManoObra,costosMantSorts.manoObra,{
+    equipo:r=>r.equipo,proyecto:r=>r.proyecto,mantenimiento:r=>r.mantenimiento,porcentaje:r=>r.porcentaje,manoObra:r=>r.manoObra,costoAdquisicion:r=>r.costoAdquisicion,total:r=>r.total
+  }),[rowsManoObra,costosMantSorts.manoObra]);
+
 
   const monthThemeCosto=(key)=>{
     const n=Number(String(key||"").slice(5,7))||0;
@@ -8534,6 +8801,20 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     "Promedio tipo":x.promTipo||0,
   })),[rowsAmortizacion]);
 
+  const rowsAmortizacionOrdenadas=React.useMemo(()=>{
+    const sorted=sortRowsForTable(rowsAmortizacion,costosMantSorts.amortizacion,{
+      equipo:r=>r.equipo,tipo:r=>r.tipo,modelo:r=>r.modelo,adq:r=>r.adq,vida:r=>r.vida,amort:r=>r.amort,mantUSDhs:r=>r.mantUSDhs,totalUSDhs:r=>r.totalUSDhs,pctMant:r=>r.pctMant,promTipo:r=>r.promTipo
+    });
+    return (sorted||[]).map((x,i,arr)=>{
+      const first=i===0||String(arr[i-1]?.tipo||'')!==String(x.tipo||'');
+      let size=1;
+      if(first){
+        for(let j=i+1;j<arr.length&&String(arr[j]?.tipo||'')===String(x.tipo||'');j++)size++;
+      }
+      return {...x,_firstTipoDisplay:first,_grupoSizeDisplay:size};
+    });
+  },[rowsAmortizacion,costosMantSorts.amortizacion]);
+
 
   const costoMensualRowsPorSection=React.useCallback((section)=>
     (costoMensualAcumulado||[]).filter(x=>x.section===section),[costoMensualAcumulado]);
@@ -8557,6 +8838,22 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const sections=[{id:"FS",label:"FILO DEL SOL"},{id:"JM",label:"JOSE MARIA"}].filter(sec=>
       (costoMensualAcumulado||[]).some(x=>x.section===sec.id)
     );
+
+    const costoMensualGetters={
+      equipo:x=>x.equipo,
+      totalB:x=>x.total,
+      promPrev:x=>promedioCostoMensual(x).prev,
+      promCorr:x=>promedioCostoMensual(x).corr,
+      promTotal:x=>promedioCostoMensual(x).total,
+      mo:x=>getManoObraCostoMensual(x),
+      usdHs:x=>getUsdHoraCostoMensual(x),
+    };
+    (mesesCostoMensual||[]).forEach(m=>{
+      costoMensualGetters[`${m.key}_prev`]=x=>x.months?.[m.key]?.prev||0;
+      costoMensualGetters[`${m.key}_corr`]=x=>x.months?.[m.key]?.corr||0;
+      costoMensualGetters[`${m.key}_total`]=x=>x.months?.[m.key]?.total||0;
+    });
+    const costoMensualRowsOrdenadas=(section)=>sortRowsForTable((costoMensualAcumulado||[]).filter(x=>x.section===section),costosMantSorts.costoMensual,costoMensualGetters);
 
     const DollarMesInput=({m})=>{
       const initial=String(monthlyDollar[m.key]??m.dollar??usdRate2??1400);
@@ -8587,7 +8884,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                 <th colSpan={2} style={{...thS,textAlign:"center",background:"#312e81",color:"#fff",top:0,position:"sticky",zIndex:6}}>Mano de obra</th>
               </tr>
               <tr>
-                <th style={{...thL,position:"sticky",left:0,top:31,zIndex:8,background:"#2563eb",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</th>
+                <SortableTH sortId="costoMensual" sortKey="equipo" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thL,position:"sticky",left:0,top:31,zIndex:8,background:"#2563eb",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</SortableTH>
                 {mesesCostoMensual.map(m=>{
                   const t=monthThemeCosto(m.key);
                   return <th key={m.key+"label"} colSpan={3} style={{...thS,textAlign:"center",background:t.sub,color:"#fff",top:31,position:"sticky",zIndex:6,borderLeft:`1px solid ${t.line}`,fontWeight:900}}>{m.label}</th>;
@@ -8602,25 +8899,25 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                   const t=monthThemeCosto(m.key);
                   return(
                   <React.Fragment key={m.key+"heads"}>
-                    <th style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#e5e7eb",borderLeft:`1px solid ${t.line}`}}>Preventivo</th>
-                    <th style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#e5e7eb"}}>Correctivo</th>
-                    <th style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#fff",fontWeight:900}}>Total</th>
+                    <SortableTH sortId="costoMensual" sortKey={`${m.key}_prev`} sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#e5e7eb",borderLeft:`1px solid ${t.line}`}}>Preventivo</SortableTH>
+                    <SortableTH sortId="costoMensual" sortKey={`${m.key}_corr`} sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#e5e7eb"}}>Correctivo</SortableTH>
+                    <SortableTH sortId="costoMensual" sortKey={`${m.key}_total`} sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:t.head,color:"#fff",fontWeight:900}}>Total</SortableTH>
                   </React.Fragment>
                   );
                 })}
-                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#052e16",color:"#bbf7d0"}}>Total</th>
-                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Preventivo</th>
-                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Correctivo</th>
-                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Total</th>
-                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Mano de Obra</th>
-                <th style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/hora</th>
+                <SortableTH sortId="costoMensual" sortKey="totalB" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#052e16",color:"#bbf7d0"}}>Total</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="promPrev" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Preventivo</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="promCorr" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Correctivo</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="promTotal" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Total</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="mo" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Mano de Obra</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="usdHs" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/hora</SortableTH>
               </tr>
             </thead>
             <tbody>
               {sections.map(sec=>(
                 <React.Fragment key={sec.id}>
                   <tr><td colSpan={4+mesesCostoMensual.length*3+3} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
-                  {costoMensualAcumulado.filter(x=>x.section===sec.id).map((x,i)=>(
+                  {costoMensualRowsOrdenadas(sec.id).map((x,i)=>(
                     <tr key={sec.id+"__"+x.equipo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
                       <td style={{...tdL,position:"sticky",left:0,zIndex:2,background:i%2===0?C.card:C.surface}}>{x.equipo}</td>
                       {mesesCostoMensual.map(m=>{
@@ -8697,18 +8994,22 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const BotonDescargar=({onClick})=><button onClick={onClick} style={excelBtnStyle}>Descargar Excel</button>;
 
-  const TablaCostos=({datos,tot,titulo,filename})=>(
+  const TablaCostos=({datos,tot,titulo,filename})=>{
+    const datosOrdenados=React.useMemo(()=>sortRowsForTable(datos,costosMantSorts.tablaCostos,{
+      equipo:r=>r.equipo,prev:r=>r.prev,corr:r=>r.corr,total:r=>r.total
+    }),[datos,costosMantSorts.tablaCostos]);
+    return(
     <Card title={titulo} action={<BotonDescargar onClick={()=>descargarExcel(filename,rowsTablaCostosExcel(datos,tot))}/>}>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead><tr>
-            <th style={thL}>Equipo</th>
-            <th style={thS}>Preventivo</th>
-            <th style={thS}>Correctivo</th>
-            <th style={thS}>Total</th>
+            {sortableCostHead("tablaCostos","equipo","Equipo",thL)}
+            {sortableCostHead("tablaCostos","prev","Preventivo",thS)}
+            {sortableCostHead("tablaCostos","corr","Correctivo",thS)}
+            {sortableCostHead("tablaCostos","total","Total",thS)}
           </tr></thead>
           <tbody>
-            {datos.map((x,i)=>(
+            {datosOrdenados.map((x,i)=>(
               <tr key={x.equipo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
                 <td style={tdL}>{x.equipo}</td>
                 <td style={tdS}>{fmtCostoTablaUSD(x.prev)}</td>
@@ -8728,7 +9029,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         Costos calculados desde RMA15 y convertidos a USD con el valor del dólar cargado en Parámetros.
       </div>
     </Card>
-  );
+    );
+  };
 
   const soloFiltroMesCostos = tab==="t1" || tab==="t7";
 
@@ -8815,16 +9117,16 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr>
-                <th style={thL}>Equipo</th>
-                <th style={thS}>Proyecto</th>
-                <th style={thS}>Mantenimiento (USD)</th>
-                <th style={thS}>% Mantenimiento</th>
-                <th style={thS}>Mano de Obra (USD)</th>
-                <th style={thS}>Costo de adquisición (USD)</th>
-                <th style={thS}>Total (USD)</th>
+                {sortableCostHead("manoObra","equipo","Equipo",thL)}
+                {sortableCostHead("manoObra","proyecto","Proyecto",thS)}
+                {sortableCostHead("manoObra","mantenimiento","Mantenimiento (USD)",thS)}
+                {sortableCostHead("manoObra","porcentaje","% Mantenimiento",thS)}
+                {sortableCostHead("manoObra","manoObra","Mano de Obra (USD)",thS)}
+                {sortableCostHead("manoObra","costoAdquisicion","Costo de adquisición (USD)",thS)}
+                {sortableCostHead("manoObra","total","Total (USD)",thS)}
               </tr></thead>
               <tbody>
-                {rowsManoObra.map((x,i)=>(
+                {rowsManoObraOrdenadas.map((x,i)=>(
                   <tr key={x.proyecto+"__"+x.equipo} style={{background:x.isCTA?C.tealDim:(i%2===0?"transparent":C.surface+"33")}}>
                     <td style={{...tdL,fontWeight:x.isCTA?900:700,color:x.isCTA?C.teal:C.text}}>{x.equipo}{x.isCTA&&x.cantidadCTA?` (${x.cantidadCTA})`:""}</td>
                     <td style={{...tdS,textAlign:"left"}}><Badge color={proyColor(x.proyecto)}>{x.proyecto}</Badge></td>
@@ -8872,6 +9174,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             {equipos.map(eq=>{
               const corrRows=top3(eq.corr);
               const prevRows=top3(eq.prev);
+              const corrRowsOrdenados=sortRowsForTable(corrRows,costosMantSorts[`top3Corr_${eq.equipo}`],{codigo:r=>r.codigo,descripcion:r=>r.descripcion,cantidad:r=>r.cantidad,costoARS:r=>r.costoTotal});
+              const prevRowsOrdenados=sortRowsForTable(prevRows,costosMantSorts[`top3Prev_${eq.equipo}`],{codigo:r=>r.codigo,descripcion:r=>r.descripcion,cantidad:r=>r.cantidad,costoARS:r=>r.costoTotal});
               if(!corrRows.length&&!prevRows.length)return null;
               return(
                 <div key={eq.equipo} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
@@ -8889,13 +9193,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                       ):(
                         <table style={{width:"100%",borderCollapse:"collapse"}}>
                           <thead><tr>
-                            <th style={thTop}>Código</th>
-                            <th style={thTop}>Descripción</th>
-                            <th style={thTopN}>Cant.</th>
-                            <th style={thTopN}>Costo (ARS)</th>
+                            {sortableCostHead(`top3Corr_${eq.equipo}`,"codigo","Código",thTop)}
+                            {sortableCostHead(`top3Corr_${eq.equipo}`,"descripcion","Descripción",thTop)}
+                            {sortableCostHead(`top3Corr_${eq.equipo}`,"cantidad","Cant.",thTopN)}
+                            {sortableCostHead(`top3Corr_${eq.equipo}`,"costoARS","Costo (ARS)",thTopN)}
                           </tr></thead>
                           <tbody>
-                            {corrRows.map((ins,i)=>(
+                            {corrRowsOrdenados.map((ins,i)=>(
                               <tr key={ins.codigo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
                                 <td style={{...tdTop,fontWeight:700,color:C.purple}}>{ins.codigo}</td>
                                 <td style={{...tdTop,color:C.textSub,maxWidth:200}}>{ins.descripcion}</td>
@@ -8917,13 +9221,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                       ):(
                         <table style={{width:"100%",borderCollapse:"collapse"}}>
                           <thead><tr>
-                            <th style={thTop}>Código</th>
-                            <th style={thTop}>Descripción</th>
-                            <th style={thTopN}>Cant.</th>
-                            <th style={thTopN}>Costo (ARS)</th>
+                            {sortableCostHead(`top3Prev_${eq.equipo}`,"codigo","Código",thTop)}
+                            {sortableCostHead(`top3Prev_${eq.equipo}`,"descripcion","Descripción",thTop)}
+                            {sortableCostHead(`top3Prev_${eq.equipo}`,"cantidad","Cant.",thTopN)}
+                            {sortableCostHead(`top3Prev_${eq.equipo}`,"costoARS","Costo (ARS)",thTopN)}
                           </tr></thead>
                           <tbody>
-                            {prevRows.map((ins,i)=>(
+                            {prevRowsOrdenados.map((ins,i)=>(
                               <tr key={ins.codigo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
                                 <td style={{...tdTop,fontWeight:700,color:C.purple}}>{ins.codigo}</td>
                                 <td style={{...tdTop,color:C.textSub,maxWidth:200}}>{ins.descripcion}</td>
@@ -8958,11 +9262,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
                 <thead><tr>
-                  <th style={thL}>Equipo</th>
-                  <th style={thS}>Tipo</th>
-                  <th style={thS}>Modelo</th>
-                  <th style={thS}>C. Adq. (USD)</th>
-                  <th style={{...thS,minWidth:180}}>
+                  {sortableCostHead("amortizacion","equipo","Equipo",thL)}
+                  {sortableCostHead("amortizacion","tipo","Tipo",thS)}
+                  {sortableCostHead("amortizacion","modelo","Modelo",thS)}
+                  {sortableCostHead("amortizacion","adq","C. Adq. (USD)",thS)}
+                  <SortableTH sortId="amortizacion" sortKey="vida" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,minWidth:180}}>
                     <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
                       <span>Vida Útil (hs)</span>
                       <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontWeight:500,fontSize:10,textTransform:"none",letterSpacing:0,color:C.textSub,whiteSpace:"nowrap"}}
@@ -8983,16 +9287,16 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                         Datos de Lista de Equipos
                       </label>
                     </div>
-                  </th>
-                  <th style={thS}>Amortiz. (USD/hs)</th>
-                  <th style={thS}>Mant. (USD/hs)</th>
-                  <th style={thS}>Total (USD/hs)</th>
-                  <th style={thS}>% Mant.</th>
-                  <th style={thS}>Promedio por tipo</th>
+                  </SortableTH>
+                  {sortableCostHead("amortizacion","amort","Amortiz. (USD/hs)",thS)}
+                  {sortableCostHead("amortizacion","mantUSDhs","Mant. (USD/hs)",thS)}
+                  {sortableCostHead("amortizacion","totalUSDhs","Total (USD/hs)",thS)}
+                  {sortableCostHead("amortizacion","pctMant","% Mant.",thS)}
+                  {sortableCostHead("amortizacion","promTipo","Promedio por tipo",thS)}
                 </tr></thead>
                 <tbody>
-                  {rowsAmortizacion.map((x,i)=>(
-                    <tr key={x.equipo} style={{background:i%2===0?"transparent":C.surface+"33",borderTop:x._firstTipo?`2px solid ${C.borderLight}`:undefined}}>
+                  {rowsAmortizacionOrdenadas.map((x,i)=>(
+                    <tr key={x.equipo} style={{background:i%2===0?"transparent":C.surface+"33",borderTop:x._firstTipoDisplay?`2px solid ${C.borderLight}`:undefined}}>
                       <td style={tdL}>{x.equipo}</td>
                       <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:700}}>{x.tipo||"S/D"}</td>
                       <td style={{...tdS,textAlign:"left",color:C.textSub}}>{x.modelo||"—"}</td>
@@ -9025,8 +9329,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                       <td style={{...tdS,color:C.purple,fontWeight:700}}>{x.mantUSDhs>0?"U$S "+fmtNum(Math.round(x.mantUSDhs)):"—"}</td>
                       <td style={{...tdS,color:C.accent,fontWeight:800}}>{x.totalUSDhs>0?"U$S "+fmtNum(Math.round(x.totalUSDhs)):"—"}</td>
                       <td style={{...tdS,color:C.textSub}}>{x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—"}</td>
-                      {x._firstTipo&&(
-                        <td rowSpan={x._grupoSize||1} style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,verticalAlign:"middle",fontSize:16,borderLeft:`2px solid ${C.blue}55`,borderBottom:`2px solid ${C.borderLight}`}}>
+                      {x._firstTipoDisplay&&(
+                        <td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,verticalAlign:"middle",fontSize:16,borderLeft:`2px solid ${C.blue}55`,borderBottom:`2px solid ${C.borderLight}`}}>
                           {x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"}
                         </td>
                       )}
@@ -9140,11 +9444,15 @@ export default function App(){
     const insumosMap={};
     if(src.insumos?.ok&&src.insumos.data){
       src.insumos.data.forEach(r=>{
-        const cod=String(r["CODIGO"]||r["Codigo"]||r["código"]||"").trim();
-        if(cod)insumosMap[cod]={
-          descripcion:String(r["DESCRIPCIÓN"]||r["DESCRIPCION"]||r["Descripción"]||"").trim(),
-          costoUnitario:toNumber(r["COSTO UNITARIO"]||r["Costo Unitario"]||"0"),
-        };
+        const cod=String(getValue(r,["CODIGO","Codigo","Código","codigo","código","Cod","cod"])||"").trim();
+        if(cod){
+          const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Insumo","Nombre"])||"").trim();
+          insumosMap[cod]={
+            descripcion,
+            descripcionAdicional:getInsumoExtra(r,descripcion),
+            costoUnitario:toMoneyNumber(getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"])),
+          };
+        }
       });
       setInsumos(insumosMap);
     }
