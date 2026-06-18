@@ -176,6 +176,14 @@ function cleanMachine(v){
     .replace(/([A-Z]{2,4})-?(\d{4,})/,(_,a,n)=>`${a}-${n}`)
     .replace(/[-_]JM$/,"");
 }
+// Equivalencia interna: CFN/PCA con los mismos 4 números son el mismo equipo.
+// Ej: CFN-0101, PCA-0101, CFN0101 y PCA0101 se cruzan como CFN-0101.
+function canonicalEquivalentMachineCode(code){
+  const c=cleanMachine(String(code||"").replace(/\s*\(.*?\)/g,""));
+  const m=c.match(/^(CFN|PCA)-?(\d{4})$/);
+  if(m)return `CFN-${m[2]}`;
+  return c;
+}
 // ─── Matching difuso de columnas (Lista Maestra de Equipos) ───────────────────
 const COL_STOPWORDS=new Set(["de","del","la","el","los","las","en","y","al","con","sin","un","una"]);
 function tokenizeLabel(label){
@@ -228,7 +236,9 @@ function machineLookupVariants(...values){
     variants.forEach(x=>{
       const a=cleanMachine(x);
       const b=normalizeMachineCode(x);
-      [a,b,String(a).replace(/[-_\s]/g,""),String(b).replace(/[-_\s]/g,"")].forEach(k=>{
+      const ca=canonicalEquivalentMachineCode(a);
+      const cb=canonicalEquivalentMachineCode(b);
+      [a,b,ca,cb,String(a).replace(/[-_\s]/g,""),String(b).replace(/[-_\s]/g,""),String(ca).replace(/[-_\s]/g,""),String(cb).replace(/[-_\s]/g,"")].forEach(k=>{
         const kk=String(k||"").trim().toUpperCase();
         if(kk&&!out.includes(kk))out.push(kk);
       });
@@ -1357,10 +1367,10 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
     }
     const codigoDrusila=drusilaKey?String(originalRow[drusilaKey]||"").trim():"";
     const codigoNuevo=codigoNuevoKey?String(originalRow[codigoNuevoKey]||"").trim():"";
-    const rowNum=Number(editSelected)+2; // fila real en la planilla (col header=1, datos desde fila 2)
-    // Permitir guardar si tenemos rowNumber aunque los códigos estén vacíos
-    if(!codigoDrusila&&!codigoNuevo&&rowNum<=2){
-      setEditMsg({type:"error",text:"El equipo no tiene Código Drusila ni Código Nuevo y no se pudo calcular la fila. No se puede guardar."});
+    // La edición se identifica SIEMPRE por Código Drusila/Código Nuevo, no por índice visual.
+    // El índice cambia si la tabla se filtra/ordena y puede pisar otra fila.
+    if(!codigoDrusila&&!codigoNuevo){
+      setEditMsg({type:"error",text:"El equipo no tiene Código Drusila ni Código Nuevo. No se puede guardar."});
       return;
     }
     setSavingEdit(true);
@@ -1381,11 +1391,10 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
         lookupKeys:originalLookupKeys,
         codigoDrusilaHeader:drusilaKey||"",
         codigoNuevoHeader:codigoNuevoKey||"",
-        rowIndex:Number(editSelected),
-        rowNumber:rowNum,
-        useRowNumber:true, // el Apps Script debe priorizar buscar por número de fila
+        // No se envía rowNumber: el Apps Script debe buscar la fila por Código Drusila.
+        useRowNumber:false,
       },cleanRow);
-      setEditMsg({type:"success",text:`Equipo actualizado en la fila ${res.rowNumber||rowNum}.`});
+      setEditMsg({type:"success",text:`Equipo actualizado en la fila ${res.rowNumber||"encontrada por Código Drusila"}.`});
       if(onReloadLista)await onReloadLista();
     }catch(err){
       setEditMsg({type:"error",text:err.message});
@@ -4948,6 +4957,7 @@ function ViewCostosUnitarios({insumos,usdRate}){
       return{
         codigo,
         articulo:String(info?.descripcion||"").trim()||codigo,
+        descripcionAdicional:String(info?.descripcionAdicional||"").trim(),
         precioARS,
         precioUSD:usdRate&&precioARS>0 ? precioARS/usdRate : 0,
       };
@@ -4969,6 +4979,7 @@ function ViewCostosUnitarios({insumos,usdRate}){
   const cols=[
     {key:"codigo",label:"Código",width:120,render:v=><span style={{fontFamily:"monospace",fontWeight:700,color:C.text}}>{v}</span>},
     {key:"articulo",label:"Artículo / Descripción",wrap:true},
+    {key:"descripcionAdicional",label:"Descripción adicional",wrap:true},
     {key:"precioARS",label:"Costo en ARS",align:"right",width:150,render:v=>fmtARS(Number(v)||0)},
     {key:"precioUSD",label:"Costo en USD",align:"right",width:140,render:v=><span style={{color:C.green,fontWeight:700}}>{fmtUSD(Number(v)||0,1)}</span>},
   ];
@@ -7376,11 +7387,15 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     if(isInvalidEquipoCodeCosto(raw))return[];
     const clean=cleanMachine(raw);
     const norm=normalizeMachineCode(raw);
+    const canon=canonicalEquivalentMachineCode(clean);
     const noParen=raw.replace(/\s*\(.*?\)/g,"").replace(/[-\s]+$/g,"");
+    const canonNoParen=canonicalEquivalentMachineCode(noParen);
     const compact=raw.replace(/[^A-Z0-9]/g,"");
     const cleanCompact=String(clean||"").replace(/[^A-Z0-9]/g,"");
     const normCompact=String(norm||"").replace(/[^A-Z0-9]/g,"");
-    return [...new Set([raw,clean,norm,noParen,compact,cleanCompact,normCompact].map(v=>String(v||"").trim().toUpperCase()).filter(v=>v&&!isInvalidEquipoCodeCosto(v)))];
+    const canonCompact=String(canon||"").replace(/[^A-Z0-9]/g,"");
+    const canonNoParenCompact=String(canonNoParen||"").replace(/[^A-Z0-9]/g,"");
+    return [...new Set([raw,clean,norm,canon,noParen,canonNoParen,compact,cleanCompact,normCompact,canonCompact,canonNoParenCompact].map(v=>String(v||"").trim().toUpperCase()).filter(v=>v&&!isInvalidEquipoCodeCosto(v)))];
   },[isInvalidEquipoCodeCosto]);
 
   // Correlación definitiva de códigos de equipos.
@@ -8359,11 +8374,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const getManoObraCostoMensual=React.useCallback((x)=>{
     const proyecto=sectionProyectoCosto(x?.section);
-    const eqKey=String(x?.equipo||"").trim().toUpperCase();
+    const eqKey=canonicalEquivalentMachineCode(x?.equipo);
     const proyKey=String(proyecto||"").trim().toUpperCase();
     const row=(rowsManoObra||[]).find(r=>
       !r.isCTA &&
-      String(r.equipo||"").trim().toUpperCase()===eqKey &&
+      canonicalEquivalentMachineCode(r.equipo)===eqKey &&
       String(r.proyecto||"").trim().toUpperCase()===proyKey
     );
     return Number(row?.manoObra)||0;
@@ -8434,7 +8449,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
     // 1) Coincidencia exacta: respeta equipos aislados y orden fijo.
     for(let gi=0;gi<AMORTIZACION_GRUPOS.length;gi++){
-      const idx=AMORTIZACION_GRUPOS[gi].equipos.findIndex(e=>cleanMachine(e)===code);
+      const idx=AMORTIZACION_GRUPOS[gi].equipos.findIndex(e=>canonicalEquivalentMachineCode(e)===canonicalEquivalentMachineCode(code));
       if(idx!==-1)return {grupo:AMORTIZACION_GRUPOS[gi].tipo,grupoIndex:gi,orden:idx};
     }
 
@@ -8715,14 +8730,27 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     </Card>
   );
 
+  const soloFiltroMesCostos = tab==="t1" || tab==="t7";
+
+  React.useEffect(()=>{
+    if(!soloFiltroMesCostos)return;
+    const mismoMes=fechaD&&fechaH&&String(fechaD).slice(0,7)===String(fechaH).slice(0,7);
+    if((fechaD||fechaH)&&!mismoMes){
+      setFechaD("");
+      setFechaH("");
+    }
+  },[soloFiltroMesCostos,fechaD,fechaH]);
+
   return(
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Filtros de fecha */}
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"nowrap",overflowX:"auto",padding:"10px 14px",background:C.surface,borderRadius:10,border:`1px solid ${C.border}`}}>
         <span style={{fontWeight:800,fontSize:13,color:C.text}}>Filtros</span>
         <PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/>
-        <DateIn label="Desde" value={fechaD} onChange={setFechaD}/>
-        <DateIn label="Hasta" value={fechaH} onChange={setFechaH}/>
+        {!soloFiltroMesCostos&&<>
+          <DateIn label="Desde" value={fechaD} onChange={setFechaD}/>
+          <DateIn label="Hasta" value={fechaH} onChange={setFechaH}/>
+        </>}
         <MultiSel label="Proyecto" value={fProyecto} onChange={setFProyecto} options={proyectoOpts}/>
         <MultiSel label="Propiedad" value={fPropiedad} onChange={setFPropiedad} options={propiedadOpts}/>
         <MultiSel label="Tipo de equipo" value={fTipoEquipo} onChange={setFTipoEquipo} options={tipoEquipoOpts}/>
@@ -8763,7 +8791,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {[["t1","Tabla de costos"],["t6","Costo mensual acumulado"],["t4","Mano de Obra"],["t5","Amortización"]].map(([id,lbl])=>(
+        {[["t1","Tabla de costos"],["t7","Top 3 Insumos"],["t6","Costo mensual acumulado"],["t4","Mano de Obra"],["t5","Amortización"]].map(([id,lbl])=>(
           <TabBtn key={id} id={id} label={lbl}/>
         ))}
       </div>
@@ -8815,6 +8843,110 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           </div>
         </Card>
       )}
+
+      {tab==="t7"&&(()=>{
+        // Top 3 insumos más caros por equipo, separados en correctivo y preventivo
+        const top3Data=React.useMemo?null:(()=>{})(); // computed inline below
+        const byEquipo={};
+        (rma15Filtrado||[]).forEach(r=>{
+          const eq=metaEquipoCosto(r.maquina).display;
+          const esPrev=String(r.tipoMant||"").toUpperCase().includes("PREV");
+          if(!byEquipo[eq])byEquipo[eq]={equipo:eq,corr:{},prev:{}};
+          const bucket=esPrev?byEquipo[eq].prev:byEquipo[eq].corr;
+          (r.insumos||[]).forEach(ins=>{
+            if(!ins.codigo)return;
+            const k=ins.codigo;
+            if(!bucket[k])bucket[k]={codigo:ins.codigo,descripcion:ins.nombre||ins.codigo,cantidad:0,costoTotal:0};
+            bucket[k].cantidad+=Number(ins.cantidad)||0;
+            bucket[k].costoTotal+=Number(ins.costoTotal)||0;
+          });
+        });
+        const equipos=Object.values(byEquipo).sort((a,b)=>a.equipo.localeCompare(b.equipo));
+        const top3=(bucket)=>Object.values(bucket).sort((a,b)=>b.costoTotal-a.costoTotal).slice(0,3);
+        const thTop={padding:"7px 10px",textAlign:"left",fontWeight:700,fontSize:11,color:C.textSub,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"};
+        const thTopN={...thTop,textAlign:"right"};
+        const tdTop={padding:"5px 10px",fontSize:11,borderBottom:`1px solid ${C.border}18`,color:C.text};
+        const tdTopN={...tdTop,textAlign:"right"};
+        return(
+          <div style={{display:"flex",flexDirection:"column",gap:20,marginTop:8}}>
+            {equipos.map(eq=>{
+              const corrRows=top3(eq.corr);
+              const prevRows=top3(eq.prev);
+              if(!corrRows.length&&!prevRows.length)return null;
+              return(
+                <div key={eq.equipo} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                  <div style={{padding:"10px 16px",background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontWeight:800,fontSize:13,color:C.text}}>{eq.equipo}</span>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:0}}>
+                    {/* CORRECTIVO */}
+                    <div style={{borderRight:`1px solid ${C.border}`}}>
+                      <div style={{padding:"7px 14px",background:C.redDim,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:".04em"}}>Correctivo</span>
+                      </div>
+                      {corrRows.length===0?(
+                        <div style={{padding:"12px 14px",color:C.textMuted,fontSize:11}}>Sin insumos correctivos</div>
+                      ):(
+                        <table style={{width:"100%",borderCollapse:"collapse"}}>
+                          <thead><tr>
+                            <th style={thTop}>Código</th>
+                            <th style={thTop}>Descripción</th>
+                            <th style={thTopN}>Cant.</th>
+                            <th style={thTopN}>Costo (ARS)</th>
+                          </tr></thead>
+                          <tbody>
+                            {corrRows.map((ins,i)=>(
+                              <tr key={ins.codigo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
+                                <td style={{...tdTop,fontWeight:700,color:C.purple}}>{ins.codigo}</td>
+                                <td style={{...tdTop,color:C.textSub,maxWidth:200}}>{ins.descripcion}</td>
+                                <td style={{...tdTopN,color:C.text}}>{ins.cantidad>0?ins.cantidad.toFixed(ins.cantidad%1===0?0:2):"—"}</td>
+                                <td style={{...tdTopN,color:C.red,fontWeight:700}}>{"$"+Math.round(ins.costoTotal).toLocaleString("es-AR")}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                    {/* PREVENTIVO */}
+                    <div>
+                      <div style={{padding:"7px 14px",background:C.greenDim,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:11,fontWeight:700,color:C.green,textTransform:"uppercase",letterSpacing:".04em"}}>Preventivo</span>
+                      </div>
+                      {prevRows.length===0?(
+                        <div style={{padding:"12px 14px",color:C.textMuted,fontSize:11}}>Sin insumos preventivos</div>
+                      ):(
+                        <table style={{width:"100%",borderCollapse:"collapse"}}>
+                          <thead><tr>
+                            <th style={thTop}>Código</th>
+                            <th style={thTop}>Descripción</th>
+                            <th style={thTopN}>Cant.</th>
+                            <th style={thTopN}>Costo (ARS)</th>
+                          </tr></thead>
+                          <tbody>
+                            {prevRows.map((ins,i)=>(
+                              <tr key={ins.codigo} style={{background:i%2===0?"transparent":C.surface+"33"}}>
+                                <td style={{...tdTop,fontWeight:700,color:C.purple}}>{ins.codigo}</td>
+                                <td style={{...tdTop,color:C.textSub,maxWidth:200}}>{ins.descripcion}</td>
+                                <td style={{...tdTopN,color:C.text}}>{ins.cantidad>0?ins.cantidad.toFixed(ins.cantidad%1===0?0:2):"—"}</td>
+                                <td style={{...tdTopN,color:C.green,fontWeight:700}}>{"$"+Math.round(ins.costoTotal).toLocaleString("es-AR")}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {equipos.length===0&&(
+              <div style={{padding:32,textAlign:"center",color:C.textMuted,fontSize:13}}>
+                Sin datos para el período filtrado.
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {tab==="t5"&&(
         <Card title="Costo horario de amortización y mantenimiento" action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",rowsAmortizacionExcel)}/>}> 
