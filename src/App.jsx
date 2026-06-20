@@ -3009,50 +3009,68 @@ function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia){
 
 
 // ─── ViewROP05 ────────────────────────────────────────────────────────────────
+// ─── ViewROP05: constantes a nivel de módulo (no recreadas en cada render) ────
+const ROP05_TIPOS_MAQUINA=[
+  {label:"Todas",value:"todas",prefijos:[]},
+  {label:"Cargadora Frontal",value:"CFN",prefijos:["CFN","PCA"]},
+  {label:"Minicargadora",value:"MCA",prefijos:["MCA","MNC"]},
+  {label:"Excavadora",value:"EXC",prefijos:["EXC"]},
+  {label:"Topadora",value:"TOP",prefijos:["TOP"]},
+  {label:"Motoniveladora",value:"MOT",prefijos:["MOT"]},
+  {label:"Retropala",value:"RTP",prefijos:["RTP"]},
+  {label:"Rodillo Compactador",value:"ROD",prefijos:["ROD","RPC","RCP"]},
+];
+const ROP05_UNIDADES_GRAFICO=[
+  {label:"Metros Lineales",value:"METROS LINEALES"},
+  {label:"Km Lineales",value:"KILOMETROS LINEALES"},
+  {label:"Metros Cuadrados",value:"M2"},
+  {label:"Metros Cúbicos",value:"M3"},
+  {label:"Horas (HS)",value:"HS"},
+];
+// Normaliza string para comparación de unidades
+const nuROP05=s=>String(s||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
+const ROP05_UNIDADES_CONFIG=[
+  {titulo:"Productividad Metros Lineales",key:"ML",match:(u)=>nuROP05(u)==="METROS LINEALES",   color:C.green},
+  {titulo:"Productividad Km Lineales",    key:"KL",match:(u)=>nuROP05(u)==="KILOMETROS LINEALES",color:C.blue},
+  {titulo:"Productividad Metros Cuadrados",key:"M2",match:(u)=>nuROP05(u)==="M2",               color:C.teal},
+  {titulo:"Productividad Metros Cúbicos", key:"M3",match:(u)=>nuROP05(u)==="M3",                color:C.purple},
+  {titulo:"Trabajos por Hora",            key:"HS",match:(u)=>nuROP05(u)==="HS",                color:C.green},
+];
+const ROP05_CHART_COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316","#84cc16","#6366f1"];
+function tipoMatchMachineROP05(tipoValue,maquina){
+  if(multiIsAll(tipoValue,"todas"))return true;
+  const arr=Array.isArray(tipoValue)?tipoValue:[tipoValue];
+  return arr.some(v=>{
+    const t=ROP05_TIPOS_MAQUINA.find(x=>x.value===v);
+    return t?.prefijos?.some(p=>maquina?.startsWith(p));
+  });
+}
+const ROP05_FK=[
+  {key:"proyecto",defaultVal:"todos"},
+  {key:"maquina",defaultVal:"todas"},
+  {key:"supervisor",defaultVal:"todos"},
+  {key:"unidad",defaultVal:"todas"},
+];
+const ROP05_TABLE_HEADERS=[["fecha","Fecha",90],["maquina","Máquina",110],["tipo_maquina","Tipo",90],["tarea","Tarea",220],["horas","Horas",70],["cantidad","Cantidad",80],["unidad","Unidad",80],["proyecto","Proyecto",110]];
+// ─────────────────────────────────────────────────────────────────────────────
+
 function ViewROP05({rop05,extState,setExtState}){
-  const fk=useMemo(()=>[
-    {key:"proyecto",defaultVal:"todos"},
-    {key:"maquina",defaultVal:"todas"},
-    {key:"supervisor",defaultVal:"todos"},
-    {key:"unidad",defaultVal:"todas"},
-  ],[]);
-  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase05,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop05,fk,extState,setExtState);
+  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase05,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop05,ROP05_FK,extState,setExtState);
 
   // Filtro de tarea independiente — sus opciones dependen de la máquina seleccionada
   const[tarea,setTarea]=useState("todas");
-
-  // Filtro por tipo de máquina (agrupa por prefijo)
-  const TIPOS_MAQUINA=[
-    {label:"Todas",value:"todas",prefijos:[]},
-    {label:"Cargadora Frontal",value:"CFN",prefijos:["CFN","PCA"]},
-    {label:"Minicargadora",value:"MCA",prefijos:["MCA","MNC"]},
-    {label:"Excavadora",value:"EXC",prefijos:["EXC"]},
-    {label:"Topadora",value:"TOP",prefijos:["TOP"]},
-    {label:"Motoniveladora",value:"MOT",prefijos:["MOT"]},
-    {label:"Retropala",value:"RTP",prefijos:["RTP"]},
-    {label:"Rodillo Compactador",value:"ROD",prefijos:["ROD","RPC","RCP"]},
-  ];
-  const tipoMatchMachine=(tipoValue, maquina)=>{
-    if(multiIsAll(tipoValue,"todas"))return true;
-    const vals=Array.isArray(tipoValue)?tipoValue:[tipoValue];
-    return vals.some(v=>{
-      const t=TIPOS_MAQUINA.find(x=>x.value===v);
-      return t?.prefijos?.some(p=>maquina?.startsWith(p));
-    });
-  };
   const[tipoMaquina,setTipoMaquina]=useState("todas");
+  const[unidadGrafico,setUnidadGrafico]=useState("METROS LINEALES");
 
   // Opciones de tarea: filtra por tipo de máquina, máquina, proyecto y fecha
   const tareasOpts=useMemo(()=>{
-    const tipoActivo=TIPOS_MAQUINA.find(t=>t.value===tipoMaquina);
     const base=rop05.filter(r=>{
       const f=r.fecha||"";
       if(mode==="dia"&&fecha&&f!==fecha)return false;
       if(mode==="periodo"){if(fechaD&&f<fechaD)return false;if(fechaH&&f>fechaH)return false;}
       if(!matchMulti(r.maquina,vals.maquina,"todas"))return false;
       if(!matchMulti(r.proyecto,vals.proyecto,"todos"))return false;
-      // Filtrar por tipo de máquina si está activo
-      if(!multiIsAll(tipoMaquina,"todas")&&!tipoMatchMachine(tipoMaquina,r.maquina))return false;
+      if(!multiIsAll(tipoMaquina,"todas")&&!tipoMatchMachineROP05(tipoMaquina,r.maquina))return false;
       return true;
     });
     return uniq(base.map(r=>r.tarea).filter(Boolean));
@@ -3061,40 +3079,16 @@ function ViewROP05({rop05,extState,setExtState}){
   // Reset tarea cuando cambia máquina o fecha
   useEffect(()=>{setTarea("todas");},[vals.maquina,mode,fecha,fechaD,fechaH,tipoMaquina]);
 
-  const UNIDADES_GRAFICO=[
-    {label:"Metros Lineales",value:"METROS LINEALES"},
-    {label:"Km Lineales",value:"KILOMETROS LINEALES"},
-    {label:"Metros Cuadrados",value:"M2"},
-    {label:"Metros Cúbicos",value:"M3"},
-    {label:"Horas (HS)",value:"HS"},
-  ];
-  const[unidadGrafico,setUnidadGrafico]=useState("METROS LINEALES");
-
-
-  // Aplicar filtro de tipo sobre filtered
+  // Aplicar filtro de tipo y tarea sobre filteredBase05
   const filtered=useMemo(()=>{
     let rows=multiIsAll(tarea,"todas")?filteredBase05:filteredBase05.filter(r=>matchMulti(r.tarea,tarea,"todas"));
     if(!multiIsAll(tipoMaquina,"todas")){
-      rows=rows.filter(r=>tipoMatchMachine(tipoMaquina,r.maquina));
+      rows=rows.filter(r=>tipoMatchMachineROP05(tipoMaquina,r.maquina));
     }
     return rows;
   },[filteredBase05,tarea,tipoMaquina]);
 
-
-
-  // Configuración fija de unidades productivas
-  // Normaliza string: quita tildes, espacios extra, mayúsculas
-  const nu=s=>String(s||"").trim().toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+/g," ");
-
-  const UNIDADES_CONFIG=useMemo(()=>[
-    {titulo:"Productividad Metros Lineales", key:"ML",  match:(u)=>nu(u)==="METROS LINEALES",    color:C.green},
-    {titulo:"Productividad Km Lineales",     key:"KL",  match:(u)=>nu(u)==="KILOMETROS LINEALES", color:C.blue},
-    {titulo:"Productividad Metros Cuadrados",key:"M2",  match:(u)=>nu(u)==="M2",                  color:C.teal},
-    {titulo:"Productividad Metros Cúbicos",  key:"M3",  match:(u)=>nu(u)==="M3",                  color:C.purple},
-    {titulo:"Trabajos por Hora",             key:"HS",  match:(u)=>nu(u)==="HS",                  color:C.green},
-  ],[]);
-
-  const prodCards=useMemo(()=>UNIDADES_CONFIG.map(cfg=>{
+  const prodCards=useMemo(()=>ROP05_UNIDADES_CONFIG.map(cfg=>{
     const rows=filtered.filter(r=>r.unidad&&cfg.match(r.unidad));
     // Para HS: el acumulado es la suma de horas (no de cantidad)
     const cantidad=cfg.key==="HS"
@@ -3103,7 +3097,7 @@ function ViewROP05({rop05,extState,setExtState}){
     const horas=rows.reduce((s,r)=>s+r.horas,0);
     const rendimiento=horas>0?(cantidad/horas):0;
     return{...cfg,cantidad,horas,rendimiento};
-  }),[filtered,UNIDADES_CONFIG]);
+  }),[filtered]);
 
   const prodFecha=useMemo(()=>{
     if(mode!=="periodo"&&!fecha)return[];
@@ -3129,22 +3123,70 @@ function ViewROP05({rop05,extState,setExtState}){
   },[filtered,mode,fecha,unidadGrafico]);
 
   const totalHoras05=useMemo(()=>filtered.reduce((s,r)=>s+r.horas,0),[filtered]);
+  const totalEquipos05=useMemo(()=>new Set(filtered.map(r=>r.maquina)).size,[filtered]);
   const filteredSorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
-  const [rop05TipRow,setRop05TipRow]=React.useState(null);   // fila en hover
-  const [rop05PinnedRow,setRop05PinnedRow]=React.useState(null); // fila fijada por click
+
+  // ── Datos para gráficos de PERÍODO (antes eran IIFEs en el JSX) ────────────
+  const periodoChartData=useMemo(()=>{
+    if(mode!=="periodo"||!filtered.length)return null;
+    const filteredSinHS=filtered.filter(r=>(r.unidad||"").trim().toUpperCase()!=="HS");
+    const tareaMap={};
+    filteredSinHS.forEach(r=>{
+      if(!r.tarea)return;
+      const u=(r.unidad||"").trim().toUpperCase();
+      if(!tareaMap[r.tarea])tareaMap[r.tarea]={horas:0,horasML:0,horasKL:0,horasM2:0,horasM3:0,ml:0,kl:0,m2:0,m3:0};
+      tareaMap[r.tarea].horas+=r.horas;
+      const cant=r.cantidad||0;
+      if(u==="METROS LINEALES"){tareaMap[r.tarea].ml+=cant;tareaMap[r.tarea].horasML+=r.horas;}
+      else if(u==="KILOMETROS LINEALES"||u==="KILÓMETROS LINEALES"){tareaMap[r.tarea].kl+=cant;tareaMap[r.tarea].horasKL+=r.horas;}
+      else if(u==="M2"){tareaMap[r.tarea].m2+=cant;tareaMap[r.tarea].horasM2+=r.horas;}
+      else if(u==="M3"){tareaMap[r.tarea].m3+=cant;tareaMap[r.tarea].horasM3+=r.horas;}
+    });
+    const totalHs=Object.values(tareaMap).reduce((s,v)=>s+v.horas,0);
+    const pieData=Object.entries(tareaMap).sort((a,b)=>b[1].horas-a[1].horas).map(([name,v])=>({
+      name,
+      value:Math.round(v.horas*10)/10,
+      pct:Math.round(v.horas/totalHs*1000)/10,
+      mlHs:v.horasML>0&&v.ml>0?Math.round(v.ml/v.horasML*10)/10:0,
+      klHs:v.horasKL>0&&v.kl>0?Math.round(v.kl/v.horasKL*10)/10:0,
+      m2Hs:v.horasM2>0&&v.m2>0?Math.round(v.m2/v.horasM2*10)/10:0,
+      m3Hs:v.horasM3>0&&v.m3>0?Math.round(v.m3/v.horasM3*10)/10:0,
+    }));
+    // % acumulado precalculado en una sola pasada (evita O(n²))
+    let running=0;
+    const pieDataCon80=[];
+    for(const d of pieData){
+      if(running>=80)break;
+      running+=d.pct;
+      pieDataCon80.push({...d,acumLocal:Math.min(running,100)});
+    }
+    const maqMap={};
+    filtered.forEach(r=>{if(r.maquina)maqMap[r.maquina]=(maqMap[r.maquina]||0)+r.horas;});
+    const barData=Object.entries(maqMap).sort((a,b)=>b[1]-a[1]).map(([maquina,horas])=>({maquina,horas}));
+    return{pieData,pieDataCon80,barData};
+  },[filtered,mode]);
+
+  // ── Datos para gráficos de DÍA ─────────────────────────────────────────────
+  const diaChartData=useMemo(()=>{
+    if(mode!=="dia"||!fecha||!filtered.length)return null;
+    const tareaMap={};
+    filtered.forEach(r=>{if(r.tarea)tareaMap[r.tarea]=(tareaMap[r.tarea]||0)+r.horas;});
+    const totalHs=Object.values(tareaMap).reduce((s,v)=>s+v,0);
+    const pieData=Object.entries(tareaMap).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value,pct:Math.round(value/totalHs*1000)/10}));
+    const maqMap={};
+    filtered.forEach(r=>{if(r.maquina)maqMap[r.maquina]=(maqMap[r.maquina]||0)+r.horas;});
+    const barData=Object.entries(maqMap).sort((a,b)=>b[1]-a[1]).map(([maquina,horas])=>({maquina,horas}));
+    return{pieData,barData};
+  },[filtered,mode,fecha]);
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const [rop05TipRow,setRop05TipRow]=React.useState(null);
+  const [rop05PinnedRow,setRop05PinnedRow]=React.useState(null);
+  // Posición del tooltip guardada en ref para no re-renderizar la tabla en onMouseMove
+  const rop05TipPosRef=useRef({x:0,y:0});
   const [rop05TipPos,setRop05TipPos]=React.useState({x:0,y:0});
   const rop05ActiveRow=rop05PinnedRow??rop05TipRow;
   useEffect(()=>{setRop05TipRow(null);setRop05PinnedRow(null);},[mode,fecha,fechaD,fechaH,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina]);
-  const cols=useMemo(()=>[
-    {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
-    {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
-    {key:"tipo_maquina",label:"Tipo",render:(v,r)=>{const t=v||(r._tipo||"—");return <Badge color={C.textSub}>{t}</Badge>;}},
-    {key:"tarea",label:"Tarea",render:v=><span style={{display:"block",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={v}>{v||"—"}</span>},
-    {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
-    {key:"cantidad",label:"Cantidad",render:v=><span style={{color:C.blue,fontWeight:600}}>{fmtNum(v)}</span>},
-    {key:"unidad",label:"Unidad",render:v=><Badge color={C.teal}>{v}</Badge>},
-    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
-  ],[]);
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -3160,8 +3202,8 @@ function ViewROP05({rop05,extState,setExtState}){
           <div style={{display:"flex",flexWrap:"nowrap",overflowX:"auto",gap:10,alignItems:"flex-end",paddingBottom:2}}>
             {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
             <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
-            <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{setTipoMaquina(v);set("maquina","todas");}} options={TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
-            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>multiIsAll(tipoMaquina,"todas")||tipoMatchMachine(tipoMaquina,m)).map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{setTipoMaquina(v);set("maquina","todas");}} options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
+            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>multiIsAll(tipoMaquina,"todas")||tipoMatchMachineROP05(tipoMaquina,m)).map(m=>({value:m,label:m}))]}/>
             <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>set("supervisor",v)} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
             <MultiSel label="Tarea" value={tarea} onChange={setTarea} options={[{value:"todas",label:"Todas"},...tareasOpts.map(t=>({value:t,label:t.length>40?t.slice(0,38)+"…":t}))]}/>
             <MultiSel label="Unidad" value={vals.unidad} onChange={v=>set("unidad",v)} options={[{value:"todas",label:"Todas"},...opts.unidad.map(u=>({value:u,label:u}))]}/>
@@ -3174,7 +3216,7 @@ function ViewROP05({rop05,extState,setExtState}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
         <StatCard icon="prod" label="Registros" value={filtered.length} color={C.blue} small/>
         <StatCard icon="hours" label="Horas" value={fmtNum(totalHoras05)} color={C.yellow} small/>
-        <StatCard icon="equip" label="Equipos" value={uniq(filtered.map(r=>r.maquina)).length} color={C.purple} small/>
+        <StatCard icon="equip" label="Equipos" value={totalEquipos05} color={C.purple} small/>
         {prodCards.filter(({key})=>key!=="HS").map(({titulo,color,rendimiento})=>(
           <StatCard key={titulo}
             icon="prod"
@@ -3202,7 +3244,7 @@ function ViewROP05({rop05,extState,setExtState}){
         ))}
       </div>
       {(mode==="periodo")&&filtered.length>0&&(
-        <Card title="Producción por Fecha" action={<Sel label="" value={unidadGrafico} onChange={setUnidadGrafico} options={UNIDADES_GRAFICO.map(u=>({value:u.value,label:u.label}))}/>}>
+        <Card title="Producción por Fecha" action={<Sel label="" value={unidadGrafico} onChange={setUnidadGrafico} options={ROP05_UNIDADES_GRAFICO.map(u=>({value:u.value,label:u.label}))}/>}>
           <div style={{padding:"10px 6px"}}>
             <ResponsiveContainer width="100%" height={160}>
               <AreaChart data={prodFecha} margin={{left:0,right:10}}>
@@ -3223,37 +3265,8 @@ function ViewROP05({rop05,extState,setExtState}){
           </div>
         </Card>
       )}
-      {mode==="periodo"&&filtered.length>0&&(()=>{
-        const COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316","#84cc16","#6366f1"];
-        // Excluir unidad HS igual que en el reporte Excel
-        const filteredSinHS=filtered.filter(r=>(r.unidad||"").trim().toUpperCase()!=="HS");
-        const tareaMap={};
-        filteredSinHS.forEach(r=>{
-          if(!r.tarea)return;
-          const u=(r.unidad||"").trim().toUpperCase();
-          if(!tareaMap[r.tarea])tareaMap[r.tarea]={horas:0,horasML:0,horasKL:0,horasM2:0,horasM3:0,ml:0,kl:0,m2:0,m3:0};
-          tareaMap[r.tarea].horas+=r.horas;
-          const cant=r.cantidad||0;
-          // Acumular horas y cantidad solo para registros que producen esa unidad
-          if(u==="METROS LINEALES"){tareaMap[r.tarea].ml+=cant;tareaMap[r.tarea].horasML+=r.horas;}
-          else if(u==="KILOMETROS LINEALES"||u==="KILÓMETROS LINEALES"){tareaMap[r.tarea].kl+=cant;tareaMap[r.tarea].horasKL+=r.horas;}
-          else if(u==="M2"){tareaMap[r.tarea].m2+=cant;tareaMap[r.tarea].horasM2+=r.horas;}
-          else if(u==="M3"){tareaMap[r.tarea].m3+=cant;tareaMap[r.tarea].horasM3+=r.horas;}
-        });
-        const totalHs=Object.values(tareaMap).reduce((s,v)=>s+v.horas,0);
-        const pieData=Object.entries(tareaMap).sort((a,b)=>b[1].horas-a[1].horas).map(([name,v])=>({
-          name,
-          value:Math.round(v.horas*10)/10,
-          pct:Math.round(v.horas/totalHs*1000)/10,
-          // Rendimiento: cantidad / horas de registros de esa unidad (igual que los recuadros)
-          mlHs:v.horasML>0&&v.ml>0?Math.round(v.ml/v.horasML*10)/10:0,
-          klHs:v.horasKL>0&&v.kl>0?Math.round(v.kl/v.horasKL*10)/10:0,
-          m2Hs:v.horasM2>0&&v.m2>0?Math.round(v.m2/v.horasM2*10)/10:0,
-          m3Hs:v.horasM3>0&&v.m3>0?Math.round(v.m3/v.horasM3*10)/10:0,
-        }));
-        const maqMap={};
-        filtered.forEach(r=>{if(r.maquina)maqMap[r.maquina]=(maqMap[r.maquina]||0)+r.horas;});
-        const barData=Object.entries(maqMap).sort((a,b)=>b[1]-a[1]).map(([maquina,horas])=>({maquina,horas}));
+      {periodoChartData&&(()=>{
+        const{pieData,pieDataCon80,barData}=periodoChartData;
         return(
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
           <div style={{display:"grid",gridTemplateColumns:"2fr 3fr",gap:14}}>
@@ -3262,7 +3275,7 @@ function ViewROP05({rop05,extState,setExtState}){
                 <div style={{flexShrink:0}}>
                   <PieChart width={220} height={220}>
                     <Pie data={pieData} dataKey="value" cx="50%" cy="50%" outerRadius={100} innerRadius={44}>
-                      {pieData.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
+                      {pieData.map((_,i)=><Cell key={i} fill={ROP05_CHART_COLORS[i%ROP05_CHART_COLORS.length]}/>)}
                     </Pie>
                     <Tooltip content={({active,payload})=>{
                       if(!active||!payload?.length)return null;
@@ -3277,7 +3290,7 @@ function ViewROP05({rop05,extState,setExtState}){
                 <div style={{display:"flex",flexDirection:"column",gap:8,flex:1,overflow:"hidden"}}>
                   {pieData.map((d,i)=>(
                     <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
-                      <div style={{width:12,height:12,borderRadius:"50%",background:COLORS[i%COLORS.length],flexShrink:0}}/>
+                      <div style={{width:12,height:12,borderRadius:"50%",background:ROP05_CHART_COLORS[i%ROP05_CHART_COLORS.length],flexShrink:0}}/>
                       <span style={{fontSize:13,color:C.textSub,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
                       <span style={{fontSize:13,fontWeight:700,color:C.text,flexShrink:0}}>{d.pct}%</span>
                       <span style={{fontSize:12,color:C.textMuted,flexShrink:0,minWidth:36,textAlign:"right"}}>{fmtNum(d.value)}hs</span>
@@ -3317,31 +3330,20 @@ function ViewROP05({rop05,extState,setExtState}){
                   </tr>
                 </thead>
                 <tbody>
-                  {(()=>{
-                    let acum=0;
-                    return pieData.filter(d=>{
-                      if(acum>=80)return false;
-                      acum+=d.pct;
-                      return true;
-                    }).map((d,i)=>{
-                      let acumLocal=0;
-                      for(let j=0;j<=i;j++)acumLocal+=pieData[j].pct;
-                      return(
-                        <tr key={i} style={{background:i%2===0?"transparent":C.surface+"55"}}>
-                          <td style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}18`,color:C.text,fontSize:14}}>{d.name}</td>
-                          <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:600,fontSize:14}}>{fmtNum(d.value)}</td>
-                          <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.text,fontWeight:700,fontSize:14}}>{d.pct}%</td>
-                          <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}>
-                            <span style={{display:"inline-block",padding:"4px 14px",borderRadius:20,fontSize:13,fontWeight:700,background:acumLocal>=80?C.green+"22":C.yellow+"22",color:acumLocal>=80?C.green:C.yellow,border:`1px solid ${acumLocal>=80?C.green:C.yellow}44`}}>{Math.min(acumLocal,100).toFixed(1)}%</span>
-                          </td>
-                          <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.mlHs>0?C.blue:C.textMuted,fontWeight:d.mlHs>0?700:400,fontSize:14}}>{d.mlHs>0?fmtNum(d.mlHs):"—"}</td>
-                          <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.klHs>0?C.blue:C.textMuted,fontWeight:d.klHs>0?700:400,fontSize:14}}>{d.klHs>0?fmtNum(d.klHs):"—"}</td>
-                          <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.m2Hs>0?C.teal:C.textMuted,fontWeight:d.m2Hs>0?700:400,fontSize:14}}>{d.m2Hs>0?fmtNum(d.m2Hs):"—"}</td>
-                          <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.m3Hs>0?C.purple:C.textMuted,fontWeight:d.m3Hs>0?700:400,fontSize:14}}>{d.m3Hs>0?fmtNum(d.m3Hs):"—"}</td>
-                        </tr>
-                      );
-                    });
-                  })()}
+                  {pieDataCon80.map((d,i)=>(
+                    <tr key={i} style={{background:i%2===0?"transparent":C.surface+"55"}}>
+                      <td style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}18`,color:C.text,fontSize:14}}>{d.name}</td>
+                      <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.accent,fontWeight:600,fontSize:14}}>{fmtNum(d.value)}</td>
+                      <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.text,fontWeight:700,fontSize:14}}>{d.pct}%</td>
+                      <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}>
+                        <span style={{display:"inline-block",padding:"4px 14px",borderRadius:20,fontSize:13,fontWeight:700,background:d.acumLocal>=80?C.green+"22":C.yellow+"22",color:d.acumLocal>=80?C.green:C.yellow,border:`1px solid ${d.acumLocal>=80?C.green:C.yellow}44`}}>{d.acumLocal.toFixed(1)}%</span>
+                      </td>
+                      <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.mlHs>0?C.blue:C.textMuted,fontWeight:d.mlHs>0?700:400,fontSize:14}}>{d.mlHs>0?fmtNum(d.mlHs):"—"}</td>
+                      <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.klHs>0?C.blue:C.textMuted,fontWeight:d.klHs>0?700:400,fontSize:14}}>{d.klHs>0?fmtNum(d.klHs):"—"}</td>
+                      <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.m2Hs>0?C.teal:C.textMuted,fontWeight:d.m2Hs>0?700:400,fontSize:14}}>{d.m2Hs>0?fmtNum(d.m2Hs):"—"}</td>
+                      <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.m3Hs>0?C.purple:C.textMuted,fontWeight:d.m3Hs>0?700:400,fontSize:14}}>{d.m3Hs>0?fmtNum(d.m3Hs):"—"}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -3349,12 +3351,8 @@ function ViewROP05({rop05,extState,setExtState}){
                     </div>
         );
       })()}
-      {mode==="dia"&&fecha&&filtered.length>0&&(()=>{
-        const COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316","#84cc16","#6366f1"];
-        const tareaMap={};
-        filtered.forEach(r=>{if(r.tarea)tareaMap[r.tarea]=(tareaMap[r.tarea]||0)+r.horas;});
-        const totalHs=Object.values(tareaMap).reduce((s,v)=>s+v,0);
-        const pieData=Object.entries(tareaMap).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value,pct:Math.round(value/totalHs*1000)/10}));
+      {diaChartData&&(()=>{
+        const{pieData,barData}=diaChartData;
         return(
           <div style={{display:"grid",gridTemplateColumns:"2fr 3fr",gap:14}}>
             <Card title={`Distribución de Horas por Tarea — ${fecha}`}>
@@ -3362,7 +3360,7 @@ function ViewROP05({rop05,extState,setExtState}){
                 <div style={{flexShrink:0}}>
                   <PieChart width={220} height={220}>
                     <Pie data={pieData} dataKey="value" cx="50%" cy="50%" outerRadius={100} innerRadius={44}>
-                      {pieData.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}
+                      {pieData.map((_,i)=><Cell key={i} fill={ROP05_CHART_COLORS[i%ROP05_CHART_COLORS.length]}/>)}
                     </Pie>
                     <Tooltip content={({active,payload})=>{
                       if(!active||!payload?.length)return null;
@@ -3377,7 +3375,7 @@ function ViewROP05({rop05,extState,setExtState}){
                 <div style={{display:"flex",flexDirection:"column",gap:7,flex:1,overflow:"hidden"}}>
                   {pieData.map((d,i)=>(
                     <div key={i} style={{display:"flex",alignItems:"center",gap:8}}>
-                      <div style={{width:11,height:11,borderRadius:"50%",background:COLORS[i%COLORS.length],flexShrink:0}}/>
+                      <div style={{width:11,height:11,borderRadius:"50%",background:ROP05_CHART_COLORS[i%ROP05_CHART_COLORS.length],flexShrink:0}}/>
                       <span style={{fontSize:12,color:C.textSub,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
                       <span style={{fontSize:12,fontWeight:700,color:C.text,flexShrink:0}}>{d.pct}%</span>
                       <span style={{fontSize:11,color:C.textMuted,flexShrink:0,minWidth:32,textAlign:"right"}}>{fmtNum(d.value)}hs</span>
@@ -3388,28 +3386,21 @@ function ViewROP05({rop05,extState,setExtState}){
             </Card>
             <Card title={`Horas por Equipo — ${fecha}`}>
               <div style={{padding:"8px 6px"}}>
-                {(()=>{
-                  const maqMap={};
-                  filtered.forEach(r=>{if(r.maquina)maqMap[r.maquina]=(maqMap[r.maquina]||0)+r.horas;});
-                  const barData=Object.entries(maqMap).sort((a,b)=>b[1]-a[1]).map(([maquina,horas])=>({maquina,horas}));
-                  return(
-                    <ResponsiveContainer width="100%" height={Math.max(160,barData.length*26+30)}>
-                      <BarChart data={barData} layout="vertical" margin={{left:8,right:30}}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
-                        <XAxis type="number" tick={{fill:C.textMuted,fontSize:9}} axisLine={false} tickLine={false} unit="hs"/>
-                        <YAxis type="category" dataKey="maquina" tick={{fill:C.textSub,fontSize:9}} width={80} axisLine={false} tickLine={false}/>
-                        <Tooltip content={({active,payload})=>{
-                          if(!active||!payload?.length)return null;
-                          return(<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:12}}>
-                            <div style={{color:C.purple,fontWeight:700}}>{payload[0].payload.maquina}</div>
-                            <div style={{color:C.accent}}>{fmtNum(payload[0].value)} hs</div>
-                          </div>);
-                        }}/>
-                        <Bar dataKey="horas" fill={C.accent} radius={[0,4,4,0]} barSize={14}/>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  );
-                })()}
+                <ResponsiveContainer width="100%" height={Math.max(160,barData.length*26+30)}>
+                  <BarChart data={barData} layout="vertical" margin={{left:8,right:30}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false}/>
+                    <XAxis type="number" tick={{fill:C.textMuted,fontSize:9}} axisLine={false} tickLine={false} unit="hs"/>
+                    <YAxis type="category" dataKey="maquina" tick={{fill:C.textSub,fontSize:9}} width={80} axisLine={false} tickLine={false}/>
+                    <Tooltip content={({active,payload})=>{
+                      if(!active||!payload?.length)return null;
+                      return(<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 12px",fontSize:12}}>
+                        <div style={{color:C.purple,fontWeight:700}}>{payload[0].payload.maquina}</div>
+                        <div style={{color:C.accent}}>{fmtNum(payload[0].value)} hs</div>
+                      </div>);
+                    }}/>
+                    <Bar dataKey="horas" fill={C.accent} radius={[0,4,4,0]} barSize={14}/>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </Card>
           </div>
@@ -3423,7 +3414,7 @@ function ViewROP05({rop05,extState,setExtState}){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,tableLayout:"fixed",minWidth:700}}>
               <thead>
                 <tr>
-                  {[["fecha","Fecha",90],["maquina","Máquina",110],["tipo_maquina","Tipo",90],["tarea","Tarea",220],["horas","Horas",70],["cantidad","Cantidad",80],["unidad","Unidad",80],["proyecto","Proyecto",110]].map(([k,lbl,w])=>(
+                  {ROP05_TABLE_HEADERS.map(([k,lbl,w])=>(
                     <th key={k} style={{padding:"9px 10px",textAlign:k==="tarea"?"left":"center",fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",color:C.textSub,borderBottom:`2px solid ${C.border}`,position:"sticky",top:0,background:C.surface,zIndex:2,width:w,minWidth:w}}>
                       {lbl}
                     </th>
@@ -3439,18 +3430,24 @@ function ViewROP05({rop05,extState,setExtState}){
                       style={{background:isActive?"rgba(232,0,29,0.15)":i%2===0?"transparent":C.surface+"33",cursor:"pointer",transition:"background .1s",borderTop:isPinned?`1px solid ${C.red}44`:undefined}}
                       onMouseEnter={e=>{
                         if(rop05PinnedRow!==null)return;
+                        rop05TipPosRef.current={x:e.clientX,y:e.clientY};
                         setRop05TipRow(i);
                         setRop05TipPos({x:e.clientX,y:e.clientY});
                       }}
                       onMouseMove={e=>{
                         if(rop05PinnedRow!==null)return;
-                        setRop05TipPos({x:e.clientX,y:e.clientY});
+                        // Actualiza la ref sin re-renderizar; el portal lee la ref directamente
+                        rop05TipPosRef.current={x:e.clientX,y:e.clientY};
+                        // Solo actualiza state si la distancia es suficiente (≥4px) para reducir renders
+                        const dx=Math.abs(e.clientX-rop05TipPos.x);
+                        const dy=Math.abs(e.clientY-rop05TipPos.y);
+                        if(dx>=4||dy>=4)setRop05TipPos({x:e.clientX,y:e.clientY});
                       }}
                       onMouseLeave={()=>{if(rop05PinnedRow===null)setRop05TipRow(null);}}
                       onClick={e=>{
                         e.stopPropagation();
                         if(rop05PinnedRow===i){setRop05PinnedRow(null);setRop05TipRow(null);}
-                        else{setRop05PinnedRow(i);setRop05TipRow(i);setRop05TipPos({x:e.clientX,y:e.clientY});}
+                        else{setRop05PinnedRow(i);setRop05TipRow(i);rop05TipPosRef.current={x:e.clientX,y:e.clientY};setRop05TipPos({x:e.clientX,y:e.clientY});}
                       }}
                     >
                       <td style={{padding:"8px 10px",textAlign:"center",color:C.textSub,borderBottom:`1px solid ${C.border}18`}}>{fmtFecha(r.fecha)}</td>
@@ -3468,30 +3465,18 @@ function ViewROP05({rop05,extState,setExtState}){
             </table>
           )}
         </div>
-        {/* Tooltip flotante de Productividad: misma lógica que Mantenimiento */}
+        {/* Tooltip flotante de Productividad */}
         {rop05ActiveRow!==null&&filteredSorted[rop05ActiveRow]&&ReactDOM.createPortal((()=>{
           const r=filteredSorted[rop05ActiveRow];
           const isPinned=rop05PinnedRow!==null;
-          const W=280;
-          const H=218;
-          const left=Math.max(12,Math.min((rop05TipPos.x||0)+8,window.innerWidth-W-12));
-          const top=Math.max(12,Math.min((rop05TipPos.y||0)+8,window.innerHeight-H-12));
+          const W=280;const H=218;
+          const px=rop05TipPos.x||0;const py=rop05TipPos.y||0;
+          const left=Math.max(12,Math.min(px+8,window.innerWidth-W-12));
+          const top=Math.max(12,Math.min(py+8,window.innerHeight-H-12));
           return(
             <div
               onClick={e=>{e.stopPropagation();if(isPinned){setRop05PinnedRow(null);setRop05TipRow(null);}}}
-              style={{
-                position:"fixed",
-                left,
-                top,
-                zIndex:99999,
-                width:W,
-                background:C.card,
-                border:`1px solid ${isPinned?C.red+"88":C.border}`,
-                borderRadius:10,
-                padding:"12px 14px",
-                boxShadow:"0 8px 32px rgba(0,0,0,.55)",
-                pointerEvents:isPinned?"auto":"none"
-              }}>
+              style={{position:"fixed",left,top,zIndex:99999,width:W,background:C.card,border:`1px solid ${isPinned?C.red+"88":C.border}`,borderRadius:10,padding:"12px 14px",boxShadow:"0 8px 32px rgba(0,0,0,.55)",pointerEvents:isPinned?"auto":"none"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <span style={{fontSize:11,fontWeight:800,color:C.text,textTransform:"uppercase",letterSpacing:".04em"}}>Detalle del registro</span>
                 {isPinned&&<span style={{fontSize:10,color:C.red,fontWeight:700,cursor:"pointer"}}>✕ soltar</span>}
@@ -3806,6 +3791,36 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
           numUltimo:parseParte(ultimo?.parte),
         };
       }).filter(d=>d.primero&&d.ultimo);
+      // Control TD/TN del mismo día:
+      // Cada turno debe continuar el número de parte del turno anterior.
+      // Si TD = 726, TN debe ser 727. Si TN es 726, 728, vacío, etc., se informa error.
+      diasPartes.forEach(d=>{
+        if(d.primero&&d.ultimo&&d.turnoPrimero==="TD"&&d.turnoUltimo==="TN"){
+          const td=d.primero;
+          const tn=d.ultimo;
+          const numTD=parseParte(td?.parte);
+          const numTN=parseParte(tn?.parte);
+          const esperado=(numTD!==null)?numTD+1:null;
+          if(numTD!==null&&numTN!==null&&numTN!==esperado){
+            erroresPartes.push({
+              tipo:"TD_TN_NO_CONSECUTIVA",
+              proyecto:tn?.proyecto||td?.proyecto||"—",
+              maquina:maq,
+              supervisor:tn?.supervisor||td?.supervisor||"—",
+              fecha:d.fecha,
+              turno:"TN",
+              numeroIncorrecto:tn?.parte||"",
+              numeroCorrecto:esperado,
+              parteAnterior:td?.parte||"",
+              fechaAnterior:d.fecha,
+              turnoAnterior:"TD",
+              diff:numTN-esperado,
+              detalle:"El número de parte del turno noche debe ser consecutivo al número de parte del turno día."
+            });
+          }
+        }
+      });
+
       for(let i=0;i<diasPartes.length-1;i++){
         const hoy=diasPartes[i];
         const siguiente=diasPartes[i+1];
@@ -3889,9 +3904,11 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
               <ErrorDato label="Supervisor">{e.supervisor}</ErrorDato>
               <ErrorDato label="Día">{fmtFecha(e.fecha)}</ErrorDato>
               <ErrorDato label="Parte incorrecto" color={C.red}>#{e.numeroIncorrecto}</ErrorDato>
-              <ErrorDato label="Debería decir" color={C.yellow}>#{e.numeroCorrecto}</ErrorDato>
+              <ErrorDato label={e.tipo==="TD_TN_NO_CONSECUTIVA"||e.tipo==="TD_TN_CONTINUA"?"Debería decir":"Debería decir"} color={C.yellow}>#{e.numeroCorrecto}</ErrorDato>
               <ErrorDato label="Máquina">{e.maquina}</ErrorDato>
               <ErrorDato label="Turno">{e.turno}</ErrorDato>
+              {e.tipo==="TD_TN_CONTINUA"&&<ErrorDato label="Parte TD" color={C.textSub}>#{e.parteAnterior}</ErrorDato>}
+              {e.detalle&&<ErrorDato label="Detalle" color={C.red}>{e.detalle}</ErrorDato>}
             </div>
           ))}
         </div>
@@ -3902,7 +3919,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   const renderHorometros=()=>{
     const errores=controlIntegridad.erroresHoro;
     if(errores.length===0)return <AlertBanner type="success">✅ Sin cortes de horómetro para los filtros seleccionados.</AlertBanner>;
-    const cols=["Proyecto","Máquina","Día con error","Turno con error","Supervisor","N° parte","Día anterior","Turno anterior","Hi informado","Hf anterior esperado","Diferencia"];
+    const cols=["Proyecto","Máquina","Día con error","Turno con error","Supervisor","N° parte","Día anterior","Turno anterior","Hi informado","Hf anterior esperado","Diferencia","Detalle"];
     return(
       <Card title={`⚠️ Control de horómetros (${errores.length})`}>
         <div style={{overflowX:"auto"}}>
@@ -3921,7 +3938,8 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
                   <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={e.turnoAnterior==="TD"?C.blue:C.purple}>{e.turnoAnterior}</Badge></td>
                   <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.red,fontWeight:800}}>{fmtNum(e.hiActual)}</td>
                   <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.yellow,fontWeight:800}}>{fmtNum(e.hfAnterior)}</td>
-                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={e.diff>0?C.yellow:C.red}>{e.diff>0?`+${fmtNum(e.diff)}`:fmtNum(e.diff)}</Badge></td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`}}><Badge color={e.diff===0?C.red:(e.diff>0?C.yellow:C.red)}>{e.diff>0?`+${fmtNum(e.diff)}`:fmtNum(e.diff)}</Badge></td>
+                  <td style={{padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.red,fontWeight:700,minWidth:220}}>{e.detalle||"—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -9833,24 +9851,112 @@ function readSavedAppFilters(){
   catch(_){return{};}
 }
 
+const APP_DATA_CACHE_PREFIX="dm_app_data_source_v2_";
+const APP_DATA_CACHE_META_KEY="dm_app_data_meta_v2";
+
+function readSavedDataSources(){
+  try{
+    const meta=JSON.parse(window.localStorage.getItem(APP_DATA_CACHE_META_KEY)||"{}");
+    const keys=Array.isArray(meta.keys)?meta.keys:[];
+    const sources={};
+    keys.forEach(k=>{
+      try{
+        const raw=window.localStorage.getItem(APP_DATA_CACHE_PREFIX+k);
+        if(raw)sources[k]=JSON.parse(raw);
+      }catch(_){}
+    });
+    return{sources,updatedAt:meta.updatedAt||null};
+  }catch(_){
+    return{sources:{},updatedAt:null};
+  }
+}
+
+function saveDataSourcesToStorage(sources){
+  try{
+    const keys=Object.keys(sources||{}).filter(k=>sources[k]);
+    keys.forEach(k=>{
+      try{window.localStorage.setItem(APP_DATA_CACHE_PREFIX+k,JSON.stringify(sources[k]));}
+      catch(_){}
+    });
+    window.localStorage.setItem(APP_DATA_CACHE_META_KEY,JSON.stringify({keys,updatedAt:new Date().toISOString()}));
+  }catch(_){}
+}
+
+function clearSavedDataSources(){
+  try{
+    const meta=JSON.parse(window.localStorage.getItem(APP_DATA_CACHE_META_KEY)||"{}");
+    const keys=Array.isArray(meta.keys)?meta.keys:[];
+    keys.forEach(k=>window.localStorage.removeItem(APP_DATA_CACHE_PREFIX+k));
+    window.localStorage.removeItem(APP_DATA_CACHE_META_KEY);
+  }catch(_){}
+}
+
 export default function App(){
   const savedAppFilters=readSavedAppFilters();
+  const savedAppData=readSavedDataSources();
   const savedOr=(key,def)=>savedAppFilters&&savedAppFilters[key]!==undefined?savedAppFilters[key]:def;
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
   const[view,setView]=useState(()=>savedOr("view","bienvenida"));
   const[loading,setLoading]=useState(false);
   const[rop02All,setRop02All]=useState([]);
   const[rop05,setRop05]=useState([]);
-  const[lastUpdate,setLastUpdate]=useState(null);
+  const[lastUpdate,setLastUpdate]=useState(()=>savedAppData.updatedAt?new Date(savedAppData.updatedAt):null);
   const[sidebarOpen,setSidebarOpen]=useState(()=>savedOr("sidebarOpen",true));
   const[errors,setErrors]=useState([]);
   const[fatalError,setFatalError]=useState(null);
   const[health,setHealth]=useState(null);
-  const[rawSources,setRawSources]=useState({});
-  const[loadedSources,setLoadedSources]=useState({});
-  const loadedSourcesRef=useRef({});
+  const[rawSources,setRawSources]=useState(()=>savedAppData.sources||{});
+  const[loadedSources,setLoadedSources]=useState(()=>Object.fromEntries(Object.keys(savedAppData.sources||{}).map(k=>[k,true])));
+  const loadedSourcesRef=useRef(Object.fromEntries(Object.keys(savedAppData.sources||{}).map(k=>[k,true])));
   const[listaEquipos,setListaEquipos]=useState([]);
   useEffect(()=>{loadedSourcesRef.current=loadedSources;},[loadedSources]);
+
+  const sourceHasData=useCallback((key)=>{
+    const src=rawSources&&rawSources[key];
+    return !!(src&&src.ok&&Array.isArray(src.data)&&src.data.length>0);
+  },[rawSources]);
+
+  const viewDataReady=useMemo(()=>{
+    if(view==="rop05")return sourceHasData("rop05");
+    if(view==="rop02")return sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur");
+    if(view==="rma15")return sourceHasData("rma15_jm")||sourceHasData("rma15_fs");
+    if(view==="insumos")return sourceHasData("insumos")||sourceHasData("rma15_jm")||sourceHasData("rma15_fs");
+    if(view==="lista_equipos")return sourceHasData("lista_equipos");
+    if(view==="control")return sourceHasData("rop05")&&(sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur"));
+    return Object.keys(rawSources||{}).some(sourceHasData);
+  },[view,sourceHasData,rawSources]);
+
+  const BlockingDataLoader=useCallback(({label="Cargando datos..."})=>(
+    <div style={{
+      margin:16,
+      minHeight:"55vh",
+      display:"flex",
+      alignItems:"center",
+      justifyContent:"center",
+      background:"rgba(0,0,0,.62)",
+      border:`1px solid ${C.border}`,
+      borderRadius:16,
+      backdropFilter:"blur(8px)",
+      WebkitBackdropFilter:"blur(8px)"
+    }}>
+      <div style={{textAlign:"center"}}>
+        <Loader2 size={34} color={C.red} className="spin"/>
+        <div style={{marginTop:12,fontSize:14,fontWeight:800,color:C.text}}>{label}</div>
+        <div style={{marginTop:6,fontSize:12,color:C.textMuted}}>No se muestran ceros falsos mientras termina la carga.</div>
+      </div>
+    </div>
+  ),[]);
+
+  useEffect(()=>{
+    const t=setTimeout(()=>{
+      if(rawSources&&Object.keys(rawSources).length){
+        saveDataSourcesToStorage(rawSources);
+      }
+    },350);
+    return()=>clearTimeout(t);
+  },[rawSources]);
+
+
   const control=useMemo(()=>calcControl(rop02All,rop05),[rop02All,rop05]);
   // Estados persistentes de filtros por pestaña
   const[dashSt,setDashSt]=useState(()=>savedOr("dashSt",{proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""}));
@@ -9983,7 +10089,15 @@ export default function App(){
       const entries=await Promise.all(needed.map(async key=>[key,await fetchSource(APPS_SCRIPT_URL,key,{force})]));
       setRawSources(prev=>{
         const next={...prev};
-        entries.forEach(([key,val])=>{next[key]=val;});
+        entries.forEach(([key,val])=>{
+          // Si una fuente falla, conservamos la última data buena para que la pestaña no vuelva a cero.
+          if(val&&val.ok&&Array.isArray(val.data)){
+            next[key]=val;
+          }else if(!next[key]){
+            next[key]=val;
+          }
+        });
+        saveDataSourcesToStorage(next);
         return next;
       });
       setLoadedSources(prev=>{
@@ -10155,7 +10269,7 @@ export default function App(){
               </div>
             )}
             {fatalError&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
-            {!fatalError&&(loading&&!lastUpdate||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
+            {!fatalError&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
                 <Spinner size={36}/>
                 <div style={{color:C.textMuted,fontSize:13}}>Cargando datos desde Google Sheets...</div>
@@ -10167,12 +10281,12 @@ export default function App(){
                 {view==="bienvenida"&&<ViewBienvenida/>}
                 {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
                 {view==="listaEquipos"&&<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>}
-                {view==="rop02"&&<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>}
+                {view==="rop02"&&(viewDataReady?<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
                 {view==="horometros"&&<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>}
                 {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>}
                 {view==="ctrlEquipo"&&<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>}
                 {view==="combustible"&&<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>}
-                {view==="rop05"&&<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>}
+                {view==="rop05"&&(viewDataReady?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Productividad..." />)}
                 {view==="ranking"&&<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>}
                 {view==="mant"&&<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>}
                 {view==="rma15CtrlEquipo"&&<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>}
