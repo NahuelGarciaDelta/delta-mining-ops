@@ -3133,7 +3133,8 @@ function ViewROP05({rop05,extState,setExtState}){
   const [rop05TipRow,setRop05TipRow]=React.useState(null);   // fila en hover
   const [rop05PinnedRow,setRop05PinnedRow]=React.useState(null); // fila fijada por click
   const [rop05TipPos,setRop05TipPos]=React.useState({x:0,y:0});
-  const rop05ActiveRow=rop05PinnedRow||rop05TipRow;
+  const rop05ActiveRow=rop05PinnedRow??rop05TipRow;
+  useEffect(()=>{setRop05TipRow(null);setRop05PinnedRow(null);},[mode,fecha,fechaD,fechaH,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina]);
   const cols=useMemo(()=>[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
     {key:"maquina",label:"Máquina",render:v=><Badge color={C.purple}>{v}</Badge>},
@@ -3436,16 +3437,20 @@ function ViewROP05({rop05,extState,setExtState}){
                   return(
                     <tr key={i}
                       style={{background:isActive?"rgba(232,0,29,0.15)":i%2===0?"transparent":C.surface+"33",cursor:"pointer",transition:"background .1s",borderTop:isPinned?`1px solid ${C.red}44`:undefined}}
-                      onMouseMove={e=>{
+                      onMouseEnter={e=>{
                         if(rop05PinnedRow!==null)return;
                         setRop05TipRow(i);
+                        setRop05TipPos({x:e.clientX,y:e.clientY});
+                      }}
+                      onMouseMove={e=>{
+                        if(rop05PinnedRow!==null)return;
                         setRop05TipPos({x:e.clientX,y:e.clientY});
                       }}
                       onMouseLeave={()=>{if(rop05PinnedRow===null)setRop05TipRow(null);}}
                       onClick={e=>{
                         e.stopPropagation();
                         if(rop05PinnedRow===i){setRop05PinnedRow(null);setRop05TipRow(null);}
-                        else{setRop05PinnedRow(i);setRop05TipPos({x:e.clientX,y:e.clientY});}
+                        else{setRop05PinnedRow(i);setRop05TipRow(i);setRop05TipPos({x:e.clientX,y:e.clientY});}
                       }}
                     >
                       <td style={{padding:"8px 10px",textAlign:"center",color:C.textSub,borderBottom:`1px solid ${C.border}18`}}>{fmtFecha(r.fecha)}</td>
@@ -3463,25 +3468,30 @@ function ViewROP05({rop05,extState,setExtState}){
             </table>
           )}
         </div>
-        {/* Tooltip flotante fixed */}
-        {rop05ActiveRow!==null&&filteredSorted[rop05ActiveRow]&&(()=>{
+        {/* Tooltip flotante de Productividad: misma lógica que Mantenimiento */}
+        {rop05ActiveRow!==null&&filteredSorted[rop05ActiveRow]&&ReactDOM.createPortal((()=>{
           const r=filteredSorted[rop05ActiveRow];
           const isPinned=rop05PinnedRow!==null;
-          const vw=window.innerWidth;
-          const vh=window.innerHeight;
-          const W=260,H=210;
-          let x=rop05TipPos.x;
-          let y=rop05TipPos.y-H-12;
-          if(x+W>vw-8)x=vw-W-8;
-          if(x<8)x=8;
-          if(y<8)y=rop05TipPos.y+20;
+          const W=280;
+          const H=218;
+          const left=Math.max(12,Math.min((rop05TipPos.x||0)+8,window.innerWidth-W-12));
+          const top=Math.max(12,Math.min((rop05TipPos.y||0)+8,window.innerHeight-H-12));
           return(
             <div
               onClick={e=>{e.stopPropagation();if(isPinned){setRop05PinnedRow(null);setRop05TipRow(null);}}}
-              style={{position:"fixed",left:x,top:y,zIndex:9999,width:W,
-                background:C.card,border:`1px solid ${isPinned?C.red+"88":C.border}`,
-                borderRadius:10,padding:"12px 14px",boxShadow:"0 8px 32px rgba(0,0,0,.55)",
-                pointerEvents:isPinned?"auto":"none"}}>
+              style={{
+                position:"fixed",
+                left,
+                top,
+                zIndex:99999,
+                width:W,
+                background:C.card,
+                border:`1px solid ${isPinned?C.red+"88":C.border}`,
+                borderRadius:10,
+                padding:"12px 14px",
+                boxShadow:"0 8px 32px rgba(0,0,0,.55)",
+                pointerEvents:isPinned?"auto":"none"
+              }}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <span style={{fontSize:11,fontWeight:800,color:C.text,textTransform:"uppercase",letterSpacing:".04em"}}>Detalle del registro</span>
                 {isPinned&&<span style={{fontSize:10,color:C.red,fontWeight:700,cursor:"pointer"}}>✕ soltar</span>}
@@ -3490,19 +3500,23 @@ function ViewROP05({rop05,extState,setExtState}){
                 ["Equipo", r.maquina||"—", C.purple],
                 ["Proyecto", r.proyecto||"—", proyColor(r.proyecto)],
                 ["Día", fmtFecha(r.fecha), C.textSub],
-                ["Insumo / Tarea", r.tarea||"—", C.text],
+                ["Supervisor", r.supervisor||"—", C.textSub],
+                ["Parte", r.parte||"—", C.textSub],
+                ["Tarea", r.tarea||"—", C.text],
+                ["Horas", r.horas!=null?fmtNum(r.horas)+" h":"—", C.accent],
                 ["Cantidad", r.cantidad!=null?fmtNum(r.cantidad)+" "+(r.unidad||""):"—", C.blue],
-                ["Costo Unitario", r.costoUnitario!=null?"U$S "+fmtNum(r.costoUnitario):r.costo_unitario!=null?"U$S "+fmtNum(r.costo_unitario):"—", C.yellow],
               ].map(([lbl,val,col])=>(
                 <div key={lbl} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6,marginBottom:5}}>
                   <span style={{fontSize:11,color:C.textMuted,flexShrink:0}}>{lbl}</span>
-                  <span style={{fontSize:11,color:col,fontWeight:700,textAlign:"right",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={String(val)}>{val}</span>
+                  <span style={{fontSize:11,color:col,fontWeight:700,textAlign:"right",maxWidth:175,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={String(val)}>{val}</span>
                 </div>
               ))}
-              {!isPinned&&<div style={{marginTop:6,fontSize:10,color:C.textMuted,textAlign:"center"}}>Click para fijar</div>}
+              <div style={{fontSize:10,color:C.textMuted,marginTop:6,textAlign:"center"}}>
+                {isPinned?"Tooltip fijado · click para soltar":"Hover · click en la fila para fijar"}
+              </div>
             </div>
           );
-        })()}
+        })(),document.body)}
       </Card>
     </div>
   );
