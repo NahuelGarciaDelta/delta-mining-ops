@@ -3211,11 +3211,45 @@ function ViewROP05({rop05,extState,setExtState}){
 
   const [rop05TipRow,setRop05TipRow]=React.useState(null);
   const [rop05PinnedRow,setRop05PinnedRow]=React.useState(null);
-  // Posición del tooltip guardada en ref para no re-renderizar la tabla en onMouseMove
-  const rop05TipPosRef=useRef({x:0,y:0});
-  const [rop05TipPos,setRop05TipPos]=React.useState({x:0,y:0});
+  const [rop05VisibleLimit,setRop05VisibleLimit]=React.useState(250);
+
+  const rop05TipPosRef=useRef({x:16,y:16});
+  const rop05TipElRef=useRef(null);
+  const rop05RafRef=useRef(null);
+
+  const rop05MoveTip=useCallback((x,y)=>{
+    rop05TipPosRef.current={x,y};
+    if(rop05RafRef.current)return;
+    rop05RafRef.current=requestAnimationFrame(()=>{
+      rop05RafRef.current=null;
+      const el=rop05TipElRef.current;
+      if(!el)return;
+      const W=280,H=218;
+      const left=Math.max(12,Math.min((rop05TipPosRef.current.x||0)+8,window.innerWidth-W-12));
+      const top=Math.max(12,Math.min((rop05TipPosRef.current.y||0)+8,window.innerHeight-H-12));
+      el.style.transform=`translate3d(${left}px,${top}px,0)`;
+    });
+  },[]);
+
   const rop05ActiveRow=rop05PinnedRow??rop05TipRow;
-  useEffect(()=>{setRop05TipRow(null);setRop05PinnedRow(null);},[mode,fecha,fechaD,fechaH,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina]);
+  const rop05RowsVisible=useMemo(()=>filteredSorted.slice(0,rop05VisibleLimit),[filteredSorted,rop05VisibleLimit]);
+  useEffect(()=>{
+    setRop05TipRow(null);
+    setRop05PinnedRow(null);
+    setRop05VisibleLimit(250);
+  },[mode,fecha,fechaD,fechaH,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina]);
+
+  useEffect(()=>{
+    const onMove=e=>{
+      if(rop05TipRow!==null&&rop05PinnedRow===null)rop05MoveTip(e.clientX,e.clientY);
+    };
+    window.addEventListener("mousemove",onMove,{passive:true});
+    return()=>{
+      window.removeEventListener("mousemove",onMove);
+      if(rop05RafRef.current)cancelAnimationFrame(rop05RafRef.current);
+      rop05RafRef.current=null;
+    };
+  },[rop05TipRow,rop05PinnedRow,rop05MoveTip]);
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -3451,7 +3485,7 @@ function ViewROP05({rop05,extState,setExtState}){
                 </tr>
               </thead>
               <tbody>
-                {filteredSorted.map((r,i)=>{
+                {rop05RowsVisible.map((r,i)=>{
                   const isActive=rop05ActiveRow===i;
                   const isPinned=rop05PinnedRow===i;
                   return(
@@ -3459,24 +3493,20 @@ function ViewROP05({rop05,extState,setExtState}){
                       style={{background:isActive?"rgba(232,0,29,0.15)":i%2===0?"transparent":C.surface+"33",cursor:"pointer",transition:"background .1s",borderTop:isPinned?`1px solid ${C.red}44`:undefined}}
                       onMouseEnter={e=>{
                         if(rop05PinnedRow!==null)return;
-                        rop05TipPosRef.current={x:e.clientX,y:e.clientY};
+                        rop05MoveTip(e.clientX,e.clientY);
                         setRop05TipRow(i);
-                        setRop05TipPos({x:e.clientX,y:e.clientY});
-                      }}
-                      onMouseMove={e=>{
-                        if(rop05PinnedRow!==null)return;
-                        // Actualiza la ref sin re-renderizar; el portal lee la ref directamente
-                        rop05TipPosRef.current={x:e.clientX,y:e.clientY};
-                        // Solo actualiza state si la distancia es suficiente (≥4px) para reducir renders
-                        const dx=Math.abs(e.clientX-rop05TipPos.x);
-                        const dy=Math.abs(e.clientY-rop05TipPos.y);
-                        if(dx>=4||dy>=4)setRop05TipPos({x:e.clientX,y:e.clientY});
                       }}
                       onMouseLeave={()=>{if(rop05PinnedRow===null)setRop05TipRow(null);}}
                       onClick={e=>{
                         e.stopPropagation();
-                        if(rop05PinnedRow===i){setRop05PinnedRow(null);setRop05TipRow(null);}
-                        else{setRop05PinnedRow(i);setRop05TipRow(i);rop05TipPosRef.current={x:e.clientX,y:e.clientY};setRop05TipPos({x:e.clientX,y:e.clientY});}
+                        rop05MoveTip(e.clientX,e.clientY);
+                        if(rop05PinnedRow===i){
+                          setRop05PinnedRow(null);
+                          setRop05TipRow(null);
+                        }else{
+                          setRop05PinnedRow(i);
+                          setRop05TipRow(i);
+                        }
                       }}
                     >
                       <td style={{padding:"8px 10px",textAlign:"center",color:C.textSub,borderBottom:`1px solid ${C.border}18`}}>{fmtFecha(r.fecha)}</td>
@@ -3493,19 +3523,30 @@ function ViewROP05({rop05,extState,setExtState}){
               </tbody>
             </table>
           )}
+          {filteredSorted.length>rop05RowsVisible.length&&(
+            <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:10,padding:"12px",borderTop:`1px solid ${C.border}22`,background:"rgba(0,0,0,.20)"}}>
+              <span style={{fontSize:12,color:C.textMuted}}>
+                Mostrando {rop05RowsVisible.length} de {filteredSorted.length} registros
+              </span>
+              <button
+                onClick={()=>setRop05VisibleLimit(v=>Math.min(v+250,filteredSorted.length))}
+                style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}
+              >
+                Mostrar 250 más
+              </button>
+            </div>
+          )}
         </div>
         {/* Tooltip flotante de Productividad */}
         {rop05ActiveRow!==null&&filteredSorted[rop05ActiveRow]&&ReactDOM.createPortal((()=>{
           const r=filteredSorted[rop05ActiveRow];
           const isPinned=rop05PinnedRow!==null;
-          const W=280;const H=218;
-          const px=rop05TipPos.x||0;const py=rop05TipPos.y||0;
-          const left=Math.max(12,Math.min(px+8,window.innerWidth-W-12));
-          const top=Math.max(12,Math.min(py+8,window.innerHeight-H-12));
+          const W=280;
           return(
             <div
+              ref={rop05TipElRef}
               onClick={e=>{e.stopPropagation();if(isPinned){setRop05PinnedRow(null);setRop05TipRow(null);}}}
-              style={{position:"fixed",left,top,zIndex:99999,width:W,background:C.card,border:`1px solid ${isPinned?C.red+"88":C.border}`,borderRadius:10,padding:"12px 14px",boxShadow:"0 8px 32px rgba(0,0,0,.55)",pointerEvents:isPinned?"auto":"none"}}>
+              style={{position:"fixed",left:0,top:0,zIndex:99999,width:W,background:C.card,border:`1px solid ${isPinned?C.red+"88":C.border}`,borderRadius:10,padding:"12px 14px",boxShadow:"0 8px 32px rgba(0,0,0,.55)",pointerEvents:isPinned?"auto":"none",transform:"translate3d(16px,16px,0)",willChange:"transform"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <span style={{fontSize:11,fontWeight:800,color:C.text,textTransform:"uppercase",letterSpacing:".04em"}}>Detalle del registro</span>
                 {isPinned&&<span style={{fontSize:10,color:C.red,fontWeight:700,cursor:"pointer"}}>✕ soltar</span>}
