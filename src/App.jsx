@@ -9940,7 +9940,7 @@ export default function App(){
       WebkitBackdropFilter:"blur(8px)"
     }}>
       <div style={{textAlign:"center"}}>
-        <Loader2 size={34} color={C.red} className="spin"/>
+        <div className="spin" style={{width:34,height:34,border:`3px solid ${C.border}`,borderTopColor:C.red,borderRadius:"50%",margin:"0 auto"}} />
         <div style={{marginTop:12,fontSize:14,fontWeight:800,color:C.text}}>{label}</div>
         <div style={{marginTop:6,fontSize:12,color:C.textMuted}}>No se muestran ceros falsos mientras termina la carga.</div>
       </div>
