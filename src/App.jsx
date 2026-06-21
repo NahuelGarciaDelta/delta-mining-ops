@@ -870,13 +870,12 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
   },[useVirtual]);
 
   // Ordenamiento global para TODAS las tablas:
-  // al tocar cualquier encabezado ordena A-Z / menor-mayor y al volver a tocar invierte.
+  // números/fechas: primer clic = mayor a menor (desc); texto: primer clic = A→Z (asc).
   const colSortId=useCallback((c,i)=>c.sortKey||c.key||`__col_${i}` ,[]);
-  const handleSort=useCallback((key)=>{
-    if(sortKey===key)setSortDir(d=>d==="asc"?"desc":"asc");
-    else{setSortKey(key);setSortDir("asc");}
-  },[sortKey]);
 
+  // IMPORTANTE: esta función debe declararse ANTES de detectInitialDir.
+  // Si queda después, React evalúa el array de dependencias de detectInitialDir
+  // mientras normalizeSortValue todavía está en zona temporal muerta y la vista queda en blanco.
   const normalizeSortValue=useCallback((v)=>{
     if(v===null||v===undefined||v==="")return{type:"empty",value:""};
     if(typeof v==="number"&&Number.isFinite(v))return{type:"number",value:v};
@@ -910,6 +909,27 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
     return{type:"text",value:raw.toLocaleLowerCase("es-AR")};
   },[]);
 
+  const detectInitialDir=useCallback((key)=>{
+    const sortCol=cols.find((c,i)=>colSortId(c,i)===key);
+    if(!sortCol)return"asc";
+    const getSV=(row)=>{
+      if(typeof sortCol.sortValue==="function")return sortCol.sortValue(row);
+      if(sortCol.sortKey&&row[sortCol.sortKey]!==undefined)return row[sortCol.sortKey];
+      if(sortCol.key&&row[sortCol.key]!==undefined)return row[sortCol.key];
+      return"";
+    };
+    const first=rows.find(r=>{const v=getSV(r);return v!==null&&v!==undefined&&v!==""});
+    if(!first)return"asc";
+    const n=normalizeSortValue(getSV(first));
+    return(n.type==="number"||n.type==="date")?"desc":"asc";
+  },[cols,rows,colSortId,normalizeSortValue]);
+  const handleSort=useCallback((key)=>{
+    if(sortKey===key){
+      if(sortDir==="asc")setSortDir("desc");
+      else{setSortKey(null);setSortDir("asc");}
+    }else{setSortKey(key);setSortDir(detectInitialDir(key));}
+  },[sortKey,sortDir,detectInitialDir]);
+
   const sortedRows=useMemo(()=>{
     if(!sortKey)return rows;
     const sortCol=cols.find((c,i)=>colSortId(c,i)===sortKey);
@@ -927,7 +947,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
       if(bv.type==="empty"&&av.type!=="empty")return -1;
       let cmp=0;
       if((av.type==="number"&&bv.type==="number")||(av.type==="date"&&bv.type==="date"))cmp=av.value-bv.value;
-      else cmp=String(av.value).localeCompare(String(bv.value),"es-AR",{numeric:true,sensitivity:"base"});
+      else cmp=String(av.value).localeCompare(String(bv.value),"es-AR",{sensitivity:"base"});
       return sortDir==="asc"?cmp:-cmp;
     });
   },[rows,cols,sortKey,sortDir,colSortId,normalizeSortValue]);
@@ -1018,8 +1038,9 @@ function compareTableValues(a,b){
   const av=tableSortValue(a),bv=tableSortValue(b);
   if(av===""&&bv!=="")return 1;
   if(bv===""&&av!=="")return -1;
+  if(av===""&&bv==="")return 0;
   if(typeof av==="number"&&typeof bv==="number")return av-bv;
-  return String(av).localeCompare(String(bv),"es-AR",{numeric:true,sensitivity:"base"});
+  return String(av).localeCompare(String(bv),"es-AR",{sensitivity:"base"});
 }
 function sortRowsForTable(rows,sort,getters={}){
   if(!sort?.key)return rows;
@@ -1029,14 +1050,18 @@ function sortRowsForTable(rows,sort,getters={}){
     return sort.dir==="desc"?-cmp:cmp;
   });
 }
-function SortableTH({sortId,sortKey,sorts,setSorts,children,style}){
+function SortableTH({sortId,sortKey,sorts,setSorts,children,style,initialDir}){
   const active=sorts?.[sortId]?.key===sortKey;
   const dir=sorts?.[sortId]?.dir||"asc";
+  const firstDir=initialDir||"asc";
   return(
     <th onClick={()=>setSorts(prev=>{
       const cur=prev?.[sortId];
-      const next=cur?.key===sortKey&&cur.dir==="asc"?"desc":"asc";
-      return {...prev,[sortId]:{key:sortKey,dir:next}};
+      if(cur?.key===sortKey){
+        if(cur.dir==="asc")return {...prev,[sortId]:{key:sortKey,dir:"desc"}};
+        else{const next={...prev};delete next[sortId];return next;}
+      }
+      return {...prev,[sortId]:{key:sortKey,dir:firstDir}};
     })} style={{...style,cursor:"pointer",userSelect:"none",color:active?C.accent:(style?.color||C.textSub)}}>
       {children}{active?(dir==="asc"?" ↑":" ↓"):""}
     </th>
@@ -1225,11 +1250,11 @@ function MultiSel({label,value,onChange,options}){
     </div>
   );
 }
-function DateIn({label,value,onChange,min,max,warn}){
+function DateIn({label,value,onChange,min,max,warn,disabled=false}){
   return(
     <div style={{display:"flex",flexDirection:"column",gap:3}}>
       <label style={{fontSize:10,color:warn?C.red:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>{label}{warn?` ⚠ ${warn}`:""}</label>
-      <input type="date" value={value} min={min} max={max} onChange={e=>onChange(e.target.value)} style={{background:C.surface,border:`1px solid ${warn?C.red:C.border}`,borderRadius:7,color:C.text,padding:"7px 10px",fontSize:12,outline:"none"}}/>
+      <input type="date" value={value} min={min} max={max} disabled={disabled} onChange={e=>!disabled&&onChange(e.target.value)} style={{background:C.surface,border:`1px solid ${warn?C.red:C.border}`,borderRadius:7,color:disabled?C.textMuted:C.text,padding:"7px 10px",fontSize:12,outline:"none",opacity:disabled?0.75:1,cursor:disabled?"not-allowed":"auto"}}/>
     </div>
   );
 }
@@ -2412,7 +2437,11 @@ function useFacetedFilters(allRows, filterKeys, extState, setExtState){
   const defaultState=useMemo(()=>({mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:fkDefaults}),[fkDefaults]);
 
   const[localState,setLocalState]=useState(defaultState);
-  const state=extState||localState;
+  const state=useMemo(()=>({
+    ...defaultState,
+    ...(extState||localState||{}),
+    vals:{...fkDefaults,...((extState||localState||{}).vals||{})}
+  }),[extState,localState,defaultState,fkDefaults]);
   const setState=useCallback((updater)=>{
     if(setExtState)setExtState(updater);
     else setLocalState(updater);
@@ -2456,7 +2485,7 @@ function useFacetedFilters(allRows, filterKeys, extState, setExtState){
     return result;
   },[byFecha,vals,fkKeys]);// eslint-disable-line
 
-  const set=useCallback((key,val)=>setState(s=>({...s,vals:{...s.vals,[key]:val}})),[setState]);
+  const set=useCallback((key,val)=>setState(s=>({...s,vals:{...(s.vals||fkDefaults),[key]:val}})),[setState,fkDefaults]);
   const reset=useCallback(()=>setState(s=>({...s,mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:fkDefaults})),[setState,fkDefaults]);
   const hayFiltros=fecha||fechaD||fechaH||filterKeys.some(f=>!multiIsAll(vals[f.key],f.defaultVal));
 
@@ -2626,7 +2655,7 @@ function HorometrosSection({rows}){
         <StatCard icon="hours" label="Dif. total horómetro" value={fmtNum(stats.totalDelta)} color={C.green} small/>
         <StatCard icon="warn" label="Sin HI/HF completo" value={stats.sinHorometro} color={stats.sinHorometro?C.yellow:C.green} small/>
       </div>
-      <Card title={`Horómetros por máquina (${data.length})`}>
+      <Card title={`Horómetros por máquina (${data.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols,data,"Horometros")}/>}>
         <Table cols={cols} rows={data} maxH={520} emptyMsg="Sin registros con los filtros seleccionados"/>
       </Card>
     </div>
@@ -2760,7 +2789,7 @@ function ViewROP02({rop02All,extState,setExtState}){
           })}
         </div>
       )}
-      <Card title={`Registros (${filtered.length})`}>
+      <Card title={`Registros (${filtered.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols,filteredSorted,"Equipos_ROP02")}/>}>
         <Table cols={cols} rows={filteredSorted} maxH={400} emptyMsg="Sin registros con los filtros seleccionados"/>
       </Card>
       <Card title="Flota de Equipos" style={{overflow:"visible"}}>
@@ -3990,8 +4019,16 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     const errores=controlIntegridad.erroresHoro;
     if(errores.length===0)return <AlertBanner type="success">✅ Sin cortes de horómetro para los filtros seleccionados.</AlertBanner>;
     const cols=["Proyecto","Máquina","Día con error","Turno con error","Supervisor","N° parte","Día anterior","Turno anterior","Hi informado","Hf anterior esperado","Diferencia","Detalle"];
+    const descargarHoro=()=>{
+      const wb=XLSX.utils.book_new();
+      const data=[cols,...errores.map(e=>[e.proyecto,e.maquina,e.fecha,e.turno,e.supervisor,e.parte,e.fechaAnterior,e.turnoAnterior,e.hiActual,e.hfAnterior,e.diff,e.detalle||""])];
+      const ws=XLSX.utils.aoa_to_sheet(data);
+      ws["!cols"]=cols.map(h=>({wch:Math.max(h.length+2,12)}));
+      XLSX.utils.book_append_sheet(wb,ws,"Errores Horómetros");
+      XLSX.writeFile(wb,"Control_Horometros.xlsx");
+    };
     return(
-      <Card title={`⚠️ Control de horómetros (${errores.length})`}>
+      <Card title={`⚠️ Control de horómetros (${errores.length})`} action={<BtnExcel onClick={descargarHoro}/>}>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:860}}>
             <thead><tr style={{background:C.surface}}>{cols.map(h=><th key={h} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:C.textMuted,textAlign:"left",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
@@ -4715,7 +4752,7 @@ function ViewVehiculos({rop02All,extState,setExtState}){
         </div>
       )}
 
-      <Card title={`Registros (${filtered.length})`}>
+      <Card title={`Registros (${filtered.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols,filteredSorted,"Vehiculos_ROP02")}/>}>
         <Table cols={cols} rows={filteredSorted} maxH={400} emptyMsg="Sin registros con los filtros seleccionados"/>
       </Card>
 
@@ -4918,7 +4955,7 @@ function ViewCombustible({rop02All,extState,setExtState}){
       </Card>
 
       {/* Tabla de registros */}
-      <Card title={`Registros con Combustible (${conCombustible.length})`}>
+      <Card title={`Registros con Combustible (${conCombustible.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols,filteredSorted,"Combustible_ROP02")}/>}>
         <Table cols={cols} rows={filteredSorted} maxH={400} emptyMsg="Sin registros de combustible con los filtros seleccionados"/>
       </Card>
     </div>
@@ -5509,7 +5546,10 @@ function ViewCostosUnitarios({insumos,usdRate}){
       </div>
 
       <Card title="Costos unitarios" action={
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar código o artículo..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:280,outline:"none"}}/>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <BtnExcel onClick={()=>excelFromCols(cols,filtered,"Costos_Unitarios")}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar código o artículo..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:280,outline:"none"}}/>
+        </div>
       }>
         <Table cols={cols} rows={filtered} maxH={720} emptyMsg="Sin costos unitarios para mostrar" disableTooltip/>
       </Card>
@@ -6578,7 +6618,36 @@ function generarExcelMantenimiento(rows, usdRate, label){
   XLSX.writeFile(wb,`Mantenimiento_${label}.xlsx`);
 }
 
-// ─── ViewRankingOperarios ─────────────────────────────────────────────────────
+// ─── Helper universal: genera Excel desde cols/rows igual que la tabla de la app ──
+function excelFromCols(cols, rows, filename){
+  const wb=XLSX.utils.book_new();
+  // Extraer sólo las columnas que tienen label (las que se ven en la tabla)
+  const visCols=cols.filter(c=>c.label);
+  const headers=visCols.map(c=>c.label);
+  // Construir filas: usar el valor raw (sin render) para que sea numéricamente correcto
+  const dataRows=rows.map(r=>visCols.map(c=>{
+    const v=r[c.key];
+    // Si es null/undefined devolver vacío
+    if(v===null||v===undefined)return "";
+    // Mantener números como números
+    if(typeof v==="number")return v;
+    return String(v);
+  }));
+  const ws=XLSX.utils.aoa_to_sheet([headers,...dataRows]);
+  // Ancho automático por contenido (hasta 50 chars)
+  ws["!cols"]=visCols.map(c=>({wch:Math.min(50,Math.max(c.label.length+2,12))}));
+  XLSX.utils.book_append_sheet(wb,ws,"Datos");
+  XLSX.writeFile(wb,`${filename}.xlsx`);
+}
+
+// Botón Excel reutilizable
+function BtnExcel({onClick}){
+  return(
+    <button onClick={onClick} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.green}44`,background:C.greenDim,color:C.green,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"Inter"}}>
+      ⬇ Excel
+    </button>
+  );
+}
 function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded&&r.estado==="TRABAJO"),[rop02All]);
   const proyecto=extState?.proyecto??"todos";
@@ -6680,7 +6749,7 @@ function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
           </div>
         </Card>
       )}
-      <Card title={`Tabla completa (${ranking.length} operarios)`}>
+      <Card title={`Tabla completa (${ranking.length} operarios)`} action={<BtnExcel onClick={()=>excelFromCols(cols,ranking,"Ranking_Operarios")}/>}>
         <Table cols={cols} rows={ranking} maxH={450} emptyMsg="Sin datos con los filtros seleccionados"/>
       </Card>
     </div>
@@ -7985,6 +8054,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const [fTipoEquipo,setFTipoEquipo]=React.useState(initialCostosMantState.fTipoEquipo||"todos");
   const [fProyecto,setFProyecto]=React.useState(initialCostosMantState.fProyecto||"todos");
   const [fPropiedad,setFPropiedad]=React.useState(initialCostosMantState.fPropiedad||"todos");
+  const [fechaDCostoMensual,setFechaDCostoMensual]=React.useState(initialCostosMantState.fechaDCostoMensual||"");
+  const [fechaHCostoMensual,setFechaHCostoMensual]=React.useState(initialCostosMantState.fechaHCostoMensual||"");
+  // Filtros AISLADOS exclusivamente para la tabla Mano de Obra.
+  // El proyecto NO se filtra acá: Mano de Obra usa el filtro general fProyecto.
+  const [fMOMaquinas,setFMOMaquinas]=React.useState("todos");
+  const [fMOTipoEquipo,setFMOTipoEquipo]=React.useState("todos");
+  const [fMOPropiedad,setFMOPropiedad]=React.useState("todos");
   const [useListaVidaUtil,setUseListaVidaUtil]=React.useState(()=>initialCostosMantState.useListaVidaUtil||{});
   const [vidaUtilOverride,setVidaUtilOverride]=React.useState(()=>initialCostosMantState.vidaUtilOverride||{});
   const [hombreVestido,setHombreVestido]=React.useState(Number(initialCostosMantState.hombreVestido)||0);
@@ -7994,14 +8070,24 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     try{
       window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify({
         tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,
-        modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,monthlyDollar,
+        modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,monthlyDollar,
         costoMensualScrollLeft:costoMensualScrollLeftRef.current||0,
         useListaVidaUtil,vidaUtilOverride,hombreVestido
       }));
     }catch(_){}
-  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,useListaVidaUtil,vidaUtilOverride]);
+  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,useListaVidaUtil,vidaUtilOverride]);
+
+  const hastaCostoMensual=fechaH||"";
+
+  React.useEffect(()=>{
+    setFechaHCostoMensual(fechaH||"");
+  },[fechaH]);
 
   const rma15PorFecha=React.useMemo(()=>byDateFilter(rma15||[],modoFecha,fechaDia,fechaD,fechaH),[rma15,modoFecha,fechaDia,fechaD,fechaH]);
+  const rma15CostoMensualPorFecha=React.useMemo(()=>
+    byDateFilter(rma15||[],"periodo","",fechaDCostoMensual,hastaCostoMensual),
+    [rma15,fechaDCostoMensual,hastaCostoMensual]
+  );
 
   // Mapa de Lista Maestra para correlación.
   // REGLA DEFINITIVA:
@@ -8174,7 +8260,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   // visible dentro del rango de fecha actual.
   const rma15MetaMap=React.useMemo(()=>{
     const map=new Map();
-    (rma15PorFecha||[]).forEach(r=>{
+    [...(rma15PorFecha||[]),...(rma15CostoMensualPorFecha||[])].forEach(r=>{
       const key=String(r.maquina||"");
       if(map.has(key))return;
       const props=propiedadesEquipo(r.maquina);
@@ -8187,7 +8273,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       });
     });
     return map;
-  },[rma15PorFecha,propiedadesEquipo,equipoCostoDisplay]);
+  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay]);
 
   const metaEquipoCosto=React.useCallback((maquina)=>{
     const key=String(maquina||"");
@@ -8275,6 +8361,61 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     setFTipoEquipo(v=>normalizeMultiValue(v,tipoEquipoOpts));
   },[tipoEquipoOpts]);
 
+  // Opciones y filtrado AISLADOS para Mano de Obra.
+  // Proyecto se toma del filtro general fProyecto para que coincida con el resto de la app.
+  const moRowsProyectoOpts=React.useMemo(()=>
+    (rma15PorFecha||[]).filter(r=>matchMulti(r.proyecto,fProyecto,"todos")),
+    [rma15PorFecha,fProyecto]
+  );
+  const moRowsPropiedadOpts=React.useMemo(()=>moRowsProyectoOpts,[moRowsProyectoOpts]);
+  const moRowsTipoEquipoOpts=React.useMemo(()=>
+    moRowsPropiedadOpts.filter(r=>matchPropiedadMeta(metaEquipoCosto(r.maquina),fMOPropiedad)),
+    [moRowsPropiedadOpts,fMOPropiedad,metaEquipoCosto,matchPropiedadMeta]
+  );
+  const moRowsMaquinaOpts=React.useMemo(()=>
+    moRowsTipoEquipoOpts.filter(r=>{
+      if(multiIsAll(fMOTipoEquipo,"todos"))return true;
+      const tipo=metaEquipoCosto(r.maquina).tipo;
+      const sel=Array.isArray(fMOTipoEquipo)?fMOTipoEquipo:[];
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+    }),
+    [moRowsTipoEquipoOpts,fMOTipoEquipo,metaEquipoCosto]
+  );
+  const moPropiedadOpts=React.useMemo(()=>[
+    {value:"todos",label:"Todas las propiedades"},
+    ...uniq(moRowsPropiedadOpts.flatMap(r=>metaEquipoCosto(r.maquina).props||[]).filter(Boolean)).map(p=>({value:p,label:p}))
+  ],[moRowsPropiedadOpts,metaEquipoCosto]);
+  const moTipoEquipoOpts=React.useMemo(()=>{
+    const presentes=new Set(moRowsTipoEquipoOpts.map(r=>metaEquipoCosto(r.maquina).tipo).filter(Boolean));
+    const base=[
+      {value:"todos",label:"Todos los equipos"},{value:"MAQUINAS",label:"Máquinas"},
+      {value:"CAMIONES",label:"Camiones"},{value:"CAMIONETAS",label:"Camionetas"},
+      {value:"EXCAVADORA",label:"Excavadoras"},{value:"CARGADORA FRONTAL",label:"Cargadoras frontales"},
+      {value:"MOTONIVELADORA",label:"Motoniveladoras"},{value:"TOPADORA",label:"Topadoras"},
+      {value:"RETROPALA",label:"Retropalas"},{value:"VIBROCOMPACTADOR",label:"Vibrocompactadores"},
+      {value:"MINICARGADORA",label:"Minicargadoras"},{value:"OTROS",label:"Otros"},
+    ];
+    return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||presentes.has(o.value));
+  },[moRowsTipoEquipoOpts,metaEquipoCosto]);
+  const moMaquinaOpts=React.useMemo(()=>[
+    {value:"todos",label:"Todas"},
+    ...uniq(moRowsMaquinaOpts.map(r=>metaEquipoCosto(r.maquina).display).filter(Boolean)).map(m=>({value:m,label:m}))
+  ],[moRowsMaquinaOpts,metaEquipoCosto]);
+
+  // rma15 filtrado SOLO para Mano de Obra (usa fMO*)
+  const rma15FiltradoMO=React.useMemo(()=>{
+    return (rma15PorFecha||[]).filter(r=>{
+      const meta=metaEquipoCosto(r.maquina);
+      if(!matchMulti(r.proyecto,fProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,fMOPropiedad))return false;
+      if(!matchMulti(meta.display,fMOMaquinas,"todos"))return false;
+      if(multiIsAll(fMOTipoEquipo,"todos"))return true;
+      const tipo=meta.tipo;
+      const sel=Array.isArray(fMOTipoEquipo)?fMOTipoEquipo:[];
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+    });
+  },[rma15PorFecha,fProyecto,fMOPropiedad,fMOMaquinas,fMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+
   const rma15Filtrado=React.useMemo(()=>{
     return (rma15PorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
@@ -8287,6 +8428,20 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
     });
   },[rma15PorFecha,fProyecto,fPropiedad,fMaquinas,fTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+
+  const rma15CostoMensualFiltrado=React.useMemo(()=>{
+    // Usa el período propio de Costo mensual acumulado, pero los demás filtros generales.
+    return (rma15CostoMensualPorFecha||[]).filter(r=>{
+      const meta=metaEquipoCosto(r.maquina);
+      if(!matchMulti(r.proyecto,fProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,fPropiedad))return false;
+      if(!matchMulti(meta.display,fMaquinas,"todos"))return false;
+      if(multiIsAll(fTipoEquipo,"todos"))return true;
+      const tipo=meta.tipo;
+      const sel=Array.isArray(fTipoEquipo)?fTipoEquipo:[];
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+    });
+  },[rma15CostoMensualPorFecha,fProyecto,fPropiedad,fMaquinas,fTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
   const fmtU=v=>v==null||v===0?"—":"$"+fmtNum(Math.round(v));
   const fmtUSD2=v=>v==null||v===0?"—":"U$S "+fmtNum(Math.round(v));
@@ -8332,7 +8487,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const acumuladoEquipos=React.useMemo(()=>{
     const map={};
-    (rma15Filtrado||[]).forEach(r=>{
+    (rma15CostoMensualPorFecha||[]).forEach(r=>{
       const mes=monthKeyCosto(r.fecha);
       if(!mes)return;
       const proy=String(r.proyecto||"").toUpperCase();
@@ -8469,9 +8624,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     setAcumParsing(false);
   };
 
-  const thS={padding:"7px 10px",fontSize:10,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:".05em",background:C.surface,borderBottom:`1px solid ${C.border}`,textAlign:"right",whiteSpace:"nowrap"};
+  const thS={padding:"7px 10px",fontSize:10,fontWeight:700,color:C.textSub,textTransform:"uppercase",letterSpacing:".05em",background:C.surface,borderBottom:`1px solid ${C.border}`,textAlign:"center",whiteSpace:"nowrap"};
   const thL={...thS,textAlign:"left"};
-  const tdS={padding:"7px 10px",borderBottom:`1px solid ${C.border}18`,fontSize:12,textAlign:"right",color:C.text};
+  const tdS={padding:"7px 10px",borderBottom:`1px solid ${C.border}18`,fontSize:12,textAlign:"center",color:C.text};
   const tdL={...tdS,textAlign:"left",fontWeight:600,color:C.blue};
   const tdT={...tdS,fontWeight:700,background:C.surface+"55"};
   const inp={background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,color:C.text,padding:"5px 9px",fontSize:12,fontFamily:"Inter",outline:"none",width:"100%"};
@@ -8539,16 +8694,18 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const monthInFechaFiltroCosto=React.useCallback((key)=>{
     if(!key)return false;
-    if(fechaD&&key<monthKeyCosto(fechaD))return false;
-    if(fechaH&&key>monthKeyCosto(fechaH))return false;
+    if(fechaDCostoMensual&&key<monthKeyCosto(fechaDCostoMensual))return false;
+    if(hastaCostoMensual&&key>monthKeyCosto(hastaCostoMensual))return false;
     return true;
-  },[fechaD,fechaH]);
+  },[fechaDCostoMensual,hastaCostoMensual]);
 
   const sectionProyectoCosto=React.useCallback((section)=>{
     return section==="JM"?"JOSE MARIA":"FILO DEL SOL";
   },[]);
 
   const historialAcumuladoFiltrado=React.useMemo(()=>{
+    // Costo mensual acumulado: el período es propio de la tabla,
+    // pero proyecto / propiedad / tipo / máquinas responden a los filtros generales.
     return (HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
       const proyecto=sectionProyectoCosto(x.section);
       const meta=metaEquipoCosto(x.equipo);
@@ -8564,6 +8721,23 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
   },[fProyecto,fPropiedad,fMaquinas,fTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
 
+  // Historial filtrado con filtros MO aislados (para Mano de Obra)
+  const historialAcumuladoFiltradoMO=React.useMemo(()=>{
+    return (HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
+      const proyecto=sectionProyectoCosto(x.section);
+      const meta=metaEquipoCosto(x.equipo);
+      if(!matchMulti(proyecto,fProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,fMOPropiedad))return false;
+      if(!matchMulti(meta.display,fMOMaquinas,"todos")&&!matchMulti(x.equipo,fMOMaquinas,"todos"))return false;
+      if(!multiIsAll(fMOTipoEquipo,"todos")){
+        const tipo=meta.tipo;
+        const sel=Array.isArray(fMOTipoEquipo)?fMOTipoEquipo:[];
+        if(!(sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo))))return false;
+      }
+      return true;
+    });
+  },[fProyecto,fMOPropiedad,fMOMaquinas,fMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
+
   const mesesFijosAcumuladoMensual=React.useMemo(()=>
     (HIST_COSTO_MENSUAL_ACUMULADO.months||[]).filter(m=>monthInFechaFiltroCosto(m.key)),
     [monthInFechaFiltroCosto]
@@ -8571,12 +8745,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const mesesDinamicosAcumuladoMensual=React.useMemo(()=>{
     const set=new Set();
-    (rma15Filtrado||[]).forEach(r=>{
+    (rma15CostoMensualPorFecha||[]).forEach(r=>{
       const k=monthKeyCosto(r.fecha);
       if(k&&k>="2026-04")set.add(k);
     });
     return [...set].sort().map(k=>({key:k,label:monthLabelCosto(k),dollar:Number(monthlyDollar[k])||Number(usdRate2)||1400}));
-  },[rma15Filtrado,monthlyDollar,usdRate2]);
+  },[rma15CostoMensualPorFecha,monthlyDollar,usdRate2]);
 
   const mesesCostoMensual=React.useMemo(()=>{
     const map=new Map();
@@ -8611,7 +8785,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       });
     });
 
-    (rma15Filtrado||[]).forEach(r=>{
+    (rma15CostoMensualFiltrado||[]).forEach(r=>{
       const mes=monthKeyCosto(r.fecha);
       if(!mes||mes<"2026-04")return;
       const proy=String(r.proyecto||"").toUpperCase();
@@ -8638,11 +8812,58 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       });
     });
     return Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
-  },[historialAcumuladoFiltrado,mesesFijosAcumuladoMensual,rma15Filtrado,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
+  },[historialAcumuladoFiltrado,mesesFijosAcumuladoMensual,rma15CostoMensualFiltrado,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
+
+  // costoMensualAcumulado con filtros MO aislados (para distribuir MO sobre todas las máquinas seleccionadas en MO)
+  const costoMensualAcumuladoMO=React.useMemo(()=>{
+    const map={};
+    const ensure=(equipo,section)=>{
+      const key=section+"__"+equipo;
+      if(!map[key])map[key]={equipo,section,months:{},prev:0,corr:0,total:0};
+      return map[key];
+    };
+    historialAcumuladoFiltradoMO.forEach(x=>{
+      const equipo=x.equipo;
+      const row=ensure(equipo,x.section);
+      mesesFijosAcumuladoMensual.forEach(m=>{
+        const d=x.months?.[m.key]||{prev:0,corr:0,total:0};
+        if(!row.months[m.key])row.months[m.key]={prev:0,corr:0,total:0};
+        row.months[m.key].prev+=Number(d.prev)||0;
+        row.months[m.key].corr+=Number(d.corr)||0;
+        row.months[m.key].total+=Number(d.total)||((Number(d.prev)||0)+(Number(d.corr)||0));
+      });
+    });
+    (rma15FiltradoMO||[]).forEach(r=>{
+      const mes=monthKeyCosto(r.fecha);
+      if(!mes||mes<"2026-04")return;
+      const proy=String(r.proyecto||"").toUpperCase();
+      const section=(proy.includes("JOSE")||proy.includes("JM"))?"JM":"FS";
+      const equipo=metaEquipoCosto(r.maquina).display;
+      const row=ensure(equipo,section);
+      if(!row.months[mes])row.months[mes]={prev:0,corr:0,total:0};
+      const esPrev=String(r.tipoMant||"").toUpperCase().includes("PREV");
+      const rate=Number(monthlyDollar[mes])||Number(usdRate2)||1;
+      (r.insumos||[]).forEach(ins=>{
+        const usd=(Number(ins.costoTotal)||0)/rate;
+        if(esPrev)row.months[mes].prev+=usd;
+        else row.months[mes].corr+=usd;
+        row.months[mes].total+=usd;
+      });
+    });
+    Object.values(map).forEach(row=>{
+      (mesesCostoMensual||[]).forEach(m=>{
+        const d=row.months[m.key]||{prev:0,corr:0,total:0};
+        row.prev+=Number(d.prev)||0;
+        row.corr+=Number(d.corr)||0;
+        row.total+=Number(d.total)||0;
+      });
+    });
+    return Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
+  },[historialAcumuladoFiltradoMO,mesesFijosAcumuladoMensual,rma15FiltradoMO,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
 
   React.useLayoutEffect(()=>{
     if(tab==="t6")restoreCostoMensualScroll();
-  },[tab,restoreCostoMensualScroll,costoMensualAcumulado.length,mesesCostoMensual.length,monthlyDollar,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad]);
+  },[tab,restoreCostoMensualScroll,costoMensualAcumulado.length,mesesCostoMensual.length,monthlyDollar,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual]);
 
   const costoMensualTotales=React.useMemo(()=>{
     const mk=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesCostoMensual||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
@@ -8833,6 +9054,16 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return out;
   },[costoMensualAcumulado,mesesCostoMensual]);
 
+  // Versión MO (con filtros aislados) de totalMantenimientoPromedioPorProyecto
+  const totalMantenimientoPromedioPorProyectoMO=React.useMemo(()=>{
+    const out={JM:0,FS:0};
+    (costoMensualAcumuladoMO||[]).forEach(x=>{
+      const section=x.section==="JM"?"JM":"FS";
+      out[section]+=Number(promedioCostoMensual(x).total)||0;
+    });
+    return out;
+  },[costoMensualAcumuladoMO,mesesCostoMensual]);
+
   const esCamionetaManoObra=React.useCallback((maquina, rowRma15=null)=>{
     // Para las filas CTA no dependemos sólo de Lista Maestra: en RMA15 muchas
     // camionetas vienen por patente/código y no siempre cruzan perfecto contra
@@ -8918,6 +9149,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     JM:(Number(totalMantenimientoPromedioPorProyecto.JM)||0)+(Number(ctaStatsManoObra.JM?.mantenimientoPromedio)||0),
   }),[totalMantenimientoPromedioPorProyecto,ctaStatsManoObra]);
 
+  // Versión MO de totalMantenimientoConCTAPorProyecto (usa filtros aislados MO)
+  const totalMantenimientoConCTAPorProyectoMO=React.useMemo(()=>({
+    FS:(Number(totalMantenimientoPromedioPorProyectoMO.FS)||0)+(Number(ctaStatsManoObra.FS?.mantenimientoPromedio)||0),
+    JM:(Number(totalMantenimientoPromedioPorProyectoMO.JM)||0)+(Number(ctaStatsManoObra.JM?.mantenimientoPromedio)||0),
+  }),[totalMantenimientoPromedioPorProyectoMO,ctaStatsManoObra]);
+
   const ctaManoObraRows=React.useMemo(()=>{
     const build=(section)=>{
       const st=ctaStatsManoObra[section];
@@ -8925,7 +9162,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
       const proyecto=sectionProyectoCosto(section);
       if(!multiIsAll(fProyecto,"todos")&&!matchMulti(proyecto,fProyecto,"todos"))return null;
-      const totalProyecto=Number(totalMantenimientoConCTAPorProyecto[section])||0;
+      const totalProyecto=Number(totalMantenimientoConCTAPorProyectoMO[section])||0;
       const subtotal=section==="JM"?Number(subtotalJM)||0:Number(subtotalFS)||0;
       const porcentaje=totalProyecto>0?(Number(st.mantenimientoPromedio)||0)/totalProyecto:0;
       const manoObra=subtotal*porcentaje;
@@ -8944,14 +9181,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       };
     };
     return [build("FS"),build("JM")].filter(Boolean);
-  },[ctaStatsManoObra,sectionProyectoCosto,totalMantenimientoConCTAPorProyecto,subtotalJM,subtotalFS,fProyecto]);
+  },[ctaStatsManoObra,sectionProyectoCosto,totalMantenimientoConCTAPorProyectoMO,subtotalJM,subtotalFS,fProyecto]);
 
   const rowsManoObra=React.useMemo(()=>{
-    const base=(costoMensualAcumulado||[]).map(x=>{
+    const base=(costoMensualAcumuladoMO||[]).map(x=>{
       const section=x.section==="JM"?"JM":"FS";
       const proyecto=sectionProyectoCosto(section);
       const mantenimiento=Number(promedioCostoMensual(x).total)||0;
-      const totalProyecto=Number(totalMantenimientoConCTAPorProyecto[section])||0;
+      const totalProyecto=Number(totalMantenimientoConCTAPorProyectoMO[section])||0;
       const subtotal=section==="JM"?Number(subtotalJM)||0:Number(subtotalFS)||0;
       const porcentaje=totalProyecto>0?mantenimiento/totalProyecto:0;
       const manoObra=subtotal*porcentaje;
@@ -8971,7 +9208,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     return [...base,...(ctaManoObraRows||[])]
       .sort((a,b)=>a.proyecto.localeCompare(b.proyecto)||(a.isCTA?0:1)-(b.isCTA?0:1)||a.equipo.localeCompare(b.equipo));
-  },[costoMensualAcumulado,mesesCostoMensual,sectionProyectoCosto,totalMantenimientoConCTAPorProyecto,subtotalJM,subtotalFS,getCostoAdqAlquilerEquipo,propiedadEquipo,ctaManoObraRows]);
+  },[costoMensualAcumuladoMO,mesesCostoMensual,sectionProyectoCosto,totalMantenimientoConCTAPorProyectoMO,subtotalJM,subtotalFS,getCostoAdqAlquilerEquipo,propiedadEquipo,ctaManoObraRows]);
 
   const rowsManoObraExcel=React.useMemo(()=>
     (rowsManoObra||[]).map(x=>({
@@ -9222,24 +9459,19 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
   },[rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS]);
 
-  const rowsAmortizacionExcel=React.useMemo(()=>(rowsAmortizacionConHH||[]).map(x=>({
-    Equipo:x.equipo,
-    Propiedad:x.propiedad||"S/D",
-    Proyecto:x.proyecto,
-    Tipo:x.tipo,
-    Modelo:x.modelo||"",
-    "C. Adq./Alquiler USD":Math.round(x.adq||0),
-    "Vida Útil hs":Math.round(x.vida||0),
-    "Amortiz. USD/hs":Math.round(x.amort||0),
-    "HH Hombre Vestido USD/hs":Math.round(x.hhHombreVestido||0),
-    "Mant. USD/hs":Math.round(x.mantUSDhs||0),
-    "Total USD/hs":Math.round(x.totalUSDhs||0),
-    "% Mant.":x.pctMant||0,
-    "Promedio tipo":x.promTipo||0,
-  })),[rowsAmortizacionConHH]);
 
   const rowsAmortizacionOrdenadas=React.useMemo(()=>{
-    const sorted=sortRowsForTable(rowsAmortizacionConHH,costosMantSorts.amortizacion,{
+    // Recalcular promTipo usando el pctMant final (post HH / no-Delta)
+    const gruposConHH={};
+    (rowsAmortizacionConHH||[]).forEach(x=>{(gruposConHH[x.tipo]=gruposConHH[x.tipo]||[]).push(x);});
+    const promTipoPorTipo={};
+    Object.entries(gruposConHH).forEach(([tipo,arr])=>{
+      const vals=arr.map(x=>Number(x.pctMant)||0).filter(v=>v>0);
+      promTipoPorTipo[tipo]=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+    });
+    const rowsConProm=(rowsAmortizacionConHH||[]).map(x=>({...x,promTipo:promTipoPorTipo[x.tipo]||0}));
+
+    const sorted=sortRowsForTable(rowsConProm,costosMantSorts.amortizacion,{
       equipo:r=>r.equipo,propiedad:r=>r.propiedad,tipo:r=>r.tipo,modelo:r=>r.modelo,adq:r=>r.adq,vida:r=>r.vida,amort:r=>r.amort,hhHombreVestido:r=>r.hhHombreVestido,mantUSDhs:r=>r.mantUSDhs,totalUSDhs:r=>r.totalUSDhs,pctMant:r=>r.pctMant,promTipo:r=>r.promTipo
     });
     return (sorted||[]).map((x,i,arr)=>{
@@ -9252,6 +9484,21 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
   },[rowsAmortizacionConHH,costosMantSorts.amortizacion]);
 
+
+  const rowsAmortizacionExcel=React.useMemo(()=>(rowsAmortizacionOrdenadas||[]).map(x=>({
+    Equipo:x.equipo,
+    Propiedad:x.propiedad||"S/D",
+    Tipo:x.tipo||"S/D",
+    Modelo:x.modelo||"",
+    "Costo de Adquisición/Alquiler (USD)":Math.round(x.adq||0),
+    "Vida Útil (Hs) / Hs Mensuales":Math.round(x.vida||0),
+    "Amortiz. (USD/hs)":Math.round(x.amort||0),
+    "HH (Hombre Vestido/hs)":Math.round(x.hhHombreVestido||0),
+    "Mant. (USD/hs)":Math.round(x.mantUSDhs||0),
+    "Total (USD/hs)":Math.round(x.totalUSDhs||0),
+    "% Mant.":x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—",
+    "Promedio por tipo":x._firstTipoDisplay?(x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"):"",
+  })),[rowsAmortizacionOrdenadas]);
 
   const costoMensualRowsPorSection=React.useCallback((section)=>
     (costoMensualAcumulado||[]).filter(x=>x.section===section),[costoMensualAcumulado]);
@@ -9272,25 +9519,108 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[costoMensualAcumulado,costoMensualRowsPorSection,getManoObraCostoMensual,getUsdHoraCostoMensual,mesesCostoMensual]);
 
   const TablaCostoMensualAcumulado=()=>{
+    const mesDesde=fechaDCostoMensual?monthKeyCosto(fechaDCostoMensual):"";
+    const mesHasta=hastaCostoMensual?monthKeyCosto(hastaCostoMensual):"";
+    const mesesCM=(mesesCostoMensual||[]).filter(m=>{
+      if(mesDesde&&m.key<mesDesde)return false;
+      if(mesHasta&&m.key>mesHasta)return false;
+      return true;
+    });
+    const rowsCM=(costoMensualAcumulado||[]).map(x=>{
+      const months={};
+      let prev=0,corr=0,total=0;
+      mesesCM.forEach(m=>{
+        const d=x.months?.[m.key]||{prev:0,corr:0,total:0};
+        const p=Number(d.prev)||0;
+        const c=Number(d.corr)||0;
+        const t=Number(d.total)||p+c;
+        months[m.key]={prev:p,corr:c,total:t};
+        prev+=p;corr+=c;total+=t;
+      });
+      return {...x,months,prev,corr,total};
+    }).filter(x=>x.total>0);
+    const mkTot=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesCM||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
+    const totalesCM={FS:mkTot(),JM:mkTot(),TOTAL:mkTot()};
+    rowsCM.forEach(x=>{
+      const sec=totalesCM[x.section]||totalesCM.FS;
+      [sec,totalesCM.TOTAL].forEach(t=>{
+        t.prev+=x.prev||0;t.corr+=x.corr||0;t.total+=x.total||0;
+        mesesCM.forEach(m=>{
+          const d=x.months?.[m.key]||{};
+          if(!t.months[m.key])t.months[m.key]={prev:0,corr:0,total:0};
+          t.months[m.key].prev+=d.prev||0;
+          t.months[m.key].corr+=d.corr||0;
+          t.months[m.key].total+=d.total||0;
+        });
+      });
+    });
+    const promedioCM=(x)=>{
+      const acc=mesesCM.reduce((a,m)=>{
+        const d=x.months?.[m.key]||{};
+        const prev=Number(d.prev)||0,corr=Number(d.corr)||0,total=Number(d.total)||0;
+        if(prev!==0){a.prev+=prev;a.nPrev++;}
+        if(corr!==0){a.corr+=corr;a.nCorr++;}
+        if(total!==0){a.total+=total;a.nTotal++;}
+        return a;
+      },{prev:0,corr:0,total:0,nPrev:0,nCorr:0,nTotal:0});
+      return {prev:acc.nPrev?acc.prev/acc.nPrev:0,corr:acc.nCorr?acc.corr/acc.nCorr:0,total:acc.nTotal?acc.total/acc.nTotal:0};
+    };
+    const getUsdHoraCM=(x)=>{
+      const p=promedioCM(x);
+      const mo=getManoObraCostoMensual(x);
+      const hs=x?.section==="JM"?(Number(hsEfJM)||0):(Number(hsEfFS)||0);
+      return hs>0?((Number(p.total)||0)+mo)/hs:0;
+    };
+    const sumCM=(section,kind,monthKey=null)=>{
+      const rows=section==="TOTAL"?rowsCM:rowsCM.filter(x=>x.section===section);
+      return rows.reduce((sum,x)=>{
+        if(monthKey){
+          const d=x.months?.[monthKey]||{};
+          return sum+Math.round(Number(d[kind])||0);
+        }
+        if(kind==="totalB")return sum+Math.round(Number(x.total)||0);
+        if(kind==="mo")return sum+Math.round(Number(getManoObraCostoMensual(x))||0);
+        if(kind==="usdHs")return sum+Math.round(Number(getUsdHoraCM(x))||0);
+        const p=promedioCM(x);
+        return sum+Math.round(Number(p[kind])||0);
+      },0);
+    };
+    const rowsExcelCM=rowsCM.map(x=>{
+      const row={Proyecto:sectionProyectoCosto(x.section),Equipo:x.equipo};
+      mesesCM.forEach(m=>{
+        const d=x.months[m.key]||{};
+        row[`${m.label} Preventivo`]=Math.round(Number(d.prev)||0);
+        row[`${m.label} Correctivo`]=Math.round(Number(d.corr)||0);
+        row[`${m.label} Total`]=Math.round(Number(d.total)||0);
+      });
+      const p=promedioCM(x);
+      row["Total B"]=Math.round(x.total||0);
+      row["Promedio Preventivo"]=Math.round(p.prev||0);
+      row["Promedio Correctivo"]=Math.round(p.corr||0);
+      row["Promedio Total"]=Math.round(p.total||0);
+      row["Mano de Obra"]=Math.round(getManoObraCostoMensual(x)||0);
+      row["USD/hora"]=Math.round(getUsdHoraCM(x)||0);
+      return row;
+    });
     const sections=[{id:"FS",label:"FILO DEL SOL"},{id:"JM",label:"JOSE MARIA"}].filter(sec=>
-      (costoMensualAcumulado||[]).some(x=>x.section===sec.id)
+      rowsCM.some(x=>x.section===sec.id)
     );
 
     const costoMensualGetters={
       equipo:x=>x.equipo,
       totalB:x=>x.total,
-      promPrev:x=>promedioCostoMensual(x).prev,
-      promCorr:x=>promedioCostoMensual(x).corr,
-      promTotal:x=>promedioCostoMensual(x).total,
+      promPrev:x=>promedioCM(x).prev,
+      promCorr:x=>promedioCM(x).corr,
+      promTotal:x=>promedioCM(x).total,
       mo:x=>getManoObraCostoMensual(x),
-      usdHs:x=>getUsdHoraCostoMensual(x),
+      usdHs:x=>getUsdHoraCM(x),
     };
-    (mesesCostoMensual||[]).forEach(m=>{
+    (mesesCM||[]).forEach(m=>{
       costoMensualGetters[`${m.key}_prev`]=x=>x.months?.[m.key]?.prev||0;
       costoMensualGetters[`${m.key}_corr`]=x=>x.months?.[m.key]?.corr||0;
       costoMensualGetters[`${m.key}_total`]=x=>x.months?.[m.key]?.total||0;
     });
-    const costoMensualRowsOrdenadas=(section)=>sortRowsForTable((costoMensualAcumulado||[]).filter(x=>x.section===section),costosMantSorts.costoMensual,costoMensualGetters);
+    const costoMensualRowsOrdenadas=(section)=>sortRowsForTable(rowsCM.filter(x=>x.section===section),costosMantSorts.costoMensual,costoMensualGetters);
 
     const DollarMesInput=({m})=>{
       const initial=String(monthlyDollar[m.key]??m.dollar??usdRate2??1400);
@@ -9302,13 +9632,21 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     };
 
     return(
-      <Card title={`Costo mensual acumulado (${proyectoTitulo}) (${costoMensualAcumulado.length} equipos)`} action={<BotonDescargar onClick={()=>descargarExcel("Costo_mensual_acumulado",rowsCostoMensualExcel)}/>}> 
+      <Card title={`Costo mensual acumulado (Todos los proyectos) (${rowsCM.length} equipos)`} action={<BotonDescargar onClick={()=>descargarExcel("Costo_mensual_acumulado",rowsExcelCM)}/>}> 
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:"rgba(20,30,20,0.6)"}}>
+          <span style={{fontSize:12,fontWeight:800,color:C.green}}>Filtros Costo mensual</span>
+          <DateIn label="Desde" value={fechaDCostoMensual} onChange={setFechaDCostoMensual} max={hastaCostoMensual||undefined}/>
+          <DateIn label="Hasta" value={hastaCostoMensual} onChange={()=>{}} min={fechaDCostoMensual||undefined} disabled warn={hastaCostoMensual&&fechaDCostoMensual&&hastaCostoMensual<fechaDCostoMensual?"≥ Desde":null}/>
+          <button onClick={()=>{setFechaDCostoMensual("");}}
+            style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer"}}>Limpiar</button>
+          <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Meses: <b style={{color:C.text}}>{mesesCM.length}</b></span>
+        </div>
         <div ref={costoMensualScrollRef} onScroll={rememberCostoMensualScroll} style={{overflowX:"auto",overflowY:"scroll",maxHeight:620,scrollbarGutter:"stable",borderTop:`1px solid ${C.border}`}}>
-          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,minWidth:Math.max(1250,180+(mesesCostoMensual.length*270)+120+270+220),width:"max-content",tableLayout:"fixed"}}>
+          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,minWidth:Math.max(1250,180+(mesesCM.length*270)+120+270+220),width:"max-content",tableLayout:"fixed"}}>
             <thead>
               <tr>
                 <th style={{...thL,position:"sticky",left:0,top:0,zIndex:8,minWidth:170,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</th>
-                {mesesCostoMensual.map(m=>{
+                {mesesCM.map(m=>{
                   const t=monthThemeCosto(m.key);
                   return(
                   <th key={m.key+"usd"} colSpan={3} style={{...thS,textAlign:"center",background:t.head,color:"#fff",top:0,position:"sticky",zIndex:6,borderLeft:`1px solid ${t.line}`}}>
@@ -9322,7 +9660,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
               </tr>
               <tr>
                 <SortableTH sortId="costoMensual" sortKey="equipo" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thL,position:"sticky",left:0,top:31,zIndex:8,background:"#2563eb",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</SortableTH>
-                {mesesCostoMensual.map(m=>{
+                {mesesCM.map(m=>{
                   const t=monthThemeCosto(m.key);
                   return <th key={m.key+"label"} colSpan={3} style={{...thS,textAlign:"center",background:t.sub,color:"#fff",top:31,position:"sticky",zIndex:6,borderLeft:`1px solid ${t.line}`,fontWeight:900}}>{m.label}</th>;
                 })}
@@ -9332,7 +9670,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
               </tr>
               <tr>
                 <th style={{...thL,position:"sticky",left:0,top:62,zIndex:8,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}> </th>
-                {mesesCostoMensual.map(m=>{
+                {mesesCM.map(m=>{
                   const t=monthThemeCosto(m.key);
                   return(
                   <React.Fragment key={m.key+"heads"}>
@@ -9353,11 +9691,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             <tbody>
               {sections.map(sec=>(
                 <React.Fragment key={sec.id}>
-                  <tr><td colSpan={4+mesesCostoMensual.length*3+3} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
+                  <tr><td colSpan={4+mesesCM.length*3+3} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
                   {costoMensualRowsOrdenadas(sec.id).map((x,i)=>(
                     <tr key={sec.id+"__"+x.equipo} style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)"}}>
                       <td style={{...tdL,position:"sticky",left:0,zIndex:2,background:i%2===0?C.card:C.surface}}>{x.equipo}</td>
-                      {mesesCostoMensual.map(m=>{
+                      {mesesCM.map(m=>{
                         const d=x.months[m.key]||{};
                         return(
                           <React.Fragment key={x.equipo+m.key}>
@@ -9368,7 +9706,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                         );
                       })}
                       <td style={{...tdS,color:C.yellow,fontWeight:800}}>{fmtU(x.total||0)}</td>
-                      {(()=>{const p=promedioCostoMensual(x);return(
+                      {(()=>{const p=promedioCM(x);return(
                         <>
                           <td style={{...tdS,background:C.yellow+"10"}}>{fmtU(p.prev||0)}</td>
                           <td style={{...tdS,background:C.yellow+"10"}}>{fmtU(p.corr||0)}</td>
@@ -9376,48 +9714,48 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                         </>
                       )})()}
                       <td style={{...tdS,background:C.purple+"12",color:C.purple,fontWeight:800}}>{fmtU(getManoObraCostoMensual(x))}</td>
-                      <td style={{...tdS,background:C.purple+"12",color:"#ddd",fontWeight:800}}>{fmtU(getUsdHoraCostoMensual(x))}</td>
+                      <td style={{...tdS,background:C.purple+"12",color:"#ddd",fontWeight:800}}>{fmtU(getUsdHoraCM(x))}</td>
                     </tr>
                   ))}
                   <tr>
                     <td style={{...tdL,position:"sticky",left:0,zIndex:2,...rowSubtotalStyleCosto}}>Subtotal {sec.id}</td>
-                    {mesesCostoMensual.map(m=>{
-                      const d=costoMensualTotales[sec.id]?.months?.[m.key]||{};
+                    {mesesCM.map(m=>{
+                      const d=totalesCM[sec.id]?.months?.[m.key]||{};
                       return(
                         <React.Fragment key={sec.id+m.key+"sub"}>
-                          <td style={{...tdT,...rowSubtotalStyleCosto}}>{fmtU(sumCostoMensualVisible(sec.id,"prev",m.key))}</td>
-                          <td style={{...tdT,...rowSubtotalStyleCosto}}>{fmtU(sumCostoMensualVisible(sec.id,"corr",m.key))}</td>
-                          <td style={{...tdT,...rowSubtotalStyleCosto,color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"total",m.key))}</td>
+                          <td style={{...tdT,...rowSubtotalStyleCosto}}>{fmtU(sumCM(sec.id,"prev",m.key))}</td>
+                          <td style={{...tdT,...rowSubtotalStyleCosto}}>{fmtU(sumCM(sec.id,"corr",m.key))}</td>
+                          <td style={{...tdT,...rowSubtotalStyleCosto,color:"#fff"}}>{fmtU(sumCM(sec.id,"total",m.key))}</td>
                         </React.Fragment>
                       );
                     })}
-                    <td style={{...tdT,...rowSubtotalStyleCosto,color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"totalB"))}</td>
-                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e"}}>{fmtU(sumCostoMensualVisible(sec.id,"prev"))}</td>
-                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e"}}>{fmtU(sumCostoMensualVisible(sec.id,"corr"))}</td>
-                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e",color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"total"))}</td>
-                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"mo"))}</td>
-                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCostoMensualVisible(sec.id,"usdHs"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,color:"#fff"}}>{fmtU(sumCM(sec.id,"totalB"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e"}}>{fmtU(sumCM(sec.id,"prev"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e"}}>{fmtU(sumCM(sec.id,"corr"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e",color:"#fff"}}>{fmtU(sumCM(sec.id,"total"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCM(sec.id,"mo"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCM(sec.id,"usdHs"))}</td>
                   </tr>
                 </React.Fragment>
               ))}
               <tr>
                 <td style={{...tdL,position:"sticky",left:0,zIndex:2,...rowTotalStyleCosto,color:"#fff"}}>TOTAL</td>
-                {mesesCostoMensual.map(m=>{
-                  const d=costoMensualTotales.TOTAL?.months?.[m.key]||{};
+                {mesesCM.map(m=>{
+                  const d=totalesCM.TOTAL?.months?.[m.key]||{};
                   return(
                     <React.Fragment key={m.key+"total"}>
-                      <td style={{...tdT,...rowTotalStyleCosto}}>{fmtU(sumCostoMensualVisible("TOTAL","prev",m.key))}</td>
-                      <td style={{...tdT,...rowTotalStyleCosto}}>{fmtU(sumCostoMensualVisible("TOTAL","corr",m.key))}</td>
-                      <td style={{...tdT,...rowTotalStyleCosto,color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","total",m.key))}</td>
+                      <td style={{...tdT,...rowTotalStyleCosto}}>{fmtU(sumCM("TOTAL","prev",m.key))}</td>
+                      <td style={{...tdT,...rowTotalStyleCosto}}>{fmtU(sumCM("TOTAL","corr",m.key))}</td>
+                      <td style={{...tdT,...rowTotalStyleCosto,color:"#fff"}}>{fmtU(sumCM("TOTAL","total",m.key))}</td>
                     </React.Fragment>
                   );
                 })}
-                <td style={{...tdT,...rowTotalStyleCosto,color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","totalB"))}</td>
-                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b"}}>{fmtU(sumCostoMensualVisible("TOTAL","prev"))}</td>
-                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b"}}>{fmtU(sumCostoMensualVisible("TOTAL","corr"))}</td>
-                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b",color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","total"))}</td>
-                <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","mo"))}</td>
-                <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCostoMensualVisible("TOTAL","usdHs"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,color:"#fff"}}>{fmtU(sumCM("TOTAL","totalB"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b"}}>{fmtU(sumCM("TOTAL","prev"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b"}}>{fmtU(sumCM("TOTAL","corr"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b",color:"#fff"}}>{fmtU(sumCM("TOTAL","total"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCM("TOTAL","mo"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCM("TOTAL","usdHs"))}</td>
               </tr>
             </tbody>
           </table>
@@ -9542,6 +9880,16 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
       {tab==="t4"&&(
         <Card title="Mano de Obra" action={<BotonDescargar onClick={()=>descargarExcel("Mano_de_Obra",rowsManoObraExcel)}/>}>
+          {/* Filtros AISLADOS para Mano de Obra — independientes de los filtros del resto de tablas */}
+          <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:"rgba(20,30,20,0.6)"}}>
+            <span style={{fontSize:12,fontWeight:800,color:C.green}}>Filtros Mano de Obra</span>
+            <MultiSel label="Propiedad MO" value={fMOPropiedad} onChange={setFMOPropiedad} options={moPropiedadOpts}/>
+            <MultiSel label="Tipo equipo MO" value={fMOTipoEquipo} onChange={setFMOTipoEquipo} options={moTipoEquipoOpts}/>
+            <MultiSel label="Máquinas MO" value={fMOMaquinas} onChange={setFMOMaquinas} options={moMaquinaOpts}/>
+            <button onClick={()=>{setFMOPropiedad("todos");setFMOTipoEquipo("todos");setFMOMaquinas("todos");}}
+              style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer"}}>Limpiar</button>
+            <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Registros: <b style={{color:C.text}}>{rma15FiltradoMO.length}</b></span>
+          </div>
           <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:C.surface+"55"}}>
             <span style={{fontSize:12,fontWeight:800,color:C.text}}>Cantidad de camionetas</span>
             <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:C.textSub}}>CTA FS
@@ -9741,7 +10089,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                   <SortableTH sortId="amortizacion" sortKey="vida" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,minWidth:180}}>
                     <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
                       <span>Vida Útil (hs) / Hs Mensuales</span>
-                      <label style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontWeight:500,fontSize:10,textTransform:"none",letterSpacing:0,color:C.textSub,whiteSpace:"nowrap"}}
+                      <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontWeight:500,fontSize:10,textTransform:"none",letterSpacing:0,color:C.textSub,whiteSpace:"nowrap"}}
                         title="Solo aplica a equipos Delta. Al tildar, usa la Vida Útil de Lista Maestra. Al destildar, ingresás el valor manual.">
                         <input type="checkbox"
                           checked={Object.keys(useListaVidaUtil).length===0||Object.values(useListaVidaUtil).every(v=>v!==false)}
@@ -9765,7 +10113,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                   {sortableCostHead("amortizacion","mantUSDhs","Mant. (USD/hs)",thS)}
                   {sortableCostHead("amortizacion","totalUSDhs","Total (USD/hs)",thS)}
                   {sortableCostHead("amortizacion","pctMant","% Mant.",thS)}
-                  {sortableCostHead("amortizacion","promTipo","Promedio por tipo",thS)}
+                  {sortableCostHead("amortizacion","promTipo","Promedio por tipo",{...thS,textAlign:"center"})}
                 </tr></thead>
                 <tbody>
                   {rowsAmortizacionOrdenadas.map((x,i)=>(
@@ -9997,7 +10345,14 @@ function clearSavedDataSources(){
 export default function App(){
   const savedAppFilters=readSavedAppFilters();
   const savedAppData=readSavedDataSources();
-  const savedOr=(key,def)=>savedAppFilters&&savedAppFilters[key]!==undefined?savedAppFilters[key]:def;
+  const normalizeSavedState=(saved,def)=>{
+    if(saved===undefined||saved===null)return def;
+    if(!def||typeof def!=="object"||Array.isArray(def))return saved;
+    const base={...def,...saved};
+    if(def.vals||saved.vals)base.vals={...(def.vals||{}),...((saved&&saved.vals)||{})};
+    return base;
+  };
+  const savedOr=(key,def)=>normalizeSavedState(savedAppFilters&&savedAppFilters[key],def);
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
   const[view,setView]=useState(()=>savedOr("view","bienvenida"));
   const[loading,setLoading]=useState(false);
@@ -10011,8 +10366,11 @@ export default function App(){
   const[rawSources,setRawSources]=useState(()=>savedAppData.sources||{});
   const[loadedSources,setLoadedSources]=useState(()=>Object.fromEntries(Object.keys(savedAppData.sources||{}).map(k=>[k,true])));
   const loadedSourcesRef=useRef(Object.fromEntries(Object.keys(savedAppData.sources||{}).map(k=>[k,true])));
+  const rawSourcesRef=useRef(savedAppData.sources||{});
   const[listaEquipos,setListaEquipos]=useState([]);
+  const[dataHydrated,setDataHydrated]=useState(false);
   useEffect(()=>{loadedSourcesRef.current=loadedSources;},[loadedSources]);
+  useEffect(()=>{rawSourcesRef.current=rawSources;},[rawSources]);
 
   const sourceHasData=useCallback((key)=>{
     const src=rawSources&&rawSources[key];
@@ -10024,7 +10382,7 @@ export default function App(){
     if(view==="rop02")return sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur");
     if(view==="rma15")return sourceHasData("rma15_jm")||sourceHasData("rma15_fs");
     if(view==="insumos")return sourceHasData("insumos")||sourceHasData("rma15_jm")||sourceHasData("rma15_fs");
-    if(view==="lista_equipos")return sourceHasData("lista_equipos");
+    if(view==="listaEquipos")return sourceHasData("lista_equipos");
     if(view==="control")return sourceHasData("rop05")&&(sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur"));
     return Object.keys(rawSources||{}).some(sourceHasData);
   },[view,sourceHasData,rawSources]);
@@ -10108,6 +10466,7 @@ export default function App(){
   // Normaliza todo cada vez que llega una fuente nueva.
   // Ventaja: podemos cargar por pestaña sin perder consistencia entre ROP02, ROP05, RMA15 e insumos.
   useEffect(()=>{
+    setDataHydrated(false);
     const src=rawSources||{};
     const errs=[];
 
@@ -10170,6 +10529,7 @@ export default function App(){
     }
 
     setErrors(errs);
+    setDataHydrated(true);
   },[rawSources]);
 
   const loadInitial=useCallback(async()=>{
@@ -10184,7 +10544,12 @@ export default function App(){
 
   const loadSources=useCallback(async(sources,{force=false}={})=>{
     const loadedNow=loadedSourcesRef.current||{};
-    const needed=(sources||[]).filter(Boolean).filter(k=>force||!loadedNow[k]);
+    const currentSources=rawSourcesRef.current||{};
+    const hasUsableSource=(k)=>{
+      const src=currentSources[k];
+      return !!(src&&src.ok&&Array.isArray(src.data)&&src.data.length>0);
+    };
+    const needed=(sources||[]).filter(Boolean).filter(k=>force||!loadedNow[k]||!hasUsableSource(k));
     if(!needed.length)return;
     setLoading(true);setFatalError(null);
     try{
@@ -10378,24 +10743,24 @@ export default function App(){
                 <div style={{fontFamily:"monospace",fontSize:10,color:C.borderLight}}>{APPS_SCRIPT_URL.slice(0,60)}...</div>
               </div>
             )}
-            {!fatalError&&lastUpdate&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
+            {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
                 {view==="bienvenida"&&<ViewBienvenida/>}
                 {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
-                {view==="listaEquipos"&&<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>}
-                {view==="rop02"&&(viewDataReady?<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
-                {view==="horometros"&&<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>}
-                {view==="vehiculos"&&<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>}
-                {view==="ctrlEquipo"&&<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>}
-                {view==="combustible"&&<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>}
-                {view==="rop05"&&(viewDataReady?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Productividad..." />)}
-                {view==="ranking"&&<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>}
+                {view==="listaEquipos"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Lista de Equipos..." />)}
+                {view==="rop02"&&(dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
+                {view==="horometros"&&(dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<BlockingDataLoader label="Cargando Horómetros..." />)}
+                {view==="vehiculos"&&(dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} extState={stVeh} setExtState={setStVeh}/>:<BlockingDataLoader label="Cargando Vehículos..." />)}
+                {view==="ctrlEquipo"&&(dataHydrated&&rop02All.length>0?<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
+                {view==="combustible"&&(dataHydrated&&rop02All.length>0?<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>:<BlockingDataLoader label="Cargando Combustible..." />)}
+                {view==="rop05"&&(dataHydrated&&rop05.length>0?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Productividad..." />)}
+                {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>:<BlockingDataLoader label="Cargando Ranking..." />)}
                 {view==="mant"&&(viewDataReady?<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
-                {view==="rma15CtrlEquipo"&&<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>}
-                {view==="costosMant"&&<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>}
-                {view==="costosUnitarios"&&<ViewCostosUnitarios insumos={insumos} usdRate={usdRate}/>}
-                {view==="chc"&&<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>}
-                {view==="control"&&<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>}
+                {view==="rma15CtrlEquipo"&&(dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
+                {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
+                {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
+                {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
+                {view==="control"&&(dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<BlockingDataLoader label="Cargando Control ROP05 vs ROP02..." />)}
                 {view==="importExcel"&&<ViewImportExcel rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} rawSources={rawSources} onReload={loadData}/>}
               </>
             )}
