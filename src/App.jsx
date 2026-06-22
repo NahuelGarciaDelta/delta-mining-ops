@@ -2976,7 +2976,7 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
   ],[]);
   // Ordenar de más reciente a más viejo
   const filteredSorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
-  const filtrosOperativosActivos=Boolean(fecha||fechaD||fechaH)||filterKeys.some(f=>!multiIsAll(vals[f.key],f.defaultVal))||!multiIsAll(estado,"todos");
+  const filtrosOperativosActivos=Boolean(fecha||fechaD||fechaH)||fk.some(f=>!multiIsAll(vals[f.key],f.defaultVal))||!multiIsAll(estado,"todos");
   const codigosFiltradosSet=useMemo(()=>{
     const set=new Set();
     (filtered||[]).forEach(r=>{
@@ -4970,7 +4970,7 @@ function ViewVehiculos({rop02All,listaEquipos,extState,setExtState}){
   const [rop05TipPos,setRop05TipPos]=React.useState({x:0,y:0});
   const rop05ActiveRow=rop05PinnedRow||rop05TipRow;
 
-  const filtrosOperativosVehActivos=Boolean(fecha||fechaD||fechaH)||filterKeys.some(f=>!multiIsAll(vals[f.key],f.defaultVal))||!multiIsAll(estado,"todos");
+  const filtrosOperativosVehActivos=Boolean(fecha||fechaD||fechaH)||fk.some(f=>!multiIsAll(vals[f.key],f.defaultVal))||!multiIsAll(estado,"todos");
   const codigosVehFiltradosSet=useMemo(()=>{
     const set=new Set();
     (filtered||[]).forEach(r=>{
