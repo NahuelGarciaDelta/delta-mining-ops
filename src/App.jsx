@@ -4970,7 +4970,7 @@ function ViewVehiculos({rop02All,listaEquipos,extState,setExtState}){
   const [rop05TipPos,setRop05TipPos]=React.useState({x:0,y:0});
   const rop05ActiveRow=rop05PinnedRow||rop05TipRow;
 
-  const filtrosOperativosVehActivos=Boolean(fecha||fechaD||fechaH)||fk.some(f=>!multiIsAll(vals[f.key],f.defaultVal))||!multiIsAll(estado,"todos");
+  const filtrosOperativosVehActivos=((mode==="dia"&&Boolean(fecha))||(mode==="periodo"&&Boolean(fechaD||fechaH)))||fk.some(f=>!multiIsAll(vals[f.key],f.defaultVal))||!multiIsAll(estado,"todos");
   const codigosVehFiltradosSet=useMemo(()=>{
     const set=new Set();
     (filtered||[]).forEach(r=>{
