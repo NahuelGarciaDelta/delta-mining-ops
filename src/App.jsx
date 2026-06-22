@@ -5648,6 +5648,121 @@ function ViewCHC({rop02All,extState,setExtState}){
 }
 
 
+// ─── ParamInput — input numérico con debounce para no invalidar useMemos en cada tecla
+function ParamInput({value,set,style}){
+  const[local,setLocal]=React.useState(String(value??''));
+  const timerRef=React.useRef(null);
+  // Sync if external value changes (e.g. on load)
+  const prevValue=React.useRef(value);
+  React.useEffect(()=>{
+    if(prevValue.current!==value){
+      prevValue.current=value;
+      setLocal(String(value??''));
+    }
+  },[value]);
+  const handleChange=React.useCallback((e)=>{
+    const raw=e.target.value;
+    setLocal(raw);
+    if(timerRef.current)clearTimeout(timerRef.current);
+    timerRef.current=setTimeout(()=>{
+      const n=Number(raw);
+      if(!isNaN(n)){prevValue.current=n;set(n);}
+    },400);
+  },[set]);
+  const handleBlur=React.useCallback((e)=>{
+    if(timerRef.current)clearTimeout(timerRef.current);
+    const n=Number(e.target.value);
+    if(!isNaN(n)){prevValue.current=n;set(n);setLocal(String(n));}
+  },[set]);
+  return <input type="number" value={local} onChange={handleChange} onBlur={handleBlur} style={style}/>;
+}
+
+// ─── AmortRow — fila memoizada de la tabla de amortización ──────────────────
+const AmortRow=React.memo(function AmortRow({x,i,useListaVidaUtil,vidaUtilOverride,setVidaUtilState,tdL,tdS,C,fmtNum}){
+  const vidaLM=x.vidaListaMaestra||x.vidaBase||x.vida||8000;
+  const override=vidaUtilOverride[x.equipo];
+  const usaLista=useListaVidaUtil[x.equipo]!==false;
+
+  // Recalcular amortización en tiempo real con el override actual del estado
+  // (x.amort viene del useMemo que solo se actualiza en onBlur, esto se actualiza en cada render)
+  const vidaEfectiva=x._esDelta?(usaLista?vidaLM:(override>0?override:vidaLM)):x._hsEf;
+  const amort=vidaEfectiva>0?x.adq/vidaEfectiva:x.amort;
+  const totalUSDhs=amort+x.hhHombreVestido+x.mantUSDhs;
+  const pctMant=amort>0?x.mantUSDhs/amort:x.pctMant;
+
+  return(
+    <tr style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)",borderTop:x._firstTipoDisplay?`2px solid ${C.borderLight}`:undefined}}>
+      <td style={tdL}>{x.equipo}</td>
+      <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:600}}>{x.propiedad||"S/D"}</td>
+      <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:700}}>{x.tipo||"S/D"}</td>
+      <td style={{...tdS,textAlign:"left",color:C.textSub}}>{x.modelo||"—"}</td>
+      <td style={tdS}>{x.adq>0?"U$S "+fmtNum(Math.round(x.adq)):"—"}</td>
+      <td style={{...tdS,padding:"4px 6px"}}>
+        {x._esDelta?(
+          <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}>
+            <input type="checkbox"
+              title="Trabajar con datos de Lista de Equipos"
+              checked={usaLista}
+              onChange={e=>{
+                const checked=e.target.checked;
+                setVidaUtilState(s=>({
+                  lista:{...s.lista,[x.equipo]:checked},
+                  override: checked ? s.override : {
+                    ...s.override,
+                    [x.equipo]: s.override[x.equipo]>0 ? s.override[x.equipo] : Math.round(vidaLM)
+                  }
+                }));
+              }}
+              style={{accentColor:C.teal,cursor:"pointer",flexShrink:0,appearance:"auto",width:14,height:14,background:"rgba(0,0,0,0.7)",borderRadius:3}}
+            />
+            {usaLista?(
+              <span style={{color:C.textSub,minWidth:60,textAlign:"right"}}>{vidaLM>0?fmtNum(Math.round(vidaLM)):"—"}</span>
+            ):(
+              <VidaUtilInput
+                key={x.equipo+"_"+(override>0?override:Math.round(vidaLM))}
+                initialValue={override>0?override:Math.round(vidaLM)}
+                onCommit={val=>setVidaUtilState(s=>({...s,override:{...s.override,[x.equipo]:val>0?val:Math.round(vidaLM)}}))}
+              />
+            )}
+          </div>
+        ):(
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+            <span style={{color:C.teal,fontWeight:700,fontSize:12}}>{x._hsEf>0?fmtNum(Math.round(x._hsEf)):"—"}</span>
+            <span style={{fontSize:9,color:C.textMuted,whiteSpace:"nowrap"}}>hs param</span>
+          </div>
+        )}
+      </td>
+      <td style={{...tdS,color:C.yellow,fontWeight:700}}>{amort>0?"U$S "+fmtNum(Math.round(amort)):"—"}</td>
+      <td style={{...tdS,color:C.teal,fontWeight:700}}>{x.hhHombreVestido>0?"U$S "+fmtNum(Math.round(x.hhHombreVestido)):"—"}</td>
+      <td style={{...tdS,color:C.purple,fontWeight:700}}>{x.mantUSDhs>0?"U$S "+fmtNum(Math.round(x.mantUSDhs)):"—"}</td>
+      <td style={{...tdS,color:C.accent,fontWeight:800}}>{totalUSDhs>0?"U$S "+fmtNum(Math.round(totalUSDhs)):"—"}</td>
+      <td style={{...tdS,color:C.textSub}}>{pctMant>0?(pctMant*100).toFixed(2)+"%":"—"}</td>
+      {x._firstTipoDisplay&&(
+        <td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,verticalAlign:"middle",fontSize:16,borderLeft:`2px solid ${C.blue}55`,borderBottom:`2px solid ${C.borderLight}`}}>
+          {x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"}
+        </td>
+      )}
+    </tr>
+  );
+});
+
+// ─── VidaUtilInput — input no controlado, recibe initialValue via key+defaultValue ──
+// key en el padre fuerza remount con el valor correcto. Sin estado, sin efectos, nunca en blanco.
+function VidaUtilInput({initialValue,onCommit}){
+  return(
+    <input
+      type="number"
+      min={1}
+      defaultValue={initialValue>0?Math.round(initialValue):""}
+      placeholder={initialValue>0?String(Math.round(initialValue)):"hs"}
+      onBlur={e=>{const n=Number(e.target.value)||0;onCommit(n>0?n:initialValue);}}
+      onKeyDown={e=>{if(e.key==="Enter")e.target.blur();}}
+      style={{width:72,background:"rgba(0,0,0,0.6)",border:"1px solid #f5c518aa",borderRadius:5,color:"#f5c518",
+        fontWeight:700,fontSize:12,padding:"3px 6px",outline:"none",textAlign:"right",fontFamily:"Inter"}}
+    />
+  );
+}
+
 // ─── InsumoSearch — selector con búsqueda ────────────────────────────────────
 function InsumoSearch({value,onChange,opciones}){
   const[open,setOpen]=useState(false);
@@ -8382,21 +8497,47 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const [fMOMaquinas,setFMOMaquinas]=React.useState("todos");
   const [fMOTipoEquipo,setFMOTipoEquipo]=React.useState("todos");
   const [fMOPropiedad,setFMOPropiedad]=React.useState("todos");
-  const [useListaVidaUtil,setUseListaVidaUtil]=React.useState(()=>initialCostosMantState.useListaVidaUtil||{});
-  const [vidaUtilOverride,setVidaUtilOverride]=React.useState(()=>initialCostosMantState.vidaUtilOverride||{});
+  // Estado combinado para useListaVidaUtil y vidaUtilOverride en un solo objeto
+  // → garantiza que ambos se actualicen en el mismo render, sin estados intermedios
+  const [vidaUtilState,setVidaUtilState]=React.useState(()=>{
+    const lista0=initialCostosMantState.useListaVidaUtil||{};
+    const override0=initialCostosMantState.vidaUtilOverride||{};
+    // Sanear: si lista tiene false pero override no tiene valor → resetear a true
+    // para evitar inputs en blanco al arrancar
+    const listaClean={};
+    Object.entries(lista0).forEach(([eq,v])=>{
+      if(v===false&&!(override0[eq]>0)) listaClean[eq]=true; // reset a lista maestra
+      else listaClean[eq]=v;
+    });
+    return {lista:listaClean,override:override0};
+  });
+  const useListaVidaUtil=vidaUtilState.lista;
+  const vidaUtilOverride=vidaUtilState.override;
+  const setUseListaVidaUtil=React.useCallback((fn)=>setVidaUtilState(s=>({...s,lista:typeof fn==='function'?fn(s.lista):fn})),[]);
+  const setVidaUtilOverride=React.useCallback((fn)=>setVidaUtilState(s=>({...s,override:typeof fn==='function'?fn(s.override):fn})),[]);
+  // Refs para que los useMemo pesados no se invaliden en cada tecla
+  const useListaVidaUtilRef=React.useRef(useListaVidaUtil);
+  const vidaUtilOverrideRef=React.useRef(vidaUtilOverride);
+  React.useLayoutEffect(()=>{useListaVidaUtilRef.current=useListaVidaUtil;},[useListaVidaUtil]);
+  React.useLayoutEffect(()=>{vidaUtilOverrideRef.current=vidaUtilOverride;},[vidaUtilOverride]);
   const [hombreVestido,setHombreVestido]=React.useState(Number(initialCostosMantState.hombreVestido)||0);
   const [costosMantSorts,setCostosMantSorts]=React.useState({});
 
+  const saveCostosMantRef=React.useRef(null);
   React.useEffect(()=>{
-    try{
-      window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify({
-        tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,
-        modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,monthlyDollar,
-        costoMensualScrollLeft:costoMensualScrollLeftRef.current||0,
-        useListaVidaUtil,vidaUtilOverride,hombreVestido
-      }));
-    }catch(_){}
-  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,useListaVidaUtil,vidaUtilOverride]);
+    // Debounce el save para no escribir en localStorage en cada tecla
+    if(saveCostosMantRef.current)clearTimeout(saveCostosMantRef.current);
+    saveCostosMantRef.current=setTimeout(()=>{
+      try{
+        window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify({
+          tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,
+          modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,monthlyDollar,
+          costoMensualScrollLeft:costoMensualScrollLeftRef.current||0,
+          useListaVidaUtil,vidaUtilOverride,hombreVestido
+        }));
+      }catch(_){}
+    },300);
+  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,vidaUtilState,hombreVestido]);
 
   const hastaCostoMensual=fechaH||"";
 
@@ -9644,11 +9785,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return String(v||getMachineType(equipo)||"S/D").trim().toUpperCase()||"S/D";
   },[getEquipoListaMaestra]);
 
-  const getVidaUtilEquipo=React.useCallback((equipo)=>{
-    if(useListaVidaUtil[equipo]===false){
-      const ov=Number(vidaUtilOverride[equipo]||0);
-      return ov>0?ov:8000;
-    }
+  // Lee vida util SOLO de lista maestra, sin ningún override
+  const getVidaUtilListaMaestra=React.useCallback((equipo)=>{
     const eq=getEquipoListaMaestra(equipo);
     if(!eq)return 8000;
     const keys=Object.keys(eq||{});
@@ -9658,7 +9796,16 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     ]);
     const v=toNumber(k?eq[k]:0);
     return v>0?v:8000;
-  },[getEquipoListaMaestra,useListaVidaUtil,vidaUtilOverride]);
+  },[getEquipoListaMaestra]);
+
+  // Usa refs para no invalidar los useMemo pesados en cada tecla/checkbox
+  const getVidaUtilEquipo=React.useCallback((equipo)=>{
+    if(useListaVidaUtilRef.current[equipo]===false){
+      const ov=Number(vidaUtilOverrideRef.current[equipo]||0);
+      return ov>0?ov:getVidaUtilListaMaestra(equipo);
+    }
+    return getVidaUtilListaMaestra(equipo);
+  },[getVidaUtilListaMaestra]);
 
   const AMORTIZACION_GRUPOS=React.useMemo(()=>[
     // Orden y agrupación definitiva para Amortización.
@@ -9717,6 +9864,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const eq=getEquipoListaMaestra(e.equipo);
       const prop=propiedadEquipo(e.equipo);
       const adq=getCostoAdqAlquilerEquipo(e.equipo);
+      const vidaListaMaestra=getVidaUtilListaMaestra(e.equipo);
       const vida=getVidaUtilEquipo(e.equipo);
       const amort=vida>0?adq/vida:0;
       const mantUSDhs=e.mantUSDhsTotal;
@@ -9730,7 +9878,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         propiedad:prop,
         tipo:g.grupo,
         modelo:eq?.["Marca"]||eq?.["Modelo"]||"",
-        adq,vida,amort,mantUSDhs,totalUSDhs,
+        adq,vida,vidaListaMaestra,amort,mantUSDhs,totalUSDhs,
         pctMant,
         promTipo:0,
         _firstTipo:false,
@@ -9757,6 +9905,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[costoMensualAcumulado,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto]);
 
   // Enriquecer con HH Hombre Vestido y lógica no-Delta (depende de estado hombreVestido, hsEf)
+  // vidaBase = vida de lista maestra (sin override), para mostrarlo en la celda cuando override=false
   const rowsAmortizacionConHH=React.useMemo(()=>{
     return (rowsAmortizacion||[]).map(x=>{
       const sections=x.sections||[];
@@ -9768,15 +9917,17 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       if(cnt===0){hs=(Number(hsEfJM)||0)+(Number(hsEfFS)||0);cnt=2;}
       const hsEf=cnt>0?hs/cnt:0;
 
-      // Para equipos NO Delta: vida = hsEf (parámetro), amort = adq / hsEf
       const esDeltaEq=String(x.propiedad||"").toUpperCase().includes("DELTA");
+      // vidaBase: la vida sin override (de lista maestra). Para Delta es x.vida que viene de getVidaUtilEquipo
+      // pero como getVidaUtilEquipo ya usa refs, necesitamos la vida de lista maestra pura para el display
+      const vidaBase=x.vida; // vida que viene de rowsAmortizacion (puede ser override via ref)
       const vidaFinal=esDeltaEq?x.vida:hsEf;
       const amortFinal=vidaFinal>0?x.adq/vidaFinal:0;
 
       const hhHombreVestido=hsEf>0?(Number(hombreVestido)||0)/hsEf:0;
       const totalUSDhs=amortFinal+hhHombreVestido+x.mantUSDhs;
       const pctMant=amortFinal>0?x.mantUSDhs/amortFinal:0;
-      return {...x,vida:vidaFinal,amort:amortFinal,hhHombreVestido,totalUSDhs,pctMant,_esDelta:esDeltaEq,_hsEf:hsEf};
+      return {...x,vida:vidaFinal,vidaBase:x.vidaListaMaestra||x.vidaBase||vidaFinal,amort:amortFinal,hhHombreVestido,totalUSDhs,pctMant,_esDelta:esDeltaEq,_hsEf:hsEf};
     });
   },[rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS]);
 
@@ -10315,8 +10466,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           ].map(({label,val,set,w})=>(
             <div key={label} style={{display:"flex",alignItems:"center",gap:5,flex:"0 0 auto"}}>
               <span style={{fontSize:10,color:C.textMuted,whiteSpace:"nowrap"}}>{label}</span>
-              <input type="number" value={val} onChange={e=>set(Number(e.target.value))}
-                style={{...inp,width:w,padding:"6px 8px"}}/>
+              <ParamInput value={val} set={set} style={{...inp,width:w,padding:"6px 8px"}}/>
             </div>
           ))}
         </div>
@@ -10354,10 +10504,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:C.surface+"55"}}>
             <span style={{fontSize:12,fontWeight:800,color:C.text}}>Cantidad de camionetas</span>
             <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:C.textSub}}>CTA FS
-              <input type="number" value={ctaFS} onChange={e=>setCtaFS(Number(e.target.value)||0)} style={{...inp,width:70}}/>
+              <ParamInput value={ctaFS} set={v=>setCtaFS(v||0)} style={{...inp,width:70}}/>
             </label>
             <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:C.textSub}}>CTA JM
-              <input type="number" value={ctaJM} onChange={e=>setCtaJM(Number(e.target.value)||0)} style={{...inp,width:70}}/>
+              <ParamInput value={ctaJM} set={v=>setCtaJM(v||0)} style={{...inp,width:70}}/>
             </label>
             <span style={{fontSize:11,color:C.textMuted}}>Las filas CTA usan el promedio de mantenimiento y de costo de adquisición de las camionetas del proyecto.</span>
           </div>
@@ -10556,11 +10706,20 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                           checked={Object.keys(useListaVidaUtil).length===0||Object.values(useListaVidaUtil).every(v=>v!==false)}
                           onChange={e=>{
                             if(e.target.checked){
-                              setUseListaVidaUtil({});
+                              setVidaUtilState(s=>({...s,lista:{}}));
                             }else{
-                              const next={};
-                              rowsAmortizacionConHH.filter(x=>x._esDelta).forEach(x=>{next[x.equipo]=false;});
-                              setUseListaVidaUtil(next);
+                              setVidaUtilState(s=>{
+                                const lista={};
+                                const override={...s.override};
+                                rowsAmortizacionOrdenadas.filter(x=>x._esDelta).forEach(x=>{
+                                  lista[x.equipo]=false;
+                                  // Usar getVidaUtilListaMaestra directamente — fuente de verdad pura
+                                  if(!(override[x.equipo]>0)){
+                                    override[x.equipo]=Math.round(getVidaUtilListaMaestra(x.equipo))||8000;
+                                  }
+                                });
+                                return {lista,override};
+                              });
                             }
                           }}
                           style={{accentColor:C.teal,cursor:"pointer",background:"rgba(0,0,0,0.6)",borderRadius:3}}
@@ -10578,58 +10737,19 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                 </tr></thead>
                 <tbody>
                   {rowsAmortizacionOrdenadas.map((x,i)=>(
-                    <tr key={x.equipo} style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)",borderTop:x._firstTipoDisplay?`2px solid ${C.borderLight}`:undefined}}>
-                      <td style={tdL}>{x.equipo}</td>
-                      <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:600}}>{x.propiedad||"S/D"}</td>
-                      <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:700}}>{x.tipo||"S/D"}</td>
-                      <td style={{...tdS,textAlign:"left",color:C.textSub}}>{x.modelo||"—"}</td>
-                      <td style={tdS}>{x.adq>0?"U$S "+fmtNum(Math.round(x.adq)):"—"}</td>
-                      <td style={{...tdS,padding:"4px 6px"}}>
-                        {x._esDelta?(
-                          <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}>
-                            <input type="checkbox"
-                              title="Trabajar con datos de Lista de Equipos"
-                              checked={useListaVidaUtil[x.equipo]!==false}
-                              onChange={e=>setUseListaVidaUtil(s=>({...s,[x.equipo]:e.target.checked}))}
-                              style={{accentColor:C.teal,cursor:"pointer",flexShrink:0,
-                                appearance:"auto",width:14,height:14,
-                                background:"rgba(0,0,0,0.7)",borderRadius:3}}
-                            />
-                            {useListaVidaUtil[x.equipo]!==false?(
-                              <span style={{color:C.textSub,minWidth:60,textAlign:"right"}}>{x.vida>0?fmtNum(Math.round(x.vida)):"—"}</span>
-                            ):(
-                              <input
-                                type="number"
-                                min={1}
-                                value={vidaUtilOverride[x.equipo]||""}
-                                onChange={e=>setVidaUtilOverride(s=>({...s,[x.equipo]:e.target.value}))}
-                                onBlur={e=>setVidaUtilOverride(s=>({...s,[x.equipo]:Number(e.target.value)||0}))}
-                                placeholder="hs"
-                                style={{width:72,background:"rgba(0,0,0,0.6)",border:`1px solid ${C.yellow}88`,borderRadius:5,color:C.yellow,
-                                  fontWeight:700,fontSize:12,padding:"3px 6px",outline:"none",textAlign:"right",fontFamily:"Inter"}}
-                              />
-                            )}
-                          </div>
-                        ):(
-                          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-                            <span style={{color:C.teal,fontWeight:700,fontSize:12}}>{x._hsEf>0?fmtNum(Math.round(x._hsEf)):"—"}</span>
-                            <span style={{fontSize:9,color:C.textMuted,whiteSpace:"nowrap"}}>hs param</span>
-                          </div>
-                        )}
-                      </td>
-                      <td style={{...tdS,color:C.yellow,fontWeight:700}}>{x.amort>0?"U$S "+fmtNum(Math.round(x.amort)):"—"}</td>
-                      <td style={{...tdS,color:C.teal,fontWeight:700}}>{x.hhHombreVestido>0?"U$S "+fmtNum(Math.round(x.hhHombreVestido)):"—"}</td>
-                      <td style={{...tdS,color:C.purple,fontWeight:700}}>{x.mantUSDhs>0?"U$S "+fmtNum(Math.round(x.mantUSDhs)):"—"}</td>
-                      <td style={{...tdS,color:C.accent,fontWeight:800}}>{x.totalUSDhs>0?"U$S "+fmtNum(Math.round(x.totalUSDhs)):"—"}</td>
-                      <td style={{...tdS,color:C.textSub}}>{x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—"}</td>
-                      {x._firstTipoDisplay&&(
-                        <td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,verticalAlign:"middle",fontSize:16,borderLeft:`2px solid ${C.blue}55`,borderBottom:`2px solid ${C.borderLight}`}}>
-                          {x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"}
-                        </td>
-                      )}
-                    </tr>
+                    <AmortRow
+                      key={x.equipo}
+                      x={x}
+                      i={i}
+                      useListaVidaUtil={useListaVidaUtil}
+                      vidaUtilOverride={vidaUtilOverride}
+                      setVidaUtilState={setVidaUtilState}
+                      tdL={tdL}
+                      tdS={tdS}
+                      C={C}
+                      fmtNum={fmtNum}
+                    />
                   ))}
-
                 </tbody>
               </table>
             </div>
