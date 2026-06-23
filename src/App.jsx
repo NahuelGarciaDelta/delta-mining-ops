@@ -538,12 +538,15 @@ function turnoOrder(turno){
 // se toma el registro del último día con datos y, dentro de ese día, el del
 // último turno (Noche > Día).
 function buildLastHorometroMap(rop02All){
+  // Indexa por TODAS las variantes de clave para garantizar lookup correcto
   const groups={};
   (rop02All||[]).forEach(r=>{
     if(!r.maquina||!(Number(r.horometroFinal)>0))return;
-    const code=mainMachineCode(r.maquina);
-    if(!code)return;
-    (groups[code]=groups[code]||[]).push(r);
+    const keys=machineLookupVariants(r.maquina);
+    if(!keys.length)return;
+    keys.forEach(code=>{
+      (groups[code]=groups[code]||[]).push(r);
+    });
   });
   const map={};
   Object.entries(groups).forEach(([code,list])=>{
@@ -1545,6 +1548,7 @@ const VIEW_SOURCES={
   costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos"],
   costosUnitarios:["insumos"],
   listaEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
+  pmProgramado:["rop02_fs","rop02_jm","rop02_filosur","lista_equipos"],
   importExcel:["rop02_fs","rop02_jm","rop05","rma15_fs","rma15_jm","insumos"],
 };
 
@@ -1633,6 +1637,7 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   };
   const[search,setSearch]=useState(()=>readListaMaestraSaved("search",""));
   const[fechaHorometro,setFechaHorometro]=useState(()=>readListaMaestraSaved("fechaHorometro",""));
+  const[soloActivos,setSoloActivos]=useState(()=>readListaMaestraSaved("soloActivos","false")==="true");
   const[filtersOpen,setFiltersOpen]=useState(false);
   const[addOpen,setAddOpen]=useState(false);
   const[newEquipo,setNewEquipo]=useState({});
@@ -1653,6 +1658,11 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
     try{localStorage.setItem(`${LISTA_MAESTRA_STORAGE_KEY}_fechaHorometro`,fechaHorometro||"");}
     catch(_){}
   },[fechaHorometro]);
+
+  useEffect(()=>{
+    try{localStorage.setItem(`${LISTA_MAESTRA_STORAGE_KEY}_soloActivos`,String(soloActivos));}
+    catch(_){}
+  },[soloActivos]);
 
   const data=useMemo(()=>rows||[],[rows]);
   const allKeys=useMemo(()=>{
@@ -1698,11 +1708,34 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
     };
   }),[data,drusilaKey,codigoNuevoKey,horometroMap,horasKey,fechaHorometro]);
 
+  // Equipos activos: tuvieron al menos 1 registro en ROP02 en los últimos 7 días
+  // (contados hacia atrás desde hoy, inclusive).
+  const activeMachinesSet=useMemo(()=>{
+    const hoy=new Date();
+    hoy.setHours(0,0,0,0);
+    const hace7=new Date(hoy);
+    hace7.setDate(hace7.getDate()-7);
+    const set=new Set();
+    (rop02All||[]).forEach(r=>{
+      if(!r.fecha)return;
+      const d=new Date(r.fecha);
+      d.setHours(0,0,0,0);
+      if(d>=hace7&&d<=hoy){
+        const keys=machineLookupVariants(r.maquina,"");
+        keys.forEach(k=>set.add(k));
+        set.add(cleanMachine(r.maquina));
+      }
+    });
+    return set;
+  },[rop02All]);
+
   const q=cleanKey(search);
   const searched=useMemo(()=>{
-    if(!q)return dataWithKey;
-    return dataWithKey.filter(r=>searchableKeys.some(k=>cleanKey(r[k]).includes(q)));
-  },[dataWithKey,searchableKeys,q]);
+    let base=dataWithKey;
+    if(soloActivos)base=base.filter(r=>activeMachinesSet.has(r._maquinaKey));
+    if(!q)return base;
+    return base.filter(r=>searchableKeys.some(k=>cleanKey(r[k]).includes(q)));
+  },[dataWithKey,searchableKeys,q,soloActivos,activeMachinesSet]);
 
   const cols=useMemo(()=>LISTA_COLUMNS.map((col,idx)=>{
     if(col.special==="horometro"){
@@ -1864,14 +1897,16 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
         <StatCard icon="equip" label="Equipos en lista" value={fmtNum(data.length)} sub="Registros cargados desde Google Sheets" color={C.teal} small/>
-        <StatCard icon="filter" label="Resultado filtrado" value={fmtNum(filtered.length)} sub={search||hayFiltros?"Según búsqueda / filtros":"Sin filtros aplicados"} color={C.blue} small/>
+        <StatCard icon="filter" label="Resultado filtrado" value={fmtNum(filtered.length)} sub={search||hayFiltros||soloActivos?"Según búsqueda / filtros":"Sin filtros aplicados"} color={C.blue} small/>
+        <StatCard icon="check" label="Activos (últimos 7 días)" value={fmtNum(dataWithKey.filter(r=>activeMachinesSet.has(r._maquinaKey)).length)} sub="Con registro en ROP02 últimos 7 días" color={C.green} small/>
         <StatCard icon="hours" label="Con horómetro ROP02" value={fmtNum(filtered.filter(r=>r._ropInfo).length)} sub={fechaHorometro?`Del día o último disponible`:"Último disponible"} color={C.accent} small/>
         <StatCard icon="warn" label={fechaHorometro?"Usan último ROP02":"Valor fijo (HORAS)"} value={fmtNum(fechaHorometro?filtered.filter(r=>r._ropInfo?.modo==="fallback_ultimo"||r._ropInfo?.modo==="fallback_historico").length:filtered.filter(r=>!r._ropInfo&&r._horometroValue!=null).length)} sub={fechaHorometro?"No tenían ROP02 ese día":"Sin registros en ROP02"} color={C.red} small/>
       </div>
-      <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:C.textSub}}>
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:C.textSub,background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",alignItems:"center"}}>
         <span><Badge color={C.green}>●</Badge> {fechaHorometro?`Horómetro ROP02 del ${fmtFecha(fechaHorometro)}`:"Último horómetro ROP02"}</span>
         {fechaHorometro&&<span><Badge color={C.yellow}>●</Badge> Sin registro ese día: muestra el último horómetro final disponible</span>}
         <span><Badge color={C.red}>●</Badge> Sin ROP02 histórico: horómetro fijo de planilla</span>
+        {soloActivos&&<span style={{color:C.green,fontWeight:700}}><Badge color={C.green}>✔</Badge> Filtro activo: mostrando solo equipos con registro ROP02 en los últimos 7 días</span>}
       </div>
       <Card title="Lista Maestra de Equipos" action={
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -1890,6 +1925,9 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
             ⬇ Generar reporte
           </button>
           {hayFiltros&&<button onClick={fReset} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Limpiar filtros</button>}
+          <button onClick={()=>setSoloActivos(v=>!v)} title="Equipos con al menos 1 registro en ROP02 en los últimos 7 días" style={{background:soloActivos?C.greenDim:C.surface,border:`1px solid ${soloActivos?C.green+"66":C.border}`,borderRadius:7,color:soloActivos?C.green:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:soloActivos?800:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all .15s"}}>
+            <span style={{fontSize:13}}>{soloActivos?"✔":"○"}</span> Activos (7 días)
+          </button>
           <button onClick={()=>setFiltersOpen(o=>!o)} style={{background:filtersOpen?C.accentDim:C.surface,border:`1px solid ${filtersOpen?C.accent+"55":C.border}`,borderRadius:7,color:filtersOpen?C.accent:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
             <Icon name="filter" size={13} color={filtersOpen?C.accent:C.textSub}/>Filtros{hayFiltros?` (${filterKeysOnly.filter(k=>!multiIsAll(fVals[k])).length})`:""}
           </button>
@@ -2943,12 +2981,15 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
   const estado=extState?.estado||"todos";
   const setEstado=v=>setExtState(s=>({...s,estado:v}));
   const estadoOptions=useMemo(()=>uniq(filteredBase.map(r=>r.estado).filter(Boolean)),[filteredBase]);
+  const[tipoMaquinaROP02,setTipoMaquinaROP02]=useState("todas");
   const filtered=useMemo(()=>{
-    if(multiIsAll(estado,"todos"))return filteredBase;
-    return filteredBase.filter(r=>matchMulti(r.estado,estado,"todos"));
-  },[filteredBase,estado]);
-  const hayFiltrosConEstado=hayFiltros||!multiIsAll(estado,"todos");
-  const resetAll=()=>{reset();setEstado("todos");};
+    let base=filteredBase;
+    if(!multiIsAll(tipoMaquinaROP02,"todas"))base=base.filter(r=>tipoMatchMachineROP05(tipoMaquinaROP02,r.maquina));
+    if(multiIsAll(estado,"todos"))return base;
+    return base.filter(r=>matchMulti(r.estado,estado,"todos"));
+  },[filteredBase,estado,tipoMaquinaROP02]);
+  const hayFiltrosConEstado=hayFiltros||!multiIsAll(estado,"todos")||!multiIsAll(tipoMaquinaROP02,"todas");
+  const resetAll=()=>{reset();setEstado("todos");setTipoMaquinaROP02("todas");};
 
   const stats=useMemo(()=>({
     horas:filtered.reduce((s,r)=>s+r.horas,0),
@@ -3014,8 +3055,9 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            <MultiSel label="Tipo de Máquina" value={tipoMaquinaROP02} onChange={v=>{setTipoMaquinaROP02(v);set("maquina","todas");setEstado("todos");}} options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
             <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>{set("proyecto",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
-            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>{set("maquina",v);setEstado("todos");}} options={[{value:"todas",label:"Todas"},...opts.maquina.map(m=>({value:m,label:m}))]}/>
+            <MultiSel label="Máquina" value={vals.maquina} onChange={v=>{set("maquina",v);setEstado("todos");}} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>multiIsAll(tipoMaquinaROP02,"todas")||tipoMatchMachineROP05(tipoMaquinaROP02,m)).map(m=>({value:m,label:m}))]}/>
             <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>{set("supervisor",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
             <MultiSel label="Operario" value={vals.operario} onChange={v=>{set("operario",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
             <MultiSel label="Estado" value={estado} onChange={setEstado} options={[
@@ -3366,6 +3408,8 @@ const ROP05_TIPOS_MAQUINA=[
   {label:"Motoniveladora",value:"MOT",prefijos:["MOT"]},
   {label:"Retropala",value:"RTP",prefijos:["RTP"]},
   {label:"Rodillo Compactador",value:"ROD",prefijos:["ROD","RPC","RCP"]},
+  {label:"Camioneta",value:"CTA",prefijos:["CTA","AG","AH"]},
+  {label:"Camión",value:"CAM",prefijos:["CAR","CAV","CAT-"]},
 ];
 const ROP05_UNIDADES_GRAFICO=[
   {label:"Metros Lineales",value:"METROS LINEALES"},
@@ -6935,6 +6979,429 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   );
 }
 
+// ─── ViewMantenimientoProgramado ──────────────────────────────────────────────
+// ─── Mantenimiento Programado ────────────────────────────────────────────────
+// Secuencia desde hs=0: cada 350 → PM350, múltiplos de 1000 → PM1000, de 2000 → PM2000.
+const PM_ALERT_HS=10;
+const PM_CONTROL_STORAGE_KEY="delta_pm_control_v2";
+
+function pmControlReadAll(){
+  try{const raw=localStorage.getItem(PM_CONTROL_STORAGE_KEY);return raw?JSON.parse(raw):{};}
+  catch(_){return{};}
+}
+function pmControlSaveAll(data){
+  try{localStorage.setItem(PM_CONTROL_STORAGE_KEY,JSON.stringify(data));}catch(_){}
+}
+
+// Genera la secuencia de PMs.
+// Regla:
+//   - PM1000 y PM2000: siempre en múltiplos GLOBALES de 1000/2000 (desde hs=0).
+//   - PM350: se resetea después de cada PM1000 o PM2000 — cuenta desde el último mayor.
+// Params:
+//   lastMajorHs: horómetro del último PM1000 o PM2000 realizado (o 0 si ninguno).
+//   fromHs:      horómetro actual (para generar a partir de aquí).
+//   maxItems:    cuántos ítems generar.
+function calcSecuencia(lastMajorHs, fromHs, maxItems=40){
+  const seq=[];
+  let lastMajor=lastMajorHs||0;
+  let hs=fromHs||0;
+  while(seq.length<maxItems){
+    // Próximo PM350 desde el último PM mayor
+    const next350=lastMajor+350*Math.floor((hs-lastMajor)/350+1);
+    // Próximo múltiplo global de 1000
+    const next1000=1000*Math.floor(hs/1000+1);
+    const nxt=Math.min(next350,next1000);
+    let tipo;
+    if(nxt%2000===0){tipo="PM2000";lastMajor=nxt;}
+    else if(nxt%1000===0){tipo="PM1000";lastMajor=nxt;}
+    else{tipo="PM350";}
+    seq.push({tipo,hs:nxt});
+    hs=nxt;
+  }
+  return seq;
+}
+
+// Secuencia completa desde hs=0 con lastMajor=0 (para la tabla de control fija)
+function calcSecuenciaPMDesde0(lastMajorHs=0, maxItems=40){
+  return calcSecuencia(lastMajorHs,lastMajorHs,maxItems);
+}
+
+// Dado el horómetro actual y el último PM mayor, devuelve el PRÓXIMO PM
+function calcProximoPM(horometroActual, lastMajorHs=0){
+  const h=horometroActual||0;
+  const lm=lastMajorHs||0;
+  const next350=lm+350*Math.floor((h-lm)/350+1);
+  const next1000=1000*Math.floor(h/1000+1);
+  const nxt=Math.min(next350,next1000);
+  let tipo;
+  if(nxt%2000===0)tipo="PM2000";
+  else if(nxt%1000===0)tipo="PM1000";
+  else tipo="PM350";
+  return{tipo,hs:nxt,restantes:nxt-h};
+}
+
+function ViewMantenimientoProgramado({rop02All,listaEquipos}){
+
+  const[tab,setTab]=useState("equipos");
+
+  // Horómetros actuales desde ROP02
+  const horometroActualMap=useMemo(()=>buildLastHorometroMap(rop02All),[rop02All]);
+
+  // Set de maquinaKeys activos (ROP02 últimos 7 días)
+  const activeMachinesSet=useMemo(()=>{
+    const hoy=new Date(); hoy.setHours(0,0,0,0);
+    const hace7=new Date(hoy); hace7.setDate(hace7.getDate()-7);
+    const s=new Set();
+    (rop02All||[]).forEach(r=>{
+      if(!r.fecha)return;
+      const d=new Date(r.fecha); d.setHours(0,0,0,0);
+      if(d>=hace7&&d<=hoy){
+        machineLookupVariants(r.maquina,"").forEach(k=>s.add(k));
+        s.add(cleanMachine(r.maquina));
+      }
+    });
+    return s;
+  },[rop02All]);
+
+  // Equipos ACTIVOS desde ROP02
+  const equiposActivosMap=useMemo(()=>{
+    const map={};
+    const sorted=[...(rop02All||[])].sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||"")));
+    sorted.forEach(r=>{
+      const key=cleanMachine(r.maquina||"");
+      if(!key||!activeMachinesSet.has(key)||map[key])return;
+      map[key]={maquinaKey:key,proyecto:String(r.proyecto||"").trim(),tipoEquipo:String(r.tipoEquipo||"").trim(),activo:true};
+    });
+    return map;
+  },[rop02All,activeMachinesSet]);
+
+  // Equipos INACTIVOS desde Lista Maestra
+  const equiposInactivosMap=useMemo(()=>{
+    const map={};
+    const lista=listaEquipos||[];
+    if(!lista.length)return map;
+    const sampleKeys=Object.keys(lista[0]||{});
+    const kDrusila=findColumnKey(sampleKeys,"Codigo Drusila",["Codigo de Drusila","Cod Drusila"]);
+    const kNuevo  =findColumnKey(sampleKeys,"Codigo Nuevo",["Codigo Interno","CODIGO N° INTERNO","Interno"]);
+    const kProyecto=findColumnKey(sampleKeys,"Proyecto",["Obra","Ubicacion","Ubicación"]);
+    lista.forEach(r=>{
+      const drusilaRaw=kDrusila?String(r[kDrusila]||"").trim():"";
+      const nuevoRaw  =kNuevo  ?String(r[kNuevo  ]||"").trim():"";
+      const keys=machineLookupVariants(drusilaRaw,nuevoRaw);
+      const key=keys[0]||cleanMachine(drusilaRaw||nuevoRaw);
+      if(!key||activeMachinesSet.has(key)||map[key])return;
+      map[key]={maquinaKey:key,proyecto:kProyecto?String(r[kProyecto]||"").trim():"",tipoEquipo:"",activo:false};
+    });
+    return map;
+  },[listaEquipos,activeMachinesSet]);
+
+  const allEquipos=useMemo(()=>{
+    const activos=Object.values(equiposActivosMap);
+    const inactivos=Object.values(equiposInactivosMap);
+    return [...activos,...inactivos].sort((a,b)=>
+      a.maquinaKey.localeCompare(b.maquinaKey,"es-AR",{numeric:true,sensitivity:"base"}));
+  },[equiposActivosMap,equiposInactivosMap]);
+
+  // Control data persistido — clave: `maquinaKey__hs`
+  const[controlData,setControlData]=useState(()=>pmControlReadAll());
+  const toggleControl=useCallback((maquinaKey,hs)=>{
+    const cKey=`${maquinaKey}__${hs}`;
+    const cur=controlData[cKey];
+    const next={...controlData,[cKey]:cur?null:{fecha:new Date().toISOString().slice(0,10)}};
+    setControlData(next); pmControlSaveAll(next);
+  },[controlData]);
+
+  // Filtros
+  const[filProyecto,setFilProyecto]=useState("todos");
+  const[filTipo,setFilTipo]=useState("todas");
+  const[filMaquina,setFilMaquina]=useState("todas");
+  const[soloActivos,setSoloActivos]=useState(true);
+
+  // Helper: dado controlData de un equipo, calcula el horómetro del último PM mayor (PM1000/PM2000) marcado
+  const getLastMajorHs=useCallback((maquinaKey)=>{
+    let lastMajor=0;
+    Object.entries(controlData).forEach(([key,val])=>{
+      if(!val||!key.startsWith(maquinaKey+"__"))return;
+      const hs=Number(key.split("__")[1])||0;
+      if(hs%1000===0&&hs>lastMajor)lastMajor=hs;
+    });
+    return lastMajor;
+  },[controlData]);
+
+  // Enriquecer cada equipo con horómetro actual y próximo PM
+  const equiposEnriquecidos=useMemo(()=>allEquipos.map(e=>{
+    const hInfo=horometroActualMap[e.maquinaKey]||null;
+    const horometroActual=hInfo?.horometroFinal??null;
+    const lastMajorHs=getLastMajorHs(e.maquinaKey);
+    const proximo=horometroActual!=null?calcProximoPM(horometroActual,lastMajorHs):null;
+    const tieneAlerta=proximo&&proximo.restantes<=PM_ALERT_HS;
+    const tieneVencido=proximo&&proximo.restantes<=0;
+    return{...e,horometroActual,hInfo,lastMajorHs,proximo,tieneAlerta,tieneVencido};
+  }),[allEquipos,horometroActualMap,getLastMajorHs]);
+
+  const base4opts=useMemo(()=>
+    soloActivos?equiposEnriquecidos.filter(e=>e.activo):equiposEnriquecidos
+  ,[equiposEnriquecidos,soloActivos]);
+
+  const proyectosOpts=useMemo(()=>[...new Set(base4opts.map(e=>e.proyecto).filter(Boolean))].sort(),[base4opts]);
+  const maquinasOpts=useMemo(()=>[...new Set(
+    base4opts
+      .filter(e=>(filProyecto==="todos"||matchMulti(e.proyecto,filProyecto,"todos"))&&
+                 (multiIsAll(filTipo,"todas")||tipoMatchMachineROP05(filTipo,e.maquinaKey)))
+      .map(e=>e.maquinaKey)
+  )].sort((a,b)=>a.localeCompare(b,"es-AR",{numeric:true,sensitivity:"base"})),[base4opts,filProyecto,filTipo]);
+
+  const equiposFiltrados=useMemo(()=>{
+    let base=equiposEnriquecidos;
+    if(soloActivos) base=base.filter(e=>e.activo);
+    if(!multiIsAll(filProyecto,"todos")) base=base.filter(e=>matchMulti(e.proyecto,filProyecto,"todos"));
+    if(!multiIsAll(filTipo,"todas"))     base=base.filter(e=>tipoMatchMachineROP05(filTipo,e.maquinaKey));
+    if(!multiIsAll(filMaquina,"todas"))  base=base.filter(e=>matchMulti(e.maquinaKey,filMaquina,"todas"));
+    return [...base].sort((a,b)=>{
+      const sc=x=>x.tieneVencido?0:x.tieneAlerta?1:2;
+      return sc(a)-sc(b)||a.maquinaKey.localeCompare(b.maquinaKey,"es-AR",{numeric:true,sensitivity:"base"});
+    });
+  },[equiposEnriquecidos,soloActivos,filProyecto,filTipo,filMaquina]);
+
+  const limpiarFiltros=()=>{setFilProyecto("todos");setFilTipo("todas");setFilMaquina("todas");setSoloActivos(true);};
+  const hayFiltros=!multiIsAll(filProyecto,"todos")||!multiIsAll(filTipo,"todas")||!multiIsAll(filMaquina,"todas")||!soloActivos;
+
+  // KPIs
+  const totalActivos=equiposEnriquecidos.filter(e=>e.activo).length;
+  const totalAlerta =equiposEnriquecidos.filter(e=>e.activo&&e.tieneAlerta&&!e.tieneVencido).length;
+  const totalVencido=equiposEnriquecidos.filter(e=>e.activo&&e.tieneVencido).length;
+  const totalSinDato=equiposEnriquecidos.filter(e=>e.activo&&e.horometroActual==null).length;
+
+  const PM_COLOR={"PM350":C.teal,"PM1000":C.accent,"PM2000":C.purple};
+
+  // SEQ_FIJA es por equipo (en el render usa lastMajorHs)
+
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10}}>
+        <StatCard icon="equip" label="Equipos activos"     value={totalActivos} sub="Con ROP02 en últimos 7 días" color={C.teal}   small/>
+        <StatCard icon="warn"  label="En alerta (≤10 hs)"  value={totalAlerta}  sub="Próximos al siguiente PM"    color={C.yellow} small/>
+        <StatCard icon="warn"  label="PM vencidos"         value={totalVencido} sub="Superaron el intervalo"      color={C.red}    small/>
+        <StatCard icon="hours" label="Sin horómetro ROP02" value={totalSinDato} sub="Sin dato en últimos ROP02"   color={C.purple} small/>
+      </div>
+
+      {/* Filtros */}
+      <Card>
+        <div style={{padding:"12px 14px",display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+          <MultiSel label="Proyecto" value={filProyecto} onChange={v=>{setFilProyecto(v);setFilMaquina("todas");}}
+            options={[{value:"todos",label:"Todos"},...proyectosOpts.map(p=>({value:p,label:p}))]}/>
+          <MultiSel label="Tipo de Máquina" value={filTipo} onChange={v=>{setFilTipo(v);setFilMaquina("todas");}}
+            options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
+          <MultiSel label="Máquina" value={filMaquina} onChange={setFilMaquina}
+            options={[{value:"todas",label:"Todas"},...maquinasOpts.map(m=>({value:m,label:m}))]}/>
+          <div style={{width:1,height:32,background:C.border,alignSelf:"center"}}/>
+          <button onClick={()=>setSoloActivos(v=>!v)}
+            style={{background:soloActivos?C.greenDim:C.surface,border:`1px solid ${soloActivos?C.green+"66":C.border}`,
+              borderRadius:7,color:soloActivos?C.green:C.textSub,padding:"6px 11px",fontSize:11,
+              fontWeight:soloActivos?800:500,cursor:"pointer",alignSelf:"flex-end"}}>
+            {soloActivos?"✔ ":""}Activos (7 días)
+          </button>
+          {hayFiltros&&<button onClick={limpiarFiltros}
+            style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,
+              padding:"6px 11px",fontSize:11,fontWeight:600,cursor:"pointer",alignSelf:"flex-end"}}>
+            × Limpiar
+          </button>}
+        </div>
+      </Card>
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:6}}>
+        <TabBtn active={tab==="equipos"} onClick={()=>setTab("equipos")}>Equipos</TabBtn>
+        <TabBtn active={tab==="control"} onClick={()=>setTab("control")}>Control</TabBtn>
+      </div>
+
+      {/* ══════ TAB: EQUIPOS ══════ */}
+      {tab==="equipos"&&<>
+        <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:C.textSub,
+          background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",alignItems:"center"}}>
+          <span><Badge color={C.teal}>●</Badge> PM350</span>
+          <span><Badge color={C.accent}>●</Badge> PM1000 — a múltiplos de 1000 hs</span>
+          <span><Badge color={C.purple}>●</Badge> PM2000 — a múltiplos de 2000 hs</span>
+          <span style={{marginLeft:"auto",fontSize:10,color:C.textMuted}}>Secuencia desde hs=0 · próximo PM según horómetro ROP02</span>
+        </div>
+
+        {equiposFiltrados.length===0
+          ?<Card><div style={{padding:32,textAlign:"center",color:C.textMuted,fontSize:13}}>Sin equipos para los filtros aplicados.</div></Card>
+          :<div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {equiposFiltrados.map(equipo=>{
+              const p=equipo.proximo;
+              const pCol=p?PM_COLOR[p.tipo]||C.accent:C.border;
+              const estadoCol=equipo.tieneVencido?C.red:equipo.tieneAlerta?C.yellow:C.border;
+              return(
+                <div key={equipo.maquinaKey} style={{background:C.card,border:`1px solid ${estadoCol}44`,borderRadius:10,
+                  padding:"10px 14px",display:"grid",gridTemplateColumns:"1fr auto auto",alignItems:"center",gap:12}}>
+
+                  {/* Identidad */}
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      <Badge color={C.purple}>{equipo.maquinaKey}</Badge>
+                      {equipo.tipoEquipo&&<Badge color={C.teal}>{equipo.tipoEquipo}</Badge>}
+                      {equipo.proyecto&&<Badge color={equipo.proyecto.includes("FILO")?C.accent:C.blue}>{equipo.proyecto}</Badge>}
+                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:5,fontWeight:700,
+                        color:equipo.activo?C.green:C.textMuted,background:(equipo.activo?C.green:C.border)+"22",
+                        border:`1px solid ${(equipo.activo?C.green:C.border)}44`}}>
+                        {equipo.activo?"● ACTIVO":"● INACTIVO"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Horómetro actual */}
+                  <div style={{display:"flex",flexDirection:"column",gap:2,textAlign:"right",
+                    borderLeft:`1px solid ${C.border}`,paddingLeft:12,flexShrink:0}}>
+                    <span style={{fontSize:9,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".05em"}}>Horómetro actual</span>
+                    <span style={{fontSize:14,fontWeight:800,color:equipo.horometroActual!=null?C.text:C.textMuted}}>
+                      {equipo.horometroActual!=null?`${fmtNum(equipo.horometroActual)} hs`:"Sin dato"}
+                    </span>
+                    {equipo.hInfo&&<span style={{fontSize:9,color:C.textMuted}}>{fmtFecha(equipo.hInfo.fecha)}</span>}
+                  </div>
+
+                  {/* Próximo PM */}
+                  <div style={{borderLeft:`1px solid ${C.border}`,paddingLeft:12,flexShrink:0,minWidth:160}}>
+                    {p
+                      ?<div style={{display:"grid",gridTemplateColumns:"70px 1fr 75px",alignItems:"center",gap:6,
+                          background:estadoCol==="border"?pCol+"0d":estadoCol+"0d",
+                          border:`1px solid ${estadoCol==="border"?pCol+"44":estadoCol+"44"}`,
+                          borderRadius:8,padding:"6px 10px"}}>
+                          <span style={{fontWeight:800,fontSize:12,color:pCol}}>{p.tipo}</span>
+                          <span style={{fontSize:11,color:C.textSub}}>a {fmtNum(p.hs)} hs</span>
+                          <span style={{fontWeight:700,fontSize:11,textAlign:"right",
+                            color:equipo.tieneVencido?C.red:equipo.tieneAlerta?C.yellow:C.green}}>
+                            {p.restantes<=0?`+${fmtNum(Math.abs(p.restantes))} hs`:`${fmtNum(p.restantes)} hs`}
+                          </span>
+                        </div>
+                      :<span style={{fontSize:11,color:C.textMuted}}>Sin horómetro</span>
+                    }
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
+        }
+      </>}
+
+      {/* ══════ TAB: CONTROL ══════ */}
+      {tab==="control"&&<>
+        <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:C.textSub,
+          background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",alignItems:"center"}}>
+          <span><Badge color={C.teal}>●</Badge> PM350 · cada 350 hs</span>
+          <span><Badge color={C.accent}>●</Badge> PM1000 · a 1000, 3000, 5000…</span>
+          <span><Badge color={C.purple}>●</Badge> PM2000 · a 2000, 4000, 6000…</span>
+          <span style={{marginLeft:"auto",fontSize:10,color:C.textMuted}}>Secuencia desde hs=0 · marcá cuando se realice</span>
+        </div>
+
+        {equiposFiltrados.length===0
+          ?<Card><div style={{padding:32,textAlign:"center",color:C.textMuted,fontSize:13}}>Sin equipos para los filtros aplicados.</div></Card>
+          :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {equiposFiltrados.map(equipo=>{
+              const hActual=equipo.horometroActual;
+              return(
+                <div key={equipo.maquinaKey} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                  {/* Header */}
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:C.surface,borderBottom:`1px solid ${C.border}`}}>
+                    <Badge color={C.purple}>{equipo.maquinaKey}</Badge>
+                    {equipo.tipoEquipo&&<Badge color={C.teal}>{equipo.tipoEquipo}</Badge>}
+                    {equipo.proyecto&&<Badge color={equipo.proyecto.includes("FILO")?C.accent:C.blue}>{equipo.proyecto}</Badge>}
+                    {hActual!=null&&
+                      <span style={{marginLeft:"auto",fontSize:11,color:C.textSub}}>
+                        Horómetro actual: <strong style={{color:C.text}}>{fmtNum(hActual)} hs</strong>
+                      </span>
+                    }
+                  </div>
+
+                  {/* Tabla secuencia */}
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{background:C.surface}}>
+                          {["Horómetro","Tipo PM","Estado","¿Se realizó?","Fecha"].map(h=>(
+                            <th key={h} style={{padding:"6px 14px",textAlign:"left",fontSize:10,fontWeight:700,
+                              color:C.textSub,textTransform:"uppercase",letterSpacing:".06em",
+                              borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {calcSecuenciaPMDesde0(equipo.lastMajorHs,40).map((s,idx)=>{
+                          const cKey=`${equipo.maquinaKey}__${s.hs}`;
+                          const done=controlData[cKey];
+                          const pasado=hActual!=null&&hActual>=s.hs;
+                          const esProximo=hActual!=null&&!pasado&&s.hs===equipo.proximo?.hs;
+                          const restantes=hActual!=null?s.hs-hActual:null;
+                          const alerta=restantes!=null&&restantes>0&&restantes<=PM_ALERT_HS;
+                          const pCol=PM_COLOR[s.tipo]||C.accent;
+
+                          // Fondo de fila
+                          const rowBg=done?C.green+"0d":esProximo?(alerta?C.yellow+"14":pCol+"0d"):"transparent";
+                          const textCol=pasado&&!done?C.textMuted:C.text;
+
+                          return(
+                            <tr key={idx} style={{background:rowBg,borderBottom:`1px solid ${C.border}18`,
+                              opacity:pasado&&!done?0.55:1}}>
+                              <td style={{padding:"7px 14px",fontWeight:700,color:textCol}}>
+                                {fmtNum(s.hs)} hs
+                              </td>
+                              <td style={{padding:"7px 14px"}}>
+                                <span style={{fontWeight:800,fontSize:11,color:pCol,background:pCol+"18",
+                                  padding:"2px 8px",borderRadius:5}}>{s.tipo}</span>
+                              </td>
+                              <td style={{padding:"7px 14px"}}>
+                                {done
+                                  ?<span style={{color:C.green,fontWeight:700}}>✔ Hecho</span>
+                                  :pasado
+                                    ?<span style={{color:C.red,fontWeight:700}}>✖ Vencido</span>
+                                    :esProximo
+                                      ?<span style={{color:alerta?C.yellow:pCol,fontWeight:700}}>
+                                          {alerta?`⚠ ${fmtNum(restantes)} hs`:`→ ${fmtNum(restantes)} hs`}
+                                        </span>
+                                      :restantes!=null
+                                        ?<span style={{color:C.textMuted}}>{fmtNum(restantes)} hs</span>
+                                        :<span style={{color:C.textMuted}}>—</span>
+                                }
+                              </td>
+                              <td style={{padding:"7px 14px"}}>
+                                <button onClick={()=>toggleControl(equipo.maquinaKey,s.hs)}
+                                  style={{display:"inline-flex",alignItems:"center",gap:5,
+                                    background:done?C.greenDim:C.surface,
+                                    border:`1px solid ${done?C.green+"66":C.border}`,
+                                    borderRadius:6,color:done?C.green:C.textSub,
+                                    padding:"4px 11px",fontSize:11,fontWeight:done?800:400,cursor:"pointer",
+                                    transition:"all .15s"}}>
+                                  {done?"✔ Realizado":"Marcar"}
+                                </button>
+                              </td>
+                              <td style={{padding:"7px 14px",color:done?C.text:C.textMuted,fontSize:11}}>
+                                {done?done.fecha:"—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        }
+      </>}
+
+    </div>
+  );
+}
+
+
+
+
+
+
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 function Login({onLogin}){
@@ -9877,7 +10344,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         sections:e.sections,
         propiedad:prop,
         tipo:g.grupo,
-        modelo:eq?.["Marca"]||eq?.["Modelo"]||"",
+        modelo:getValue(eq||{},["Modelo","MODELO","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"",
         adq,vida,vidaListaMaestra,amort,mantUSDhs,totalUSDhs,
         pctMant,
         promTipo:0,
@@ -11261,6 +11728,7 @@ export default function App(){
       {id:"rma15CtrlEquipo",icon:"bulldozer",label:"Control por Equipo"},
       {id:"costosMant",icon:"report",label:"Informe de Costos"},
       {id:"costosUnitarios",icon:"dollar",label:"Costos Unitarios"},
+      {id:"pmProgramado",icon:"check",label:"Mant. Programado"},
     ]},
     {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:control.problemas>0?control.problemas:null},
     {id:"listaEquipos",icon:"bulldozer",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
@@ -11269,7 +11737,7 @@ export default function App(){
   const adminNav={id:"grp_admin",icon:"gear",label:"ADMINISTRACIÓN",type:"group",color:C.red,children:[
     {id:"importExcel",icon:"parts",label:"Actualización de datos"},
   ]};
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",importExcel:"Actualización de datos"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",importExcel:"Actualización de datos",pmProgramado:"Mantenimiento Programado"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -11413,6 +11881,7 @@ export default function App(){
                 {view==="mant"&&(viewDataReady?<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
                 {view==="rma15CtrlEquipo"&&(dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
+                {view==="pmProgramado"&&(dataHydrated?<ViewMantenimientoProgramado rop02All={rop02All} listaEquipos={listaEquipos}/>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
                 {view==="control"&&(dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<BlockingDataLoader label="Cargando Control ROP05 vs ROP02..." />)}
