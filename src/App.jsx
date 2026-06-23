@@ -7404,13 +7404,15 @@ function ViewMantenimientoProgramado({rop02All,listaEquipos}){
 
 
 // ─── Login ────────────────────────────────────────────────────────────────────
+const ALLOWED_USERS=["nahuel.garcia@deltamining.com.ar","melina.torrejon@deltamining.com.ar","jesica@deltamining.com.ar"];
 function Login({onLogin}){
+  const[user,setUser]=React.useState("");
   const[pass,setPass]=React.useState("");
   const[error,setError]=React.useState(false);
   const[shake,setShake]=React.useState(false);
 
   const handleSubmit=()=>{
-    if(pass==="DELTA.MINING.APP"){
+    if(ALLOWED_USERS.includes(user.trim().toLowerCase())&&pass==="DELTA.MINING.APP"){
       sessionStorage.setItem("dm_auth","1");
       onLogin();
     } else {
@@ -7444,7 +7446,16 @@ function Login({onLogin}){
         width:320,boxShadow:`0 8px 32px rgba(0,0,0,.4)`,
         animation:shake?"shake .4s ease":"none"
       }}>
-        <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá la contraseña para continuar</div>
+        <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá tus credenciales para continuar</div>
+        <input
+          type="email"
+          value={user}
+          onChange={e=>{setUser(e.target.value);setError(false);}}
+          onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+          placeholder="Usuario (email)"
+          style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
+          autoFocus
+        />
         <input
           type="password"
           value={pass}
@@ -7452,9 +7463,8 @@ function Login({onLogin}){
           onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
           placeholder="Contraseña"
           style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
-          autoFocus
         />
-        {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>Contraseña incorrecta</div>}
+        {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>Usuario o contraseña incorrectos</div>}
         <button
           onClick={handleSubmit}
           style={{background:C.accent,border:"none",borderRadius:8,color:"#fff",padding:"10px",fontSize:14,fontWeight:700,fontFamily:"Inter",cursor:"pointer",letterSpacing:".06em"}}
