@@ -7812,20 +7812,40 @@ function ViewMantenimientoProgramado({rop02All,listaEquipos}){
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 function Login({onLogin}){
+  const USUARIOS_PERMITIDOS=[
+    "nahuel.garcia@deltamining.com.ar",
+    "melina.torrejon@deltamining.com.ar",
+    "jesica@deltamining.com.ar"
+  ];
+
+  const[usuario,setUsuario]=React.useState("");
   const[pass,setPass]=React.useState("");
-  const[error,setError]=React.useState(false);
+  const[error,setError]=React.useState("");
   const[shake,setShake]=React.useState(false);
 
+  const showError=(msg)=>{
+    setError(msg);
+    setShake(true);
+    setTimeout(()=>setShake(false),500);
+    setTimeout(()=>setError(""),2500);
+  };
+
   const handleSubmit=()=>{
-    if(pass==="DELTA.MINING.APP"){
-      sessionStorage.setItem("dm_auth","1");
-      onLogin();
-    } else {
-      setError(true);
-      setShake(true);
-      setTimeout(()=>setShake(false),500);
-      setTimeout(()=>setError(false),2000);
+    const mail=usuario.trim().toLowerCase();
+
+    if(!USUARIOS_PERMITIDOS.includes(mail)){
+      showError("Usuario no autorizado");
+      return;
     }
+
+    if(pass!=="DELTA.MINING.APP"){
+      showError("Contraseña incorrecta");
+      return;
+    }
+
+    sessionStorage.setItem("dm_auth","1");
+    sessionStorage.setItem("dm_user",mail);
+    onLogin();
   };
 
   return(
@@ -7851,17 +7871,25 @@ function Login({onLogin}){
         width:320,boxShadow:`0 8px 32px rgba(0,0,0,.4)`,
         animation:shake?"shake .4s ease":"none"
       }}>
-        <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá la contraseña para continuar</div>
+        <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá tu usuario y contraseña para continuar</div>
         <input
-          type="password"
-          value={pass}
-          onChange={e=>{setPass(e.target.value);setError(false);}}
+          type="email"
+          value={usuario}
+          onChange={e=>{setUsuario(e.target.value);setError("");}}
           onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
-          placeholder="Contraseña"
+          placeholder="Usuario"
           style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
           autoFocus
         />
-        {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>Contraseña incorrecta</div>}
+        <input
+          type="password"
+          value={pass}
+          onChange={e=>{setPass(e.target.value);setError("");}}
+          onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+          placeholder="Contraseña"
+          style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
+        />
+        {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>{error}</div>}
         <button
           onClick={handleSubmit}
           style={{background:C.accent,border:"none",borderRadius:8,color:"#fff",padding:"10px",fontSize:14,fontWeight:700,fontFamily:"Inter",cursor:"pointer",letterSpacing:".06em"}}
