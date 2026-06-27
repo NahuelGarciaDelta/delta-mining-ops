@@ -153,10 +153,34 @@ function semaforo(pct){
   return{color:C.red,label:"CRÍTICO",dim:C.redDim};
 }
 function cleanKey(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[\r\n]+/g," ").replace(/\s+/g," ").trim().toLowerCase();}
+function cleanKeyLoose(v){return cleanKey(v).replace(/[^a-z0-9]+/g,"");}
 function getValue(row,keys){
-  const rk=Object.keys(row||{});const wk=keys.map(cleanKey);
-  for(const k of rk){if(wk.includes(cleanKey(k)))return row[k];}
-  for(const k of rk){const nk=cleanKey(k);if(wk.some(w=>nk.includes(w)||w.includes(nk)))return row[k];}
+  const rk=Object.keys(row||{});
+  const wk=keys.map(cleanKey);
+  const wkLoose=keys.map(cleanKeyLoose);
+
+  // 1) Coincidencia exacta normalizada.
+  for(const k of rk){
+    if(wk.includes(cleanKey(k)))return row[k];
+  }
+
+  // 2) Coincidencia exacta ignorando saltos de línea, tildes, puntos, paréntesis, etc.
+  for(const k of rk){
+    if(wkLoose.includes(cleanKeyLoose(k)))return row[k];
+  }
+
+  // 3) Coincidencia parcial normalizada.
+  for(const k of rk){
+    const nk=cleanKey(k);
+    if(wk.some(w=>nk.includes(w)||w.includes(nk)))return row[k];
+  }
+
+  // 4) Coincidencia parcial laxa, útil para encabezados largos como ROP05.
+  for(const k of rk){
+    const nk=cleanKeyLoose(k);
+    if(wkLoose.some(w=>nk.includes(w)||w.includes(nk)))return row[k];
+  }
+
   return"";
 }
 function toNumber(v){
@@ -783,31 +807,49 @@ function byDateFilter(rows,mode,fecha,fechaD,fechaH){
 // ─── Normalización ────────────────────────────────────────────────────────────
 function normalizeROP02(rows,proyectoDefault){
   return(rows||[]).map(r=>{
-    const trabajo=String(r["Descripción de los trabajos realizados"]||"").trim();
-    const obs=String(r["Observaciones"]||"").trim();
-    const maquina=cleanMachine(r["Interno"]);
-    // FIX: soportar encabezado "Fecha:" (con dos puntos) además de "Fecha"
-    const fechaRaw=r["Fecha"]??r["Fecha:"]??"";
-    // FIX: soportar encabezado "Cant.Hs/ KM" además de "Cant. Hs."
-    const cantHs=r["Cant. Hs."]??r["Cant.Hs/ KM"]??r["Cant.Hs"]??"";
+    // ROP02 estructura actual:
+    // A Fecha · B Interno · C Equipo · D Operador · E Supervisor Delta · F Supervisor Vial Cliente
+    // G Turno · H N° Parte · I Proyecto · J HI · K HF · L Cant. Hs. · M Combustible
+    // N Aceite · O Trabajo · P Desgaste · Q Observaciones.
+    // Se usa getValue para tolerar tildes, espacios finales y respuestas ya normalizadas por Apps Script.
+    const fechaRaw=getValue(r,["Fecha","Fecha:","col_0"]);
+    const internoRaw=String(getValue(r,["Interno","Código Interno","Codigo Interno","CODIGO N° INTERNO","col_1"])).trim();
+    const equipoRaw=String(getValue(r,["Equipo","EQUIPO","Tipo Equipo","Tipo de equipo","col_2"])).trim();
+    const operadorRaw=getValue(r,["Operador","col_3"]);
+    const supervisorRaw=getValue(r,["Supervisor Delta","Supervisor","col_4"]);
+    const supervisorClienteRaw=getValue(r,["Supervisor Vial Cliente","Supervisor Cliente","col_5"]);
+    const turnoRaw=getValue(r,["Turno de trabajo","Turno","col_6"]);
+    const parteRaw=getValue(r,["N° Parte","Nº Parte","N Parte","Parte","col_7"]);
+    const proyectoRaw=getValue(r,["Proyecto","Proyecto ","proyecto","col_8"]);
+    const hiRaw=getValue(r,["Horómetro inicial","Horometro inicial","HI","col_9"]);
+    const hfRaw=getValue(r,["Horómetro final","Horometro final","HF","col_10"]);
+    const cantHs=getValue(r,["Cant. Hs.","Cant.Hs/ KM","Cant.Hs","Cant Hs","Cantidad de horas","col_11"]);
+    const combustibleRaw=getValue(r,["Combustible","col_12"]);
+    const aceiteRaw=getValue(r,["Aceite","col_13"]);
+    const trabajo=String(getValue(r,["Descripción de los trabajos realizados","Descripcion de los trabajos realizados","Trabajos realizados","Descripción","Descripcion","col_14"])).trim();
+    const desgasteRaw=getValue(r,["Información sobre Desgaste","Informacion sobre Desgaste","Desgaste","col_15"]);
+    const obs=String(getValue(r,["Observaciones","OBSERVACIONES","col_16"])).trim();
+
+    const maquina=cleanMachine(internoRaw);
+    const tipoEquipoROP02=equipoRaw||getMachineType(maquina)||"";
+
     return{
-      fecha:normDate(fechaRaw),maquina,
-      _internoRaw:String(r["Interno"]||"").trim(),
-      operario:normName(r["Operador"]),supervisor:normName(r["Supervisor Delta"]),
-      supervisorCliente:String(r["Supervisor Vial Cliente"]||"").trim(),
-      turno:String(r["Turno de trabajo"]||"").trim(),parte:String(r["N° Parte"]||"").trim(),
-      proyecto:normProject(r["Proyecto"]||proyectoDefault),
-      horometroInicial:toNumber(r["Horómetro inicial"]),horometroFinal:toNumber(r["Horómetro final"]),
-      horasRaw:String(cantHs||"").trim(),horas:toNumber(cantHs),combustible:toNumber(r["Combustible"]),
-      aceite:String(r["Aceite"]||"").trim(),tipo_trabajo:trabajo,
-      desgaste:String(r["Información sobre Desgaste"]||"").trim(),observaciones:obs,
+      fecha:normDate(fechaRaw),maquina,equipo:equipoRaw,
+      _internoRaw:internoRaw,_equipoRaw:equipoRaw,
+      operario:normName(operadorRaw),supervisor:normName(supervisorRaw),
+      supervisorCliente:String(supervisorClienteRaw||"").trim(),
+      turno:String(turnoRaw||"").trim(),parte:String(parteRaw||"").trim(),
+      proyecto:normProject(proyectoRaw||proyectoDefault),
+      horometroInicial:toNumber(hiRaw),horometroFinal:toNumber(hfRaw),
+      horasRaw:String(cantHs||"").trim(),horas:toNumber(cantHs),combustible:toNumber(combustibleRaw),
+      aceite:String(aceiteRaw||"").trim(),tipo_trabajo:trabajo,
+      desgaste:String(desgasteRaw||"").trim(),observaciones:obs,
       estado:detectEstado(trabajo,obs,cantHs),
-      // Precalculado una sola vez (en vez de recalcular isExcluded/getMachineType
-      // —cada una con hasta ~24 regex— en cada render de cada vista)
-      _excluded:isExcluded(maquina),_tipo:getMachineType(maquina)||"",
+      _excluded:isExcluded(maquina),_tipo:tipoEquipoROP02,
     };
   }).filter(r=>r.fecha&&r.maquina);
 }
+
 function normSupervisorROP05(raw){
   const s=String(raw||"").trim().toLowerCase();
   if(!s)return"";
@@ -866,59 +908,131 @@ function normalizeRMA15(r, insumosMap){
 
 function normalizeROP05(rows){
   return(rows||[]).map(r=>{
-    // FECHA CORRECTA PARA ROP05: siempre FechaParte / Fecha del Parte Diario.
-    // FechaCarga / Marca Temporal queda solo como fecha de carga, NO se usa para controles.
-    const fechaParte=getValue(r,["FechaParte","Fecha del Parte Diario","Fecha Parte","FECHA PARTE"]);
-    const tareaRaw=String(getValue(r,[
+    // Estructura real de ROP05 nuevo:
+    // A Fecha del Parte Diario · B Supervisor · C Proyecto · D Codigo Int · E N° de Parte
+    // F Tipo Equipo · G Tarea · H CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)
+    // I Largo · J Ancho · K Profundidad · L CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA
+    // M UNIDAD DE PRODUCTIVIDAD · N Observación · O Mes.
+    const pickExact=(keys)=>{
+      for(const k of keys){
+        if(Object.prototype.hasOwnProperty.call(r,k))return r[k];
+      }
+      return"";
+    };
+
+    const fechaParte=pickExact(["Fecha del Parte Diario","FechaParte","Fecha Parte","Fecha","col_0"])||getValue(r,["Fecha del Parte Diario","FechaParte","Fecha Parte","Fecha","col_0"]);
+    const codigoInt=pickExact(["Codigo Int","Código Int","Código Interno del Equipo","Codigo Interno","Interno","col_3"])||getValue(r,["Codigo Int","Código Int","Código Interno del Equipo","Codigo Interno","Interno","Equipo","col_3"]);
+    const maquina=cleanMachine(codigoInt);
+
+    // IMPORTANTE:
+    // En Google Sheets la columna H es la columna 8 visualmente, pero en JS es índice 7 / col_7.
+    // Se prioriza col_7 y encabezados reales. Si el Apps Script viejo todavía mandó Hs=0 y Largo=8,
+    // se usa Largo como respaldo para no mostrar horas en 0.
+    const hsDirect=pickExact([
+      "col_7",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS\n(SOLO CANTIDAD)",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS",
+      "HS PRODUCTIVAS EFECTIVAS",
+      "HorasProductivas",
+      "Hs",
+      "Horas"
+    ])||getValue(r,[
+      "col_7",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS\n(SOLO CANTIDAD)",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)",
+      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS",
+      "HS PRODUCTIVAS EFECTIVAS",
+      "HorasProductivas",
+      "Hs",
+      "Horas"
+    ]);
+
+    const largoDirect=pickExact(["col_8","LARGO","Largo"]);
+    const anchoDirect=pickExact(["col_9","ANCHO","Ancho"]);
+    const profundidadDirect=pickExact(["col_10","PROFUNDIDAD","Profundidad"]);
+
+    const hsNum=toNumber(hsDirect);
+    const largoNum=toNumber(largoDirect);
+    const usarLargoComoHoras=(hsNum===0&&largoNum>0);
+    const cantHs=usarLargoComoHoras?largoDirect:hsDirect;
+
+    const cantProd=pickExact([
+      "col_11",
+      "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA\n(SIN UNIDADES DE MEDIDA)",
+      "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)",
+      "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA",
+      "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA",
+      "CANTIDAD DE PRODUCCIÓN",
+      "CANTIDAD DE PRODUCCION",
+      "CantidadProduccion",
+      "Cantidad"
+    ])||getValue(r,[
+      "col_11",
+      "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA\n(SIN UNIDADES DE MEDIDA)",
+      "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)",
+      "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA",
+      "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA",
+      "CANTIDAD DE PRODUCCIÓN",
+      "CANTIDAD DE PRODUCCION",
+      "CantidadProduccion",
+      "Cantidad"
+    ]);
+
+    const unidadRaw=pickExact([
+      "col_12",
+      "UNIDAD DE PRODUCTIVIDAD",
+      "Unidad de productividad",
+      "Unidad"
+    ])||getValue(r,[
+      "col_12",
+      "UNIDAD DE PRODUCTIVIDAD",
+      "Unidad de productividad",
+      "Unidad"
+    ]);
+
+    const tareaRaw=String(pickExact(["Tarea","col_6"])||getValue(r,[
       "Tarea",
       "TAREAS PRODUCTIVAS CON TOPADORAS",
       "TAREAS PRODUCTIVAS CON EXCAVADORAS",
       "TAREAS PRODUCTIVAS CON CARGADORA FRONTAL",
       "TAREAS PRODUCTIVAS CON MOTONIVELADORA",
-      "TAREAS PRODUCTIVAS CON RETROPALA"
+      "TAREAS PRODUCTIVAS CON RETROPALA",
+      "col_6"
     ])||"").trim();
+
     const tarea=normTarea(tareaRaw);
-    const cantHs=getValue(r,[
-      "HorasProductivas",
-      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS\n(SOLO CANTIDAD)",
-      "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)",
-      "HS PRODUCTIVAS EFECTIVAS",
-      "Horas",
-      "Hs"
-    ]);
-    const cantProd=getValue(r,[
-      "CantidadProduccion",
-      "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA\n(SIN UNIDADES DE MEDIDA)",
-      "CANTIDAD DE PRODUCCION DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)",
-      "CANTIDAD DE PRODUCCIÓN",
-      "CANTIDAD DE PRODUCCION",
-      "Cantidad"
-    ]);
-    const maquina=cleanMachine(getValue(r,["Equipo","Codigo Int","Código Int","Codigo Interno","Interno"]));
+
     return{
       fecha:normDate(fechaParte),
       fechaCarga:normDate(getValue(r,["FechaCarga","Marca Tmeporal","Marca Temporal"])),
       maquina,
-      tipo_maquina:String(getValue(r,["TipoEquipo","Tipo Equipo","Tipo de máquina","Tipo de maquina"])||"").trim(),
-      tarea,horas:toNumber(cantHs),cantidad:toNumber(cantProd),
-      unidad:String(getValue(r,["Unidad","UNIDAD DE PRODUCTIVIDAD"])||"").trim().toUpperCase(),
-      proyecto:normProject(getValue(r,["Proyecto"])),
-      supervisor:normSupervisorROP05(getValue(r,["CorreoSupervisor","Supervisor"])),
-      parte:String(getValue(r,["NroParte","N° de Parte","Nº de Parte","N de Parte","Nro Parte","Parte"])||"").trim(),
+      tipo_maquina:String(pickExact(["Tipo Equipo","TipoEquipo","Tipo de máquina","Tipo de maquina","col_5"])||getValue(r,["Tipo Equipo","TipoEquipo","Tipo de máquina","Tipo de maquina","Equipo","col_5"])||"").trim(),
+      tarea,
+      horas:toNumber(cantHs),
+      cantidad:toNumber(cantProd),
+      unidad:String(unidadRaw||"").trim().toUpperCase(),
+      proyecto:normProject(pickExact(["Proyecto","col_2"])||getValue(r,["Proyecto","col_2"])),
+      supervisor:normSupervisorROP05(pickExact(["Supervisor","CorreoSupervisor","col_1"])||getValue(r,["Supervisor","CorreoSupervisor","col_1"])),
+      parte:String(pickExact(["N° de Parte","Nº de Parte","NroParte","Nro Parte","N de Parte","Parte","col_4"])||getValue(r,["N° de Parte","Nº de Parte","NroParte","Nro Parte","N de Parte","Parte","col_4"])||"").trim(),
       grupo:String(getValue(r,["GrupoTrabajo","Grupo de trabajo"])||"").trim(),
-      observaciones:String(getValue(r,[
-        "Observacion",
-        "Observación",
+      largo:usarLargoComoHoras?0:toNumber(largoDirect||getValue(r,["LARGO","Largo","col_8"])),
+      ancho:toNumber(anchoDirect||getValue(r,["ANCHO","Ancho","col_9"])),
+      profundidad:toNumber(profundidadDirect||getValue(r,["PROFUNDIDAD","Profundidad","col_10"])),
+      mes:String(pickExact(["Mes","col_14"])||getValue(r,["Mes","col_14"])||"").trim(),
+      observaciones:String(pickExact(["col_13","Observación","Observacion","Observaciones","OBSERVACION","OBSERVACIONES"])||getValue(r,[
         "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA\n-Tipo de suelo (duro,blando)\n-Dimensiones\n-Nombre de lugar de trabajo\n-Etc.",
         "OBSERVACION DE LA TAREA SEGUN LA SELECCIONADA",
         "OBSERVACION DE LA TAREA",
         "OBSERVACIONES DE LA TAREA",
+        "Observacion",
+        "Observación",
         "OBSERVACION",
         "OBSERVACIONES",
         "Observaciones",
-        "observaciones",
         "Obs",
-        "OBS"
+        "OBS",
+        "col_13"
       ])||"").trim(),
       _excluded:isExcluded(maquina),
       _tipo:getMachineType(maquina)||"",
@@ -1558,19 +1672,43 @@ function HelpTip({text}){
   );
 }
 // ─── Fetch Google Apps Script: carga liviana y bajo demanda ──────────────────
-async function fetchAction(url,action,{force=false}={}){
+function expandCompactSource(src){
+  if(!src||!src.compact||!Array.isArray(src.headers)||!Array.isArray(src.rows))return src;
+  return {
+    ...src,
+    compact:false,
+    data:src.rows.map(arr=>{
+      const obj={};
+      src.headers.forEach((h,i)=>{obj[h]=arr?.[i]??"";});
+      return obj;
+    })
+  };
+}
+function expandCompactResponse(json){
+  if(!json)return json;
+  if(json.compact)return expandCompactSource(json);
+  if(json.sources){
+    const sources={};
+    Object.entries(json.sources).forEach(([key,val])=>{sources[key]=expandCompactSource(val);});
+    return {...json,sources};
+  }
+  return json;
+}
+async function fetchAction(url,action,{force=false,compact=true}={}){
   const qs=new URLSearchParams({action,_t:String(Date.now())});
   if(force)qs.set("force","1");
+  if(compact&&!['health','diag','clear_cache'].includes(action))qs.set("compact","1");
   const res=await fetch(`${url}?${qs.toString()}`,{cache:"no-store"});
   if(!res.ok)throw new Error(`HTTP ${res.status} desde el Apps Script`);
   const text=await res.text();
   let json;
   try{json=JSON.parse(text);}catch(e){throw new Error("El Apps Script devolvió HTML. Verificá que esté publicado como 'Cualquier persona'.");}
+  json=expandCompactResponse(json);
   if(!json.ok&&!json.sources)throw new Error(json.error?.message||"Respuesta inválida del Apps Script");
   return json;
 }
-async function fetchHealth(url){return fetchAction(url,"health");}
-async function fetchSource(url,source,{force=false}={}){return fetchAction(url,source,{force});}
+async function fetchHealth(url){return fetchAction(url,"health",{compact:false});}
+async function fetchSource(url,source,{force=false}={}){return fetchAction(url,source,{force,compact:true});}
 
 const VIEW_SOURCES={
   dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
@@ -1588,8 +1726,6 @@ const VIEW_SOURCES={
   costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos"],
   costosUnitarios:["insumos"],
   listaEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
-  pmProgramado:["rop02_fs","rop02_jm","rop02_filosur","lista_equipos"],
-  importExcel:["rop02_fs","rop02_jm","rop05","rma15_fs","rma15_jm","insumos"],
 };
 
 // ─── ViewListaMaestraEquipos ──────────────────────────────────────────────────
@@ -1949,29 +2085,29 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
         {soloActivos&&<span style={{color:C.green,fontWeight:700}}><Badge color={C.green}>✔</Badge> Filtro activo: mostrando solo equipos con registro ROP02 en los últimos 7 días</span>}
       </div>
       <Card title="Lista Maestra de Equipos" action={
-        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${fechaHorometro?C.accent+"55":C.border}`,borderRadius:8,padding:"5px 8px"}}>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"nowrap",overflowX:"auto",maxWidth:"100%",whiteSpace:"nowrap",paddingBottom:2}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${fechaHorometro?C.accent+"55":C.border}`,borderRadius:8,padding:"5px 8px",flexShrink:0}}> 
             <span style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>Horómetro día</span>
             <input type="date" value={fechaHorometro} onChange={e=>setFechaHorometro(e.target.value)} style={{background:"transparent",border:"none",color:C.text,fontSize:12,outline:"none",fontFamily:"Inter"}}/>
             {fechaHorometro&&<button onClick={()=>setFechaHorometro("")} title="Sin día: mostrar último horómetro" style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:6,color:C.red,padding:"3px 7px",fontSize:11,fontWeight:700,cursor:"pointer"}}>×</button>}
           </div>
-          <button onClick={()=>{setAddOpen(o=>!o);setAddMsg(null);if(editOpen)setEditOpen(false);}} style={{background:addOpen?C.accentDim:C.tealDim,border:`1px solid ${addOpen?C.accent+"55":C.teal+"44"}`,borderRadius:7,color:addOpen?C.accent:C.teal,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <button onClick={()=>{setAddOpen(o=>!o);setAddMsg(null);if(editOpen)setEditOpen(false);}} style={{background:addOpen?C.accentDim:C.tealDim,border:`1px solid ${addOpen?C.accent+"55":C.teal+"44"}`,borderRadius:7,color:addOpen?C.accent:C.teal,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
             + Cargar nuevo equipo
           </button>
-          <button onClick={()=>{setEditOpen(o=>!o);setEditMsg(null);if(addOpen)setAddOpen(false);}} style={{background:editOpen?C.accentDim:C.yellowDim,border:`1px solid ${editOpen?C.accent+"55":C.yellow+"44"}`,borderRadius:7,color:editOpen?C.accent:C.yellow,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <button onClick={()=>{setEditOpen(o=>!o);setEditMsg(null);if(addOpen)setAddOpen(false);}} style={{background:editOpen?C.accentDim:C.yellowDim,border:`1px solid ${editOpen?C.accent+"55":C.yellow+"44"}`,borderRadius:7,color:editOpen?C.accent:C.yellow,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
             ✎ Modificar equipos
           </button>
-          <button onClick={()=>generarExcelListaMaestra(filtered,cols,new Date().toISOString().slice(0,10).replace(/-/g,""))} style={{background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:7,color:C.green,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <button onClick={()=>generarExcelListaMaestra(filtered,cols,new Date().toISOString().slice(0,10).replace(/-/g,""))} style={{background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:7,color:C.green,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
             ⬇ Generar reporte
           </button>
-          {hayFiltros&&<button onClick={fReset} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Limpiar filtros</button>}
-          <button onClick={()=>setSoloActivos(v=>!v)} title="Equipos con al menos 1 registro en ROP02 en los últimos 7 días" style={{background:soloActivos?C.greenDim:C.surface,border:`1px solid ${soloActivos?C.green+"66":C.border}`,borderRadius:7,color:soloActivos?C.green:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:soloActivos?800:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all .15s"}}>
+          {hayFiltros&&<button onClick={fReset} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>Limpiar filtros</button>}
+          <button onClick={()=>setSoloActivos(v=>!v)} title="Equipos con al menos 1 registro en ROP02 en los últimos 7 días" style={{background:soloActivos?C.greenDim:C.surface,border:`1px solid ${soloActivos?C.green+"66":C.border}`,borderRadius:7,color:soloActivos?C.green:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:soloActivos?800:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all .15s",flexShrink:0}}>
             <span style={{fontSize:13}}>{soloActivos?"✔":"○"}</span> Activos (7 días)
           </button>
-          <button onClick={()=>setFiltersOpen(o=>!o)} style={{background:filtersOpen?C.accentDim:C.surface,border:`1px solid ${filtersOpen?C.accent+"55":C.border}`,borderRadius:7,color:filtersOpen?C.accent:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+          <button onClick={()=>setFiltersOpen(o=>!o)} style={{background:filtersOpen?C.accentDim:C.surface,border:`1px solid ${filtersOpen?C.accent+"55":C.border}`,borderRadius:7,color:filtersOpen?C.accent:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
             <Icon name="filter" size={13} color={filtersOpen?C.accent:C.textSub}/>Filtros{hayFiltros?` (${filterKeysOnly.filter(k=>!multiIsAll(fVals[k])).length})`:""}
           </button>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar equipo, tipo, marca, proyecto..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:240,outline:"none"}}/>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar equipo, tipo, marca, proyecto..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:210,width:260,outline:"none",flexShrink:0}}/>
         </div>
       }>
         {editOpen&&(
@@ -3026,7 +3162,7 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
     let base=filteredBase;
     if(!multiIsAll(tipoMaquinaROP02,"todas"))base=base.filter(r=>tipoMatchMachineROP05(tipoMaquinaROP02,r.maquina));
     if(multiIsAll(estado,"todos"))return base;
-    return base.filter(r=>matchMulti(r.estado,estado,"todos"));
+    return base.filter(r=>matchMulti(r.estado,estado,"todos")||matchMulti(String(r.horasRaw||"").trim().toUpperCase(),estado,"todos"));
   },[filteredBase,estado,tipoMaquinaROP02]);
   const hayFiltrosConEstado=hayFiltros||!multiIsAll(estado,"todos")||!multiIsAll(tipoMaquinaROP02,"todas");
   const resetAll=()=>{reset();setEstado("todos");setTipoMaquinaROP02("todas");};
@@ -3124,6 +3260,7 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
         <StatCard icon="check" label="Productivos" value={stats.prod} color={C.green} small/>
         <StatCard icon="parts" label="Días OD" value={stats.od} color={C.yellow} small/>
         <StatCard icon="warn" label="Días FS" value={stats.fs} color={C.red} small/>
+        <StatCard icon="gear" label="Días EM" value={stats.em} color={C.purple} small/>
         <StatCard icon="wear" label="Días con elementos de desgaste" value={stats.desgaste} color={C.purple} small/>
       </div>
       {mode==="periodo"&&horasFecha.length>0&&(
@@ -3511,13 +3648,14 @@ function ViewROP05({rop05,extState,setExtState}){
   useEffect(()=>{setTarea("todas");},[vals.maquina,mode,fecha,fechaD,fechaH,tipoMaquina]);
 
   // Aplicar filtro de tipo y tarea sobre filteredBase05
+  const deferredFilteredBase05=React.useDeferredValue(filteredBase05);
   const filtered=useMemo(()=>{
-    let rows=multiIsAll(tarea,"todas")?filteredBase05:filteredBase05.filter(r=>matchMulti(r.tarea,tarea,"todas"));
+    let rows=multiIsAll(tarea,"todas")?deferredFilteredBase05:deferredFilteredBase05.filter(r=>matchMulti(r.tarea,tarea,"todas"));
     if(!multiIsAll(tipoMaquina,"todas")){
       rows=rows.filter(r=>tipoMatchMachineROP05(tipoMaquina,r.maquina));
     }
     return rows;
-  },[filteredBase05,tarea,tipoMaquina]);
+  },[deferredFilteredBase05,tarea,tipoMaquina]);
 
   const prodCards=useMemo(()=>ROP05_UNIDADES_CONFIG.map(cfg=>{
     const rows=filtered.filter(r=>r.unidad&&cfg.match(r.unidad));
@@ -3613,7 +3751,9 @@ function ViewROP05({rop05,extState,setExtState}){
 
   const [rop05TipRow,setRop05TipRow]=React.useState(null);
   const [rop05PinnedRow,setRop05PinnedRow]=React.useState(null);
-  const [rop05VisibleLimit,setRop05VisibleLimit]=React.useState(250);
+  const ROP05_PAGE_SIZE=250;
+  const ROP05_INITIAL_LIMIT=hayFiltros?500:250;
+  const [rop05VisibleLimit,setRop05VisibleLimit]=React.useState(ROP05_INITIAL_LIMIT);
 
   const rop05TipPosRef=useRef({x:16,y:16});
   const rop05TipElRef=useRef(null);
@@ -3638,8 +3778,8 @@ function ViewROP05({rop05,extState,setExtState}){
   useEffect(()=>{
     setRop05TipRow(null);
     setRop05PinnedRow(null);
-    setRop05VisibleLimit(250);
-  },[mode,fecha,fechaD,fechaH,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina]);
+    setRop05VisibleLimit(ROP05_INITIAL_LIMIT);
+  },[mode,fecha,fechaD,fechaH,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina,ROP05_INITIAL_LIMIT]);
 
   useEffect(()=>{
     const onMove=e=>{
@@ -3931,7 +4071,7 @@ function ViewROP05({rop05,extState,setExtState}){
                 Mostrando {rop05RowsVisible.length} de {filteredSorted.length} registros
               </span>
               <button
-                onClick={()=>setRop05VisibleLimit(v=>Math.min(v+250,filteredSorted.length))}
+                onClick={()=>setRop05VisibleLimit(v=>Math.min(v+ROP05_PAGE_SIZE,filteredSorted.length))}
                 style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}
               >
                 Mostrar 250 más
@@ -7022,809 +7162,6 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   );
 }
 
-// ─── ViewMantenimientoProgramado ──────────────────────────────────────────────
-// ─── Mantenimiento Programado ────────────────────────────────────────────────
-// Secuencia desde hs=0: cada 350 → PM350, múltiplos de 1000 → PM1000, de 2000 → PM2000.
-const PM_ALERT_HS=10;
-const PM_CONTROL_STORAGE_KEY="delta_pm_control_v2";
-
-function pmControlReadAll(){
-  try{const raw=localStorage.getItem(PM_CONTROL_STORAGE_KEY);return raw?JSON.parse(raw):{};}
-  catch(_){return{};}
-}
-function pmControlSaveAll(data){
-  try{localStorage.setItem(PM_CONTROL_STORAGE_KEY,JSON.stringify(data));}catch(_){}
-}
-
-// Genera la secuencia de PMs.
-// Regla:
-//   - PM1000 y PM2000: siempre en múltiplos GLOBALES de 1000/2000 (desde hs=0).
-//   - PM350: se resetea después de cada PM1000 o PM2000 — cuenta desde el último mayor.
-// Params:
-//   lastMajorHs: horómetro del último PM1000 o PM2000 realizado (o 0 si ninguno).
-//   fromHs:      horómetro actual (para generar a partir de aquí).
-//   maxItems:    cuántos ítems generar.
-function calcSecuencia(lastMajorHs, fromHs, maxItems=40){
-  const seq=[];
-  let lastMajor=lastMajorHs||0;
-  let hs=fromHs||0;
-  while(seq.length<maxItems){
-    // Próximo PM350 desde el último PM mayor
-    const next350=lastMajor+350*Math.floor((hs-lastMajor)/350+1);
-    // Próximo múltiplo global de 1000
-    const next1000=1000*Math.floor(hs/1000+1);
-    const nxt=Math.min(next350,next1000);
-    let tipo;
-    if(nxt%2000===0){tipo="PM2000";lastMajor=nxt;}
-    else if(nxt%1000===0){tipo="PM1000";lastMajor=nxt;}
-    else{tipo="PM350";}
-    seq.push({tipo,hs:nxt});
-    hs=nxt;
-  }
-  return seq;
-}
-
-// Secuencia completa desde hs=0 con lastMajor=0 (para la tabla de control fija)
-function calcSecuenciaPMDesde0(lastMajorHs=0, maxItems=40){
-  return calcSecuencia(lastMajorHs,lastMajorHs,maxItems);
-}
-
-// Genera solo el bloque visible para la tab Control.
-// Lógica: mostrar el bloque activo completo (PMs del bloque actual, incluyendo vencidos/hechos)
-// + el próximo PM mayor + los PM350 del bloque siguiente hasta el próximo PM mayor.
-// "Bloque actual" = desde el último PM mayor (marcado o inferido) hasta el próximo PM mayor.
-function calcBloqueVisible(lastMajorHsMarked=0, horometroActual=null, controlData={}, maquinaKey=""){
-  if(horometroActual==null) return calcSecuencia(lastMajorHsMarked||0, lastMajorHsMarked||0, 10);
-
-  // Determinar el arranque del bloque actual:
-  // Si hay un PM mayor marcado Y es <= horometroActual, usar ese.
-  // Si no (o si es mayor que el horómetro actual — dato inválido), inferir el último múltiplo de 1000 pasado.
-  let blockStart;
-  const marked=lastMajorHsMarked||0;
-  if(marked>0 && marked<=horometroActual){
-    blockStart=marked;
-  } else {
-    // Último múltiplo de 1000 que ya pasó (o 0 si horómetro < 1000)
-    blockStart=1000*Math.floor(horometroActual/1000);
-  }
-
-  // Generar secuencia desde blockStart (suficientes ítems para cubrir 2 bloques)
-  const allSeq=calcSecuencia(blockStart, blockStart, 30);
-
-  // Encontrar el próximo PM mayor (hs > horometroActual)
-  let nextMajorIdx=-1;
-  for(let i=0;i<allSeq.length;i++){
-    if(allSeq[i].hs>horometroActual&&(allSeq[i].tipo==="PM1000"||allSeq[i].tipo==="PM2000")){
-      nextMajorIdx=i; break;
-    }
-  }
-  if(nextMajorIdx===-1) return allSeq.slice(0,10);
-
-  // endIdx: incluir el PM mayor + PM350 del bloque siguiente hasta el siguiente PM mayor
-  let endIdx=nextMajorIdx;
-  for(let i=nextMajorIdx+1;i<allSeq.length;i++){
-    endIdx=i;
-    if(allSeq[i].tipo==="PM1000"||allSeq[i].tipo==="PM2000") break;
-  }
-
-  // Devolver todo el bloque actual (desde blockStart) más el bloque siguiente
-  return allSeq.slice(0, endIdx+1);
-}
-
-// Historial visible del desplegable de Control.
-// En vez de mostrar desde hs=0, arranca en el bloque de PM anterior al bloque actual.
-// Ejemplo: si el equipo está trabajando el bloque 2000→3000 (PM350 a 2350),
-// el historial arranca en el bloque 1000→2000 y continúa con el bloque actual/posterior.
-function calcHistorialPMVisible(lastMajorHsMarked=0, horometroActual=null, controlData={}, maquinaKey=""){
-  const marked=lastMajorHsMarked||0;
-  let blockStart=0;
-
-  if(horometroActual!=null){
-    blockStart=(marked>0&&marked<=horometroActual)
-      ?marked
-      :1000*Math.floor(horometroActual/1000);
-  } else {
-    blockStart=marked||0;
-  }
-
-  const startHs=Math.max(0,blockStart-1000);
-  const visibleActual=calcBloqueVisible(marked,horometroActual,controlData,maquinaKey);
-  let endHs=visibleActual.length?visibleActual[visibleActual.length-1].hs:startHs+2000;
-
-  // Si por algún motivo ya se marcó un PM posterior, mantenerlo visible y cerrar su bloque.
-  Object.entries(controlData||{}).forEach(([key,val])=>{
-    if(!val||!key.startsWith(maquinaKey+"__"))return;
-    const hs=Number(key.split("__")[1])||0;
-    if(hs>endHs)endHs=hs;
-  });
-  endHs=1000*Math.ceil(endHs/1000);
-
-  return calcSecuencia(startHs,startHs,80).filter(s=>s.hs<=endHs);
-}
-
-// Dado el horómetro actual y el último PM mayor, devuelve el PRÓXIMO PM
-function calcProximoPM(horometroActual, lastMajorHs=0){
-  const h=horometroActual||0;
-  const lm=lastMajorHs||0;
-  const next350=lm+350*Math.floor((h-lm)/350+1);
-  const next1000=1000*Math.floor(h/1000+1);
-  const nxt=Math.min(next350,next1000);
-  let tipo;
-  if(nxt%2000===0)tipo="PM2000";
-  else if(nxt%1000===0)tipo="PM1000";
-  else tipo="PM350";
-  return{tipo,hs:nxt,restantes:nxt-h};
-}
-
-function ViewMantenimientoProgramado({rop02All,listaEquipos}){
-
-  const[tab,setTab]=useState("dashboard");
-
-  // Horómetros actuales desde ROP02
-  const horometroActualMap=useMemo(()=>buildLastHorometroMap(rop02All),[rop02All]);
-
-  // Set de maquinaKeys activos (ROP02 últimos 7 días)
-  const activeMachinesSet=useMemo(()=>{
-    const hoy=new Date(); hoy.setHours(0,0,0,0);
-    const hace7=new Date(hoy); hace7.setDate(hace7.getDate()-7);
-    const s=new Set();
-    (rop02All||[]).forEach(r=>{
-      if(!r.fecha)return;
-      const d=new Date(r.fecha); d.setHours(0,0,0,0);
-      if(d>=hace7&&d<=hoy){
-        machineLookupVariants(r.maquina,"").forEach(k=>s.add(k));
-        s.add(cleanMachine(r.maquina));
-      }
-    });
-    return s;
-  },[rop02All]);
-
-  // Equipos ACTIVOS desde ROP02
-  const equiposActivosMap=useMemo(()=>{
-    const map={};
-    const sorted=[...(rop02All||[])].sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||"")));
-    sorted.forEach(r=>{
-      const key=cleanMachine(r.maquina||"");
-      if(!key||key==="-"||key==="—"||!/[A-Z0-9]/.test(key)||!activeMachinesSet.has(key)||map[key])return;
-      if(isExcluded(r.maquina||""))return;
-      const ropTipo=String(r.tipoEquipo||"").trim();
-      const tipoEquipo=ropTipo||getMachineType(r.maquina||"")||"";
-      map[key]={maquinaKey:key,proyecto:String(r.proyecto||"").trim(),tipoEquipo,activo:true};
-    });
-    return map;
-  },[rop02All,activeMachinesSet]);
-
-  // Equipos INACTIVOS desde Lista Maestra
-  const equiposInactivosMap=useMemo(()=>{
-    const map={};
-    const lista=listaEquipos||[];
-    if(!lista.length)return map;
-    const sampleKeys=Object.keys(lista[0]||{});
-    const kDrusila=findColumnKey(sampleKeys,"Codigo Drusila",["Codigo de Drusila","Cod Drusila"]);
-    const kNuevo  =findColumnKey(sampleKeys,"Codigo Nuevo",["Codigo Interno","CODIGO N° INTERNO","Interno"]);
-    const kProyecto=findColumnKey(sampleKeys,"Proyecto",["Obra","Ubicacion","Ubicación"]);
-    lista.forEach(r=>{
-      const drusilaRaw=kDrusila?String(r[kDrusila]||"").trim():"";
-      const nuevoRaw  =kNuevo  ?String(r[kNuevo  ]||"").trim():"";
-      const keys=machineLookupVariants(drusilaRaw,nuevoRaw);
-      const key=keys[0]||cleanMachine(drusilaRaw||nuevoRaw);
-      if(!key||activeMachinesSet.has(key)||map[key])return;
-      if(isExcluded(drusilaRaw||nuevoRaw))return;
-      const tipoEquipo=getMachineType(drusilaRaw||nuevoRaw)||"";
-      map[key]={maquinaKey:key,proyecto:kProyecto?String(r[kProyecto]||"").trim():"",tipoEquipo,activo:false};
-    });
-    return map;
-  },[listaEquipos,activeMachinesSet]);
-
-  const allEquipos=useMemo(()=>{
-    const activos=Object.values(equiposActivosMap);
-    const inactivos=Object.values(equiposInactivosMap);
-    return [...activos,...inactivos].sort((a,b)=>
-      a.maquinaKey.localeCompare(b.maquinaKey,"es-AR",{numeric:true,sensitivity:"base"}));
-  },[equiposActivosMap,equiposInactivosMap]);
-
-  // Control data persistido — clave: `maquinaKey__hs`
-  const[controlData,setControlData]=useState(()=>pmControlReadAll());
-  const toggleControl=useCallback((maquinaKey,hs,horometroActual)=>{
-    const cKey=`${maquinaKey}__${hs}`;
-    const cur=controlData[cKey];
-    const next={...controlData,[cKey]:cur?null:{fecha:new Date().toISOString().slice(0,10),horometro:horometroActual??null}};
-    setControlData(next); pmControlSaveAll(next);
-  },[controlData]);
-
-  // Estado de desplegables del historial por equipo
-  const[historialOpen,setHistorialOpen]=useState({});
-  const toggleHistorial=(key)=>setHistorialOpen(prev=>({...prev,[key]:!prev[key]}));
-
-  // Filtros
-  const[filProyecto,setFilProyecto]=useState("todos");
-  const[filTipo,setFilTipo]=useState("todas");
-  const[filMaquina,setFilMaquina]=useState("todas");
-  const[soloActivos,setSoloActivos]=useState(true);
-
-  // Helper: dado controlData de un equipo, calcula el horómetro del último PM mayor (PM1000/PM2000) marcado
-  const getLastMajorHs=useCallback((maquinaKey)=>{
-    let lastMajor=0;
-    Object.entries(controlData).forEach(([key,val])=>{
-      if(!val||!key.startsWith(maquinaKey+"__"))return;
-      const hs=Number(key.split("__")[1])||0;
-      if(hs%1000===0&&hs>lastMajor)lastMajor=hs;
-    });
-    return lastMajor;
-  },[controlData]);
-
-  // Enriquecer cada equipo con horómetro actual y próximo PM
-  const equiposEnriquecidos=useMemo(()=>allEquipos.map(e=>{
-    const hInfo=horometroActualMap[e.maquinaKey]||null;
-    const horometroActual=hInfo?.horometroFinal??null;
-    const lastMajorHs=getLastMajorHs(e.maquinaKey);
-    const proximo=horometroActual!=null?calcProximoPM(horometroActual,lastMajorHs):null;
-    const tieneAlerta=proximo&&proximo.restantes<=PM_ALERT_HS;
-    const tieneVencido=proximo&&proximo.restantes<=0;
-    return{...e,horometroActual,hInfo,lastMajorHs,proximo,tieneAlerta,tieneVencido};
-  }),[allEquipos,horometroActualMap,getLastMajorHs]);
-
-  const base4opts=useMemo(()=>
-    soloActivos?equiposEnriquecidos.filter(e=>e.activo):equiposEnriquecidos
-  ,[equiposEnriquecidos,soloActivos]);
-
-  const proyectosOpts=useMemo(()=>[...new Set(base4opts.map(e=>e.proyecto).filter(Boolean))].sort(),[base4opts]);
-  const maquinasOpts=useMemo(()=>[...new Set(
-    base4opts
-      .filter(e=>(filProyecto==="todos"||matchMulti(e.proyecto,filProyecto,"todos"))&&
-                 (multiIsAll(filTipo,"todas")||tipoMatchMachineROP05(filTipo,e.maquinaKey)))
-      .map(e=>e.maquinaKey)
-  )].sort((a,b)=>a.localeCompare(b,"es-AR",{numeric:true,sensitivity:"base"})),[base4opts,filProyecto,filTipo]);
-
-  const equiposFiltrados=useMemo(()=>{
-    let base=equiposEnriquecidos;
-    if(soloActivos) base=base.filter(e=>e.activo);
-    if(!multiIsAll(filProyecto,"todos")) base=base.filter(e=>matchMulti(e.proyecto,filProyecto,"todos"));
-    if(!multiIsAll(filTipo,"todas"))     base=base.filter(e=>tipoMatchMachineROP05(filTipo,e.maquinaKey));
-    if(!multiIsAll(filMaquina,"todas"))  base=base.filter(e=>matchMulti(e.maquinaKey,filMaquina,"todas"));
-    return [...base].sort((a,b)=>{
-      const sc=x=>x.tieneVencido?0:x.tieneAlerta?1:2;
-      return sc(a)-sc(b)||a.maquinaKey.localeCompare(b.maquinaKey,"es-AR",{numeric:true,sensitivity:"base"});
-    });
-  },[equiposEnriquecidos,soloActivos,filProyecto,filTipo,filMaquina]);
-
-  const limpiarFiltros=()=>{setFilProyecto("todos");setFilTipo("todas");setFilMaquina("todas");setSoloActivos(true);};
-  const hayFiltros=!multiIsAll(filProyecto,"todos")||!multiIsAll(filTipo,"todas")||!multiIsAll(filMaquina,"todas")||!soloActivos;
-
-  // KPIs
-  const totalActivos=equiposEnriquecidos.filter(e=>e.activo).length;
-  const totalAlerta =equiposEnriquecidos.filter(e=>e.activo&&e.tieneAlerta&&!e.tieneVencido).length;
-  const totalVencido=equiposEnriquecidos.filter(e=>e.activo&&e.tieneVencido).length;
-  const totalSinDato=equiposEnriquecidos.filter(e=>e.activo&&e.horometroActual==null).length;
-
-  const PM_COLOR={"PM350":C.teal,"PM1000":C.accent,"PM2000":C.purple};
-
-  // Sort hooks para tablas del dashboard (nivel componente, no dentro de IIFE)
-  const sortAlerta=useSortTable();
-  const sortTurno=useSortTable();
-
-  // ── Próximo cambio de turno ──────────────────────────────────────────────
-  // El turno dura 14 días. Guardamos la fecha del próximo ingreso en localStorage.
-  const[proxTurno,setProxTurno]=useState(()=>{
-    try{return localStorage.getItem("delta_prox_turno")||"";}catch(_){return"";}
-  });
-  const saveProxTurno=(v)=>{
-    setProxTurno(v);
-    try{localStorage.setItem("delta_prox_turno",v);}catch(_){}
-  };
-
-  // Días hasta el próximo turno
-  const diasHastaTurno=useMemo(()=>{
-    if(!proxTurno)return null;
-    const hoy=new Date(); hoy.setHours(0,0,0,0);
-    const t=new Date(proxTurno+"T00:00:00"); t.setHours(0,0,0,0);
-    return Math.round((t-hoy)/(1000*60*60*24));
-  },[proxTurno]);
-
-  // Promedio de horas diarias por máquina (últimos 14 días de ROP02)
-  const hsPorDiaMap=useMemo(()=>{
-    const hoy=new Date(); hoy.setHours(0,0,0,0);
-    const hace14=new Date(hoy); hace14.setDate(hace14.getDate()-14);
-    const acc={};
-    (rop02All||[]).forEach(r=>{
-      if(!r.maquina||!r.fecha||!(r.horas>0))return;
-      const d=new Date(r.fecha); d.setHours(0,0,0,0);
-      if(d<hace14||d>hoy)return;
-      const k=cleanMachine(r.maquina);
-      if(!k)return;
-      if(!acc[k]){acc[k]={total:0,dias:new Set()};}
-      acc[k].total+=Number(r.horas)||0;
-      acc[k].dias.add(r.fecha);
-    });
-    const map={};
-    Object.entries(acc).forEach(([k,v])=>{
-      const diasConReg=v.dias.size||1;
-      map[k]=v.total/diasConReg; // hs promedio por día trabajado
-    });
-    return map;
-  },[rop02All]);
-
-  // SEQ_FIJA es por equipo (en el render usa lastMajorHs)
-
-  return(
-    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
-
-      {/* KPIs */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10}}>
-        <StatCard icon="equip" label="Equipos activos"     value={totalActivos} sub="Con ROP02 en últimos 7 días" color={C.teal}   small/>
-        <StatCard icon="warn"  label="En alerta (≤10 hs)"  value={totalAlerta}  sub="Próximos al siguiente PM"    color={C.yellow} small/>
-        <StatCard icon="warn"  label="PM vencidos"         value={totalVencido} sub="Superaron el intervalo"      color={C.red}    small/>
-        <StatCard icon="hours" label="Sin horómetro ROP02" value={totalSinDato} sub="Sin dato en últimos ROP02"   color={C.purple} small/>
-      </div>
-
-      {/* Filtros */}
-      <Card>
-        <div style={{padding:"12px 14px",display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
-          <MultiSel label="Proyecto" value={filProyecto} onChange={v=>{setFilProyecto(v);setFilMaquina("todas");}}
-            options={[{value:"todos",label:"Todos"},...proyectosOpts.map(p=>({value:p,label:p}))]}/>
-          <MultiSel label="Tipo de Máquina" value={filTipo} onChange={v=>{setFilTipo(v);setFilMaquina("todas");}}
-            options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
-          <MultiSel label="Máquina" value={filMaquina} onChange={setFilMaquina}
-            options={[{value:"todas",label:"Todas"},...maquinasOpts.map(m=>({value:m,label:m}))]}/>
-          <div style={{width:1,height:32,background:C.border,alignSelf:"center"}}/>
-          <button onClick={()=>setSoloActivos(v=>!v)}
-            style={{background:soloActivos?C.greenDim:C.surface,border:`1px solid ${soloActivos?C.green+"66":C.border}`,
-              borderRadius:7,color:soloActivos?C.green:C.textSub,padding:"6px 11px",fontSize:11,
-              fontWeight:soloActivos?800:500,cursor:"pointer",alignSelf:"flex-end"}}>
-            {soloActivos?"✔ ":""}Activos (7 días)
-          </button>
-          {hayFiltros&&<button onClick={limpiarFiltros}
-            style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,
-              padding:"6px 11px",fontSize:11,fontWeight:600,cursor:"pointer",alignSelf:"flex-end"}}>
-            × Limpiar
-          </button>}
-        </div>
-      </Card>
-
-      {/* Tabs */}
-      <div style={{display:"flex",gap:6}}>
-        <TabBtn active={tab==="dashboard"} onClick={()=>setTab("dashboard")}>Dashboard</TabBtn>
-        <TabBtn active={tab==="equipos"} onClick={()=>setTab("equipos")}>Equipos</TabBtn>
-        <TabBtn active={tab==="control"} onClick={()=>setTab("control")}>Control</TabBtn>
-      </div>
-
-      {/* ══════ TAB: EQUIPOS ══════ */}
-      {tab==="equipos"&&<>
-        <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:C.textSub,
-          background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",alignItems:"center"}}>
-          <span><Badge color={C.teal}>●</Badge> PM350</span>
-          <span><Badge color={C.accent}>●</Badge> PM1000 — a múltiplos de 1000 hs</span>
-          <span><Badge color={C.purple}>●</Badge> PM2000 — a múltiplos de 2000 hs</span>
-          <span style={{marginLeft:"auto",fontSize:10,color:C.textMuted}}>Secuencia desde hs=0 · próximo PM según horómetro ROP02</span>
-        </div>
-
-        {equiposFiltrados.length===0
-          ?<Card><div style={{padding:32,textAlign:"center",color:C.textMuted,fontSize:13}}>Sin equipos para los filtros aplicados.</div></Card>
-          :<div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {equiposFiltrados.map(equipo=>{
-              const p=equipo.proximo;
-              const pCol=p?PM_COLOR[p.tipo]||C.accent:C.border;
-              const estadoCol=equipo.tieneVencido?C.red:equipo.tieneAlerta?C.yellow:C.border;
-              return(
-                <div key={equipo.maquinaKey} style={{background:C.card,border:`1px solid ${estadoCol}44`,borderRadius:10,
-                  padding:"10px 14px",display:"grid",gridTemplateColumns:"1fr auto auto",alignItems:"center",gap:12}}>
-
-                  {/* Identidad */}
-                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                      <Badge color={C.purple}>{equipo.maquinaKey}</Badge>
-                      {equipo.tipoEquipo&&<Badge color={C.teal}>{equipo.tipoEquipo}</Badge>}
-                      {equipo.proyecto&&<Badge color={equipo.proyecto.includes("FILO")?C.accent:C.blue}>{equipo.proyecto}</Badge>}
-                      <span style={{fontSize:10,padding:"2px 8px",borderRadius:5,fontWeight:700,
-                        color:equipo.activo?C.green:C.textMuted,background:(equipo.activo?C.green:C.border)+"22",
-                        border:`1px solid ${(equipo.activo?C.green:C.border)}44`}}>
-                        {equipo.activo?"● ACTIVO":"● INACTIVO"}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Horómetro actual */}
-                  <div style={{display:"flex",flexDirection:"column",gap:2,textAlign:"right",
-                    borderLeft:`1px solid ${C.border}`,paddingLeft:12,flexShrink:0}}>
-                    <span style={{fontSize:9,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".05em"}}>Horómetro actual</span>
-                    <span style={{fontSize:14,fontWeight:800,color:equipo.horometroActual!=null?C.text:C.textMuted}}>
-                      {equipo.horometroActual!=null?`${fmtNum(equipo.horometroActual)} hs`:"Sin dato"}
-                    </span>
-                    {equipo.hInfo&&<span style={{fontSize:9,color:C.textMuted}}>{fmtFecha(equipo.hInfo.fecha)}</span>}
-                  </div>
-
-                  {/* Próximo PM */}
-                  <div style={{borderLeft:`1px solid ${C.border}`,paddingLeft:12,flexShrink:0,minWidth:160}}>
-                    {p
-                      ?<div style={{display:"grid",gridTemplateColumns:"70px 1fr 75px",alignItems:"center",gap:6,
-                          background:estadoCol==="border"?pCol+"0d":estadoCol+"0d",
-                          border:`1px solid ${estadoCol==="border"?pCol+"44":estadoCol+"44"}`,
-                          borderRadius:8,padding:"6px 10px"}}>
-                          <span style={{fontWeight:800,fontSize:12,color:pCol}}>{p.tipo}</span>
-                          <span style={{fontSize:11,color:C.textSub}}>a {fmtNum(p.hs)} hs</span>
-                          <span style={{fontWeight:700,fontSize:11,textAlign:"right",
-                            color:equipo.tieneVencido?C.red:equipo.tieneAlerta?C.yellow:C.green}}>
-                            {p.restantes<=0?`+${fmtNum(Math.abs(p.restantes))} hs`:`${fmtNum(p.restantes)} hs`}
-                          </span>
-                        </div>
-                      :<span style={{fontSize:11,color:C.textMuted}}>Sin horómetro</span>
-                    }
-                  </div>
-
-                </div>
-              );
-            })}
-          </div>
-        }
-      </>}
-
-      {/* ══════ TAB: DASHBOARD ══════ */}
-      {tab==="dashboard"&&<>
-        {(()=>{
-          // Usa equiposFiltrados para que los filtros del panel apliquen al dashboard
-          const base=equiposFiltrados;
-          const vencidos=base.filter(e=>e.activo&&e.proximo&&e.proximo.restantes<=0);
-          const urgentes=base.filter(e=>e.activo&&e.proximo&&e.proximo.restantes>0&&e.proximo.restantes<=50);
-          const proximos=base.filter(e=>e.activo&&e.proximo&&e.proximo.restantes>50&&e.proximo.restantes<=200);
-          const ok=base.filter(e=>e.activo&&e.proximo&&e.proximo.restantes>200);
-          const sinDato=base.filter(e=>e.activo&&!e.proximo);
-          const allAlert=[...vencidos,...urgentes,...proximos].sort((a,b)=>a.proximo.restantes-b.proximo.restantes);
-          return(
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {/* Contadores */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8}}>
-                {[
-                  {label:"Vencidos",count:vencidos.length,color:C.red,icon:"⛔"},
-                  {label:"Urgentes (≤50 hs)",count:urgentes.length,color:C.yellow,icon:"⚠️"},
-                  {label:"Próximos (≤200 hs)",count:proximos.length,color:C.accent,icon:"🔔"},
-                  {label:"Al día (>200 hs)",count:ok.length,color:C.green,icon:"✅"},
-                  {label:"Sin horómetro",count:sinDato.length,color:C.textMuted,icon:"—"},
-                ].map(s=>(
-                  <div key={s.label} style={{background:C.card,border:`1px solid ${s.color}44`,borderRadius:10,padding:"12px 16px",display:"flex",flexDirection:"column",gap:4}}>
-                    <div style={{fontSize:22,fontWeight:900,color:s.color,fontFamily:"Inter"}}>{s.icon} {s.count}</div>
-                    <div style={{fontSize:10,color:C.textSub,fontWeight:600,textTransform:"uppercase",letterSpacing:".05em"}}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Tabla de alertas */}
-              {allAlert.length>0
-                ?<div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
-                  <div style={{padding:"10px 16px",background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:12,fontWeight:700,color:C.text}}>Equipos que requieren atención</span>
-                    <span style={{fontSize:10,color:C.textMuted,marginLeft:"auto"}}>{allAlert.length} equipos · ordenados por urgencia</span>
-                  </div>
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <thead>
-                        <tr style={{background:C.surface}}>
-                          {[{k:"maquinaKey",l:"Equipo"},{k:"proyecto",l:"Proyecto"},{k:"tipoEquipo",l:"Tipo equipo"},{k:"horometroActual",l:"Horómetro actual"},{k:"_pmTipo",l:"Próximo PM"},{k:"_restantes",l:"Restante"},{k:"_estado",l:"Estado"}].map(h=>(
-                            <SortTH key={h.k} colKey={h.k} sortHook={sortAlerta} style={{padding:"6px 14px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h.l}</SortTH>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortAlerta.sorted(allAlert,{_pmTipo:e=>e.proximo?.tipo,_restantes:e=>e.proximo?.restantes??999999,_estado:e=>e.proximo?.restantes<=0?0:e.proximo?.restantes<=50?1:2}).map(e=>{
-                          const p=e.proximo;
-                          const pCol=PM_COLOR[p.tipo]||C.accent;
-                          const vencido=p.restantes<=0;
-                          const urgente=!vencido&&p.restantes<=50;
-                          const statColor=vencido?C.red:urgente?C.yellow:C.accent;
-                          const statLabel=vencido?`+${fmtNum(Math.abs(p.restantes))} hs vencido`:urgente?`${fmtNum(p.restantes)} hs`:`${fmtNum(p.restantes)} hs`;
-                          return(
-                            <tr key={e.maquinaKey} style={{borderBottom:`1px solid ${C.border}18`,background:vencido?C.red+"0a":urgente?C.yellow+"0a":C.accent+"06"}}>
-                              <td style={{padding:"8px 14px"}}>
-                                <span style={{fontWeight:800,color:C.purple,background:C.purple+"22",padding:"2px 8px",borderRadius:5,fontSize:11}}>{e.maquinaKey}</span>
-                              </td>
-                              <td style={{padding:"8px 14px",fontSize:11,color:C.textSub}}>{e.proyecto||"—"}</td>
-                              <td style={{padding:"8px 14px",fontSize:11,color:C.textSub}}>{e.tipoEquipo||"—"}</td>
-                              <td style={{padding:"8px 14px",fontWeight:700,color:C.text}}>{e.horometroActual!=null?`${fmtNum(e.horometroActual)} hs`:"—"}</td>
-                              <td style={{padding:"8px 14px"}}>
-                                <span style={{fontWeight:800,fontSize:11,color:pCol,background:pCol+"18",padding:"2px 8px",borderRadius:5}}>{p.tipo}</span>
-                                <span style={{marginLeft:6,fontSize:11,color:C.textSub}}>@ {fmtNum(p.hs)} hs</span>
-                              </td>
-                              <td style={{padding:"8px 14px",fontWeight:800,color:statColor,fontSize:12}}>{statLabel}</td>
-                              <td style={{padding:"8px 14px"}}>
-                                <span style={{fontSize:10,padding:"3px 9px",borderRadius:5,fontWeight:700,color:statColor,background:statColor+"22",border:`1px solid ${statColor}44`}}>
-                                  {vencido?"VENCIDO":urgente?"URGENTE":"PRÓXIMO"}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                :<div style={{background:C.card,border:`1px solid ${C.green}44`,borderRadius:10,padding:"32px",textAlign:"center",color:C.green,fontSize:13,fontWeight:600}}>
-                  ✅ Todos los equipos activos están al día con el mantenimiento programado
-                </div>
-              }
-            </div>
-          );
-        })()}
-
-        {/* ── Panel cambio de turno ─────────────────────────────────────── */}
-        {(()=>{
-          const mostrar=diasHastaTurno!=null&&diasHastaTurno<=2&&diasHastaTurno>=0;
-          const urgColor=diasHastaTurno===0?C.red:diasHastaTurno===1?C.yellow:C.accent;
-
-          // Equipos con PM en las próximas 85 hs (siempre visible)
-          const HS_VENTANA=85;
-          const pmTurno=[];
-          equiposFiltrados.filter(e=>e.activo&&e.horometroActual!=null).forEach(e=>{
-            const marked=e.lastMajorHs||0;
-            const blockStart=(marked>0&&marked<=e.horometroActual)?marked:1000*Math.floor(e.horometroActual/1000);
-            const seq=calcSecuencia(blockStart,blockStart,30);
-            const pmProximo=seq.find(s=>s.hs>e.horometroActual&&s.hs-e.horometroActual<=HS_VENTANA);
-            if(!pmProximo)return;
-            const restantesHs=pmProximo.hs-e.horometroActual;
-            const hsDia=hsPorDiaMap[e.maquinaKey]||0;
-            const diasEstimados=hsDia>0?Math.ceil(restantesHs/hsDia):null;
-            pmTurno.push({
-              ...e,
-              hsDia:Math.round(hsDia*10)/10,
-              pmProximo,
-              restantesHs:Math.round(restantesHs*10)/10,
-              diasEstimados,
-            });
-          });
-          pmTurno.sort((a,b)=>a.restantesHs-b.restantesHs);
-
-          return(
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
-              {/* Header configurable */}
-              <div style={{padding:"10px 16px",background:C.surface,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <span style={{fontSize:13,fontWeight:800,color:C.text}}>🔄 Próximo cambio de turno</span>
-                <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-                  <label style={{fontSize:11,color:C.textSub,fontWeight:600}}>Próximo ingreso:</label>
-                  <input
-                    type="date"
-                    value={proxTurno}
-                    onChange={e=>saveProxTurno(e.target.value)}
-                    style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,padding:"4px 8px",fontSize:12,outline:"none"}}
-                  />
-                </div>
-              </div>
-
-              {pmTurno.length===0
-                ?<div style={{padding:"24px",textAlign:"center",color:C.green,fontSize:12,fontWeight:600}}>
-                  ✅ Ningún equipo tiene PM en las próximas 85 hs
-                </div>
-                :<div style={{overflowX:"auto"}}>
-                  <div style={{padding:"8px 16px 4px",fontSize:11,color:C.textMuted}}>
-                    {pmTurno.length} equipo{pmTurno.length!==1?"s":""} con PM en las próximas 85 hs · ordenados por urgencia
-                  </div>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                    <thead>
-                      <tr style={{background:C.surface}}>
-                        {[{k:"maquinaKey",l:"Equipo"},{k:"tipoEquipo",l:"Tipo"},{k:"proyecto",l:"Proyecto"},{k:"horometroActual",l:"Hs actual"},{k:"_pmTipo",l:"Próximo PM"},{k:"restantesHs",l:"Hs restantes"},{k:"hsDia",l:<span style={{display:"inline-flex",alignItems:"center",gap:4}}>Prom. hs/día<HelpTip text={"Promedio de horas trabajadas por día en los últimos 14 días de ROP02.\n\nCálculo: suma de horas registradas ÷ días con al menos un registro en ese período.\n\nSi el equipo no tiene registros en los últimos 14 días, la columna muestra — y la columna de días queda sin dato."}/></span>},{k:"diasEstimados",l:"En cuántos días"}].map(h=>(
-                          <SortTH key={h.k} colKey={h.k} sortHook={sortTurno} style={{padding:"6px 14px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h.l}</SortTH>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortTurno.sorted(pmTurno,{_pmTipo:e=>e.pmProximo?.tipo}).map(e=>{
-                        const pCol=PM_COLOR[e.pmProximo.tipo]||C.accent;
-                        const urgente=e.restantesHs<=20;
-                        const rowBg=urgente?C.red+"0a":C.yellow+"06";
-                        return(
-                          <tr key={e.maquinaKey} style={{borderBottom:`1px solid ${C.border}18`,background:rowBg}}>
-                            <td style={{padding:"8px 14px"}}>
-                              <span style={{fontWeight:800,color:C.purple,background:C.purple+"22",padding:"2px 8px",borderRadius:5,fontSize:11}}>{e.maquinaKey}</span>
-                            </td>
-                            <td style={{padding:"8px 14px",fontSize:11,color:C.textSub}}>{e.tipoEquipo||"—"}</td>
-                            <td style={{padding:"8px 14px",fontSize:11,color:C.textSub}}>{e.proyecto||"—"}</td>
-                            <td style={{padding:"8px 14px",fontWeight:700,color:C.text}}>{fmtNum(e.horometroActual)} hs</td>
-                            <td style={{padding:"8px 14px"}}>
-                              <span style={{fontWeight:800,fontSize:11,color:pCol,background:pCol+"18",padding:"2px 8px",borderRadius:5}}>{e.pmProximo.tipo}</span>
-                              <span style={{marginLeft:6,fontSize:11,color:C.textSub}}>@ {fmtNum(e.pmProximo.hs)} hs</span>
-                            </td>
-                            <td style={{padding:"8px 14px",fontWeight:800,color:urgente?C.red:C.yellow,fontSize:13}}>
-                              {fmtNum(e.restantesHs)} hs
-                            </td>
-                            <td style={{padding:"8px 14px",color:e.hsDia>0?C.text:C.textMuted}}>
-                              {e.hsDia>0?`${e.hsDia} hs/día`:<span style={{color:C.textMuted,fontSize:11}}>—</span>}
-                            </td>
-                            <td style={{padding:"8px 14px",fontWeight:700}}>
-                              {e.diasEstimados!=null
-                                ?<span style={{color:urgente?C.red:e.diasEstimados<=3?C.yellow:C.text}}>
-                                    {e.diasEstimados===0?"Hoy":e.diasEstimados===1?"Mañana":`${e.diasEstimados} días`}
-                                  </span>
-                                :<span style={{color:C.textMuted,fontSize:11}}>Sin dato</span>
-                              }
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              }
-            </div>
-          );
-        })()}
-      </>}
-
-      {/* ══════ TAB: CONTROL ══════ */}
-      {tab==="control"&&<>
-        <div style={{display:"flex",gap:14,flexWrap:"wrap",fontSize:11,color:C.textSub,
-          background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 14px",alignItems:"center"}}>
-          <span><Badge color={C.teal}>●</Badge> PM350 · cada 350 hs</span>
-          <span><Badge color={C.accent}>●</Badge> PM1000 · a 1000, 3000, 5000…</span>
-          <span><Badge color={C.purple}>●</Badge> PM2000 · a 2000, 4000, 6000…</span>
-          <span style={{marginLeft:"auto",fontSize:10,color:C.textMuted}}>Historial desde el bloque PM anterior · marcá cuando se realice</span>
-        </div>
-
-        {equiposFiltrados.length===0
-          ?<Card><div style={{padding:32,textAlign:"center",color:C.textMuted,fontSize:13}}>Sin equipos para los filtros aplicados.</div></Card>
-          :<div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {equiposFiltrados.map(equipo=>{
-              const hActual=equipo.horometroActual;
-              return(
-                <div key={equipo.maquinaKey} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
-                  {/* Header */}
-                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:C.surface,borderBottom:`1px solid ${C.border}`}}>
-                    <Badge color={C.purple}>{equipo.maquinaKey}</Badge>
-                    {equipo.tipoEquipo&&<Badge color={C.teal}>{equipo.tipoEquipo}</Badge>}
-                    {equipo.proyecto&&<Badge color={equipo.proyecto.includes("FILO")?C.accent:C.blue}>{equipo.proyecto}</Badge>}
-                    {hActual!=null&&
-                      <span style={{fontSize:11,color:C.textSub,background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"2px 8px",fontWeight:600}}>
-                        🕐 <strong style={{color:C.text}}>{fmtNum(hActual)} hs</strong>
-                      </span>
-                    }
-                  </div>
-
-                  {/* Tabla secuencia */}
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                      <thead>
-                        <tr style={{background:C.surface}}>
-                          {["Horómetro","Tipo PM","Estado","¿Se realizó?","Horómetro al realizar","Fecha"].map(h=>(
-                            <th key={h} style={{padding:"6px 14px",textAlign:"left",fontSize:10,fontWeight:700,
-                              color:C.textSub,textTransform:"uppercase",letterSpacing:".06em",
-                              borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {calcBloqueVisible(equipo.lastMajorHs,hActual,controlData,equipo.maquinaKey).map((s,idx)=>{
-                          const cKey=`${equipo.maquinaKey}__${s.hs}`;
-                          const done=controlData[cKey];
-                          const pasado=hActual!=null&&hActual>=s.hs;
-                          const esProximo=hActual!=null&&!pasado&&s.hs===equipo.proximo?.hs;
-                          const restantes=hActual!=null?s.hs-hActual:null;
-                          const alerta=restantes!=null&&restantes>0&&restantes<=PM_ALERT_HS;
-                          const pCol=PM_COLOR[s.tipo]||C.accent;
-                          const rowBg=done?C.green+"0d":esProximo?(alerta?C.yellow+"14":pCol+"0d"):"transparent";
-                          const textCol=pasado&&!done?C.textMuted:C.text;
-                          return(
-                            <tr key={idx} style={{background:rowBg,borderBottom:`1px solid ${C.border}18`,opacity:pasado&&!done?0.55:1}}>
-                              <td style={{padding:"7px 14px",fontWeight:700,color:textCol}}>{fmtNum(s.hs)} hs</td>
-                              <td style={{padding:"7px 14px"}}>
-                                <span style={{fontWeight:800,fontSize:11,color:pCol,background:pCol+"18",padding:"2px 8px",borderRadius:5}}>{s.tipo}</span>
-                              </td>
-                              <td style={{padding:"7px 14px"}}>
-                                {done
-                                  ?<span style={{color:C.green,fontWeight:700}}>✔ Hecho</span>
-                                  :pasado
-                                    ?<span style={{color:C.red,fontWeight:700}}>✖ Vencido</span>
-                                    :esProximo
-                                      ?<span style={{color:alerta?C.yellow:pCol,fontWeight:700}}>
-                                          {alerta?`⚠ ${fmtNum(restantes)} hs`:`→ ${fmtNum(restantes)} hs`}
-                                        </span>
-                                      :restantes!=null
-                                        ?<span style={{color:C.textMuted}}>{fmtNum(restantes)} hs</span>
-                                        :<span style={{color:C.textMuted}}>—</span>
-                                }
-                              </td>
-                              <td style={{padding:"7px 14px"}}>
-                                <button onClick={()=>toggleControl(equipo.maquinaKey,s.hs,hActual)}
-                                  style={{display:"inline-flex",alignItems:"center",gap:5,
-                                    background:done?C.greenDim:C.surface,
-                                    border:`1px solid ${done?C.green+"66":C.border}`,
-                                    borderRadius:6,color:done?C.green:C.textSub,
-                                    padding:"4px 11px",fontSize:11,fontWeight:done?800:400,cursor:"pointer",
-                                    transition:"all .15s"}}>
-                                  {done?"✔ Realizado":"Marcar"}
-                                </button>
-                              </td>
-                              <td style={{padding:"7px 14px",color:done&&done.horometro!=null?C.teal:C.textMuted,fontWeight:done&&done.horometro!=null?700:400,fontSize:11}}>
-                                {done&&done.horometro!=null?`${fmtNum(done.horometro)} hs`:"—"}
-                              </td>
-                              <td style={{padding:"7px 14px",color:done?C.text:C.textMuted,fontSize:11}}>
-                                {done?done.fecha:"—"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Desplegable historial completo */}
-                  <div style={{borderTop:`1px solid ${C.border}22`}}>
-                    <button
-                      onClick={()=>toggleHistorial(equipo.maquinaKey)}
-                      style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
-                        padding:"7px 14px",background:"transparent",border:"none",cursor:"pointer",
-                        color:C.textMuted,fontSize:11,fontWeight:600}}>
-                      <span>{historialOpen[equipo.maquinaKey]?"▲ Ocultar historial PM visible":"▼ Ver historial PM visible"}</span>
-                      {(()=>{
-                        const historial=calcHistorialPMVisible(equipo.lastMajorHs,hActual,controlData,equipo.maquinaKey);
-                        const total=historial.filter(s=>controlData[`${equipo.maquinaKey}__${s.hs}`]).length;
-                        return total>0?<span style={{color:C.green,fontWeight:700}}>{total} realizados</span>:null;
-                      })()}
-                    </button>
-                    {historialOpen[equipo.maquinaKey]&&(
-                      <div style={{overflowX:"auto",borderTop:`1px solid ${C.border}22`}}>
-                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                          <thead>
-                            <tr style={{background:C.surface}}>
-                              {["Horómetro","Tipo PM","¿Se realizó?","Horómetro al realizar","Fecha"].map(h=>(
-                                <th key={h} style={{padding:"5px 14px",textAlign:"left",fontSize:9,fontWeight:700,
-                                  color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em",
-                                  borderBottom:`1px solid ${C.border}`}}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {calcHistorialPMVisible(equipo.lastMajorHs,hActual,controlData,equipo.maquinaKey).map((s,idx)=>{
-                              const cKey=`${equipo.maquinaKey}__${s.hs}`;
-                              const done=controlData[cKey];
-                              const pasado=hActual!=null&&hActual>=s.hs;
-                              const pCol=PM_COLOR[s.tipo]||C.accent;
-                              return(
-                                <tr key={idx} style={{borderBottom:`1px solid ${C.border}12`,
-                                  background:done?C.green+"0d":"transparent",
-                                  opacity:pasado&&!done?0.4:1}}>
-                                  <td style={{padding:"5px 14px",fontWeight:700,color:done?C.text:pasado?C.textMuted:C.textSub}}>
-                                    {fmtNum(s.hs)} hs
-                                  </td>
-                                  <td style={{padding:"5px 14px"}}>
-                                    <span style={{fontWeight:800,fontSize:10,color:pCol,background:pCol+"18",padding:"1px 6px",borderRadius:4}}>{s.tipo}</span>
-                                  </td>
-                                  <td style={{padding:"5px 14px"}}>
-                                    <button onClick={()=>toggleControl(equipo.maquinaKey,s.hs,hActual)}
-                                      style={{display:"inline-flex",alignItems:"center",gap:4,
-                                        background:done?C.greenDim:C.surface,
-                                        border:`1px solid ${done?C.green+"66":C.border}`,
-                                        borderRadius:5,color:done?C.green:C.textSub,
-                                        padding:"3px 9px",fontSize:10,fontWeight:done?800:400,cursor:"pointer"}}>
-                                      {done?"✔ Realizado":"Marcar"}
-                                    </button>
-                                  </td>
-                                  <td style={{padding:"5px 14px",color:done&&done.horometro!=null?C.teal:C.textMuted,fontWeight:done&&done.horometro!=null?700:400,fontSize:10}}>
-                                    {done&&done.horometro!=null?`${fmtNum(done.horometro)} hs`:"—"}
-                                  </td>
-                                  <td style={{padding:"5px 14px",color:done?C.text:C.textMuted,fontSize:10}}>
-                                    {done?done.fecha:"—"}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        }
-      </>}
-
-    </div>
-  );
-}
-
-
-
-
-
-
-
 // ─── Login ────────────────────────────────────────────────────────────────────
 function Login({onLogin}){
   const USUARIOS_PERMITIDOS=[
@@ -8259,6 +7596,25 @@ function readExcelAsObjects(file,targetOrHeaderRow){
           });
         }
 
+        // ROP02: leer SIEMPRE por posición fija según la estructura actual:
+        // A Fecha · B Interno · C Equipo · D Operador · E Supervisor Delta · F Supervisor Cliente
+        // G Turno · H N° Parte · I Proyecto · J HI · K HF · L Cant. Hs. · M Combustible
+        // N Aceite · O Trabajo · P Desgaste · Q Observaciones.
+        // Esto evita corrimientos cuando se agregó la columna C "Equipo" al lado de "Interno".
+        if(target?.kind==="rop02"){
+          const rows=[];
+          for(let i=headerIdx+1;i<matrix.length;i++){
+            const arr=matrix[i]||[];
+            if(arr.every(v=>String(v||"").trim()===""))continue;
+            rows.push(buildROP02ImportObjectByPosition(arr,target.proyecto));
+          }
+          return resolve({
+            sheetName:selectedSheetName,
+            headers:["Fecha","Interno","Equipo","Operador","Supervisor Delta","Supervisor Vial Cliente","Turno de trabajo","N° Parte","Proyecto","Horómetro inicial","Horómetro final","Cant. Hs.","Combustible","Aceite","Descripción de los trabajos realizados","Información sobre Desgaste","Observaciones"],
+            rows
+          });
+        }
+
         const header=(matrix[headerIdx]||[]).map(normalizeExcelHeader);
         const rows=[];
         for(let i=headerIdx+1;i<matrix.length;i++){
@@ -8317,8 +7673,10 @@ function rowLooksLikeGenericHeader(row){
   const looksROP02Header =
     (c0==="fecha"||c0==="fecha:"||c0.includes("fecha")) &&
     (c1==="interno"||c1.includes("interno")) &&
-    (c2.includes("operador")||c2.includes("operario")) &&
-    c3.includes("supervisor");
+    (
+      ((c2==="equipo"||c2.includes("equipo")) && (c3.includes("operador")||c3.includes("operario")) && c4.includes("supervisor")) ||
+      ((c2.includes("operador")||c2.includes("operario")) && c3.includes("supervisor"))
+    );
 
   const looksROP05Header =
     (c0.includes("fechacarga")||c0.includes("fecha carga")||c0.includes("marca temporal")) &&
@@ -8337,22 +7695,23 @@ function rowLooksLikeGenericHeader(row){
 function buildROP02ImportObjectByPosition(arr,proyectoDefault){
   const fecha=cellStr(arr,0);
   const interno=cellStr(arr,1);
-  const operador=cellStr(arr,2);
-  const supervisorDelta=cellStr(arr,3);
-  const supervisorCliente=cellStr(arr,4);
-  const turno=cellStr(arr,5);
-  const parte=cellStr(arr,6);
-  const proyecto=cellStr(arr,7)||proyectoDefault||"";
-  const hi=cellStr(arr,8);
-  const hf=cellStr(arr,9);
-  const hs=cellStr(arr,10);
-  const combustible=cellStr(arr,11);
-  const aceite=cellStr(arr,12);
-  const descripcion=cellStr(arr,13);
-  const desgaste=cellStr(arr,14);
-  const observaciones=cellStr(arr,15);
+  const equipo=cellStr(arr,2);
+  const operador=cellStr(arr,3);
+  const supervisorDelta=cellStr(arr,4);
+  const supervisorCliente=cellStr(arr,5);
+  const turno=cellStr(arr,6);
+  const parte=cellStr(arr,7);
+  const proyecto=cellStr(arr,8)||proyectoDefault||"";
+  const hi=cellStr(arr,9);
+  const hf=cellStr(arr,10);
+  const hs=cellStr(arr,11);
+  const combustible=cellStr(arr,12);
+  const aceite=cellStr(arr,13);
+  const descripcion=cellStr(arr,14);
+  const desgaste=cellStr(arr,15);
+  const observaciones=cellStr(arr,16);
   return {
-    Fecha:fecha,Interno:interno,Operador:operador,"Supervisor Delta":supervisorDelta,"Supervisor Vial Cliente":supervisorCliente,
+    Fecha:fecha,Interno:interno,Equipo:equipo,Operador:operador,"Supervisor Delta":supervisorDelta,"Supervisor Vial Cliente":supervisorCliente,
     "Turno de trabajo":turno,"N° Parte":parte,Proyecto:proyecto,"Horómetro inicial":hi,"Horómetro final":hf,"Cant. Hs.":hs,
     Combustible:combustible,Aceite:aceite,"Descripción de los trabajos realizados":descripcion,"Información sobre Desgaste":desgaste,Observaciones:observaciones
   };
@@ -8457,7 +7816,7 @@ function buildRowsFromPastedTextForTarget(target,text){
 }
 function pasteStructureText(target){
   if(target.kind==="rop05")return "A FechaCarga · B Supervisor · C Proyecto · D Grupo · E Equipo · F Parte · G Tipo · H FechaParte · I Tarea · J Horas · K Cantidad · L Unidad · M Observación. También acepta exportación con A ID_Carga y datos desde B:N.";
-  if(target.kind==="rop02")return "A Fecha · B Interno · C Operador · D Supervisor Delta · E Supervisor Cliente · F Turno · G N° Parte · H Proyecto · I Horómetro Inicial · J Horómetro Final · K Cant. Hs. · L Combustible · M Aceite · N Trabajo · O Desgaste · P Observaciones";
+  if(target.kind==="rop02")return "A Fecha · B Interno · C Equipo · D Operador · E Supervisor Delta · F Supervisor Cliente · G Turno · H N° Parte · I Proyecto · J Horómetro Inicial · K Horómetro Final · L Cant. Hs. · M Combustible · N Aceite · O Trabajo · P Desgaste · Q Observaciones";
   if(target.kind==="rma15")return "A Fecha OT · B Turno · C Proyecto · D Tipo mantenimiento · E Equipo · F Código interno · G Km/hs · H Intervención · I Operativo · J Observaciones · desde K: cantidad/código/nombre. También acepta A ID/RowKey y datos desde B.";
   if(target.kind==="insumos")return "A Código · B Descripción · C Precio unitario · D Descripción adicional";
   return "Pegá las columnas en el mismo orden de la planilla base.";
@@ -8467,7 +7826,7 @@ function previewColsForPasteTarget(target){
     {key:"FechaCarga",label:"Fecha carga"},{key:"CorreoSupervisor",label:"Supervisor"},{key:"Proyecto",label:"Proyecto"},{key:"Equipo",label:"Equipo"},{key:"NroParte",label:"Parte"},{key:"FechaParte",label:"Fecha parte"},{key:"Tarea",label:"Tarea",wrap:true},{key:"HorasProductivas",label:"Horas"},{key:"CantidadProduccion",label:"Cantidad"},{key:"Unidad",label:"Unidad"}
   ];
   if(target.kind==="rop02")return [
-    {key:"Fecha",label:"Fecha"},{key:"Interno",label:"Equipo"},{key:"Operador",label:"Operador"},{key:"Supervisor Delta",label:"Supervisor"},{key:"Turno de trabajo",label:"Turno"},{key:"N° Parte",label:"Parte"},{key:"Horómetro inicial",label:"HI"},{key:"Horómetro final",label:"HF"},{key:"Cant. Hs.",label:"Hs"},{key:"Descripción de los trabajos realizados",label:"Trabajo",wrap:true}
+    {key:"Fecha",label:"Fecha"},{key:"Interno",label:"Interno"},{key:"Equipo",label:"Equipo"},{key:"Operador",label:"Operador"},{key:"Supervisor Delta",label:"Supervisor"},{key:"Turno de trabajo",label:"Turno"},{key:"N° Parte",label:"Parte"},{key:"Horómetro inicial",label:"HI"},{key:"Horómetro final",label:"HF"},{key:"Cant. Hs.",label:"Hs"},{key:"Descripción de los trabajos realizados",label:"Trabajo",wrap:true}
   ];
   if(target.kind==="rma15")return [
     {key:"Fecha de OT",label:"Fecha OT"},{key:"CODIGO N° INTERNO",label:"Equipo"},{key:"EQUIPO",label:"Tipo equipo"},{key:"TURNO EN QUE SE HIZO LA OT",label:"Turno"},{key:"TIPO DE MANTENIMIENTO",label:"Tipo Mant."},{key:"Km / hs",label:"Km/Hs"},{key:"INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)",label:"Intervención",wrap:true}
@@ -11926,7 +11285,7 @@ export default function App(){
   };
   const savedOr=(key,def)=>normalizeSavedState(savedAppFilters&&savedAppFilters[key],def);
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
-  const[view,setView]=useState(()=>savedOr("view","bienvenida"));
+  const[view,setView]=useState("bienvenida");
   const[loading,setLoading]=useState(false);
   const[rop02All,setRop02All]=useState([]);
   const[rop05,setRop05]=useState([]);
@@ -12000,19 +11359,22 @@ export default function App(){
   const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_rop05:true,grp_rma15:true,grp_admin:true}));
   const[usdRate,setUsdRate]=useState(null);
 
-  // Obtener tipo de cambio ARS→USD al cargar
+  // Tipo de cambio: se pide recién cuando una vista de costos/mantenimiento lo necesita.
   useEffect(()=>{
+    const needsUsd=["mant","costosMant","costosUnitarios"].includes(view);
+    if(!needsUsd||usdRate)return;
+    let alive=true;
     fetch("https://api.exchangerate-api.com/v4/latest/USD")
       .then(r=>r.json())
-      .then(d=>{if(d.rates?.ARS)setUsdRate(d.rates.ARS);})
+      .then(d=>{if(alive&&d.rates?.ARS)setUsdRate(d.rates.ARS);})
       .catch(()=>{
-        // Fallback: dolar blue via otra API
         fetch("https://dolarapi.com/v1/dolares/blue")
           .then(r=>r.json())
-          .then(d=>{if(d.venta)setUsdRate(d.venta);})
-          .catch(()=>setUsdRate(1300));
+          .then(d=>{if(alive&&d.venta)setUsdRate(d.venta);})
+          .catch(()=>{if(alive)setUsdRate(1300);});
       });
-  },[]);
+    return()=>{alive=false;};
+  },[view,usdRate]);
   const[insumos,setInsumos]=useState({});
   const[st02,setSt02]=useState(()=>savedOr("st02",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
   const[stHorometros,setStHorometros]=useState(()=>savedOr("stHorometros",{mode:"periodo",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
@@ -12026,19 +11388,18 @@ export default function App(){
     const t=setTimeout(()=>{
       try{
         window.localStorage.setItem(APP_FILTERS_STATE_KEY,JSON.stringify({
-          view,sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stCtrlEquipo,st05,stCtrl
+          sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stCtrlEquipo,st05,stCtrl
         }));
       }catch(_){}
     },250);
     return()=>clearTimeout(t);
-  },[view,sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stCtrlEquipo,st05,stCtrl]);
+  },[sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stCtrlEquipo,st05,stCtrl]);
 
 
 
   // Normaliza todo cada vez que llega una fuente nueva.
   // Ventaja: podemos cargar por pestaña sin perder consistencia entre ROP02, ROP05, RMA15 e insumos.
   useEffect(()=>{
-    setDataHydrated(false);
     const src=rawSources||{};
     const errs=[];
 
@@ -12136,7 +11497,6 @@ export default function App(){
             next[key]=val;
           }
         });
-        saveDataSourcesToStorage(next);
         return next;
       });
       setLoadedSources(prev=>{
@@ -12156,8 +11516,14 @@ export default function App(){
     else await loadInitial();
   },[view,loadSources,loadInitial]);
 
-  useEffect(()=>{loadInitial();},[loadInitial]);
-  useEffect(()=>{loadSources(VIEW_SOURCES[view]||[]);},[view,loadSources]);
+  useEffect(()=>{
+    if(view==="bienvenida")return;
+    if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){
+      loadInitial();
+      return;
+    }
+    loadSources(VIEW_SOURCES[view]||[]);
+  },[view,loadSources,loadInitial]);
 
   const navStructure=[
     {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
@@ -12178,16 +11544,12 @@ export default function App(){
       {id:"rma15CtrlEquipo",icon:"bulldozer",label:"Control por Equipo"},
       {id:"costosMant",icon:"report",label:"Informe de Costos"},
       {id:"costosUnitarios",icon:"dollar",label:"Costos Unitarios"},
-      {id:"pmProgramado",icon:"hourglass",label:"Mant. Programado"},
     ]},
     {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:control.problemas>0?control.problemas:null},
     {id:"listaEquipos",icon:"bulldozer",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.green},
   ];
-  const adminNav={id:"grp_admin",icon:"gear",label:"ADMINISTRACIÓN",type:"group",color:C.red,children:[
-    {id:"importExcel",icon:"parts",label:"Actualización de datos"},
-  ]};
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",importExcel:"Actualización de datos",pmProgramado:"Mantenimiento Programado"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -12204,8 +11566,6 @@ export default function App(){
     costosMant:"Resume los costos de mantenimiento, mano de obra y amortización. Permite analizar costos mensuales acumulados y obtener costos por hora en USD por equipo.",
     costosUnitarios:"Listado de artículos de la Base de datos costos: código, artículo y precio unitario usado para valorizar insumos de mantenimiento.",
     control:"Cruza ROP02 (partes diarios) contra ROP05 (producción) para detectar registros de un lado que no tienen su contraparte en el otro (turnos sin producción cargada o producción sin parte diario).",
-    importExcel:"Pegá datos copiados desde Excel o Sheets para actualizar las planillas base. Podés cargar varias planillas a la vez, analizar los cambios y confirmar la actualización.",
-    pmProgramado:"Seguimiento de los Planes de Mantenimiento (PM) por equipo. PM350: cada 350 hs. PM1000: en múltiplos globales de 1000 hs. PM2000: en múltiplos globales de 2000 hs. El horómetro actual se toma del último ROP02 registrado. El dashboard muestra equipos con PM próximo a vencer y los que deben hacerse durante el próximo turno.",
   };
   const SW=sidebarOpen?240:52;
 
@@ -12261,28 +11621,6 @@ export default function App(){
               );
             })}
           </nav>
-          <div style={{borderTop:`1px solid ${C.border}33`,padding:"8px 0 10px",background:"transparent"}}>
-            <button onClick={()=>setNavOpen(o=>({...o,[adminNav.id]:!o[adminNav.id]}))}
-              title={!sidebarOpen?adminNav.label:undefined}
-              style={{width:"100%",background:view==="importExcel"?C.accentDim:"none",border:"none",borderLeft:`2px solid ${view==="importExcel"?C.accent:adminNav.color+"55"}`,padding:sidebarOpen?"10px 14px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
-              <Icon name={adminNav.icon} size={17} color={view==="importExcel"?C.accent:adminNav.color}/>
-              {sidebarOpen&&(<>
-                <span style={{fontSize:12,fontWeight:700,color:view==="importExcel"?C.accent:C.textSub,flex:1,textAlign:"left"}}>{adminNav.label}</span>
-                <Icon name="chevronDown" size={14} color={C.textMuted} style={{transform:navOpen[adminNav.id]?"rotate(0deg)":"rotate(-90deg)",transition:"transform .15s"}}/>
-              </>)}
-            </button>
-            {navOpen[adminNav.id]&&adminNav.children.map(child=>{
-              const active=view===child.id;
-              return(
-                <button key={child.id} onClick={()=>setView(child.id)}
-                  title={!sidebarOpen?child.label:undefined}
-                  style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:adminNav.color+"22"}`,padding:sidebarOpen?"10px 14px 10px 28px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
-                  <Icon name={child.icon} size={17} color={active?C.accent:adminNav.color+"cc"}/>
-                  {sidebarOpen&&<span style={{fontSize:12,fontWeight:500,color:active?C.accent:C.textSub,flex:1,textAlign:"left"}}>{child.label}</span>}
-                </button>
-              );
-            })}
-          </div>
         </div>
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent"}}>
           <div style={{height:50,flexShrink:0,background:"rgba(22,22,22,0.65)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${C.border}44`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
@@ -12332,11 +11670,9 @@ export default function App(){
                 {view==="mant"&&(viewDataReady?<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
                 {view==="rma15CtrlEquipo"&&(dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
-                {view==="pmProgramado"&&(dataHydrated?<ViewMantenimientoProgramado rop02All={rop02All} listaEquipos={listaEquipos}/>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
                 {view==="control"&&(dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<BlockingDataLoader label="Cargando Control ROP05 vs ROP02..." />)}
-                {view==="importExcel"&&<ViewImportExcel rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} rawSources={rawSources} onReload={loadData}/>}
               </>
             )}
           </div>
