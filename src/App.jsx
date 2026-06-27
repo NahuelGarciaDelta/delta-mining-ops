@@ -619,10 +619,12 @@ function detectEstado(trabajo,obs,hs){
   // La fuente de verdad es la columna Cant. Hs.:
   // "FS" o "FUERA DE SERVICIO" → FS
   // "OD" u "ORDEN DEL DIA" → OD (Operativo a Disposición)
+  // "EM" → Equipo en mantenimiento
   // cualquier número (o vacío) → TRABAJO efectivo
   const hsStr=String(hs||"").trim().toUpperCase();
   if(/\bFS\b/.test(hsStr)||hsStr.includes("FUERA DE SERVICIO"))return"FS";
   if(/\bOD\b/.test(hsStr)||hsStr.includes("ORDEN DEL DIA")||hsStr.includes("ORDEN DEL DÍA"))return"OD";
+  if(/\bEM\b/.test(hsStr)||hsStr.includes("EQUIPO EN MANTENIMIENTO")||hsStr.includes("EN MANTENIMIENTO"))return"EM";
   return"TRABAJO";
 }
 // Normaliza nombres de proyecto: VICUÑA y sus variantes → FILO DEL SOL
@@ -796,7 +798,7 @@ function normalizeROP02(rows,proyectoDefault){
       turno:String(r["Turno de trabajo"]||"").trim(),parte:String(r["N° Parte"]||"").trim(),
       proyecto:normProject(r["Proyecto"]||proyectoDefault),
       horometroInicial:toNumber(r["Horómetro inicial"]),horometroFinal:toNumber(r["Horómetro final"]),
-      horas:toNumber(cantHs),combustible:toNumber(r["Combustible"]),
+      horasRaw:String(cantHs||"").trim(),horas:toNumber(cantHs),combustible:toNumber(r["Combustible"]),
       aceite:String(r["Aceite"]||"").trim(),tipo_trabajo:trabajo,
       desgaste:String(r["Información sobre Desgaste"]||"").trim(),observaciones:obs,
       estado:detectEstado(trabajo,obs,cantHs),
@@ -924,7 +926,7 @@ function normalizeROP05(rows){
   }).filter(r=>r.fecha&&r.maquina);
 }
 
-function esNoProductivo(e){const s=String(e||"").toUpperCase();return s==="FS"||s==="OD"||s.includes("FUERA")||s.includes("OTRO");}
+function esNoProductivo(e){const s=String(e||"").toUpperCase();return s==="FS"||s==="OD"||s==="EM"||s.includes("FUERA")||s.includes("OTRO")||s.includes("MANTENIMIENTO");}
 function calcControl(rop02All,rop05){
   const productivos=(rop02All||[]).filter(r=>!esNoProductivo(r.estado)&&!r._excluded);
   const prod05=(rop05||[]).filter(r=>!r._excluded);
@@ -1329,6 +1331,7 @@ function MultiSel({label,value,onChange,options}){
   const[tipPos,setTipPos]=useState({top:0,left:0});
   const ref=useRef(null);
   const btnRef=useRef(null);
+  const rafRef=useRef(null);
   const def=multiDefault(options);
   const selected=normalizeMultiValue(value,options);
   const selectedArr=Array.isArray(selected)?selected:[];
@@ -1339,12 +1342,16 @@ function MultiSel({label,value,onChange,options}){
   const updatePos=useCallback(()=>{
     const el=btnRef.current;
     if(!el)return;
-    const r=el.getBoundingClientRect();
-    const width=Math.max(240,r.width);
-    let left=r.left;
-    if(left+width>window.innerWidth-12)left=window.innerWidth-width-12;
-    left=Math.max(12,left);
-    setPos({top:r.bottom+6,left,width});
+    if(rafRef.current)cancelAnimationFrame(rafRef.current);
+    rafRef.current=requestAnimationFrame(()=>{
+      const r=el.getBoundingClientRect();
+      const width=Math.max(240,r.width);
+      let left=r.left;
+      if(left+width>window.innerWidth-12)left=window.innerWidth-width-12;
+      left=Math.max(12,left);
+      const next={top:r.bottom+6,left,width};
+      setPos(prev=>prev.top===next.top&&prev.left===next.left&&prev.width===next.width?prev:next);
+    });
   },[]);
 
   const updateTipPos=useCallback(()=>{
@@ -1353,7 +1360,7 @@ function MultiSel({label,value,onChange,options}){
     const r=el.getBoundingClientRect();
     let left=r.left;
     let top=r.bottom+8;
-    setTipPos({top,left});
+    setTipPos(prev=>prev.top===top&&prev.left===left?prev:{top,left});
   },[]);
 
   useEffect(()=>{
@@ -1363,7 +1370,10 @@ function MultiSel({label,value,onChange,options}){
       setOpen(false);
     };
     document.addEventListener("mousedown",handler);
-    return()=>document.removeEventListener("mousedown",handler);
+    return()=>{
+      document.removeEventListener("mousedown",handler);
+      if(rafRef.current)cancelAnimationFrame(rafRef.current);
+    };
   },[]);
 
   useEffect(()=>{
@@ -3010,7 +3020,7 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
   // Ejemplo: si elegís una máquina, el filtro Estado solo muestra los estados existentes para esa máquina.
   const estado=extState?.estado||"todos";
   const setEstado=v=>setExtState(s=>({...s,estado:v}));
-  const estadoOptions=useMemo(()=>uniq(filteredBase.map(r=>r.estado).filter(Boolean)),[filteredBase]);
+  const estadoOptions=useMemo(()=>{const o=uniq(filteredBase.map(r=>r.estado).filter(Boolean)); if(!o.includes("EM")) o.push("EM"); return o;},[filteredBase]);
   const[tipoMaquinaROP02,setTipoMaquinaROP02]=useState("todas");
   const filtered=useMemo(()=>{
     let base=filteredBase;
@@ -3029,6 +3039,7 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
     prod:filtered.filter(r=>r.estado==="TRABAJO").length,
     od:filtered.filter(r=>r.estado==="OD").length,
     fs:filtered.filter(r=>r.estado==="FS").length,
+    em:filtered.filter(r=>r.estado==="EM").length,
     desgaste:filtered.filter(r=>r.desgaste&&r.desgaste.trim()!==""&&!r.desgaste.toLowerCase().includes("sin consumo")).length,
   }),[filtered]);
   const horasFecha=useMemo(()=>{if(mode!=="periodo")return[];const m={};filtered.forEach(r=>{m[r.fecha]=(m[r.fecha]||0)+r.horas;});return Object.entries(m).sort().map(([fecha,horas])=>({fecha,horas}));},[filtered,mode]);
@@ -3039,9 +3050,9 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
     {key:"operario",label:"Operario"},
     {key:"supervisor",label:"Supervisor"},
     {key:"tipo_trabajo",label:"Tarea",render:v=><span style={{display:"block",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={v}>{v||"—"}</span>},
-    {key:"horas",label:"Horas",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
+    {key:"horas",label:"Horas",render:(v,r)=>{const est=String(r?.estado||"").toUpperCase();return est==="OD"||est==="FS"||est==="EM"?<Badge color={est==="FS"?C.red:est==="EM"?C.purple:C.yellow}>{est}</Badge>:<span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>;}},
     {key:"combustible",label:"Comb.",render:v=>fmtNum(v)},
-    {key:"estado",label:"Estado",render:v=><Badge color={v==="FS"?C.red:v==="OD"?C.yellow:C.green}>{v==="OD"?"OD":v||"—"}</Badge>},
+    {key:"estado",label:"Estado",render:v=><Badge color={v==="FS"?C.red:v==="EM"?C.purple:v==="OD"?C.yellow:C.green}>{v||"—"}</Badge>},
     {key:"desgaste",label:"Desgaste",wrap:true,render:v=>v&&!v.toLowerCase().includes("sin consumo")?<Badge color={C.purple}>{v}</Badge>:<span style={{color:C.textMuted}}>—</span>},
     {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
   ],[]);
@@ -3096,6 +3107,7 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
                 {value:"TRABAJO",label:"✅ Trabajo efectivo"},
                 {value:"OD",label:"🟡 Operativo a Disposición"},
                 {value:"FS",label:"🔴 Fuera de servicio"},
+                {value:"EM",label:"🟣 En mantenimiento"},
               ].filter(o=>estadoOptions.includes(o.value)),
             ]}/>
             <button onClick={resetAll} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltrosConEstado?1:0.3,pointerEvents:hayFiltrosConEstado?"auto":"none"}}>
@@ -4161,7 +4173,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   const [editSuccess,setEditSuccess]=React.useState(false);
   React.useEffect(()=>{
     if(!fichaActual)return;
-    const mk=(r)=>r?{parte:String(r.parte||""),hi:r.horometroInicial!=null?String(r.horometroInicial):"",hf:r.horometroFinal!=null?String(r.horometroFinal):"",tarea:String(r.tipo_trabajo||""),obs:String(r.observaciones||""),desgaste:String(r.desgaste||""),combustible:r.combustible!=null&&Number(r.combustible)>0?String(r.combustible):"",aceite:String(r.aceite||""),horas:r.horas!=null?String(r.horas):""}:{};
+    const mk=(r)=>r?{parte:String(r.parte||""),hi:r.horometroInicial!=null?String(r.horometroInicial):"",hf:r.horometroFinal!=null?String(r.horometroFinal):"",tarea:String(r.tipo_trabajo||""),obs:String(r.observaciones||""),desgaste:String(r.desgaste||""),combustible:r.combustible!=null&&Number(r.combustible)>0?String(r.combustible):"",aceite:String(r.aceite||""),horas:(r.estado==="OD"||r.estado==="FS"||r.estado==="EM")?String(r.horasRaw||r.estado):(r.horas!=null?String(r.horas):"")}:{};
     setEditDraft({TD:mk(fichaActual.TD),TN:mk(fichaActual.TN)});
     setEditError(null);setEditSuccess(false);
   },[fichaActual,editMode]);// eslint-disable-line
@@ -4170,7 +4182,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     if(!fichaActual||editSaving)return;
     setEditSaving(true);setEditError(null);setEditSuccess(false);
     try{
-      const buildFields=(draft)=>({"N° Parte":draft.parte!==""?draft.parte:undefined,"Horómetro inicial":draft.hi!==""?Number(draft.hi):undefined,"Horómetro final":draft.hf!==""?Number(draft.hf):undefined,"Cant. Hs.":draft.horas!==""?Number(draft.horas):undefined,"Cant.Hs/ KM":draft.horas!==""?Number(draft.horas):undefined,"Combustible":draft.combustible!==""?Number(draft.combustible):undefined,"Aceite":draft.aceite!==""?draft.aceite:undefined,"Información sobre Desgaste":draft.desgaste!==""?draft.desgaste:undefined,"Descripción de los trabajos realizados":draft.tarea!==""?draft.tarea:undefined,"Observaciones":draft.obs!==""?draft.obs:undefined});
+      const buildFields=(draft)=>{const horasVal=String(draft.horas||"").trim();const horasOut=/^(OD|FS|EM)$/i.test(horasVal)?horasVal.toUpperCase():(horasVal!==""?Number(horasVal):undefined);return {"N° Parte":draft.parte!==""?draft.parte:undefined,"Horómetro inicial":draft.hi!==""?Number(draft.hi):undefined,"Horómetro final":draft.hf!==""?Number(draft.hf):undefined,"Cant. Hs.":horasOut,"Cant.Hs/ KM":horasOut,"Combustible":draft.combustible!==""?Number(draft.combustible):undefined,"Aceite":draft.aceite!==""?draft.aceite:undefined,"Información sobre Desgaste":draft.desgaste!==""?draft.desgaste:undefined,"Descripción de los trabajos realizados":draft.tarea!==""?draft.tarea:undefined,"Observaciones":draft.obs!==""?draft.obs:undefined};};
       const calls=[];
       for(const turno of["TD","TN"]){const r=fichaActual[turno];if(!r)continue;const target=getTarget(r);if(!target)continue;const rowKey={"Proyecto":r.proyecto||"","Fecha":r.fecha||"","Interno":r._internoRaw||r.maquina||"","Turno de trabajo":r.turno||"","N° Parte":r.parte||""};calls.push(postUpdateROP02Row(target,rowKey,buildFields(editDraft[turno])));}
       await Promise.all(calls);
@@ -4205,16 +4217,17 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     {key:"desgaste",   label:"Desgaste",        render:r=>{const v=r?.desgaste||"Sin consumo de desgaste";return String(v).toLowerCase().includes("sin consumo de desgaste")?<PinkBox>{v}</PinkBox>:v;}},
     {key:"combustible",label:"Combustible",     render:r=>{const v=r?.combustible!=null&&Number(r.combustible)>0?fmtNum(r.combustible):"Sin Carga";return isSinCarga(v)?<PinkBox>{v}</PinkBox>:v;}},
     {key:"aceite",     label:"Aceite",          render:r=>{const v=r?.aceite||"Sin Carga";return isSinCarga(v)?<PinkBox>{v}</PinkBox>:v;}},
-    {key:"horas",      label:"Cant. Hs.",       render:r=>r?.estado==="OD"||r?.estado==="FS"?r.estado:(r?.horas!=null?fmtNum(r.horas):"—")},
+    {key:"horas",      label:"Cant. Hs.",       render:r=>r?.estado==="OD"||r?.estado==="FS"||r?.estado==="EM"?r.estado:(r?.horas!=null?fmtNum(r.horas):"—")},
   ];
 
   const cellBg=(r)=>{
     if(!r)return"rgba(180,60,60,0.18)";
     if(r.estado==="OD")return"rgba(34,197,94,0.78)";
     if(r.estado==="FS")return"rgba(232,0,29,0.78)";
+    if(r.estado==="EM")return"rgba(168,85,247,0.78)";
     return(r.horas||0)>0?"rgba(40,160,80,0.18)":"rgba(180,60,60,0.18)";
   };
-  const cellColor=(r)=>r&&(r.estado==="OD"||r.estado==="FS")?"#fff":(r?C.text:C.textMuted);
+  const cellColor=(r)=>r&&(r.estado==="OD"||r.estado==="FS"||r.estado==="EM")?"#fff":(r?C.text:C.textMuted);
 
   const selectStyle={
     background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,
@@ -4470,7 +4483,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
           {editError&&<div style={{padding:"8px 14px",background:"rgba(220,38,38,0.18)",color:"#f87171",fontSize:12,fontWeight:600}}>{editError}</div>}
           {(()=>{
             const inpStyle={width:"100%",background:"rgba(255,255,255,0.06)",border:`1px solid ${C.accent}66`,borderRadius:6,color:C.text,fontSize:14,padding:"5px 8px",fontFamily:"Inter",outline:"none",boxSizing:"border-box"};
-            const FIELD_CFG={parte:{type:"text"},hi:{type:"number"},hf:{type:"number"},tarea:{type:"text"},obs:{type:"text"},desgaste:{type:"text"},combustible:{type:"number"},aceite:{type:"text"},horas:{type:"number"}};
+            const FIELD_CFG={parte:{type:"text"},hi:{type:"number"},hf:{type:"number"},tarea:{type:"text"},obs:{type:"text"},desgaste:{type:"text"},combustible:{type:"number"},aceite:{type:"text"},horas:{type:"text"}};
             return(
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:480,tableLayout:"fixed"}}>
@@ -5016,6 +5029,7 @@ function ViewVehiculos({rop02All,listaEquipos,extState,setExtState}){
     prod:filtered.filter(r=>r.estado==="TRABAJO").length,
     od:filtered.filter(r=>r.estado==="OD").length,
     fs:filtered.filter(r=>r.estado==="FS").length,
+    em:filtered.filter(r=>r.estado==="EM").length,
   }),[filtered]);
 
   const horasFecha=useMemo(()=>{
@@ -5032,7 +5046,7 @@ function ViewVehiculos({rop02All,listaEquipos,extState,setExtState}){
     {key:"tipo_trabajo",label:"Tarea",render:v=><span style={{display:"block",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={v}>{v||"—"}</span>},
     {key:"horas",label:"Km",render:v=><span style={{color:C.accent,fontWeight:600}}>{fmtNum(v)}</span>},
     {key:"combustible",label:"Comb.",render:v=>fmtNum(v)},
-    {key:"estado",label:"Estado",render:v=><Badge color={v==="FS"?C.red:v==="OD"?C.yellow:C.green}>{v==="OD"?"OD":v||"—"}</Badge>},
+    {key:"estado",label:"Estado",render:v=><Badge color={v==="FS"?C.red:v==="EM"?C.purple:v==="OD"?C.yellow:C.green}>{v==="OD"?"OD":v||"—"}</Badge>},
     {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
   ],[]);
 
@@ -5084,6 +5098,7 @@ function ViewVehiculos({rop02All,listaEquipos,extState,setExtState}){
               {value:"TRABAJO",label:"✅ Trabajo efectivo"},
               {value:"OD",label:"🟡 Operativo a Disposición"},
               {value:"FS",label:"🔴 Fuera de servicio"},
+              {value:"EM",label:"🟣 En mantenimiento"},
             ]}/>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
           </div>
