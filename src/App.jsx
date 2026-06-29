@@ -1272,7 +1272,8 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
           {offsetY>0&&<tr style={{height:offsetY}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
           {visibleRows.map((r,i)=>{
             const absI=startIdx+i;
-            const hasTooltip=!disableTooltip;
+            const customTooltip=typeof r._rowTooltipHtml==="function"?r._rowTooltipHtml(r):r._rowTooltipHtml;
+            const hasTooltip=!disableTooltip&&(customTooltip||r.observaciones!==undefined);
             const rowBg=absI%2===0?"transparent":C.surface+"66";
             return(
               <tr key={absI}
@@ -1283,8 +1284,8 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
                   if(!hasTooltip)return;
                   const tip=document.createElement("div");
                   tip.id="row-tip";
-                  tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:320px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none;visibility:hidden`;
-                  tip.innerHTML="<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:"+(r.observaciones?"#ccc":"#555")+";margin-top:3px;font-style:"+(r.observaciones?"normal":"italic")+"\">"+(r.observaciones||"Sin observaciones")+"</div></div>";
+                  tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none;visibility:hidden`;
+                  tip.innerHTML=customTooltip||("<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:"+(r.observaciones?"#ccc":"#555")+";margin-top:3px;font-style:"+(r.observaciones?"normal":"italic")+"\">"+(r.observaciones||"Sin observaciones")+"</div></div>");
                   positionTip(tip,e.clientX,e.clientY);
                 }}
                 onMouseLeave={e=>{
@@ -1718,6 +1719,7 @@ const VIEW_SOURCES={
   controlErrores:["rop02_fs","rop02_jm","rop02_filosur"],
   ctrlEquipo:["rop02_fs","rop02_jm","rop02_filosur"],
   combustible:["rop02_fs","rop02_jm","rop02_filosur"],
+  cambiosTurno:["rop02_fs","rop02_jm","rop02_filosur"],
   chc:["rop02_fs","rop02_jm","rop02_filosur"],
   rop05:["rop05"],
   ranking:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
@@ -11245,6 +11247,355 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   );
 }
 
+
+// ─── Cambios de turno ROP02 ───────────────────────────────────────────────────
+const CAMBIOS_TURNO_BASE = "2026-06-24";
+const CAMBIOS_TURNO_DIAS = 14;
+const CAMBIOS_TURNO_GRUPOS = [
+  {
+    id: 1,
+    nombre: "Grupo 1",
+    color: C.green,
+    jm: ["Federico Perea", "Marcelo Vedia"],
+    fs: ["Carlos Sisterna"],
+  },
+  {
+    id: 2,
+    nombre: "Grupo 2",
+    color: C.blue,
+    jm: ["Marco Aguilera", "Alfredo Vedia"],
+    fs: ["Gilberto Ezeiza"],
+  },
+];
+function turnoDateFromISO(iso){
+  const [y,m,d]=String(iso).slice(0,10).split("-").map(Number);
+  return new Date(y,(m||1)-1,d||1,12,0,0,0);
+}
+function turnoISO(date){
+  const d=new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function addTurnoDays(date,days){
+  const d=new Date(date);
+  d.setDate(d.getDate()+days);
+  return d;
+}
+function diffTurnoDays(a,b){
+  const da=new Date(a.getFullYear(),a.getMonth(),a.getDate()).getTime();
+  const db=new Date(b.getFullYear(),b.getMonth(),b.getDate()).getTime();
+  return Math.floor((da-db)/86400000);
+}
+function indiceGrupoTurno(bloque){
+  return ((bloque % CAMBIOS_TURNO_GRUPOS.length) + CAMBIOS_TURNO_GRUPOS.length) % CAMBIOS_TURNO_GRUPOS.length;
+}
+function grupoPorFecha(date){
+  const base=turnoDateFromISO(CAMBIOS_TURNO_BASE);
+  const diff=diffTurnoDays(date,base);
+  const bloque=Math.floor(diff/CAMBIOS_TURNO_DIAS);
+  return CAMBIOS_TURNO_GRUPOS[indiceGrupoTurno(bloque)];
+}
+function rangoTurnoPorFecha(date){
+  const base=turnoDateFromISO(CAMBIOS_TURNO_BASE);
+  const diff=diffTurnoDays(date,base);
+  const bloque=Math.floor(diff/CAMBIOS_TURNO_DIAS);
+  const inicio=addTurnoDays(base,bloque*CAMBIOS_TURNO_DIAS);
+  const fin=addTurnoDays(inicio,CAMBIOS_TURNO_DIAS-1);
+  const proximoCambio=addTurnoDays(inicio,CAMBIOS_TURNO_DIAS);
+  return {inicio,fin,proximoCambio,grupo:grupoPorFecha(date),grupoSiguiente:grupoPorFecha(proximoCambio)};
+}
+function ViewCambiosTurno({rop02All=[]}){
+  const hoy=new Date();
+  const MESES_TURNO=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const [mes,setMes]=useState(()=>new Date(hoy.getFullYear(),hoy.getMonth(),1,12));
+  const [filtroMesHoras,setFiltroMesHoras]=useState(()=>String(hoy.getMonth()));
+  const [filtroAnioHoras,setFiltroAnioHoras]=useState(()=>String(hoy.getFullYear()));
+  const [filtroProyectoHoras,setFiltroProyectoHoras]=useState("todos");
+  const [filtroEquipoHoras,setFiltroEquipoHoras]=useState("todas");
+  const [filtroTipoHoras,setFiltroTipoHoras]=useState("todos");
+  const turnoActual=useMemo(()=>rangoTurnoPorFecha(hoy),[]);
+  const diasMes=useMemo(()=>{
+    const first=new Date(mes.getFullYear(),mes.getMonth(),1,12);
+    const startDay=(first.getDay()+6)%7; // lunes = 0
+    const start=addTurnoDays(first,-startDay);
+    return Array.from({length:42},(_,i)=>addTurnoDays(start,i));
+  },[mes]);
+  const monthLabel=mes.toLocaleDateString("es-AR",{month:"long",year:"numeric"});
+  const moverMes=n=>setMes(m=>new Date(m.getFullYear(),m.getMonth()+n,1,12));
+  const irHoy=()=>setMes(new Date(hoy.getFullYear(),hoy.getMonth(),1,12));
+
+  const esCamionOCamionetaTurno=(row,maquina)=>{
+    const tipo=String(row?.equipo||row?._tipo||getMachineType(maquina)||"").toUpperCase();
+    const code=String(maquina||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+    return tipo.includes("CAMION")||tipo.includes("CAMIÓN")||tipo.includes("CAMIONETA")||
+      /^CTA/.test(code)||/^CAR/.test(code)||/^CAV/.test(code)||/^CAT[0-9]/.test(code)||
+      /^[A-Z]{2}[0-9]{3}[A-Z]{2}$/.test(code)||/^[A-Z]{3}[0-9]{3}[A-Z]{2}$/.test(code)||/^AG[0-9]/.test(code)||/^AH[0-9]/.test(code);
+  };
+
+  const periodoHorasTurno=useMemo(()=>{
+    const anio=Number(filtroAnioHoras)||hoy.getFullYear();
+    const mesNum=Number(filtroMesHoras)||0;
+    // Período operativo: del 26 del mes anterior al 25 del mes seleccionado.
+    // Ejemplo: Junio 2026 = 26/05/2026 al 25/06/2026.
+    const inicio=new Date(anio,mesNum-1,26,12);
+    const fin=new Date(anio,mesNum,25,12);
+    const diasPeriodo=diffTurnoDays(fin,inicio)+1;
+    return {
+      desde:turnoISO(inicio),
+      hasta:turnoISO(fin),
+      diasPeriodo,
+      label:`${MESES_TURNO[mesNum]} ${anio}`,
+      rangoLabel:`${fmtFecha(turnoISO(inicio))} al ${fmtFecha(turnoISO(fin))}`
+    };
+  },[filtroMesHoras,filtroAnioHoras]);
+
+  const filasHorasTurnoBase=useMemo(()=>{
+    return (rop02All||[]).filter(r=>{
+      const fecha=normDate(r.fecha)||String(r.fecha||"").slice(0,10);
+      if(!fecha||fecha<periodoHorasTurno.desde||fecha>periodoHorasTurno.hasta)return false;
+      const maquina=cleanMachine(r.maquina||r._internoRaw||"");
+      if(!maquina)return false;
+      if(esCamionOCamionetaTurno(r,maquina))return false;
+      return true;
+    });
+  },[rop02All,periodoHorasTurno]);
+
+  const opcionesProyectoHoras=useMemo(()=>uniq(filasHorasTurnoBase.map(r=>r.proyecto).filter(Boolean)).sort(),[filasHorasTurnoBase]);
+  const opcionesTipoHoras=useMemo(()=>{
+    const base=filasHorasTurnoBase.filter(r=>matchMulti(r.proyecto,filtroProyectoHoras,"todos"));
+    return uniq(base.map(r=>r.equipo||r._tipo||getMachineType(r.maquina||r._internoRaw||"")).filter(Boolean)).sort();
+  },[filasHorasTurnoBase,filtroProyectoHoras]);
+  const opcionesEquipoHoras=useMemo(()=>{
+    const base=filasHorasTurnoBase.filter(r=>{
+      const tipo=r.equipo||r._tipo||getMachineType(r.maquina||r._internoRaw||"")||"";
+      return matchMulti(r.proyecto,filtroProyectoHoras,"todos")&&matchMulti(tipo,filtroTipoHoras,"todos");
+    });
+    return uniq(base.map(r=>cleanMachine(r.maquina||r._internoRaw||"")).filter(Boolean)).sort();
+  },[filasHorasTurnoBase,filtroProyectoHoras,filtroTipoHoras]);
+
+  useEffect(()=>{
+    if(!multiIsAll(filtroProyectoHoras,"todos")&&filtroProyectoHoras.some(p=>!opcionesProyectoHoras.includes(p)))setFiltroProyectoHoras("todos");
+  },[opcionesProyectoHoras,filtroProyectoHoras]);
+  useEffect(()=>{
+    if(!multiIsAll(filtroTipoHoras,"todos")&&filtroTipoHoras.some(t=>!opcionesTipoHoras.includes(t)))setFiltroTipoHoras("todos");
+  },[opcionesTipoHoras,filtroTipoHoras]);
+  useEffect(()=>{
+    if(!multiIsAll(filtroEquipoHoras,"todas")&&filtroEquipoHoras.some(e=>!opcionesEquipoHoras.includes(e)))setFiltroEquipoHoras("todas");
+  },[opcionesEquipoHoras,filtroEquipoHoras]);
+
+  const mesCorrienteInfo=useMemo(()=>{
+    const map=new Map();
+    filasHorasTurnoBase.forEach(r=>{
+      const fecha=normDate(r.fecha)||String(r.fecha||"").slice(0,10);
+      if(!matchMulti(r.proyecto,filtroProyectoHoras,"todos"))return;
+      const tipo=r.equipo||r._tipo||getMachineType(r.maquina||r._internoRaw||"")||"";
+      if(!matchMulti(tipo,filtroTipoHoras,"todos"))return;
+      const maquina=cleanMachine(r.maquina||r._internoRaw||"");
+      if(!matchMulti(maquina,filtroEquipoHoras,"todas"))return;
+      const horas=Number(r.horas||0);
+      const horasValidas=Number.isFinite(horas)&&horas>0?horas:0;
+      const estado=String(r.estado||"").trim().toUpperCase();
+      const key=canonicalEquivalentMachineCode(maquina)||cleanMachine(maquina);
+      const prev=map.get(key)||{maquina,proyecto:r.proyecto||"",equipo:tipo||"",horas:0,td:0,tn:0,diasTrabajados:new Set(),diasOD:new Set(),diasFSEM:new Set(),diasPorFecha:new Map(),turnosPorFecha:new Map(),ultimaFecha:""};
+      prev.horas+=horasValidas;
+      const diaInfo=prev.diasPorFecha.get(fecha)||{trabajado:false,od:false,fsem:false};
+      if(estado==="OD")diaInfo.od=true;
+      else if(estado==="FS"||estado==="EM")diaInfo.fsem=true;
+      else if(horasValidas>0)diaInfo.trabajado=true;
+      prev.diasPorFecha.set(fecha,diaInfo);
+      const turno=String(r.turno||r["Turno de trabajo"]||r["Turno"]||r.col_6||"")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"")
+        .replace(/[.\s_-]+/g,"")
+        .trim()
+        .toUpperCase();
+      const esTD=turno.includes("TD")||turno.includes("DIA")||turno.includes("DIURNO");
+      const esTN=turno.includes("TN")||turno.includes("NOCHE")||turno.includes("NOCTURNO");
+      if(horasValidas>0&&(esTD||esTN)){
+        const turnosFecha=prev.turnosPorFecha.get(fecha)||new Set();
+        if(esTD)turnosFecha.add("TD");
+        if(esTN)turnosFecha.add("TN");
+        prev.turnosPorFecha.set(fecha,turnosFecha);
+      }
+      if(horasValidas>0&&esTD)prev.td+=horasValidas;
+      else if(horasValidas>0&&esTN)prev.tn+=horasValidas;
+      if(fecha>prev.ultimaFecha)prev.ultimaFecha=fecha;
+      if(!prev.proyecto&&r.proyecto)prev.proyecto=r.proyecto;
+      if(!prev.equipo&&tipo)prev.equipo=tipo;
+      map.set(key,prev);
+    });
+    const equipos=[...map.values()]
+      .map(x=>{
+        let diasTrabajados=0;
+        let diasOD=0;
+        let diasFSEM=0;
+        [...(x.diasPorFecha||new Map()).values()].forEach(dia=>{
+          // Cada fecha calendario cuenta una sola vez. Si el equipo trabajó al menos un turno,
+          // el día se clasifica como trabajado; si no trabajó, se evalúa OD y luego FS/EM.
+          if(dia.trabajado) diasTrabajados+=1;
+          else if(dia.od) diasOD+=1;
+          else if(dia.fsem) diasFSEM+=1;
+        });
+        const totalDiasControl=diasTrabajados+diasOD+diasFSEM;
+        const diasTurnoDiaYNoche=[...x.turnosPorFecha.entries()]
+          .filter(([,turnos])=>turnos.has("TD")&&turnos.has("TN"))
+          .map(([fecha])=>fecha)
+          .sort();
+        return {
+          ...x,
+          diasTrabajados,
+          diasOD,
+          diasFSEM,
+          totalDiasControl,
+          diasPeriodo:periodoHorasTurno.diasPeriodo,
+          excesoDias:totalDiasControl>periodoHorasTurno.diasPeriodo,
+          diasTurnoDiaYNoche,
+          horas:Number(x.horas.toFixed(2)),
+          td:Number(x.td.toFixed(2)),
+          tn:Number(x.tn.toFixed(2))
+        };
+      })
+      .sort((a,b)=>b.horas-a.horas||String(a.maquina).localeCompare(String(b.maquina)));
+    return{desde:periodoHorasTurno.desde,hasta:periodoHorasTurno.hasta,equipos,totalHoras:equipos.reduce((a,x)=>a+x.horas,0),totalEquipos:equipos.length};
+  },[filasHorasTurnoBase,periodoHorasTurno,filtroProyectoHoras,filtroTipoHoras,filtroEquipoHoras]);
+
+  const hayFiltrosHoras=filtroMesHoras!==String(hoy.getMonth())||filtroAnioHoras!==String(hoy.getFullYear())||!multiIsAll(filtroProyectoHoras,"todos")||!multiIsAll(filtroEquipoHoras,"todas")||!multiIsAll(filtroTipoHoras,"todos");
+  const resetFiltrosHoras=()=>{setFiltroMesHoras(String(hoy.getMonth()));setFiltroAnioHoras(String(hoy.getFullYear()));setFiltroProyectoHoras("todos");setFiltroEquipoHoras("todas");setFiltroTipoHoras("todos");};
+
+  const escapeHtmlTurno=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+  const tooltipExcesoDiasTurno=(row)=>{
+    const dias=(row?.diasTurnoDiaYNoche||[]);
+    const tieneDobleTurno=dias.length>0;
+    if(!row?.excesoDias&&!tieneDobleTurno)return null;
+
+    const lista=dias.length
+      ? dias.map(d=>`<div style=\"padding:2px 0;color:${C.text}\">${escapeHtmlTurno(fmtFecha(d))} · TD y TN</div>`).join("")
+      : `<div style=\"color:${C.textMuted};font-style:italic;margin-top:4px\">No se detectaron días con TD y TN en los datos filtrados.</div>`;
+
+    const titulo=row.excesoDias
+      ? `${escapeHtmlTurno(row.maquina)} supera los días del período`
+      : `${escapeHtmlTurno(row.maquina)} tiene días con TD y TN`;
+
+    const detalleExceso=row.excesoDias
+      ? `<div style=\"margin-top:3px;color:${C.textSub}\">Total computado: <b style=\"color:${C.text}\">${row.totalDiasControl}</b> días · Período: <b style=\"color:${C.text}\">${row.diasPeriodo}</b> días</div>`
+      : "";
+
+    return `<div>
+      <div style=\"font-size:10px;color:${C.yellow};text-transform:uppercase;letter-spacing:.06em;font-weight:800\">Control de doble turno</div>
+      <div style=\"margin-top:4px;color:${C.text};font-weight:800\">${titulo}</div>
+      ${detalleExceso}
+      <div style=\"margin-top:8px;font-size:10px;color:${C.textMuted};text-transform:uppercase;letter-spacing:.06em\">Días con turno día y noche</div>
+      <div style=\"margin-top:3px\">${lista}</div>
+    </div>`;
+  };
+
+  const colsEquiposFinTurno=[
+    {key:"maquina",label:"Equipo",render:v=><span style={{fontWeight:800,color:C.text}}>{v}</span>},
+    {key:"equipo",label:"Tipo"},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
+    {key:"diasTrabajados",label:"Días trabajados",render:v=>fmtNum(v)},
+    {key:"diasOD",label:"Días OD",render:v=>fmtNum(v)},
+    {key:"diasFSEM",label:"Días FS/EM",render:v=>fmtNum(v)},
+    {key:"td",label:"Hs TD",render:v=>v?fmtNum(v):"—"},
+    {key:"tn",label:"Hs TN",render:v=>v?fmtNum(v):"—"},
+    {key:"horas",label:"Hs Totales",render:v=><span style={{fontWeight:900,color:C.green}}>{fmtNum(v)}</span>},
+    {key:"ultimaFecha",label:"Último registro",render:v=>v?fmtFecha(v):"—"},
+  ];
+  const cardIntegrantes=(g)=>(
+    <div style={{background:g.color+"14",border:`1px solid ${g.color}55`,borderRadius:12,padding:14}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+        <Badge color={g.color}>{g.nombre}</Badge>
+        <span style={{fontSize:11,color:C.textMuted}}>Turno de 14 días</span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div>
+          <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>José María</div>
+          {g.jm.map(n=><div key={n} style={{fontSize:13,color:C.text,fontWeight:650,marginBottom:3}}>{n}</div>)}
+        </div>
+        <div>
+          <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>Filo del Sol</div>
+          {g.fs.map(n=><div key={n} style={{fontSize:13,color:C.text,fontWeight:650,marginBottom:3}}>{n}</div>)}
+        </div>
+      </div>
+    </div>
+  );
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
+        <StatCard icon="person" label="Grupo trabajando hoy" value={turnoActual.grupo.nombre} sub={`${fmtFecha(turnoISO(turnoActual.inicio))} al ${fmtFecha(turnoISO(turnoActual.fin))}`} color={turnoActual.grupo.color} small/>
+        <StatCard icon="consist" label="Próximo cambio" value={fmtFecha(turnoISO(turnoActual.proximoCambio))} sub={`Ingresa ${turnoActual.grupoSiguiente.nombre}`} color={C.yellow} small/>
+        <StatCard icon="hours" label="Duración del turno" value="14 días" sub="Rotación automática cada 14 días" color={C.purple} small/>
+      </div>
+
+      <Card title="Orden de grupos">
+        <div style={{padding:14,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+          {CAMBIOS_TURNO_GRUPOS.map(cardIntegrantes)}
+        </div>
+      </Card>
+
+      <Card title="Equipos al fin de turno" action={<BtnExcel onClick={()=>excelFromCols(colsEquiposFinTurno,mesCorrienteInfo.equipos,"Equipos_al_fin_de_turno")}/>}>
+        <div style={{padding:14,display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+            <Sel label="Mes" value={filtroMesHoras} onChange={setFiltroMesHoras} options={MESES_TURNO.map((m,i)=>({value:String(i),label:m}))}/>
+            <Sel label="Año" value={filtroAnioHoras} onChange={setFiltroAnioHoras} options={uniq([String(hoy.getFullYear()),...((rop02All||[]).map(r=>(normDate(r.fecha)||String(r.fecha||"")).slice(0,4)).filter(Boolean))]).sort((a,b)=>Number(b)-Number(a)).map(y=>({value:y,label:y}))}/>
+            <MultiSel label="Proyecto" value={filtroProyectoHoras} onChange={v=>{setFiltroProyectoHoras(v);setFiltroEquipoHoras("todas");}} options={[{value:"todos",label:"Todos"},...opcionesProyectoHoras.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Equipo" value={filtroEquipoHoras} onChange={setFiltroEquipoHoras} options={[{value:"todas",label:"Todos"},...opcionesEquipoHoras.map(e=>({value:e,label:e}))]}/>
+            <MultiSel label="Tipo" value={filtroTipoHoras} onChange={v=>{setFiltroTipoHoras(v);setFiltroEquipoHoras("todas");}} options={[{value:"todos",label:"Todos"},...opcionesTipoHoras.map(t=>({value:t,label:t}))]}/>
+            <button onClick={resetFiltrosHoras} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltrosHoras?1:0.3,pointerEvents:hayFiltrosHoras?"auto":"none"}}>
+              <Icon name="close" size={11} color={C.red}/>Limpiar filtros
+            </button>
+          </div>
+          <div style={{fontSize:11,color:C.textSub}}>Análisis sin camionetas ni camiones. Período: <strong style={{color:C.text}}>{fmtFecha(mesCorrienteInfo.desde)} al {fmtFecha(mesCorrienteInfo.hasta)}</strong></div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+            <StatCard icon="bulldozer" label="Equipos con horas" value={fmtNum(mesCorrienteInfo.totalEquipos)} sub={`${fmtFecha(mesCorrienteInfo.desde)} al ${fmtFecha(mesCorrienteInfo.hasta)}`} color={C.green} small/>
+            <StatCard icon="hours" label="Horas acumuladas" value={fmtNum(Number(mesCorrienteInfo.totalHoras.toFixed(2)))} sub={`Período ${periodoHorasTurno.rangoLabel}`} color={C.accent} small/>
+            <StatCard icon="consist" label="Criterio" value={periodoHorasTurno.label} sub="Corte 26 al 25 · ROP02 filtrado" color={C.purple} small/>
+          </div>
+          <Table cols={colsEquiposFinTurno} rows={mesCorrienteInfo.equipos.map(r=>({...r,_rowTooltipHtml:tooltipExcesoDiasTurno(r)}))} maxH={420} emptyMsg="No hay horas cargadas en ROP02 para los filtros seleccionados."/>
+        </div>
+      </Card>
+
+      <Card title="Calendario de cambios de turno" action={
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>moverMes(-1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"6px 10px",cursor:"pointer"}}>←</button>
+          <button onClick={irHoy} style={{background:C.accentDim,border:`1px solid ${C.accent}55`,borderRadius:7,color:C.accent,padding:"6px 10px",cursor:"pointer",fontWeight:700}}>Hoy</button>
+          <button onClick={()=>moverMes(1)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"6px 10px",cursor:"pointer"}}>→</button>
+        </div>
+      }>
+        <div style={{padding:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,gap:12,flexWrap:"wrap"}}>
+            <div style={{fontSize:18,fontWeight:800,color:C.text,textTransform:"capitalize"}}>{monthLabel}</div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:C.textSub}}>
+              {CAMBIOS_TURNO_GRUPOS.map(g=><span key={g.id} style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:10,height:10,borderRadius:"50%",background:g.color,display:"inline-block"}}/> {g.nombre}</span>)}
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6,marginBottom:6}}>
+            {["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map(d=><div key={d} style={{fontSize:11,color:C.textMuted,fontWeight:700,textAlign:"center",textTransform:"uppercase"}}>{d}</div>)}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+            {diasMes.map(d=>{
+              const g=grupoPorFecha(d);
+              const iso=turnoISO(d);
+              const enMes=d.getMonth()===mes.getMonth();
+              const esHoy=iso===turnoISO(hoy);
+              const esCambio=iso===turnoISO(rangoTurnoPorFecha(d).inicio);
+              return(
+                <div key={iso} title={`${fmtFecha(iso)} · ${g.nombre}${esCambio?" · Cambio de turno":""}`} style={{minHeight:76,borderRadius:10,border:`1px solid ${esHoy?C.accent:g.color+"44"}`,background:enMes?g.color+"18":"rgba(255,255,255,.03)",padding:9,opacity:enMes?1:.38,position:"relative",boxShadow:esHoy?`0 0 0 2px ${C.accent}33`:"none"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6}}>
+                    <span style={{fontSize:13,fontWeight:800,color:esHoy?C.accent:C.text}}>{d.getDate()}</span>
+                    {esCambio&&<span style={{fontSize:9,fontWeight:800,color:C.yellow,background:C.yellowDim,border:`1px solid ${C.yellow}55`,borderRadius:10,padding:"1px 5px"}}>CAMBIO</span>}
+                  </div>
+                  <div style={{marginTop:12,fontSize:12,fontWeight:800,color:g.color}}>{g.nombre}</div>
+                  <div style={{fontSize:10,color:C.textMuted,marginTop:2}}>{g.id===1?"Perea / M. Vedia / Sisterna":"Aguilera / A. Vedia / Ezeiza"}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 function ViewBienvenida(){
   return(
     <div style={{
@@ -11671,6 +12022,7 @@ export default function App(){
       {id:"ctrlEquipo",icon:"bulldozer",label:"Control por Equipo"},
       {id:"combustible",icon:"fuel",label:"Combustible"},
       {id:"horometros",icon:"hours",label:"Horómetros"},
+      {id:"cambiosTurno",icon:"consist",label:"Cambios de turno"},
     ]},
     {id:"grp_rop05",icon:"prod",label:"ROP05",type:"group",color:C.green,children:[
       {id:"rop05",icon:"prod",label:"Productividad"},
@@ -11686,7 +12038,7 @@ export default function App(){
     {id:"listaEquipos",icon:"bulldozer",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -11695,6 +12047,7 @@ export default function App(){
     vehiculos:"Mismo reporte que ROP02 (TD/TN, horómetros, km), pero para camiones y camionetas en lugar de máquinas.",
     ctrlEquipo:"Ficha por equipo: muestra el detalle día por turno (TD/TN) y controla automáticamente que la numeración de partes y los horómetros sean consistentes entre registros.",
     combustible:"Análisis de litros de combustible cargados por equipo, proyecto y período, con ranking de consumo.",
+    cambiosTurno:"Calendario de rotación de supervisores por grupos y control de horas acumuladas por equipo en período 26 al 25.",
     rop05:"ROP05 = Reporte de Producción: cantidad y tipo de trabajo productivo realizado por cada equipo (m³, m², horas, etc.).",
     ranking:"Ranking de operarios según horas trabajadas, días activos y equipos operados.",
     chc:"ICHC = Indicador de Control de Horas Contratadas: compara las horas efectivamente trabajadas contra las horas pactadas por contrato (180 hs/mes por equipo).",
@@ -11803,6 +12156,7 @@ export default function App(){
                 {view==="controlErrores"&&(dataHydrated&&rop02All.length>0?<ControlDeErrores rop02All={rop02All} extState={stControlErrores} setExtState={setStControlErrores}/>:<BlockingDataLoader label="Cargando Control de errores..." />)}
                 {view==="ctrlEquipo"&&(dataHydrated&&rop02All.length>0?<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
                 {view==="combustible"&&(dataHydrated&&rop02All.length>0?<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>:<BlockingDataLoader label="Cargando Combustible..." />)}
+                {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ViewCambiosTurno rop02All={rop02All}/>:<BlockingDataLoader label="Cargando cambios de turno..." />)}
                 {view==="rop05"&&(dataHydrated&&rop05.length>0?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Productividad..." />)}
                 {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>:<BlockingDataLoader label="Cargando Ranking..." />)}
                 {view==="mant"&&(viewDataReady?<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
