@@ -4751,10 +4751,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
             <select value={fichaActual.fecha} onChange={e=>{setFechaSel(e.target.value);setEditMode(false);}} style={{...selectStyle,fontSize:13,fontWeight:700,color:C.accent,minWidth:140}}>{fechasDisp.map(f=><option key={f} value={f}>{fmtFecha(f)}</option>)}</select>
             <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
               {editSuccess&&!editMode&&<span style={{fontSize:12,color:"#4ade80",fontWeight:700}}>✓ Guardado</span>}
-              {!editMode
-                ?<button onClick={()=>{setEditMode(true);setEditSuccess(false);}} style={{padding:"7px 18px",borderRadius:7,border:`1px solid ${C.accent}66`,background:`${C.accent}22`,color:C.accent,cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"Inter"}}>✏ Modificar</button>
-                :<><button onClick={handleSaveEdit} disabled={editSaving} style={{padding:"7px 20px",borderRadius:7,border:"none",background:"#22c55e",color:"#fff",cursor:editSaving?"not-allowed":"pointer",fontSize:13,fontWeight:800,fontFamily:"Inter",opacity:editSaving?0.6:1}}>{editSaving?"Guardando…":"💾 Guardar"}</button><button onClick={()=>{setEditMode(false);setEditError(null);}} disabled={editSaving} style={{padding:"7px 14px",borderRadius:7,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"Inter"}}>Cancelar</button></>
-              }
+              {editMode&&<><button onClick={handleSaveEdit} disabled={editSaving} style={{padding:"7px 20px",borderRadius:7,border:"none",background:"#22c55e",color:"#fff",cursor:editSaving?"not-allowed":"pointer",fontSize:13,fontWeight:800,fontFamily:"Inter",opacity:editSaving?0.6:1}}>{editSaving?"Guardando…":"💾 Guardar"}</button><button onClick={()=>{setEditMode(false);setEditError(null);}} disabled={editSaving} style={{padding:"7px 14px",borderRadius:7,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"Inter"}}>Cancelar</button></>}
             </div>
           </div>
           {editError&&<div style={{padding:"8px 14px",background:"rgba(220,38,38,0.18)",color:"#f87171",fontSize:12,fontWeight:600}}>{editError}</div>}
@@ -11354,6 +11351,7 @@ function ViewCambiosTurno({rop02All=[]}){
       if(!fecha||fecha<periodoHorasTurno.desde||fecha>periodoHorasTurno.hasta)return false;
       const maquina=cleanMachine(r.maquina||r._internoRaw||"");
       if(!maquina)return false;
+      if(isRop02ControlMachineExcluded(maquina))return false;
       if(esCamionOCamionetaTurno(r,maquina))return false;
       return true;
     });
