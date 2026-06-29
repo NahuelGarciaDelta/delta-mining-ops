@@ -1715,6 +1715,7 @@ const VIEW_SOURCES={
   rop02:["rop02_fs","rop02_jm","rop02_filosur"],
   horometros:["rop02_fs","rop02_jm","rop02_filosur"],
   vehiculos:["rop02_fs","rop02_jm","rop02_filosur","lista_equipos"],
+  controlErrores:["rop02_fs","rop02_jm","rop02_filosur"],
   ctrlEquipo:["rop02_fs","rop02_jm","rop02_filosur"],
   combustible:["rop02_fs","rop02_jm","rop02_filosur"],
   chc:["rop02_fs","rop02_jm","rop02_filosur"],
@@ -4200,6 +4201,262 @@ function generarReporteControl(periodo, faltanEn05, faltanEn02){
 }
 
 
+
+function calcularErroresControlEquipo(rows){
+  const byMaq={};
+  (rows||[]).forEach(r=>{
+    if(r.maquina){
+      if(!byMaq[r.maquina])byMaq[r.maquina]=[];
+      byMaq[r.maquina].push(r);
+    }
+  });
+  const erroresPartes=[];
+  const erroresHoro=[];
+  const parseParte=p=>{const m=String(p||"").match(/(\d+)/g);return m?Number(m[m.length-1]):null;};
+  Object.entries(byMaq).forEach(([maq,items])=>{
+    const byFecha={};
+    items.forEach(r=>{
+      if(!byFecha[r.fecha])byFecha[r.fecha]={fecha:r.fecha,TD:null,TN:null};
+      const turnoKey=(r.turno||"").toUpperCase().includes("NOCHE")?"TN":"TD";
+      byFecha[r.fecha][turnoKey]=r;
+    });
+    const cronologico=Object.values(byFecha).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+    const diasPartes=cronologico.map(d=>{
+      const primero=d.TD||d.TN;
+      const ultimo=d.TN||d.TD;
+      return{
+        fecha:d.fecha,
+        primero,
+        ultimo,
+        turnoPrimero:d.TD?"TD":"TN",
+        turnoUltimo:d.TN?"TN":"TD",
+        partePrimero:primero?.parte||"",
+        parteUltimo:ultimo?.parte||"",
+        numPrimero:parseParte(primero?.parte),
+        numUltimo:parseParte(ultimo?.parte),
+      };
+    }).filter(d=>d.primero&&d.ultimo);
+
+    diasPartes.forEach(d=>{
+      if(d.primero&&d.ultimo&&d.turnoPrimero==="TD"&&d.turnoUltimo==="TN"){
+        const td=d.primero;
+        const tn=d.ultimo;
+        const numTD=parseParte(td?.parte);
+        const numTN=parseParte(tn?.parte);
+        const esperado=(numTD!==null)?numTD+1:null;
+        if(numTD!==null&&numTN!==null&&numTN!==esperado){
+          erroresPartes.push({
+            tipo:"TD_TN_NO_CONSECUTIVA",
+            proyecto:tn?.proyecto||td?.proyecto||"—",
+            maquina:maq,
+            supervisor:tn?.supervisor||td?.supervisor||"—",
+            fecha:d.fecha,
+            turno:"TN",
+            numeroIncorrecto:tn?.parte||"",
+            numeroCorrecto:esperado,
+            parteAnterior:td?.parte||"",
+            fechaAnterior:d.fecha,
+            turnoAnterior:"TD",
+            diff:numTN-esperado,
+            detalle:"El número de parte del turno noche debe ser consecutivo al número de parte del turno día."
+          });
+        }
+      }
+    });
+
+    for(let i=0;i<diasPartes.length-1;i++){
+      const hoy=diasPartes[i];
+      const siguiente=diasPartes[i+1];
+      if(hoy.numUltimo!==null&&siguiente.numPrimero!==null&&siguiente.numPrimero!==hoy.numUltimo+1){
+        erroresPartes.push({
+          tipo:"ENTRE_DIAS",
+          proyecto:siguiente.primero?.proyecto||hoy.ultimo?.proyecto||"—",
+          maquina:maq,
+          supervisor:siguiente.primero?.supervisor||hoy.ultimo?.supervisor||"—",
+          fecha:siguiente.fecha,
+          turno:siguiente.turnoPrimero,
+          numeroIncorrecto:siguiente.partePrimero,
+          numeroCorrecto:hoy.numUltimo+1,
+          parteAnterior:hoy.parteUltimo,
+          fechaAnterior:hoy.fecha,
+          turnoAnterior:hoy.turnoUltimo,
+          diff:siguiente.numPrimero-(hoy.numUltimo+1),
+          detalle:"El primer parte del día debe continuar al último parte registrado del día anterior."
+        });
+      }
+    }
+
+    const turnoOrden=r=>(String(r?.turno||"").toUpperCase().includes("NOCHE")?1:0);
+    const parteNumero=r=>parseParte(r?.parte)??0;
+    const diasHoro=cronologico.map(d=>{
+      const registros=[d.TD,d.TN].filter(Boolean).sort((a,b)=>{
+        const t=turnoOrden(a)-turnoOrden(b);
+        if(t!==0)return t;
+        return parteNumero(a)-parteNumero(b);
+      });
+      return{
+        fecha:d.fecha,
+        primero:registros[0]||null,
+        ultimo:registros[registros.length-1]||null,
+        turnoPrimero:registros[0]?(turnoOrden(registros[0])===1?"TN":"TD"):"—",
+        turnoUltimo:registros[registros.length-1]?(turnoOrden(registros[registros.length-1])===1?"TN":"TD"):"—",
+      };
+    }).filter(d=>d.primero&&d.ultimo);
+    for(let i=0;i<diasHoro.length-1;i++){
+      const diaActual=diasHoro[i];
+      const diaSiguiente=diasHoro[i+1];
+      const hfPrev=Number(diaActual.ultimo?.horometroFinal)||null;
+      const hiCurr=Number(diaSiguiente.primero?.horometroInicial)||null;
+      if(hfPrev&&hiCurr&&hfPrev!==hiCurr){
+        erroresHoro.push({
+          proyecto:diaSiguiente.primero?.proyecto||diaActual.ultimo?.proyecto||"—",
+          maquina:maq,
+          fecha:diaSiguiente.fecha,
+          turno:diaSiguiente.turnoPrimero,
+          supervisor:diaSiguiente.primero?.supervisor||"—",
+          parte:diaSiguiente.primero?.parte||"—",
+          hiActual:hiCurr,
+          hfAnterior:hfPrev,
+          fechaAnterior:diaActual.fecha,
+          turnoAnterior:diaActual.turnoUltimo,
+          parteAnterior:diaActual.ultimo?.parte||"—",
+          diff:hiCurr-hfPrev,
+          detalle:"El horómetro inicial debe coincidir con el horómetro final del día anterior registrado."
+        });
+      }
+    }
+  });
+  erroresPartes.sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||String(a.maquina||"").localeCompare(String(b.maquina||"")));
+  erroresHoro.sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||String(a.maquina||"").localeCompare(String(b.maquina||"")));
+  return{erroresPartes,erroresHoro};
+}
+
+// ─── ControlDeErrores ───────────────────────────────────────────────────────
+function ControlDeErrores({rop02All,extState,setExtState}){
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
+  const rop02ControlRows=useMemo(()=>rop02Prod.filter(r=>{
+    const m=String(r.maquina||"").trim();
+    return !/^CAA[-_\s]*0002(?:[-_\s]*JM)?$/i.test(m) && normalizeMachineCode(m)!=="CAA-0002";
+  }),[rop02Prod]);
+  const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const hoy=new Date();
+  const{proyecto,maquina,año,mesIdx,tipo}=extState;
+  const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
+  const periodo=useMemo(()=>{
+    const y=parseInt(año,10);
+    const m=Number(mesIdx);
+    const mes=String(m+1).padStart(2,"0");
+    const ultimoDia=new Date(y,m+1,0).getDate();
+    const fechaD=`${y}-${mes}-01`;
+    const fechaH=`${y}-${mes}-${String(ultimoDia).padStart(2,"0")}`;
+    return{fechaD,fechaH,label:`01/${mes}/${y} → ${String(ultimoDia).padStart(2,"0")}/${mes}/${y}`};
+  },[año,mesIdx]);
+  const años=useMemo(()=>{
+    const ys=new Set([String(hoy.getFullYear())]);
+    rop02ControlRows.forEach(r=>{if(r.fecha)ys.add(r.fecha.slice(0,4));});
+    return[...ys].sort();
+  },[rop02ControlRows]);
+  const proyectos=useMemo(()=>uniq(rop02ControlRows.map(r=>r.proyecto).filter(Boolean)).sort(),[rop02ControlRows]);
+  const maquinas=useMemo(()=>{
+    const base=rop02ControlRows.filter(r=>matchMulti(r.proyecto,proyecto,"todos")&&r.fecha>=periodo.fechaD&&r.fecha<=periodo.fechaH);
+    return uniq(base.map(r=>r.maquina).filter(Boolean)).filter(m=>!isRop02ControlMachineExcluded(m)).sort();
+  },[rop02ControlRows,proyecto,periodo]);
+  React.useEffect(()=>{
+    if(!multiIsAll(maquina,"todas")&&(!maquina.some(m=>maquinas.includes(m))||maquina.some(m=>isRop02ControlMachineExcluded(m))))set("maquina","todas");
+  },[maquinas,maquina]);// eslint-disable-line
+  const filtered=useMemo(()=>rop02ControlRows.filter(r=>{
+    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
+    if(isRop02ControlMachineExcluded(r.maquina))return false;
+    if(!matchMulti(r.maquina,maquina,"todas"))return false;
+    if(r.fecha<periodo.fechaD||r.fecha>periodo.fechaH)return false;
+    return true;
+  }),[rop02ControlRows,proyecto,maquina,periodo]);
+  const control=useMemo(()=>calcularErroresControlEquipo(filtered),[filtered]);
+  const todosErrores=useMemo(()=>[
+    ...control.erroresPartes.map(e=>({...e,_tipo:"Numeración"})),
+    ...control.erroresHoro.map(e=>({...e,_tipo:"Horómetro"})),
+  ].sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||String(a.maquina||"").localeCompare(String(b.maquina||""))),[control]);
+  const erroresTabla=tipo==="numeracion"?control.erroresPartes.map(e=>({...e,_tipo:"Numeración"})):tipo==="horometros"?control.erroresHoro.map(e=>({...e,_tipo:"Horómetro"})):todosErrores;
+  const porProyecto=useMemo(()=>{
+    const map={};
+    todosErrores.forEach(e=>{const k=e.proyecto||"—";map[k]=(map[k]||0)+1;});
+    return Object.entries(map).sort((a,b)=>b[1]-a[1]);
+  },[todosErrores]);
+  const porMaquina=useMemo(()=>{
+    const map={};
+    todosErrores.forEach(e=>{const k=e.maquina||"—";map[k]=(map[k]||0)+1;});
+    return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,12);
+  },[todosErrores]);
+  const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(maquina,"todas")||año!==String(hoy.getFullYear())||mesIdx!==hoy.getMonth()||tipo!=="todos";
+  const reset=()=>setExtState({proyecto:"todos",maquina:"todas",año:String(hoy.getFullYear()),mesIdx:hoy.getMonth(),tipo:"todos"});
+  const descargar=()=>{
+    const cols=["Tipo","Proyecto","Máquina","Fecha con error","Turno","Supervisor","Parte informado","Valor informado","Valor esperado/anterior","Diferencia","Fecha anterior","Turno anterior","Parte anterior","Detalle"];
+    const data=[cols,...erroresTabla.map(e=>[e._tipo,e.proyecto,e.maquina,e.fecha,e.turno,e.supervisor,e.numeroIncorrecto||e.parte||"",e.numeroIncorrecto||e.hiActual||"",e.numeroCorrecto||e.hfAnterior||"",e.diff,e.fechaAnterior||"",e.turnoAnterior||"",e.parteAnterior||"",e.detalle||""] )];
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"]=cols.map(h=>({wch:Math.max(h.length+2,14)}));
+    XLSX.utils.book_append_sheet(wb,ws,"Control de errores");
+    XLSX.writeFile(wb,"Control_de_errores_ROP02.xlsx");
+  };
+  const th={padding:"8px 12px",fontSize:11,fontWeight:800,color:C.textMuted,textAlign:"left",borderBottom:`1px solid ${C.border}`};
+  const td={padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,fontSize:12};
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+          <Sel label="Mes" value={String(mesIdx)} onChange={v=>set("mesIdx",Number(v))} options={MESES.map((m,i)=>({value:String(i),label:m}))}/>
+          <Sel label="Año" value={año} onChange={v=>set("año",v)} options={años.map(y=>({value:y,label:y}))}/>
+          <MultiSel label="Proyecto" value={proyecto} onChange={v=>{set("proyecto",v);set("maquina","todas");}} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
+          <MultiSel label="Máquina" value={maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
+          <Sel label="Tipo de error" value={tipo} onChange={v=>set("tipo",v)} options={[{value:"todos",label:"Todos"},{value:"numeracion",label:"Numeración"},{value:"horometros",label:"Horómetros"}]}/>
+          <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:`1px solid ${C.border}`,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{periodo.label}</strong></div>
+          <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+            <Icon name="close" size={11} color={C.red}/>Limpiar filtros
+          </button>
+        </div>
+      </Card>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:12}}>
+        <StatCard icon="warn" label="Errores totales" value={fmtNum(todosErrores.length)} sub={`${filtered.length} registros controlados`} color={todosErrores.length?C.red:C.green} small/>
+        <StatCard icon="parts" label="Numeración" value={fmtNum(control.erroresPartes.length)} sub="Partes diarios no consecutivos" color={control.erroresPartes.length?C.yellow:C.green} small/>
+        <StatCard icon="hours" label="Horómetros" value={fmtNum(control.erroresHoro.length)} sub="Cortes entre días registrados" color={control.erroresHoro.length?C.red:C.green} small/>
+        <StatCard icon="equip" label="Equipos afectados" value={fmtNum(new Set(todosErrores.map(e=>e.maquina)).size)} sub={`${maquinas.length} equipos en filtro`} color={C.purple} small/>
+      </div>
+      {todosErrores.length===0?
+        <AlertBanner type="success">✅ Sin errores de numeración ni cortes de horómetro para los filtros seleccionados.</AlertBanner>:
+        <>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
+            <Card title="Errores por proyecto"><div style={{padding:14,display:"flex",flexDirection:"column",gap:8}}>{porProyecto.map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:12}}><span style={{color:C.textSub,fontWeight:700}}>{k}</span><Badge color={C.red}>{v}</Badge></div>)}</div></Card>
+            <Card title="Equipos con más errores"><div style={{padding:14,display:"flex",flexDirection:"column",gap:8}}>{porMaquina.map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:12}}><span style={{color:C.textSub,fontWeight:800}}>{k}</span><Badge color={C.yellow}>{v}</Badge></div>)}</div></Card>
+          </div>
+          <Card title={`Detalle de errores (${erroresTabla.length})`} action={<BtnExcel onClick={descargar}/>}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:980}}>
+                <thead><tr style={{background:C.surface}}>{["Tipo","Proyecto","Máquina","Fecha","Turno","Supervisor","Dato informado","Dato esperado","Diferencia","Referencia anterior","Detalle"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
+                <tbody>{erroresTabla.map((e,i)=>{
+                  const esParte=e._tipo==="Numeración";
+                  return <tr key={i} style={{background:i%2===0?C.red+"0a":"transparent"}}>
+                    <td style={td}><Badge color={esParte?C.yellow:C.red}>{e._tipo}</Badge></td>
+                    <td style={td}>{e.proyecto}</td>
+                    <td style={td}><Badge color={C.purple}>{e.maquina}</Badge></td>
+                    <td style={{...td,fontWeight:800}}>{fmtFecha(e.fecha)}</td>
+                    <td style={td}><Badge color={e.turno==="TD"?C.blue:C.purple}>{e.turno}</Badge></td>
+                    <td style={td}>{e.supervisor}</td>
+                    <td style={{...td,color:C.red,fontWeight:900}}>{esParte?`#${e.numeroIncorrecto}`:fmtNum(e.hiActual)}</td>
+                    <td style={{...td,color:C.yellow,fontWeight:900}}>{esParte?`#${e.numeroCorrecto}`:fmtNum(e.hfAnterior)}</td>
+                    <td style={td}><Badge color={e.diff>0?C.yellow:C.red}>{e.diff>0?`+${fmtNum(e.diff)}`:fmtNum(e.diff)}</Badge></td>
+                    <td style={td}>{fmtFecha(e.fechaAnterior)} · {e.turnoAnterior||"—"} · #{e.parteAnterior||"—"}</td>
+                    <td style={{...td,minWidth:240,color:C.textSub}}>{e.detalle||"—"}</td>
+                  </tr>;
+                })}</tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      }
+    </div>
+  );
+}
+
 // ─── ControlPorEquipo ─────────────────────────────────────────────────────────
 function ControlPorEquipo({rop02All,extState,setExtState}){
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
@@ -4374,129 +4631,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     color:C.text,fontSize:12,fontWeight:600,padding:"5px 10px",fontFamily:"Inter",cursor:"pointer",outline:"none",
   };
 
-  const controlIntegridad=useMemo(()=>{
-    const rows=multiIsAll(maquina,"todas")?filtered:[...filtered];
-    const byMaq={};
-    rows.forEach(r=>{if(r.maquina){if(!byMaq[r.maquina])byMaq[r.maquina]=[];byMaq[r.maquina].push(r);}});
-    const erroresPartes=[];
-    const erroresHoro=[];
-    const parseParte=p=>{const m=String(p||"").match(/(\d+)/g);return m?Number(m[m.length-1]):null;};
-    Object.entries(byMaq).forEach(([maq,items])=>{
-      const byFecha={};
-      items.forEach(r=>{
-        if(!byFecha[r.fecha])byFecha[r.fecha]={fecha:r.fecha,TD:null,TN:null};
-        const turnoKey=(r.turno||"").toUpperCase().includes("NOCHE")?"TN":"TD";
-        byFecha[r.fecha][turnoKey]=r;
-      });
-      const cronologico=Object.values(byFecha).sort((a,b)=>a.fecha.localeCompare(b.fecha));
-      const diasPartes=cronologico.map(d=>{
-        const primero=d.TD||d.TN;
-        const ultimo=d.TN||d.TD;
-        return{
-          fecha:d.fecha,
-          primero,
-          ultimo,
-          turnoPrimero:d.TD?"TD":"TN",
-          turnoUltimo:d.TN?"TN":"TD",
-          partePrimero:primero?.parte||"",
-          parteUltimo:ultimo?.parte||"",
-          numPrimero:parseParte(primero?.parte),
-          numUltimo:parseParte(ultimo?.parte),
-        };
-      }).filter(d=>d.primero&&d.ultimo);
-      // Control TD/TN del mismo día:
-      // Cada turno debe continuar el número de parte del turno anterior.
-      // Si TD = 726, TN debe ser 727. Si TN es 726, 728, vacío, etc., se informa error.
-      diasPartes.forEach(d=>{
-        if(d.primero&&d.ultimo&&d.turnoPrimero==="TD"&&d.turnoUltimo==="TN"){
-          const td=d.primero;
-          const tn=d.ultimo;
-          const numTD=parseParte(td?.parte);
-          const numTN=parseParte(tn?.parte);
-          const esperado=(numTD!==null)?numTD+1:null;
-          if(numTD!==null&&numTN!==null&&numTN!==esperado){
-            erroresPartes.push({
-              tipo:"TD_TN_NO_CONSECUTIVA",
-              proyecto:tn?.proyecto||td?.proyecto||"—",
-              maquina:maq,
-              supervisor:tn?.supervisor||td?.supervisor||"—",
-              fecha:d.fecha,
-              turno:"TN",
-              numeroIncorrecto:tn?.parte||"",
-              numeroCorrecto:esperado,
-              parteAnterior:td?.parte||"",
-              fechaAnterior:d.fecha,
-              turnoAnterior:"TD",
-              diff:numTN-esperado,
-              detalle:"El número de parte del turno noche debe ser consecutivo al número de parte del turno día."
-            });
-          }
-        }
-      });
-
-      for(let i=0;i<diasPartes.length-1;i++){
-        const hoy=diasPartes[i];
-        const siguiente=diasPartes[i+1];
-        if(hoy.numUltimo!==null&&siguiente.numPrimero!==null&&siguiente.numPrimero!==hoy.numUltimo+1){
-          erroresPartes.push({
-            proyecto:siguiente.primero?.proyecto||hoy.ultimo?.proyecto||"—",
-            maquina:maq,
-            supervisor:siguiente.primero?.supervisor||hoy.ultimo?.supervisor||"—",
-            fecha:siguiente.fecha,
-            turno:siguiente.turnoPrimero,
-            numeroIncorrecto:siguiente.partePrimero,
-            numeroCorrecto:hoy.numUltimo+1,
-            parteAnterior:hoy.parteUltimo,
-            fechaAnterior:hoy.fecha,
-            diff:siguiente.numPrimero-(hoy.numUltimo+1),
-          });
-        }
-      }
-      // Control de horómetros entre días:
-      // El Hf del ÚLTIMO registro de la máquina en un día determinado
-      // debe coincidir con el Hi del PRIMER registro de esa misma máquina al día siguiente registrado.
-      // No se compara TD vs TN dentro del mismo día, porque el control pedido es día contra día.
-      const turnoOrden=r=>(String(r?.turno||"").toUpperCase().includes("NOCHE")?1:0);
-      const parteNumero=r=>parseParte(r?.parte)??0;
-      const diasHoro=cronologico.map(d=>{
-        const registros=[d.TD,d.TN].filter(Boolean).sort((a,b)=>{
-          const t=turnoOrden(a)-turnoOrden(b);
-          if(t!==0)return t;
-          return parteNumero(a)-parteNumero(b);
-        });
-        return{
-          fecha:d.fecha,
-          primero:registros[0]||null,
-          ultimo:registros[registros.length-1]||null,
-          turnoPrimero:registros[0]?(turnoOrden(registros[0])===1?"TN":"TD"):"—",
-          turnoUltimo:registros[registros.length-1]?(turnoOrden(registros[registros.length-1])===1?"TN":"TD"):"—",
-        };
-      }).filter(d=>d.primero&&d.ultimo);
-      for(let i=0;i<diasHoro.length-1;i++){
-        const diaActual=diasHoro[i];
-        const diaSiguiente=diasHoro[i+1];
-        const hfPrev=Number(diaActual.ultimo?.horometroFinal)||null;
-        const hiCurr=Number(diaSiguiente.primero?.horometroInicial)||null;
-        if(hfPrev&&hiCurr&&hfPrev!==hiCurr){
-          erroresHoro.push({
-            proyecto:diaSiguiente.primero?.proyecto||diaActual.ultimo?.proyecto||"—",
-            maquina:maq,
-            fecha:diaSiguiente.fecha,
-            turno:diaSiguiente.turnoPrimero,
-            supervisor:diaSiguiente.primero?.supervisor||"—",
-            parte:diaSiguiente.primero?.parte||"—",
-            hiActual:hiCurr,
-            hfAnterior:hfPrev,
-            fechaAnterior:diaActual.fecha,
-            turnoAnterior:diaActual.turnoUltimo,
-            parteAnterior:diaActual.ultimo?.parte||"—",
-            diff:hiCurr-hfPrev,
-          });
-        }
-      }
-    });
-    return{erroresPartes,erroresHoro};
-  },[filtered,maquina]);
+  const controlIntegridad=useMemo(()=>calcularErroresControlEquipo(filtered),[filtered]);
 
   const ErrorDato=({label,children,color=C.text})=>(
     <div style={{display:"flex",flexDirection:"column",gap:3,minWidth:120}}>
@@ -11380,6 +11515,7 @@ export default function App(){
   const[stHorometros,setStHorometros]=useState(()=>savedOr("stHorometros",{mode:"periodo",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
   const[stVeh,setStVeh]=useState(()=>savedOr("stVeh",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
   const[stComb,setStComb]=useState(()=>savedOr("stComb",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
+  const[stControlErrores,setStControlErrores]=useState(()=>savedOr("stControlErrores",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),tipo:"todos"}));
   const[stCtrlEquipo,setStCtrlEquipo]=useState(()=>savedOr("stCtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:"",controlActivo:"numeracion"}));
   const[st05,setSt05]=useState(()=>savedOr("st05",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}}));
   const[stCtrl,setStCtrl]=useState(()=>savedOr("stCtrl",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}}));
@@ -11388,12 +11524,12 @@ export default function App(){
     const t=setTimeout(()=>{
       try{
         window.localStorage.setItem(APP_FILTERS_STATE_KEY,JSON.stringify({
-          sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stCtrlEquipo,st05,stCtrl
+          sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stControlErrores,stCtrlEquipo,st05,stCtrl
         }));
       }catch(_){}
     },250);
     return()=>clearTimeout(t);
-  },[sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stCtrlEquipo,st05,stCtrl]);
+  },[sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stControlErrores,stCtrlEquipo,st05,stCtrl]);
 
 
 
@@ -11531,6 +11667,7 @@ export default function App(){
     {id:"grp_rop02",icon:"parts",label:"ROP02",type:"group",color:C.purple,children:[
       {id:"rop02",icon:"parts",label:"Equipos"},
       {id:"vehiculos",icon:"equip",label:"Vehículos"},
+      {id:"controlErrores",icon:"warn",label:"Control de errores"},
       {id:"ctrlEquipo",icon:"bulldozer",label:"Control por Equipo"},
       {id:"combustible",icon:"fuel",label:"Combustible"},
       {id:"horometros",icon:"hours",label:"Horómetros"},
@@ -11549,7 +11686,7 @@ export default function App(){
     {id:"listaEquipos",icon:"bulldozer",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",rop05:"Productividad",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -11663,6 +11800,7 @@ export default function App(){
                 {view==="rop02"&&(dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
                 {view==="horometros"&&(dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<BlockingDataLoader label="Cargando Horómetros..." />)}
                 {view==="vehiculos"&&(dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} listaEquipos={listaEquipos} extState={stVeh} setExtState={setStVeh}/>:<BlockingDataLoader label="Cargando Vehículos..." />)}
+                {view==="controlErrores"&&(dataHydrated&&rop02All.length>0?<ControlDeErrores rop02All={rop02All} extState={stControlErrores} setExtState={setStControlErrores}/>:<BlockingDataLoader label="Cargando Control de errores..." />)}
                 {view==="ctrlEquipo"&&(dataHydrated&&rop02All.length>0?<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
                 {view==="combustible"&&(dataHydrated&&rop02All.length>0?<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>:<BlockingDataLoader label="Cargando Combustible..." />)}
                 {view==="rop05"&&(dataHydrated&&rop05.length>0?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Productividad..." />)}
