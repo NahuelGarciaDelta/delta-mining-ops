@@ -11128,6 +11128,39 @@ export default function App(){
     loadSources(VIEW_SOURCES[view]||[]);
   },[view,loadSources,loadInitial]);
 
+  // ─── Auto-refresh: recarga los datos del sheet cada 15 minutos ──────────────
+  // Llama a loadData (mismo comportamiento que el botón "Actualizar", con force)
+  // para las fuentes de la vista actual. Si la pestaña del navegador está oculta,
+  // no refresca (para no gastar cuota del Apps Script); al volver a la pestaña,
+  // refresca automáticamente si pasaron más de 15 minutos desde la última carga.
+  const lastAutoRefreshRef=useRef(Date.now());
+  useEffect(()=>{
+    if(view==="bienvenida")return;
+    const AUTO_REFRESH_MS=15*60*1000; // 15 minutos
+
+    const doRefresh=()=>{
+      lastAutoRefreshRef.current=Date.now();
+      loadData();
+    };
+
+    const id=setInterval(()=>{
+      if(document.hidden)return; // pestaña oculta: no refrescar
+      doRefresh();
+    },AUTO_REFRESH_MS);
+
+    const onVisible=()=>{
+      if(document.hidden)return;
+      // Si el usuario vuelve a la pestaña y los datos quedaron viejos, refrescamos.
+      if(Date.now()-lastAutoRefreshRef.current>=AUTO_REFRESH_MS)doRefresh();
+    };
+    document.addEventListener("visibilitychange",onVisible);
+
+    return ()=>{
+      clearInterval(id);
+      document.removeEventListener("visibilitychange",onVisible);
+    };
+  },[view,loadData]);
+
   const costosUnitariosBadge=useMemo(()=>{
     const m={};
     const fechaMinima="2026-06-01";
