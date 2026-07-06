@@ -1050,6 +1050,22 @@ const PATHS={
   alert:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z",
   consist:"M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z",
   bulldozer:"M3 5H9V11H3ZM3 10H16V14H3ZM16 9L20 9L21 17L16 17ZM2 14H21V18H2ZM3.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0ZM9.1 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0ZM14.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0Z",
+
+  fileSpreadsheet:"M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zm-5 3h3v2H8v-2zm5 0h3v2h-3v-2zm-5 4h3v2H8v-2zm5 0h3v2h-3v-2z",
+  truck:"M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm12 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM17 12V9.5h2.5L21.5 12H17z",
+  car:"M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.22.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16C5.67 16 5 15.33 5 14.5S5.67 13 6.5 13 8 13.67 8 14.5 7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z",
+  usersRound:"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z",
+  shieldCheck:"M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 15.5-4-4 1.41-1.41L11 13.67l5.59-5.59L18 9.5l-7 7z",
+  circleAlert:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z",
+  clipboardCheck:"M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v15c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-1 14-4-4 1.41-1.41L11 14.17l5.59-5.59L18 10l-7 7z",
+  listTree:"M4 5h4v4H4V5zm0 10h4v4H4v-4zm6-9h10v2H10V6zm0 10h10v2H10v-2zm-3-5h4v2H7v-2zm4 0h9v2h-9v-2z",
+  medal:"M12 2 9 8H5l4 5-2 7 5-3 5 3-2-7 4-5h-4l-3-6zm0 4.47L13.2 9h2.05l-1.9 2.38.85 2.98L12 13.05l-2.2 1.31.85-2.98L8.75 9h2.05L12 6.47z",
+  wrench:"M22.7 19.3l-6.4-6.4c.9-2.3.4-5-1.5-6.9-2-2-4.8-2.5-7.2-1.5l4.1 4.1-2.8 2.8-4.2-4.1c-1 2.4-.4 5.2 1.5 7.2 1.9 1.9 4.6 2.4 6.9 1.5l6.4 6.4 3.2-3.1z",
+  hardHat:"M12 3c-4.42 0-8 3.58-8 8v3H2v3h20v-3h-2v-3c0-4.42-3.58-8-8-8zm-2 2.34V12H8V6.26c.6-.42 1.27-.73 2-.92zM16 12h-2V5.34c.73.19 1.4.5 2 .92V12zM6 14h12v1H6v-1z",
+  fileBarChart:"M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM8 18h2v-5H8v5zm3 0h2v-8h-2v8zm3 0h2v-3h-2v3z",
+  badgeDollarSign:"M12 2l2.39 4.84 5.34.78-3.86 3.76.91 5.32L12 14.19 7.22 16.7l.91-5.32L4.27 7.62l5.34-.78L12 2zm1 7h-2c-.55 0-1 .36-1 .8s.45.8 1 .8h2c1.66 0 3 1.08 3 2.4 0 1.15-1 2.11-2.33 2.35V17h-1.34v-1.6C10.99 15.18 10 14.2 10 13h1.5c0 .44.45.8 1 .8h2c.55 0 1-.36 1-.8s-.45-.8-1-.8h-2c-1.66 0-3-1.08-3-2.4 0-1.15.99-2.11 2.33-2.35V6h1.34v1.6C15.01 7.82 16 8.8 16 10h-1.5c0-.44-.45-.8-1-.8z",
+  database:"M12 3C7.58 3 4 4.79 4 7v10c0 2.21 3.58 4 8 4s8-1.79 8-4V7c0-2.21-3.58-4-8-4zm0 2c3.87 0 6 1.5 6 2s-2.13 2-6 2-6-1.5-6-2 2.13-2 6-2zm0 14c-3.87 0-6-1.5-6-2v-2.27C7.47 15.53 9.65 16 12 16s4.53-.47 6-1.27V17c0 .5-2.13 2-6 2zm0-5c-3.87 0-6-1.5-6-2V9.73C7.47 10.53 9.65 11 12 11s4.53-.47 6-1.27V12c0 .5-2.13 2-6 2z",
+  clipboardList:"M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v15c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM7 10h10v2H7v-2zm0 4h10v2H7v-2z",
   chevronDown:"M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z",
   chevronLeft:"M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z",
   chevronRight:"M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z",
@@ -1677,6 +1693,7 @@ const VIEW_SOURCES={
   vehiculos:["rop02_fs","rop02_jm","rop02_filosur","lista_equipos"],
   controlErrores:["rop02_fs","rop02_jm","rop02_filosur"],
   ctrlEquipo:["rop02_fs","rop02_jm","rop02_filosur"],
+  controlROP02:["rop02_fs","rop02_jm","rop02_filosur"],
   combustible:["rop02_fs","rop02_jm","rop02_filosur"],
   cambiosTurno:["rop02_fs","rop02_jm","rop02_filosur"],
   chc:["rop02_fs","rop02_jm","rop02_filosur"],
@@ -5171,6 +5188,171 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
           )}
         </Card>
       )}
+    </div>
+  );
+}
+
+
+function ViewAtrasoROP02({rop02All}){
+  const STORAGE_KEY="delta_rop02_atrasos_admitidos_v1";
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded && normalizeMachineCode(r.maquina)!=="CAA-0002" && r.fecha),[rop02All]);
+  const [admitidos,setAdmitidos]=useState(()=>{try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");}catch{return{};}});
+  const saveAdmitidos=useCallback((next)=>{setAdmitidos(next);try{localStorage.setItem(STORAGE_KEY,JSON.stringify(next));}catch{}},[]);
+  const hoyISO=useMemo(()=>{
+    const d=new Date();
+    d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
+    return d.toISOString().slice(0,10);
+  },[]);
+  const keyEquipoAtraso=useCallback((maquina)=>canonicalEquivalentMachineCode(String(maquina||"").replace(/[-\s]*\(.*?\)/g,"")).replace(/[-_]JM$/i,""),[]);
+  const data=useMemo(()=>{
+    const dayMs=86400000;
+    const diffDias=(a,b)=>Math.floor((new Date(a+"T00:00:00")-new Date(b+"T00:00:00"))/dayMs);
+    const fechasEntre=(desde,hasta)=>{
+      const out=[];
+      const d=new Date(desde+"T00:00:00");
+      const h=new Date(hasta+"T00:00:00");
+      d.setDate(d.getDate()+1);
+      while(d<h){out.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1);}
+      return out;
+    };
+
+    const fechas=uniq(rop02Prod.map(r=>r.fecha)).sort();
+    const ultimaFecha=fechas[fechas.length-1]||"";
+    const ultimaDate=ultimaFecha?new Date(ultimaFecha+"T00:00:00"):null;
+    const hoyDate=new Date(hoyISO+"T00:00:00");
+    const diasAtraso=ultimaDate?Math.floor((hoyDate-ultimaDate)/dayMs):null;
+    const rowsUltima=rop02Prod.filter(r=>r.fecha===ultimaFecha);
+    const presentes=new Set(rowsUltima.map(r=>keyEquipoAtraso(r.maquina)).filter(Boolean));
+    const desdeRef=ultimaDate?new Date(ultimaDate.getTime()-7*dayMs):null;
+    const desdeRefISO=desdeRef?desdeRef.toISOString().slice(0,10):"";
+    const desdeSaltos=ultimaDate?new Date(ultimaDate.getTime()-45*dayMs):null;
+    const desdeSaltosISO=desdeSaltos?desdeSaltos.toISOString().slice(0,10):"";
+    const hist={};
+    const porEquipo={};
+
+    rop02Prod.forEach(r=>{
+      const k=keyEquipoAtraso(r.maquina);
+      if(!k)return;
+      if(!porEquipo[k])porEquipo[k]={maquina:r.maquina,proyecto:r.proyecto,supervisor:r.supervisor,fechas:new Set()};
+      if(!desdeSaltosISO||r.fecha>=desdeSaltosISO)porEquipo[k].fechas.add(r.fecha);
+
+      if(!ultimaFecha||r.fecha>=ultimaFecha||r.fecha<desdeRefISO)return;
+      if(!hist[k])hist[k]={maquina:r.maquina,proyecto:r.proyecto,supervisor:r.supervisor,registros:0,fechas:new Set(),ultima:r.fecha};
+      hist[k].registros+=1;
+      hist[k].fechas.add(r.fecha);
+      if(r.fecha>hist[k].ultima)hist[k].ultima=r.fecha;
+    });
+
+    const faltantes=Object.entries(hist).filter(([k,v])=>!presentes.has(k)&&v.fechas.size>=2).map(([k,v])=>{
+      const id=`faltante_${k}_${ultimaFecha}`;
+      const causa=String(admitidos[id]?.causa||"").trim();
+      const diasSinCarga=ultimaDate?Math.floor((ultimaDate-new Date(v.ultima+"T00:00:00"))/dayMs):0;
+      return{ id,tipo:"Faltante",codigo:k,maquina:v.maquina,proyecto:v.proyecto,supervisor:v.supervisor,ultimaCarga:v.ultima,diasSinCarga,registros:v.registros,diasConCarga:v.fechas.size,causa,admitido:Boolean(causa)};
+    }).filter(r=>r.diasSinCarga>1).sort((a,b)=>b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));
+
+    const saltos=[];
+    Object.entries(porEquipo).forEach(([k,v])=>{
+      const fechasEq=[...v.fechas].sort();
+      if(fechasEq.length<2)return;
+      for(let i=1;i<fechasEq.length;i++){
+        const desde=fechasEq[i-1];
+        const hasta=fechasEq[i];
+        const diasSalto=diffDias(hasta,desde)-1;
+        if(diasSalto<=0)continue;
+        const diasSinCarga=fechasEntre(desde,hasta);
+        const id=`salto_${k}_${desde}_${hasta}`;
+        const causa=String(admitidos[id]?.causa||"").trim();
+        saltos.push({
+          id,tipo:"Salto",codigo:k,maquina:v.maquina,proyecto:v.proyecto,supervisor:v.supervisor,
+          ultimaCarga:desde,proximaCarga:hasta,diasSinCarga:diasSalto,
+          diasSinCargaDetalle:diasSinCarga.join(", "),causa,admitido:Boolean(causa)
+        });
+      }
+    });
+    saltos.sort((a,b)=>b.ultimaCarga.localeCompare(a.ultimaCarga)||b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));
+
+    return{ultimaFecha,diasAtraso,faltantes,saltos,totalUltima:rowsUltima.length,equiposUltima:presentes.size};
+  },[rop02Prod,admitidos,hoyISO,keyEquipoAtraso]);
+
+  const pedirCausa=(row)=>{
+    const texto=row.tipo==="Salto"
+      ?`Causa del salto sin carga de ${row.maquina} entre ${fmtFecha(row.ultimaCarga)} y ${fmtFecha(row.proximaCarga)}:`
+      :`Causa por la que se descontinuó la carga de ${row.maquina}:`;
+    const causa=window.prompt(texto,row.causa||"");
+    if(causa===null)return;
+    const clean=String(causa||"").trim();
+    if(!clean){
+      const next={...admitidos}; delete next[row.id]; saveAdmitidos(next); return;
+    }
+    saveAdmitidos({...admitidos,[row.id]:{causa:clean,fechaAdmitido:new Date().toISOString(),maquina:row.maquina,tipo:row.tipo}});
+  };
+
+  const accionBtn=(row)=><button onClick={()=>pedirCausa(row)} style={{border:`1px solid ${row.admitido?C.green:C.yellow}55`,background:row.admitido?C.greenDim:C.yellowDim,color:row.admitido?C.green:C.yellow,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Admitir falta de equipo</button>;
+
+  const cols=useMemo(()=>[
+    {key:"maquina",label:"Equipo",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
+    {key:"ultimaCarga",label:"Última carga",render:v=>fmtFecha(v)},
+    {key:"diasSinCarga",label:"Días sin carga",render:v=><span style={{color:v>1?C.red:C.yellow,fontWeight:800}}>{v}</span>},
+    {key:"diasConCarga",label:"Días previos"},
+    {key:"causa",label:"Causa admitida",wrap:true,render:v=>v?<span style={{color:C.green,fontWeight:700}}>{v}</span>:<span style={{color:C.red,fontWeight:700}}>Sin causa</span>},
+    {key:"accion",label:"Acción",render:(_,r)=>accionBtn(r)},
+  ],[admitidos]);
+
+  const colsSaltos=useMemo(()=>[
+    {key:"maquina",label:"Equipo",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
+    {key:"ultimaCarga",label:"Cargó hasta",render:v=>fmtFecha(v)},
+    {key:"proximaCarga",label:"Volvió a cargar",render:v=>fmtFecha(v)},
+    {key:"diasSinCarga",label:"Días saltados",render:v=><span style={{color:v>0?C.red:C.green,fontWeight:800}}>{v}</span>},
+    {key:"diasSinCargaDetalle",label:"Fechas sin carga",wrap:true,render:v=><span style={{fontSize:12,color:C.textSub}}>{v||"—"}</span>},
+    {key:"causa",label:"Causa admitida",wrap:true,render:v=>v?<span style={{color:C.green,fontWeight:700}}>{v}</span>:<span style={{color:C.red,fontWeight:700}}>Sin causa</span>},
+    {key:"accion",label:"Acción",render:(_,r)=>accionBtn(r)},
+  ],[admitidos]);
+
+  const faltantesSinCausa=data.faltantes.filter(r=>!r.admitido).length;
+  const saltosSinCausa=data.saltos.filter(r=>!r.admitido).length;
+  const atrasoGeneral=data.diasAtraso!==null&&data.diasAtraso>1;
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      {atrasoGeneral&&<AlertBanner type="warn">Pasó más de 1 día desde la última carga de ROP02. Última carga detectada: <strong>{fmtFecha(data.ultimaFecha)}</strong> ({data.diasAtraso} días).</AlertBanner>}
+      {!atrasoGeneral&&data.ultimaFecha&&<AlertBanner type="success">La carga general de ROP02 está al día. Última carga detectada: <strong>{fmtFecha(data.ultimaFecha)}</strong>.</AlertBanner>}
+      {!data.ultimaFecha&&<AlertBanner type="warn">No se detectaron cargas de ROP02.</AlertBanner>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+        <StatCard icon="hours" label="Última carga" value={data.ultimaFecha?fmtFecha(data.ultimaFecha):"—"} sub={data.diasAtraso!==null?`${data.diasAtraso} días desde la última carga`:"Sin datos"} color={atrasoGeneral?C.red:C.green} small/>
+        <StatCard icon="equip" label="Equipos última carga" value={data.equiposUltima} sub={`${data.totalUltima} registros en el último día`} color={C.purple} small/>
+        <StatCard icon="warn" label="Faltantes sin causa" value={faltantesSinCausa} sub="Equipos que venían cargándose" color={faltantesSinCausa?C.red:C.green} small/>
+        <StatCard icon="warn" label="Saltos sin causa" value={saltosSinCausa} sub="Cortes intermedios por equipo" color={saltosSinCausa?C.red:C.green} small/>
+        <StatCard icon="check" label="Faltantes admitidos" value={data.faltantes.filter(r=>r.admitido).length+data.saltos.filter(r=>r.admitido).length} color={C.green} small/>
+      </div>
+      {faltantesSinCausa>0&&<AlertBanner type="warn">Hay equipos que venían con cargas y no aparecen en la última carga de ROP02. Mientras no tengan causa admitida, seguirán apareciendo como alerta.</AlertBanner>}
+      {saltosSinCausa>0&&<AlertBanner type="warn">Hay equipos que se venían cargando, tuvieron uno o más días sin carga en el medio y luego volvieron a cargarse. Mientras no tengan causa admitida, seguirán apareciendo como alerta.</AlertBanner>}
+      <Card title={`Equipos con posible descontinuidad (${data.faltantes.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols.filter(c=>c.key!=="accion"),data.faltantes,"Atraso_ROP02")}/>}> 
+        <Table cols={cols} rows={data.faltantes} maxH={520} emptyMsg="No se detectaron equipos faltantes según las cargas previas"/>
+      </Card>
+      <Card title={`Saltos de carga por equipo (${data.saltos.length})`} action={<BtnExcel onClick={()=>excelFromCols(colsSaltos.filter(c=>c.key!=="accion"),data.saltos,"Saltos_ROP02")}/>}> 
+        <Table cols={colsSaltos} rows={data.saltos} maxH={520} emptyMsg="No se detectaron saltos intermedios de carga por equipo"/>
+      </Card>
+      <AlertBanner type="info">Criterio usado: se compara la última fecha cargada contra los equipos que tuvieron cargas en al menos 2 días dentro de los 7 días previos. Además, se detectan saltos intermedios por equipo dentro de los últimos 45 días cargados.</AlertBanner>
+    </div>
+  );
+}
+
+function ViewControlROP02({rop02All,tabState,setTabState,stControlErrores,setStControlErrores,stCtrlEquipo,setStCtrlEquipo}){
+  const tab=tabState?.tab||"errores";
+  const setTab=t=>setTabState(s=>({...s,tab:t}));
+  return(
+    <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card>
+        <div style={{padding:"0 14px",display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+          <SubTab active={tab==="errores"} onClick={()=>setTab("errores")}>Control de errores</SubTab>
+          <SubTab active={tab==="equipo"} onClick={()=>setTab("equipo")}>Control por Equipo</SubTab>
+          <SubTab active={tab==="atraso"} onClick={()=>setTab("atraso")}>Atraso</SubTab>
+        </div>
+      </Card>
+      {tab==="errores"&&<ControlDeErrores rop02All={rop02All} extState={stControlErrores} setExtState={setStControlErrores}/>} 
+      {tab==="equipo"&&<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>} 
+      {tab==="atraso"&&<ViewAtrasoROP02 rop02All={rop02All}/>} 
     </div>
   );
 }
@@ -11041,7 +11223,7 @@ export default function App(){
   const[stRma15CtrlEquipo,setStRma15CtrlEquipo]=useState(()=>savedOr("stRma15CtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:""}));
   const[stCHC,setStCHC]=useState(()=>savedOr("stCHC",{proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()}));
   const[stRanking,setStRanking]=useState(()=>savedOr("stRanking",{proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""}));
-  const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_rop05:true,grp_rma15:true,grp_admin:true}));
+  const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_control_rop02:true,grp_rop05:true,grp_rma15:true,grp_admin:true}));
   const[usdRate,setUsdRate]=useState(null);
 
   // Tipo de cambio: se pide recién cuando una vista de costos/mantenimiento lo necesita.
@@ -11067,6 +11249,7 @@ export default function App(){
   const[stComb,setStComb]=useState(()=>savedOr("stComb",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
   const[stControlErrores,setStControlErrores]=useState(()=>savedOr("stControlErrores",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),tipo:"todos"}));
   const[stCtrlEquipo,setStCtrlEquipo]=useState(()=>savedOr("stCtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:"",controlActivo:"numeracion"}));
+  const[stControlROP02,setStControlROP02]=useState(()=>savedOr("stControlROP02",{tab:"errores"}));
   const[st05,setSt05]=useState(()=>savedOr("st05",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}}));
   const[stCtrl,setStCtrl]=useState(()=>savedOr("stCtrl",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}}));
 
@@ -11074,12 +11257,12 @@ export default function App(){
     const t=setTimeout(()=>{
       try{
         window.localStorage.setItem(APP_FILTERS_STATE_KEY,JSON.stringify({
-          sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stControlErrores,stCtrlEquipo,st05,stCtrl
+          sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stControlErrores,stCtrlEquipo,stControlROP02,st05,stCtrl
         }));
       }catch(_){}
     },250);
     return()=>clearTimeout(t);
-  },[sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stControlErrores,stCtrlEquipo,st05,stCtrl]);
+  },[sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stControlErrores,stCtrlEquipo,stControlROP02,st05,stCtrl]);
 
 
   // Normaliza todo cada vez que llega una fuente nueva.
@@ -11306,31 +11489,34 @@ export default function App(){
   const navStructure=[
     {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
     {id:"dashboard",icon:"dashboard",label:"Dashboard",type:"item",color:C.accent},
-    {id:"grp_rop02",icon:"parts",label:"ROP02",type:"group",color:C.purple,children:[
-      {id:"rop02",icon:"parts",label:"Equipos"},
-      {id:"vehiculos",icon:"equip",label:"Vehículos"},
-      {id:"controlErrores",icon:"warn",label:"Control de errores"},
-      {id:"ctrlEquipo",icon:"bulldozer",label:"Control por Equipo"},
+    {id:"grp_rop02",icon:"fileSpreadsheet",label:"ROP02",type:"group",color:C.purple,children:[
+      {id:"rop02",icon:"truck",label:"Equipos"},
+      {id:"vehiculos",icon:"car",label:"Vehículos"},
       {id:"combustible",icon:"fuel",label:"Combustible"},
       {id:"horometros",icon:"hours",label:"Horómetros"},
-      {id:"cambiosTurno",icon:"consist",label:"Cambios de turno"},
+      {id:"cambiosTurno",icon:"usersRound",label:"Cambios de turno"},
+    ]},
+    {id:"grp_control_rop02",icon:"shieldCheck",label:"Control de ROP02",type:"group",color:C.accent,children:[
+      {id:"controlErrores",icon:"circleAlert",label:"Control de errores"},
+      {id:"ctrlEquipo",icon:"clipboardCheck",label:"Control por Equipo"},
+      {id:"atrasoROP02",icon:"warn",label:"Atraso"},
     ]},
     {id:"grp_rop05",icon:"prod",label:"ROP05",type:"group",color:C.green,children:[
       {id:"rop05",icon:"prod",label:"Productividad"},
-      {id:"rop05Discriminacion",icon:"prod",label:"Discriminación por tarea"},
-      {id:"ranking",icon:"person",label:"Ranking Operarios"},
+      {id:"rop05Discriminacion",icon:"listTree",label:"Discriminación por tarea"},
+      {id:"ranking",icon:"medal",label:"Ranking Operarios"},
     ]},
     {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
-      {id:"mant",icon:"gear",label:"Mantenimiento"},
-      {id:"rma15CtrlEquipo",icon:"bulldozer",label:"Control por Equipo"},
-      {id:"costosMant",icon:"report",label:"Informe de Costos"},
-      {id:"costosUnitarios",icon:"dollar",label:"Costos Unitarios",badge:costosUnitariosBadge>0?costosUnitariosBadge:null},
+      {id:"mant",icon:"wrench",label:"Mantenimiento"},
+      {id:"rma15CtrlEquipo",icon:"hardHat",label:"Control por Equipo"},
+      {id:"costosMant",icon:"fileBarChart",label:"Informe de Costos"},
+      {id:"costosUnitarios",icon:"badgeDollarSign",label:"Costos Unitarios",badge:costosUnitariosBadge>0?costosUnitariosBadge:null},
     ]},
-    {id:"control",icon:"control",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:(control.problemasPost31??0)>0?control.problemasPost31:null},
-    {id:"listaEquipos",icon:"bulldozer",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
-    {id:"chc",icon:"consist",label:"ICHC",type:"item",color:C.green},
+    {id:"control",icon:"clipboardCheck",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:(control.problemasPost31??0)>0?control.problemasPost31:null},
+    {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
+    {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -11453,8 +11639,10 @@ export default function App(){
                 {view==="rop02"&&(dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
                 {view==="horometros"&&(dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<BlockingDataLoader label="Cargando Horómetros..." />)}
                 {view==="vehiculos"&&(dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} listaEquipos={listaEquipos} extState={stVeh} setExtState={setStVeh}/>:<BlockingDataLoader label="Cargando Vehículos..." />)}
+                {view==="controlROP02"&&(dataHydrated&&rop02All.length>0?<ViewControlROP02 rop02All={rop02All} tabState={stControlROP02} setTabState={setStControlROP02} stControlErrores={stControlErrores} setStControlErrores={setStControlErrores} stCtrlEquipo={stCtrlEquipo} setStCtrlEquipo={setStCtrlEquipo}/>:<BlockingDataLoader label="Cargando Control de ROP02..." />)}
                 {view==="controlErrores"&&(dataHydrated&&rop02All.length>0?<ControlDeErrores rop02All={rop02All} extState={stControlErrores} setExtState={setStControlErrores}/>:<BlockingDataLoader label="Cargando Control de errores..." />)}
                 {view==="ctrlEquipo"&&(dataHydrated&&rop02All.length>0?<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
+                {view==="atrasoROP02"&&(dataHydrated&&rop02All.length>0?<ViewAtrasoROP02 rop02All={rop02All}/>:<BlockingDataLoader label="Cargando Atraso ROP02..." />)}
                 {view==="combustible"&&(dataHydrated&&rop02All.length>0?<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>:<BlockingDataLoader label="Cargando Combustible..." />)}
                 {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ViewCambiosTurno rop02All={rop02All}/>:<BlockingDataLoader label="Cargando cambios de turno..." />)}
                 {view==="rop05"&&(dataHydrated&&rop05.length>0?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Productividad..." />)}
