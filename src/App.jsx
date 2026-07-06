@@ -1051,6 +1051,8 @@ const PATHS={
   consist:"M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z",
   bulldozer:"M3 5H9V11H3ZM3 10H16V14H3ZM16 9L20 9L21 17L16 17ZM2 14H21V18H2ZM3.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0ZM9.1 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0ZM14.6 18a1.4 1.4 0 102.8 0 1.4 1.4 0 10-2.8 0Z",
   chevronDown:"M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z",
+  chevronLeft:"M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z",
+  chevronRight:"M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z",
   menu:"M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z",
   close:"M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z",
   wear:"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z",
@@ -10957,6 +10959,23 @@ export default function App(){
   const[rop05,setRop05]=useState([]);
   const[lastUpdate,setLastUpdate]=useState(()=>savedAppData.updatedAt?new Date(savedAppData.updatedAt):null);
   const[sidebarOpen,setSidebarOpen]=useState(()=>savedOr("sidebarOpen",true));
+  const[sidebarTooltip,setSidebarTooltip]=useState(null);
+  const navTooltipProps=useCallback((label)=>({
+    onMouseEnter:(e)=>{
+      if(!sidebarOpen){
+        const r=e.currentTarget.getBoundingClientRect();
+        setSidebarTooltip({label,x:r.right+10,y:r.top+r.height/2});
+      }
+    },
+    onMouseLeave:()=>setSidebarTooltip(null),
+    onFocus:(e)=>{
+      if(!sidebarOpen){
+        const r=e.currentTarget.getBoundingClientRect();
+        setSidebarTooltip({label,x:r.right+10,y:r.top+r.height/2});
+      }
+    },
+    onBlur:()=>setSidebarTooltip(null)
+  }),[sidebarOpen]);
   const[errors,setErrors]=useState([]);
   const[fatalError,setFatalError]=useState(null);
   const[health,setHealth]=useState(null);
@@ -11330,18 +11349,22 @@ export default function App(){
     costosUnitarios:"Listado de artículos de la Base de datos costos: código, artículo y precio unitario usado para valorizar insumos de mantenimiento.",
     control:"Cruza ROP02 (partes diarios) contra ROP05 (producción) para detectar registros de un lado que no tienen su contraparte en el otro (turnos sin producción cargada o producción sin parte diario).",
   };
-  const SW=sidebarOpen?240:52;
+  const SW=sidebarOpen?240:64;
 
   if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
   return(
     <>
       <style>{STYLES}</style>
       <div style={{display:"flex",height:"100vh",overflow:"hidden",background:"transparent"}}>
-        <div style={{width:SW,flexShrink:0,background:"rgba(22,22,22,0.55)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderRight:`1px solid ${C.border}44`,display:"flex",flexDirection:"column",transition:"width .22s ease",overflow:"hidden"}}>
-          <div style={{padding:sidebarOpen?"18px 16px 14px":"18px 0 14px",borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",gap:8,justifyContent:sidebarOpen?"space-between":"center"}}>
+        <div style={{width:SW,flexShrink:0,background:"rgba(22,22,22,0.55)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderRight:`1px solid ${C.border}44`,display:"flex",flexDirection:"column",transition:"width .25s ease",overflow:"hidden",position:"relative"}}>
+          <div style={{padding:sidebarOpen?"18px 16px 14px":"18px 0 14px",borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",gap:8,justifyContent:sidebarOpen?"flex-start":"center",minHeight:88,transition:"padding .25s ease"}}>
             {sidebarOpen&&(<div style={{display:"flex",alignItems:"center",gap:6}}><img src={LOGO} alt="Delta Mining" style={{height:58,display:"block",padding:"4px 6px",background:"transparent"}}/><div style={{display:"flex",flexDirection:"column",lineHeight:1.1}}><span style={{fontFamily:"Inter",fontWeight:800,fontSize:16,color:C.accent}}>DELTA MINING</span><span style={{fontFamily:"Inter",fontWeight:700,fontSize:16,color:C.accent}}>APP</span></div></div>)}
-            <button onClick={()=>setSidebarOpen(o=>!o)} style={{background:"none",border:"none",cursor:"pointer",color:C.textMuted,padding:3,display:"flex",alignItems:"center",flexShrink:0}}>
-              <Icon name={sidebarOpen?"close":"menu"} size={17}/>
+            <button
+              onClick={()=>setSidebarOpen(o=>!o)}
+              title={sidebarOpen?"Ocultar barra lateral":"Mostrar barra lateral"}
+              style={{position:"absolute",top:14,right:10,width:28,height:28,background:"rgba(255,255,255,.04)",border:`1px solid ${C.border}55`,borderRadius:8,cursor:"pointer",color:C.textSub,padding:0,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background .15s ease,border-color .15s ease,color .15s ease"}}
+            >
+              <Icon name={sidebarOpen?"chevronLeft":"chevronRight"} size={18} color="currentColor"/>
             </button>
           </div>
           <nav style={{flex:1,padding:"8px 0",overflowY:"auto"}}>
@@ -11351,6 +11374,7 @@ export default function App(){
                 return(
                   <div key={item.id}>
                     <button onClick={()=>setNavOpen(o=>({...o,[item.id]:!o[item.id]}))}
+                      {...navTooltipProps(item.label)}
                       title={!sidebarOpen?item.label:undefined}
                       style={{width:"100%",background:"none",border:"none",borderLeft:`2px solid ${item.color}55`,padding:sidebarOpen?"10px 14px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
                       <Icon name={item.icon} size={17} color={item.color}/>
@@ -11363,6 +11387,7 @@ export default function App(){
                       const active=view===child.id;
                       return(
                         <button key={child.id} onClick={()=>setView(child.id)}
+                          {...navTooltipProps(child.label)}
                           title={!sidebarOpen?child.label:undefined}
                           style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:item.color+"22"}`,padding:sidebarOpen?"10px 14px 10px 28px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
                           <Icon name={child.icon} size={17} color={active?C.accent:item.color+"cc"}/>
@@ -11376,6 +11401,7 @@ export default function App(){
               const active=view===item.id;
               return(
                 <button key={item.id} onClick={()=>setView(item.id)}
+                  {...navTooltipProps(item.label)}
                   title={!sidebarOpen?item.label:undefined}
                   style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:item.color+"22"}`,padding:sidebarOpen?"10px 14px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
                   <Icon name={item.icon} size={17} color={active?C.accent:item.color}/>
@@ -11385,7 +11411,8 @@ export default function App(){
             })}
           </nav>
         </div>
-        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent"}}>
+        {sidebarTooltip&&!sidebarOpen&&(<div style={{position:"fixed",left:sidebarTooltip.x,top:sidebarTooltip.y,transform:"translateY(-50%)",background:"rgba(18,18,18,.96)",border:`1px solid ${C.border}`,boxShadow:"0 10px 24px rgba(0,0,0,.35)",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none"}}>{sidebarTooltip.label}</div>)}
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",transition:"all .25s ease"}}>
           <div style={{height:50,flexShrink:0,background:"rgba(22,22,22,0.65)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${C.border}44`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <h1 style={{fontFamily:"Inter",fontWeight:700,fontSize:14,color:C.text}}>{titles[view]}</h1>
