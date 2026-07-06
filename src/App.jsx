@@ -1223,7 +1223,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
 
   const tableMinWidth=cols.reduce((sum,c)=>{
     const raw=c.width||c.minWidth||c.maxWidth||(c.wrap?140:120);
-    const n=typeof raw==="number"?raw:parseInt(String(raw),10);
+    const n=typeof raw==="number"?raw:parseFloat(String(raw),10);
     return sum+(Number.isFinite(n)?n:120);
   },0);
 
@@ -4559,7 +4559,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   const{proyecto,maquina,año,mesIdx,tipo}=extState;
   const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
   const periodo=useMemo(()=>{
-    const y=parseInt(año,10);
+    const y=parseFloat(año,10);
     const m=Number(mesIdx);
     const mes=String(m+1).padStart(2,"0");
     const ultimoDia=new Date(y,m+1,0).getDate();
@@ -4695,7 +4695,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   // Ej.: Junio 2026 = 01/06/2026 → 30/06/2026.
   // No usa el período operativo 26→25 de otras pestañas.
   const periodo=useMemo(()=>{
-    const y=parseInt(año,10);
+    const y=parseFloat(año,10);
     const m=Number(mesIdx);
     const mes=String(m+1).padStart(2,"0");
     const ultimoDia=new Date(y,m+1,0).getDate();
@@ -5029,7 +5029,7 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
   // Ej.: Junio 2026 = 01/06/2026 → 30/06/2026.
   // No usa el período operativo 26→25 de otras pestañas.
   const periodo=useMemo(()=>{
-    const y=parseInt(año,10);
+    const y=parseFloat(año,10);
     const m=Number(mesIdx);
     const mes=String(m+1).padStart(2,"0");
     const ultimoDia=new Date(y,m+1,0).getDate();
@@ -6056,7 +6056,7 @@ function ViewCHC({rop02All,extState,setExtState}){
   //   Ej: Mayo = del 26/04 al 25/05
   // - "filosur": mes calendario completo (1 al último día del mes)
   const{fechaD,fechaH,diasPeriodo}=useMemo(()=>{
-    const y=parseInt(añoSelec);
+    const y=parseFloat(añoSelec);
     const m=mesIdx; // 0=Enero
     if(chcTab==="filosur"){
       const dD=`${y}-${String(m+1).padStart(2,"0")}-01`;
@@ -10969,7 +10969,7 @@ function ViewCambiosTurno({rop02All=[]}){
   );
 }
 
-function ViewBienvenida(){
+function ViewBienvenida({onOpenModule}){
   return(
     <div style={{
       position:"relative",
@@ -11080,6 +11080,56 @@ function ViewBienvenida(){
           marginTop:8,
           borderRadius:2,
         }}/>
+
+        <div style={{
+          display:"grid",
+          gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",
+          gap:14,
+          width:"min(760px,90vw)",
+          marginTop:28,
+        }}>
+          {[
+            {label:"Oficina técnica",module:"oficina",view:"rop02",color:C.accent},
+            {label:"Mantenimiento",module:"mantenimiento",view:"mant",color:C.yellow},
+            {label:"Calidad",module:"calidad",view:"chc",color:C.green},
+            {label:"Abastecimiento",module:"abastecimiento",view:"abastecimiento",color:C.yellow},
+          ].map(item=>(
+            <button
+              key={item.label}
+              type="button"
+              onClick={()=>onOpenModule&&onOpenModule(item.module,item.view)}
+              style={{
+                minHeight:86,
+                borderRadius:18,
+                border:`1px solid ${item.color}66`,
+                background:"rgba(10,10,10,.58)",
+                backdropFilter:"blur(10px)",
+                WebkitBackdropFilter:"blur(10px)",
+                boxShadow:"0 18px 40px rgba(0,0,0,.35)",
+                color:C.text,
+                cursor:"pointer",
+                fontFamily:"Inter",
+                fontSize:18,
+                fontWeight:900,
+                letterSpacing:".03em",
+                textTransform:"uppercase",
+                transition:"transform .18s ease, border-color .18s ease, box-shadow .18s ease",
+              }}
+              onMouseEnter={e=>{
+                e.currentTarget.style.transform="translateY(-3px)";
+                e.currentTarget.style.borderColor=item.color;
+                e.currentTarget.style.boxShadow=`0 22px 46px rgba(0,0,0,.45), 0 0 0 1px ${item.color}55`;
+              }}
+              onMouseLeave={e=>{
+                e.currentTarget.style.transform="translateY(0)";
+                e.currentTarget.style.borderColor=item.color+"66";
+                e.currentTarget.style.boxShadow="0 18px 40px rgba(0,0,0,.35)";
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -11123,6 +11173,746 @@ function saveDataSourcesToStorage(sources){
   }catch(_){}
 }
 
+
+
+
+const RABA03_COLUMNS = [
+  {key:"nSolicitud", label:"N° de solicitud", width:110},
+  {key:"empresa", label:"Empresa", width:120},
+  {key:"fechaSolicitud", label:"Fecha de solicitud", width:135},
+  {key:"fechaRequerida", label:"Fecha requerida del producto", width:135},
+  {key:"pedidoPor", label:"Pedido por", width:150},
+  {key:"centroCosto", label:"Centro de Costo", width:140},
+  {key:"codigoArticulo", label:"Código de artículo", width:140},
+  {key:"descripcion", label:"Descripción de lo que se pidió", width:280},
+  {key:"cantidadSolicitada", label:"Cant. Solicitada", align:"right", width:130},
+  {key:"cantidadEnviada", label:"Cant. enviada", align:"right", width:120},
+  {key:"cantidadRestante", label:"Cant. restante", align:"right", width:125}
+];
+
+const RABA08_STORAGE_KEY = "dm_raba08_remitos_v1";
+
+function AbastecimientoModule(){
+  const [rows,setRows]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState(null);
+  const [tab,setTab]=useState("pendientes");
+  const [query,setQuery]=useState("");
+  const [project,setProject]=useState("TODOS");
+  const [sort,setSort]=useState({key:"nSolicitud",dir:"asc"});
+  const [remitos,setRemitos]=useState(()=>{
+    try{return JSON.parse(window.localStorage.getItem(RABA08_STORAGE_KEY)||"[]");}
+    catch(_){return [];} 
+  });
+  const [remitoForm,setRemitoForm]=useState({
+    comprobante:"",
+    fecha:new Date().toISOString().slice(0,10),
+    origen:"01 DEPOSITO CENTRAL",
+    destino:"",
+    observaciones:"",
+    items:[{codigo:"",descripcion:"",cantidad:""}]
+  });
+  const [importModal,setImportModal]=useState({
+    open:false,
+    loading:false,
+    fileName:"",
+    rows:[],
+    message:"",
+    error:""
+  });
+
+  useEffect(()=>{
+    try{window.localStorage.setItem(RABA08_STORAGE_KEY,JSON.stringify(remitos));}
+    catch(_){}
+  },[remitos]);
+
+  const norm=useCallback((v)=>String(v||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim(),[]);
+  const normCode=useCallback((v)=>String(v||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9]+/g,"").trim(),[]);
+  const normalizeCentroCosto=useCallback((v)=>{
+    const t=norm(v);
+    if(!t)return "";
+    if(t.includes("jose maria")||t.includes("josemaria")||t.includes("jm"))return "JOSE MARIA";
+    if(t.includes("filo del sol")||t.includes("filo")||t.includes("fds")||t.includes("fs"))return "FILO DEL SOL";
+    if(t.includes("oficina")||t.includes("deposito")||t.includes("depósito")||t.includes("admin"))return "OFICINA";
+    return String(v||"").trim().toUpperCase();
+  },[norm]);
+
+  const pick=useCallback((obj,names)=>{
+    const keys=Object.keys(obj||{});
+    for(const name of names){
+      const wanted=norm(name);
+      const exact=keys.find(k=>norm(k)===wanted);
+      if(exact!==undefined)return obj[exact];
+    }
+    for(const name of names){
+      const wanted=norm(name);
+      const partial=keys.find(k=>{
+        const nk=norm(k);
+        return nk && (nk.includes(wanted)||wanted.includes(nk));
+      });
+      if(partial!==undefined)return obj[partial];
+    }
+    return "";
+  },[norm]);
+
+  const formatDateLocal=useCallback((v)=>{
+    if(v===null||v===undefined||v==="")return "";
+    if(v instanceof Date&&!isNaN(v.getTime()))return fmtFecha(v);
+    const txt=String(v).trim();
+    if(!txt)return "";
+    if(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(txt))return txt;
+    const iso=txt.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(iso)return `${iso[3]}/${iso[2]}/${iso[1].slice(-2)}`;
+    const d=new Date(txt);
+    if(!isNaN(d.getTime()))return fmtFecha(d);
+    return txt;
+  },[]);
+
+  const toNumber=useCallback((v)=>{
+    if(v===null||v===undefined||v==="")return 0;
+    if(typeof v==="number")return isFinite(v)?v:0;
+
+    let txt=String(v).trim();
+    if(!txt)return 0;
+
+    // RABA08 usa punto decimal: 10.00 debe ser 10, no 1000.
+    // Solo se eliminan puntos cuando realmente parecen separadores de miles.
+    txt=txt.replace(/\s/g,"");
+
+    const hasComma=txt.includes(",");
+    const hasDot=txt.includes(".");
+
+    if(hasComma&&hasDot){
+      // Formato argentino posible: 1.234,56
+      txt=txt.replace(/\./g,"").replace(",",".");
+    }else if(hasComma){
+      // Decimal con coma: 10,50
+      txt=txt.replace(",",".");
+    }else if(hasDot){
+      const parts=txt.split(".");
+      const isThousands=parts.length>1&&parts.slice(1).every(part=>part.length===3);
+      if(isThousands){
+        txt=parts.join("");
+      }
+      // Si no es miles, se deja como decimal: 10.00 -> 10
+    }
+
+    const n=Number(txt);
+    return isNaN(n)?0:n;
+  },[]);
+
+  const sentByCode=useMemo(()=>{
+    const map={};
+    (remitos||[]).forEach(remito=>{
+      const proyecto=normalizeCentroCosto(remito.observaciones||remito.centroCosto||"");
+      (remito.items||[]).forEach(item=>{
+        const code=normCode(item.codigo);
+        const qty=toNumber(item.cantidad);
+        if(!code||qty<=0)return;
+        const key=proyecto?`${code}__${proyecto}`:`${code}__*`;
+        map[key]=(map[key]||0)+qty;
+      });
+    });
+    return map;
+  },[remitos,normCode,toNumber,normalizeCentroCosto]);
+
+  const normalizeRow=useCallback((r,idx)=>{
+    const codigo=String(pick(r,["Código de articulo","Código de artículo","Codigo de articulo","Codigo de artículo","Código artículo","Codigo articulo","Código","Codigo"])||"").trim();
+    const solicitada=toNumber(pick(r,["Cant. Solicitada","Cantidad solicitada","Cant Solicitada","Cantidad"]));
+    const centroCostoRaw=String(pick(r,["Centro de Costo","Centro de costo","Proyecto","CC"])||"").trim();
+    const centroCostoNorm=normalizeCentroCosto(centroCostoRaw);
+    const codeNorm=normCode(codigo);
+    const enviada=(sentByCode[`${codeNorm}__${centroCostoNorm}`]||0)+(sentByCode[`${codeNorm}__*`]||0);
+    const restante=Math.max(0,solicitada-enviada);
+    return {
+      id:`raba03-${idx}`,
+      nSolicitud:String(idx+1),
+      empresa:String(pick(r,["Empresa"])||"").trim(),
+      fechaSolicitud:formatDateLocal(pick(r,["Fecha de solicitud","Fecha solicitud","F. Sol."])),
+      fechaRequerida:formatDateLocal(pick(r,["Fecha requerida del producto","Fecha requerida","F. Req."])),
+      pedidoPor:String(pick(r,["Pedido por","Solicitante"])||"").trim(),
+      centroCosto:centroCostoNorm||centroCostoRaw,
+      codigoArticulo:codigo,
+      descripcion:String(pick(r,["Descripción de lo que se pidio","Descripción de lo que se pidió","Descripcion de lo que se pidio","Descripcion de lo que se pidió","Descripción","Descripcion"])||"").trim(),
+      cantidadSolicitada:solicitada,
+      cantidadEnviada:enviada,
+      cantidadRestante:restante
+    };
+  },[formatDateLocal,pick,sentByCode,normCode,toNumber,normalizeCentroCosto]);
+
+  const buildSolicitudKey=useCallback((row)=>{
+    const fechaSol=formatDateLocal(row.fechaSolicitud||row["Fecha de solicitud"]||"");
+    const fechaReq=formatDateLocal(row.fechaRequerida||row["Fecha requerida del producto"]||"");
+    return [
+      norm(row.empresa||row.Empresa),
+      norm(fechaSol),
+      norm(fechaReq),
+      norm(row.pedidoPor||row["Autorizado por:"]||row["Autorizado por"]||row["Pedido por"]),
+      norm(normalizeCentroCosto(row.centroCosto||row["Centro de Costo"]||row["Centro de costo"])),
+      normCode(row.codigoArticulo||row["Código de articulo"]||row["Codigo de articulo"]||row["Código de artículo"]),
+      norm(row.descripcion||row["Descripción de lo que se pidio"]||row["Descripcion de lo que se pidio"])
+    ].join("|");
+  },[formatDateLocal,norm,normCode,normalizeCentroCosto]);
+
+  const existingSolicitudKeys=useMemo(()=>new Set(rows.map(buildSolicitudKey)),[rows,buildSolicitudKey]);
+
+  const loadRaba03=useCallback(async()=>{
+    setLoading(true);
+    setError(null);
+    try{
+      const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;
+      const res=await fetch(url,{cache:"no-store"});
+      const json=await res.json();
+      if(!json.ok)throw new Error(json?.error?.message||"No se pudo leer RABA03");
+      const raw=Array.isArray(json.data)?json.data:(Array.isArray(json?.sources?.raba03?.data)?json.sources.raba03.data:[]);
+      const mapped=raw.map(normalizeRow).filter(r=>
+        [r.empresa,r.fechaSolicitud,r.fechaRequerida,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada]
+          .some(v=>String(v||"").trim()) &&
+        !String(r.empresa||"").toLowerCase().includes("aprobado") &&
+        !String(r.empresa||"").toLowerCase().includes("empresa")
+      );
+      setRows(mapped);
+    }catch(err){
+      setError(err.message||String(err));
+      setRows([]);
+    }finally{
+      setLoading(false);
+    }
+  },[normalizeRow]);
+
+  useEffect(()=>{loadRaba03();},[loadRaba03]);
+
+
+  const handleSolicitudesExcelUpload=useCallback(async(file)=>{
+    if(!file)return;
+    try{
+      setLoading(true);
+      setError(null);
+      setImportModal({open:false,loading:false,fileName:"",rows:[],message:"",error:""});
+
+      const buffer=await file.arrayBuffer();
+      const wb=XLSX.read(buffer,{type:"array",cellDates:true});
+      const sheetName=wb.SheetNames[0];
+      const ws=wb.Sheets[sheetName];
+      const rawRows=XLSX.utils.sheet_to_json(ws,{defval:"",raw:false,dateNF:"dd/mm/yyyy",range:5});
+
+      const pickExcel=(row,names)=>{
+        const keys=Object.keys(row||{});
+        for(const name of names){
+          const wanted=norm(name);
+          const exact=keys.find(k=>norm(k)===wanted);
+          if(exact!==undefined)return row[exact];
+        }
+        for(const name of names){
+          const wanted=norm(name);
+          const partial=keys.find(k=>{
+            const nk=norm(k);
+            return nk&&(nk.includes(wanted)||wanted.includes(nk));
+          });
+          if(partial!==undefined)return row[partial];
+        }
+        return "";
+      };
+
+      const prepared=rawRows.map(row=>({
+        empresa:String(pickExcel(row,["Empresa"] )||"").trim(),
+        fechaSolicitud:String(pickExcel(row,["Fecha de solicitud"] )||"").trim(),
+        fechaRequerida:String(pickExcel(row,["Fecha requerida del producto","Fecha requerida"] )||"").trim(),
+        pedidoPor:String(pickExcel(row,["Autorizado por:","Autorizado por","Pedido por"] )||"").trim(),
+        centroCosto:normalizeCentroCosto(pickExcel(row,["Centro de Costo","Centro de costo","Proyecto"] )||""),
+        codigoArticulo:String(pickExcel(row,["Código de articulo","Código de artículo","Codigo de articulo","Codigo de artículo","Código artículo","Codigo articulo"] )||"").trim(),
+        descripcion:String(pickExcel(row,["Descripción de lo que se pidio","Descripción de lo que se pidió","Descripcion de lo que se pidio","Descripcion de lo que se pidió","Descripción","Descripcion"] )||"").trim(),
+        cantidadSolicitada:toNumber(pickExcel(row,["Cant.Solicitada","Cant. Solicitada","Cantidad solicitada","Cant Solicitada","Cantidad"] ))
+      })).filter(row=>[
+        row.empresa,row.fechaSolicitud,row.fechaRequerida,row.pedidoPor,row.centroCosto,row.codigoArticulo,row.descripcion,row.cantidadSolicitada
+      ].some(v=>String(v||"").trim()));
+
+      if(!prepared.length){
+        setImportModal({open:true,loading:false,fileName:file.name||"Excel de solicitudes",rows:[],message:"No encontré filas válidas. Revisá que el Excel tenga los encabezados en la fila 6.",error:""});
+        return;
+      }
+
+      const previewRows=prepared.map((row,idx)=>{
+        const repeated=existingSolicitudKeys.has(buildSolicitudKey(row));
+        return {...row,previewId:idx+1,estado:repeated?"Actualizar":"Nuevo"};
+      });
+
+      setImportModal({
+        open:true,
+        loading:false,
+        fileName:file.name||"Excel de solicitudes",
+        rows:previewRows,
+        message:`Se detectaron ${previewRows.length} solicitudes: ${previewRows.filter(r=>r.estado==="Nuevo").length} nuevas y ${previewRows.filter(r=>r.estado==="Actualizar").length} para actualizar.`,
+        error:""
+      });
+    }catch(err){
+      const msg=err?.message||String(err);
+      setError(msg);
+      setImportModal({open:true,loading:false,fileName:file?.name||"Excel",rows:[],message:"",error:"Error leyendo el Excel: "+msg});
+    }finally{
+      setLoading(false);
+    }
+  },[norm,toNumber,normalizeCentroCosto,existingSolicitudKeys,buildSolicitudKey]);
+
+  const confirmSolicitudesImport=useCallback(async()=>{
+    const rowsToSend=(importModal.rows||[]).map(({previewId,estado,...row})=>row);
+    if(!rowsToSend.length){
+      setImportModal(prev=>({...prev,open:false}));
+      return;
+    }
+    try{
+      setImportModal(prev=>({...prev,loading:true,error:""}));
+      const res=await fetch(APPS_SCRIPT_URL,{
+        method:"POST",
+        body:new URLSearchParams({payload:JSON.stringify({action:"add_raba03_rows",rows:rowsToSend,mode:"upsert"})})
+      });
+      const json=await res.json();
+      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron cargar las solicitudes en RABA03.");
+      setImportModal(prev=>({...prev,loading:false,message:`Carga realizada: ${json.insertedRows||0} nuevas y ${json.updatedRows||0} actualizadas.`,error:""}));
+      setTab("solicitudes");
+      await loadRaba03();
+    }catch(err){
+      const msg=err?.message||String(err);
+      setImportModal(prev=>({...prev,loading:false,error:"Error cargando solicitudes: "+msg}));
+      setError(msg);
+    }
+  },[importModal.rows,loadRaba03]);
+
+  const projects=useMemo(()=>["TODOS",...Array.from(new Set(rows.map(r=>r.centroCosto).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es"))],[rows]);
+
+  const filteredRows=useMemo(()=>{
+    const q=query.trim().toLowerCase();
+    return rows.filter(r=>{
+      if(project!=="TODOS"&&r.centroCosto!==project)return false;
+      if(tab==="pendientes"&&toNumber(r.cantidadRestante)<=0)return false;
+      if(!q)return true;
+      return [r.nSolicitud,r.empresa,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada,r.cantidadEnviada,r.cantidadRestante].some(v=>String(v||"").toLowerCase().includes(q));
+    });
+  },[rows,project,query,tab,toNumber]);
+
+  const sortedRows=useMemo(()=>{
+    const dir=sort.dir==="asc"?1:-1;
+    const parse=(v)=>{
+      const txt=String(v??"").trim();
+      if(!txt||txt==="—")return {t:"empty",v:""};
+      const dm=txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+      if(dm){let y=Number(dm[3]); if(y<100)y+=2000; return {t:"date",v:new Date(y,Number(dm[2])-1,Number(dm[1])).getTime()};}
+      const num=txt.replace(/\./g,"").replace(",",".");
+      if(/^-?\d+(\.\d+)?$/.test(num))return {t:"number",v:Number(num)};
+      return {t:"text",v:txt.toLowerCase()};
+    };
+    return [...filteredRows].sort((a,b)=>{
+      const av=parse(a[sort.key]);
+      const bv=parse(b[sort.key]);
+      if(av.t==="empty"&&bv.t!=="empty")return 1;
+      if(bv.t==="empty"&&av.t!=="empty")return -1;
+      if(av.t===bv.t&&(av.t==="number"||av.t==="date"))return (av.v-bv.v)*dir;
+      return String(av.v).localeCompare(String(bv.v),"es",{numeric:true,sensitivity:"base"})*dir;
+    });
+  },[filteredRows,sort]);
+
+  const stats=useMemo(()=>{
+    const pendientes=rows.filter(r=>toNumber(r.cantidadRestante)>0).length;
+    const enviados=rows.filter(r=>toNumber(r.cantidadEnviada)>0).length;
+    const completos=rows.filter(r=>toNumber(r.cantidadSolicitada)>0&&toNumber(r.cantidadRestante)===0).length;
+    return {pendientes,total:rows.length,enviados,completos};
+  },[rows,toNumber]);
+
+  const addRemitoItem=()=>setRemitoForm(prev=>({...prev,items:[...prev.items,{codigo:"",descripcion:"",cantidad:""}]}));
+  const updateRemitoItem=(index,field,value)=>setRemitoForm(prev=>({
+    ...prev,
+    items:prev.items.map((it,i)=>i===index?{...it,[field]:value}:it)
+  }));
+  const removeRemitoItem=(index)=>setRemitoForm(prev=>({
+    ...prev,
+    items:prev.items.length>1?prev.items.filter((_,i)=>i!==index):prev.items
+  }));
+  const updateRemitoField=(field,value)=>setRemitoForm(prev=>({...prev,[field]:value}));
+
+  const parsePdfDateToInput=useCallback((v)=>{
+    const txt=String(v||"").trim();
+    const m=txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if(!m)return new Date().toISOString().slice(0,10);
+    const y=m[3].length===2?`20${m[3]}`:m[3];
+    return `${y}-${String(m[2]).padStart(2,"0")}-${String(m[1]).padStart(2,"0")}`;
+  },[]);
+
+  const parseRaba08Text=useCallback((text)=>{
+    const parsePdfCantidad=(valor)=>{
+      const raw=String(valor||"").trim().replace(/\s/g,"");
+      if(!raw)return 0;
+      // En RABA08 el punto final es decimal: 10.00 = 10, no 1000.
+      const n=Number(raw.replace(",","."));
+      return Number.isFinite(n)?n:0;
+    };
+
+    const raw=String(text||"");
+    const clean=raw
+      .replace(/\r/g,"\n")
+      .replace(/\u00a0/g," ")
+      .replace(/[ \t]+/g," ")
+      .trim();
+    const flat=clean.replace(/\n+/g," ").replace(/\s+/g," ").trim();
+
+    const comprobante=(flat.match(/Comprobante\s*:\s*(.+?)(?:\s+Fecha\s*:|\s+Origen\s*:|$)/i)?.[1]||"").trim();
+    const fechaTxt=(flat.match(/Fecha\s*:\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i)?.[1]||"").trim();
+    const origen=(flat.match(/Origen\s*:\s*(.+?)(?:\s+Destino\s*:|\s+Observaciones\s*:|$)/i)?.[1]||"").trim();
+    const destino=(flat.match(/Destino\s*:\s*(.+?)(?:\s+Observaciones\s*:|\s+Art[ií]culo\s+|$)/i)?.[1]||"").trim();
+    const observacionesRaw=(flat.match(/Observaciones\s*:\s*(.+?)(?:\s+Art[ií]culo\s+|\s+TOTAL\s*:|$)/i)?.[1]||"").trim();
+    const observaciones=normalizeCentroCosto(observacionesRaw)||observacionesRaw;
+
+    const items=[];
+    const seen=new Set();
+    const pushItem=(codigo,descripcion,cantidad)=>{
+      const code=String(codigo||"").trim();
+      const qty=parsePdfCantidad(cantidad);
+      if(!code||qty<=0)return;
+      const desc=String(descripcion||"").replace(/\s+/g," ").trim();
+      const key=`${code}__${desc}__${qty}`;
+      if(seen.has(key))return;
+      seen.add(key);
+      items.push({codigo:code,descripcion:desc,cantidad:qty});
+    };
+
+    const lines=clean.split("\n").map(l=>l.replace(/\s+/g," ").trim()).filter(Boolean);
+    let inItems=false;
+    for(const line of lines){
+      const nline=line.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+      if(nline.includes("articulo")&&nline.includes("descripcion")&&nline.includes("cantidad")){
+        inItems=true;
+        continue;
+      }
+      if(!inItems)continue;
+      if(nline.startsWith("total")||nline.startsWith("observaciones")||nline.startsWith("despacho")||nline.startsWith("firma")||nline.startsWith("aclaracion")||nline.startsWith("revisado"))break;
+
+      // Ejemplo: 476 LAMPARA H11 12V LAMPARA 20.00
+      // También soporta códigos alfanuméricos, ej. 1527ALT.
+      const lm=line.match(/^([A-Za-z0-9.\/-]+)\s+(.+?)\s+(-?\d+(?:[.,]\d+)?)$/);
+      if(lm)pushItem(lm[1],lm[2],lm[3]);
+    }
+
+    // Respaldo cuando PDF.js pega varias filas en una sola línea.
+    if(!items.length){
+      const sectionMatch=flat.match(/Art[ií]culo\s+Descripci[oó]n\s+Descr\s+Adicional\s+Cantidad\s+(.+?)(?:\s+TOTAL\s*:|\s+OBSERVACIONES\s*:|$)/i);
+      const section=sectionMatch?.[1]||"";
+      const compactRegex=/(?:^|\s)([A-Za-z0-9.\/-]+)\s+(.+?)\s+(-?\d+(?:[.,]\d+)?)(?=\s+[A-Za-z0-9.\/-]+\s+|\s*$)/g;
+      let m;
+      while((m=compactRegex.exec(section))!==null){
+        pushItem(m[1],m[2],m[3]);
+      }
+    }
+
+    return {
+      comprobante:comprobante||"S/N",
+      fecha:parsePdfDateToInput(fechaTxt),
+      origen:origen||"01 DEPOSITO CENTRAL",
+      destino,
+      observaciones,
+      items:items.length?items:[{codigo:"",descripcion:"",cantidad:""}]
+    };
+  },[parsePdfDateToInput,normalizeCentroCosto]);
+
+  const loadPdfJs=useCallback(()=>new Promise((resolve,reject)=>{
+    if(window.pdfjsLib)return resolve(window.pdfjsLib);
+    const existing=document.querySelector('script[data-pdfjs="true"]');
+    if(existing){
+      existing.addEventListener("load",()=>resolve(window.pdfjsLib));
+      existing.addEventListener("error",()=>reject(new Error("No se pudo cargar el lector PDF.")));
+      return;
+    }
+    const script=document.createElement("script");
+    script.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.async=true;
+    script.dataset.pdfjs="true";
+    script.onload=()=>resolve(window.pdfjsLib);
+    script.onerror=()=>reject(new Error("No se pudo cargar el lector PDF."));
+    document.body.appendChild(script);
+  }),[]);
+
+  const handleRemitoPdfUpload=useCallback(async(file)=>{
+    if(!file)return;
+    try{
+      const pdfjs=await loadPdfJs();
+      if(pdfjs.GlobalWorkerOptions){
+        pdfjs.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
+      const buffer=await file.arrayBuffer();
+      const pdf=await pdfjs.getDocument({data:buffer}).promise;
+      let text="";
+      for(let pageNum=1;pageNum<=pdf.numPages;pageNum++){
+        const page=await pdf.getPage(pageNum);
+        const content=await page.getTextContent();
+        const rows=[];
+        (content.items||[]).forEach(item=>{
+          const y=Math.round((item.transform?.[5]||0)*2)/2;
+          const x=item.transform?.[4]||0;
+          let row=rows.find(r=>Math.abs(r.y-y)<2);
+          if(!row){row={y,items:[]};rows.push(row);}
+          row.items.push({x,str:item.str});
+        });
+        rows
+          .sort((a,b)=>b.y-a.y)
+          .forEach(row=>{
+            text+=row.items.sort((a,b)=>a.x-b.x).map(it=>it.str).join(" ").replace(/\s+/g," ").trim()+"\n";
+          });
+      }
+      const parsed=parseRaba08Text(text);
+      setRemitoForm(prev=>({...prev,...parsed}));
+      if(!parsed.items.some(it=>it.codigo&&toNumber(it.cantidad)>0)){
+        alert("No pude detectar artículos del PDF. Revisá si el remito tiene el mismo formato y cargalos manualmente.");
+      }
+    }catch(err){
+      alert(`No pude leer el PDF automáticamente: ${err.message||err}`);
+    }
+  },[loadPdfJs,parseRaba08Text,toNumber]);
+
+  const registerRemito=()=>{
+    const cleanItems=remitoForm.items
+      .map(it=>({codigo:String(it.codigo||"").trim(),descripcion:String(it.descripcion||"").trim(),cantidad:toNumber(it.cantidad)}))
+      .filter(it=>it.codigo&&it.cantidad>0);
+    if(!cleanItems.length){
+      alert("Cargá al menos un artículo con código y cantidad.");
+      return;
+    }
+    const nuevo={
+      id:`raba08-${Date.now()}`,
+      comprobante:remitoForm.comprobante||"S/N",
+      fecha:remitoForm.fecha,
+      origen:remitoForm.origen,
+      destino:remitoForm.destino,
+      observaciones:remitoForm.observaciones,
+      items:cleanItems,
+      createdAt:new Date().toISOString()
+    };
+    setRemitos(prev=>[nuevo,...prev]);
+    setRemitoForm({
+      comprobante:"",
+      fecha:new Date().toISOString().slice(0,10),
+      origen:"01 DEPOSITO CENTRAL",
+      destino:"",
+      observaciones:"",
+      items:[{codigo:"",descripcion:"",cantidad:""}]
+    });
+    setTab("pendientes");
+  };
+
+  const deleteRemito=(id)=>{
+    if(window.confirm("¿Eliminar este remito cargado?"))setRemitos(prev=>prev.filter(r=>r.id!==id));
+  };
+
+  const badgeStyle=(kind)=>({
+    display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:999,padding:"3px 9px",fontSize:10,fontWeight:900,letterSpacing:".03em",
+    color:kind==="ok"?C.green:kind==="bad"?C.red:kind==="info"?C.blue:C.yellow,
+    background:kind==="ok"?`${C.green}18`:kind==="bad"?`${C.red}18`:kind==="info"?`${C.blue}18`:`${C.yellow}18`,
+    border:`1px solid ${kind==="ok"?C.green:kind==="bad"?C.red:kind==="info"?C.blue:C.yellow}55`,
+    whiteSpace:"nowrap"
+  });
+
+  const thStyle={padding:"10px 11px",textAlign:"left",borderBottom:`1px solid ${C.border}35`,color:C.textSub,fontSize:10,textTransform:"uppercase",letterSpacing:".07em",fontWeight:900,whiteSpace:"nowrap",cursor:"pointer",userSelect:"none"};
+  const tdStyle={padding:"9px 11px",borderBottom:`1px solid ${C.border}22`,color:C.text,fontSize:12,fontWeight:600,verticalAlign:"middle"};
+  const inputStyle={height:34,border:`1px solid ${C.border}`,borderRadius:10,background:"rgba(10,10,10,.65)",color:C.text,padding:"0 12px",fontSize:12,fontWeight:600};
+
+  const renderMainTable=()=> (
+    <div style={{overflowX:"auto",background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.18)",backdropFilter:"blur(6px)"}}>
+      <table style={{width:"100%",minWidth:1420,borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",tableLayout:"fixed"}}>
+        <thead style={{background:"rgba(0,0,0,.35)"}}>
+          <tr>
+            {RABA03_COLUMNS.map(col=>(
+              <th key={col.key} onClick={()=>setSort(prev=>({key:col.key,dir:prev.key===col.key&&prev.dir==="asc"?"desc":"asc"}))} style={{...thStyle,textAlign:col.align||"left",width:col.width}}>
+                {col.label}{sort.key===col.key?<span style={{color:C.red}}> {sort.dir==="asc"?"↑":"↓"}</span>:null}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRows.length?sortedRows.map(r=>(
+            <tr key={r.id}>
+              <td style={tdStyle}>{r.nSolicitud}</td>
+              <td style={tdStyle}>{r.empresa||"—"}</td>
+              <td style={tdStyle}>{r.fechaSolicitud||"—"}</td>
+              <td style={tdStyle}>{r.fechaRequerida||"—"}</td>
+              <td style={tdStyle}>{r.pedidoPor||"—"}</td>
+              <td style={tdStyle}>{r.centroCosto?<span style={badgeStyle("info")}>{r.centroCosto}</span>:"—"}</td>
+              <td style={tdStyle}>{r.codigoArticulo||"S/C"}</td>
+              <td style={{...tdStyle,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.descripcion}>{r.descripcion||"—"}</td>
+              <td style={{...tdStyle,textAlign:"right"}}>{fmtNum(r.cantidadSolicitada)}</td>
+              <td style={{...tdStyle,textAlign:"right",color:toNumber(r.cantidadEnviada)>0?C.green:C.text}}>{fmtNum(r.cantidadEnviada)}</td>
+              <td style={{...tdStyle,textAlign:"right",color:toNumber(r.cantidadRestante)>0?C.yellow:C.green}}>{fmtNum(r.cantidadRestante)}</td>
+            </tr>
+          )):(
+            <tr><td colSpan={RABA03_COLUMNS.length} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>Sin datos para mostrar.</td></tr>
+          )}
+        </tbody>
+      </table>
+      <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(sortedRows.length)} ítems mostrados</div>
+    </div>
+  );
+
+  const renderImportModal=()=>{
+    if(!importModal.open)return null;
+    const nuevos=(importModal.rows||[]).filter(r=>r.estado==="Nuevo").length;
+    const actualizar=(importModal.rows||[]).filter(r=>r.estado==="Actualizar").length;
+    return (
+      <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,.58)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+        <div style={{width:"min(1180px,96vw)",maxHeight:"88vh",overflow:"hidden",background:"rgba(24,24,24,.96)",border:`1px solid ${C.border}`,borderRadius:18,boxShadow:"0 30px 90px rgba(0,0,0,.55)",display:"grid",gridTemplateRows:"auto auto 1fr auto"}}>
+          <div style={{padding:"16px 18px",borderBottom:`1px solid ${C.border}55`,display:"flex",justifyContent:"space-between",gap:12,alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:900,color:C.text}}>Previsualización de carga RABA03</div>
+              <div style={{fontSize:12,fontWeight:700,color:C.textSub}}>{importModal.fileName||"Excel de solicitudes"}</div>
+            </div>
+            <button onClick={()=>setImportModal(prev=>({...prev,open:false}))} disabled={importModal.loading} style={{border:`1px solid ${C.border}`,background:"rgba(255,255,255,.06)",color:C.text,borderRadius:10,padding:"8px 11px",fontWeight:900,cursor:"pointer"}}>Cerrar</button>
+          </div>
+          <div style={{padding:"12px 18px",display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",borderBottom:`1px solid ${C.border}33`}}>
+            <span style={badgeStyle("info")}>Total: {fmtNum(importModal.rows.length)}</span>
+            <span style={badgeStyle("ok")}>Nuevas: {fmtNum(nuevos)}</span>
+            <span style={badgeStyle("warn")}>Actualizan: {fmtNum(actualizar)}</span>
+            {importModal.message&&<span style={{color:C.textSub,fontWeight:800,fontSize:12}}>{importModal.message}</span>}
+            {importModal.error&&<span style={{color:C.red,fontWeight:900,fontSize:12}}>{importModal.error}</span>}
+          </div>
+          <div style={{overflow:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",minWidth:1040}}>
+              <thead style={{position:"sticky",top:0,background:"rgba(0,0,0,.8)",zIndex:1}}>
+                <tr>{["Estado","Empresa","Fecha solicitud","Fecha requerida","Autorizado por","Centro de costo","Código","Descripción","Cant. solicitada"].map(h=><th key={h} style={{...thStyle,cursor:"default"}}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {(importModal.rows||[]).map((r,idx)=>(
+                  <tr key={idx}>
+                    <td style={tdStyle}><span style={badgeStyle(r.estado==="Actualizar"?"warn":"ok")}>{r.estado}</span></td>
+                    <td style={tdStyle}>{r.empresa||"—"}</td>
+                    <td style={tdStyle}>{formatDateLocal(r.fechaSolicitud)||"—"}</td>
+                    <td style={tdStyle}>{formatDateLocal(r.fechaRequerida)||"—"}</td>
+                    <td style={tdStyle}>{r.pedidoPor||"—"}</td>
+                    <td style={tdStyle}>{r.centroCosto?<span style={badgeStyle("info")}>{r.centroCosto}</span>:"—"}</td>
+                    <td style={tdStyle}>{r.codigoArticulo||"—"}</td>
+                    <td style={tdStyle}>{r.descripcion||"—"}</td>
+                    <td style={{...tdStyle,textAlign:"right"}}>{fmtNum(r.cantidadSolicitada)}</td>
+                  </tr>
+                ))}
+                {!importModal.rows.length&&<tr><td colSpan={9} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>Sin filas para previsualizar.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div style={{padding:"14px 18px",borderTop:`1px solid ${C.border}55`,display:"flex",justifyContent:"flex-end",gap:10}}>
+            <button onClick={()=>setImportModal(prev=>({...prev,open:false}))} disabled={importModal.loading} style={{border:`1px solid ${C.border}`,background:"rgba(255,255,255,.06)",color:C.text,borderRadius:10,padding:"9px 13px",fontWeight:900,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={confirmSolicitudesImport} disabled={importModal.loading||!importModal.rows.length} style={{border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:10,padding:"9px 13px",fontWeight:900,cursor:"pointer",opacity:(importModal.loading||!importModal.rows.length)?.6:1}}>{importModal.loading?"Cargando...":"Confirmar carga"}</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRemito=()=> (
+    <div style={{display:"grid",gap:14}}>
+      <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,padding:16,backdropFilter:"blur(6px)",display:"grid",gap:12}}>
+        <div>
+          <div style={{fontSize:15,fontWeight:900,color:C.text}}>Cargar Remito RABA08</div>
+          <div style={{fontSize:11,color:C.textSub}}>Subí el PDF del RABA08 y la app completa comprobante, fecha, origen, destino, observaciones y artículos automáticamente. También podés corregir los datos antes de guardar.</div>
+        </div>
+        <label style={{border:`1px dashed ${C.blue}88`,background:`${C.blue}12`,color:C.blue,borderRadius:14,padding:"12px 14px",fontSize:12,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+          <span>📄 Cargar PDF de remito RABA08</span>
+          <input type="file" accept="application/pdf,.pdf" onChange={e=>handleRemitoPdfUpload(e.target.files?.[0])} style={{display:"none"}}/>
+        </label>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(150px,1fr))",gap:10}}>
+          <input value={remitoForm.comprobante} onChange={e=>updateRemitoField("comprobante",e.target.value)} placeholder="Comprobante / N° remito" style={inputStyle}/>
+          <input value={remitoForm.fecha} onChange={e=>updateRemitoField("fecha",e.target.value)} type="date" style={inputStyle}/>
+          <input value={remitoForm.origen} onChange={e=>updateRemitoField("origen",e.target.value)} placeholder="Origen" style={inputStyle}/>
+          <input value={remitoForm.destino} onChange={e=>updateRemitoField("destino",e.target.value)} placeholder="Destino" style={inputStyle}/>
+          <input value={remitoForm.observaciones} onChange={e=>updateRemitoField("observaciones",e.target.value)} placeholder="Observaciones" style={inputStyle}/>
+        </div>
+        <div style={{overflowX:"auto",border:`1px solid ${C.border}55`,borderRadius:14}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif"}}>
+            <thead style={{background:"rgba(0,0,0,.35)"}}>
+              <tr>
+                <th style={{...thStyle,cursor:"default"}}>Artículo / código</th>
+                <th style={{...thStyle,cursor:"default"}}>Descripción</th>
+                <th style={{...thStyle,cursor:"default",textAlign:"right"}}>Cantidad enviada</th>
+                <th style={{...thStyle,cursor:"default"}}>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {remitoForm.items.map((it,idx)=>(
+                <tr key={idx}>
+                  <td style={tdStyle}><input value={it.codigo} onChange={e=>updateRemitoItem(idx,"codigo",e.target.value)} placeholder="Ej: 196" style={{...inputStyle,width:"100%"}}/></td>
+                  <td style={tdStyle}><input value={it.descripcion} onChange={e=>updateRemitoItem(idx,"descripcion",e.target.value)} placeholder="Descripción del remito" style={{...inputStyle,width:"100%"}}/></td>
+                  <td style={{...tdStyle,textAlign:"right"}}><input value={it.cantidad} onChange={e=>updateRemitoItem(idx,"cantidad",e.target.value)} placeholder="0" style={{...inputStyle,width:120,textAlign:"right"}}/></td>
+                  <td style={tdStyle}><button onClick={()=>removeRemitoItem(idx)} style={{border:`1px solid ${C.red}66`,background:`${C.red}16`,color:C.red,borderRadius:10,padding:"7px 10px",fontWeight:900,cursor:"pointer"}}>Quitar</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"space-between",flexWrap:"wrap"}}>
+          <button onClick={addRemitoItem} style={{border:`1px solid ${C.blue}66`,background:`${C.blue}16`,color:C.blue,borderRadius:10,padding:"9px 12px",fontWeight:900,cursor:"pointer"}}>+ Agregar artículo</button>
+          <button onClick={registerRemito} style={{border:`1px solid ${C.green}66`,background:`${C.green}16`,color:C.green,borderRadius:10,padding:"9px 12px",fontWeight:900,cursor:"pointer"}}>Guardar remito</button>
+        </div>
+      </div>
+
+      <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden",backdropFilter:"blur(6px)"}}>
+        <div style={{padding:14,borderBottom:`1px solid ${C.border}33`,fontWeight:900,color:C.text}}>Remitos cargados</div>
+        {remitos.length?remitos.map(rem=>(
+          <div key={rem.id} style={{padding:14,borderBottom:`1px solid ${C.border}22`,display:"grid",gap:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}>
+              <div style={{fontWeight:900,color:C.text}}>{rem.comprobante} · {formatDateLocal(rem.fecha)} <span style={{color:C.textSub,fontWeight:700}}>({rem.observaciones||"sin observaciones"})</span></div>
+              <button onClick={()=>deleteRemito(rem.id)} style={{border:`1px solid ${C.red}66`,background:`${C.red}16`,color:C.red,borderRadius:10,padding:"6px 10px",fontWeight:900,cursor:"pointer"}}>Eliminar</button>
+            </div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {(rem.items||[]).map((it,i)=><span key={i} style={badgeStyle("info")}>{it.codigo}: {fmtNum(it.cantidad)}</span>)}
+            </div>
+          </div>
+        )):<div style={{padding:18,color:C.textSub,fontWeight:700}}>Todavía no hay remitos cargados.</div>}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{display:"grid",gap:14,fontFamily:"Inter, system-ui, sans-serif"}}>
+      {renderImportModal()}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,padding:16,backdropFilter:"blur(6px)",boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:38,height:38,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:C.red,border:`1px solid ${C.red}80`,background:`${C.red}18`,fontWeight:900}}>DM</div>
+          <div>
+            <div style={{fontSize:16,fontWeight:900,color:C.text}}>RABA03 — Seguimiento de Compras 2026</div>
+            <div style={{fontSize:11,color:C.textSub}}>Delta Mining S.A · RABA01 Solicitud · RABA07 OC · RABA08 Remito</div>
+          </div>
+        </div>
+        <button onClick={loadRaba03} style={{border:`1px solid ${C.red}70`,background:`${C.red}18`,color:C.red,borderRadius:10,padding:"8px 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Actualizar</button>
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",background:"rgba(16,16,16,.72)",border:`1px solid ${C.border}`,borderRadius:16,padding:"8px 10px"}}>
+        {[["pendientes","⚠️ Pendientes"],["solicitudes","📋 Solicitudes"],["remito","📦 Remito"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{border:"none",borderBottom:`3px solid ${tab===id?C.red:"transparent"}`,background:tab===id?`${C.red}18`:"transparent",color:tab===id?C.text:C.textSub,borderRadius:"10px 10px 0 0",padding:"10px 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>{label}</button>
+        ))}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
+        <StatCard icon="warn" label="Ítems pendientes" value={fmtNum(stats.pendientes)} sub="cantidad restante > 0" color={C.yellow} small/>
+        <StatCard icon="report" label="Total ítems" value={fmtNum(stats.total)} sub="solicitados" color={C.blue} small/>
+        <StatCard icon="check" label="Con envío" value={fmtNum(stats.enviados)} sub="con remito cargado" color={C.green} small/>
+        <StatCard icon="check" label="Completos" value={fmtNum(stats.completos)} sub="sin cantidad restante" color={C.green} small/>
+      </div>
+
+      {tab!=="remito"&&(
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,padding:14,backdropFilter:"blur(6px)"}}>
+          <span style={{fontSize:11,fontWeight:900,color:C.textSub,textTransform:"uppercase",letterSpacing:".07em"}}>Filtrar:</span>
+          <select value={project} onChange={e=>setProject(e.target.value)} style={{height:34,border:`1px solid ${C.border}`,borderRadius:10,background:"rgba(10,10,10,.65)",color:C.text,padding:"0 10px",fontSize:12,fontWeight:700}}>
+            {projects.map(p=><option key={p} value={p}>{p==="TODOS"?"Todos los proyectos":p}</option>)}
+          </select>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar descripción, código, N°, solicitante..." style={{height:34,minWidth:290,border:`1px solid ${C.border}`,borderRadius:10,background:"rgba(10,10,10,.65)",color:C.text,padding:"0 12px",fontSize:12,fontWeight:600}}/>
+          <label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}} title="Importar Excel con encabezados en fila 6">
+            📥 Cargar Excel Solicitudes
+            <input type="file" accept=".xlsx,.xls" onChange={e=>{handleSolicitudesExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
+          </label>
+        </div>
+      )}
+
+      {error&&<div style={{border:`1px solid ${C.red}66`,background:`${C.red}14`,color:C.red,borderRadius:14,padding:14,fontWeight:800}}>Error leyendo RABA03: {error}</div>}
+      {loading&&<div style={{color:C.textSub,fontWeight:800,padding:8}}>Cargando RABA03...</div>}
+
+      {tab==="remito"?renderRemito():renderMainTable()}
+    </div>
+  );
+}
+
 export default function App(){
   const savedAppFilters=readSavedAppFilters();
   const savedAppData=readSavedDataSources();
@@ -11136,6 +11926,7 @@ export default function App(){
   const savedOr=(key,def)=>normalizeSavedState(savedAppFilters&&savedAppFilters[key],def);
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
   const[view,setView]=useState("bienvenida");
+  const[activeModule,setActiveModule]=useState("home");
   const[loading,setLoading]=useState(false);
   const[rop02All,setRop02All]=useState([]);
   const[rop05,setRop05]=useState([]);
@@ -11516,7 +12307,7 @@ export default function App(){
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Abastecimiento"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -11536,12 +12327,49 @@ export default function App(){
     control:"Cruza ROP02 (partes diarios) contra ROP05 (producción) para detectar registros de un lado que no tienen su contraparte en el otro (turnos sin producción cargada o producción sin parte diario).",
   };
   const SW=sidebarOpen?240:64;
+  const openModuleFromWelcome=useCallback((module,targetView)=>{
+    setActiveModule(module||"oficina");
+    setSidebarOpen(true);
+    setView(targetView||"rop02");
+  },[]);
+  const navigateToView=useCallback((targetView)=>{
+    if(targetView==="bienvenida")setActiveModule("home");
+    setView(targetView);
+  },[]);
+  const displayedNavStructure=useMemo(()=>{
+    if(activeModule==="calidad"){
+      return [
+        {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
+      ];
+    }
+    if(activeModule==="mantenimiento"){
+      return [
+        {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
+          {id:"mant",icon:"wrench",label:"Mantenimiento"},
+          {id:"rma15CtrlEquipo",icon:"hardHat",label:"Control por Equipo"},
+          {id:"costosMant",icon:"fileBarChart",label:"Informe de Costos"},
+          {id:"costosUnitarios",icon:"badgeDollarSign",label:"Costos Unitarios",badge:costosUnitariosBadge>0?costosUnitariosBadge:null},
+        ]},
+      ];
+    }
+    if(activeModule==="abastecimiento"){
+      return [
+        {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"abastecimiento",icon:"report",label:"Abastecimiento",type:"item",color:C.yellow},
+      ];
+    }
+    return navStructure.filter(item=>!["dashboard","chc"].includes(item.id));
+  },[activeModule,navStructure,costosUnitariosBadge,control.problemasPost31]);
+  const showSidebar=view!=="bienvenida";
 
   if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
   return(
     <>
       <style>{STYLES}</style>
       <div style={{display:"flex",height:"100vh",overflow:"hidden",background:"transparent"}}>
+        {showSidebar&&(
         <div style={{width:SW,flexShrink:0,background:"rgba(22,22,22,0.55)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderRight:`1px solid ${C.border}44`,display:"flex",flexDirection:"column",transition:"width .25s ease",overflow:"hidden",position:"relative"}}>
           <div style={{padding:sidebarOpen?"18px 16px 14px":"18px 0 14px",borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",gap:8,justifyContent:sidebarOpen?"flex-start":"center",minHeight:88,transition:"padding .25s ease"}}>
             {sidebarOpen&&(<div style={{display:"flex",alignItems:"center",gap:6}}><img src={LOGO} alt="Delta Mining" style={{height:58,display:"block",padding:"4px 6px",background:"transparent"}}/><div style={{display:"flex",flexDirection:"column",lineHeight:1.1}}><span style={{fontFamily:"Inter",fontWeight:800,fontSize:16,color:C.accent}}>DELTA MINING</span><span style={{fontFamily:"Inter",fontWeight:700,fontSize:16,color:C.accent}}>APP</span></div></div>)}
@@ -11554,7 +12382,7 @@ export default function App(){
             </button>
           </div>
           <nav style={{flex:1,padding:"8px 0",overflowY:"auto"}}>
-            {navStructure.map(item=>{
+            {displayedNavStructure.map(item=>{
               if(item.type==="group"){
                 const open=!!navOpen[item.id];
                 return(
@@ -11572,7 +12400,7 @@ export default function App(){
                     {open&&item.children.map(child=>{
                       const active=view===child.id;
                       return(
-                        <button key={child.id} onClick={()=>setView(child.id)}
+                        <button key={child.id} onClick={()=>navigateToView(child.id)}
                           {...navTooltipProps(child.label)}
                           title={!sidebarOpen?child.label:undefined}
                           style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:item.color+"22"}`,padding:sidebarOpen?"10px 14px 10px 28px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
@@ -11586,7 +12414,7 @@ export default function App(){
               }
               const active=view===item.id;
               return(
-                <button key={item.id} onClick={()=>setView(item.id)}
+                <button key={item.id} onClick={()=>navigateToView(item.id)}
                   {...navTooltipProps(item.label)}
                   title={!sidebarOpen?item.label:undefined}
                   style={{width:"100%",background:active?C.accentDim:"none",border:"none",borderLeft:`2px solid ${active?C.accent:item.color+"22"}`,padding:sidebarOpen?"10px 14px":"10px 0",display:"flex",alignItems:"center",gap:9,justifyContent:sidebarOpen?"flex-start":"center",cursor:"pointer",transition:"all .15s"}}>
@@ -11597,9 +12425,10 @@ export default function App(){
             })}
           </nav>
         </div>
-        {sidebarTooltip&&!sidebarOpen&&(<div style={{position:"fixed",left:sidebarTooltip.x,top:sidebarTooltip.y,transform:"translateY(-50%)",background:"rgba(18,18,18,.96)",border:`1px solid ${C.border}`,boxShadow:"0 10px 24px rgba(0,0,0,.35)",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none"}}>{sidebarTooltip.label}</div>)}
+        )}
+        {showSidebar&&sidebarTooltip&&!sidebarOpen&&(<div style={{position:"fixed",left:sidebarTooltip.x,top:sidebarTooltip.y,transform:"translateY(-50%)",background:"rgba(18,18,18,.96)",border:`1px solid ${C.border}`,boxShadow:"0 10px 24px rgba(0,0,0,.35)",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none"}}>{sidebarTooltip.label}</div>)}
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",transition:"all .25s ease"}}>
-          <div style={{height:50,flexShrink:0,background:"rgba(22,22,22,0.65)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${C.border}44`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
+          {showSidebar&&(<div style={{height:50,flexShrink:0,background:"rgba(22,22,22,0.65)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${C.border}44`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <h1 style={{fontFamily:"Inter",fontWeight:700,fontSize:14,color:C.text}}>{titles[view]}</h1>
               {titleHelp[view]&&<HelpTip text={titleHelp[view]}/>}
@@ -11611,8 +12440,8 @@ export default function App(){
                 {loading?"Cargando...":"Actualizar"}
               </button>
             </div>
-          </div>
-          <div style={{flex:1,overflow:"auto",padding:16,background:"transparent"}}>
+          </div>)}
+          <div style={{flex:1,overflow:"auto",padding:showSidebar?16:0,background:"transparent"}}>
             {errors.length>0&&!fatalError&&(
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                 {errors.map((e,i)=>(
@@ -11633,7 +12462,7 @@ export default function App(){
             )}
             {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida/>}
+                {view==="bienvenida"&&<ViewBienvenida onOpenModule={openModuleFromWelcome}/>}
                 {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
                 {view==="listaEquipos"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Lista de Equipos..." />)}
                 {view==="rop02"&&(dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
@@ -11653,6 +12482,7 @@ export default function App(){
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
+                {view==="abastecimiento"&&<AbastecimientoModule/>}
                 {view==="control"&&(dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<BlockingDataLoader label="Cargando Control ROP05 vs ROP02..." />)}
               </>
             )}
