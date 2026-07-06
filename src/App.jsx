@@ -1765,6 +1765,91 @@ function generarExcelListaMaestra(rows, cols, label){
   XLSX.writeFile(wb,`Lista_Maestra_Equipos_${label}.xlsx`);
 }
 
+// ─── Reporte PDF Consistencia ROP02 vs ROP05 ─────────────────────────────────
+// Genera el reporte del botón "Guardar Reporte" de la vista de Consistencia.
+// Abre una ventana con el reporte formateado y lanza el diálogo de impresión
+// del navegador, desde donde se guarda como PDF (Destino: "Guardar como PDF").
+// faltanEn05: registros de ROP02 sin producción cargada en ROP05.
+// faltanEn02: registros de ROP05 sin parte diario en ROP02.
+function generarReporteControl(periodoLabel,faltanEn05,faltanEn02){
+  const esc=(v)=>String(v==null||v===""?"—":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const total=(faltanEn05?.length||0)+(faltanEn02?.length||0);
+  const totalReg=total; // problemas totales
+  const generado=new Date().toLocaleString("es-AR");
+
+  const filas05=(faltanEn05||[]).map(r=>`<tr>
+    <td>${esc(fmtFecha(r.fecha))}</td><td>${esc(r.proyecto)}</td><td>${esc(r.maquina)}</td>
+    <td>${esc(r.parte)}</td><td>${esc(r.operario)}</td><td>${esc(r.supervisor)}</td>
+    <td class="num">${esc(fmtNum(Number(r.horas)||0))}</td><td>${esc(r.estado)}</td><td>${esc(r.tipo_trabajo)}</td>
+  </tr>`).join("");
+
+  const filas02=(faltanEn02||[]).map(r=>`<tr>
+    <td>${esc(fmtFecha(r.fecha))}</td><td>${esc(r.proyecto)}</td><td>${esc(r.maquina)}</td>
+    <td>${esc(r.supervisor)}</td><td>${esc(r.tarea)}</td>
+    <td class="num">${esc(fmtNum(Number(r.horas)||0))}</td><td class="num">${esc(fmtNum(Number(r.cantidad)||0))}</td><td>${esc(r.unidad)}</td>
+  </tr>`).join("");
+
+  const html=`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+  <title>Reporte Consistencia ROP02 vs ROP05</title>
+  <style>
+    *{box-sizing:border-box;}
+    body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;font-size:12px;}
+    h1{font-size:18px;margin:0 0 2px;}
+    h2{font-size:14px;margin:22px 0 6px;padding-bottom:4px;border-bottom:2px solid #333;}
+    .meta{color:#555;font-size:11px;margin-bottom:14px;}
+    .resumen{display:flex;gap:12px;margin:12px 0 4px;}
+    .stat{border:1px solid #bbb;border-radius:6px;padding:8px 14px;text-align:center;}
+    .stat .v{font-size:20px;font-weight:bold;}
+    .stat .l{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.04em;}
+    table{width:100%;border-collapse:collapse;margin-top:6px;page-break-inside:auto;}
+    tr{page-break-inside:avoid;}
+    th{background:#eee;border:1px solid #999;padding:4px 6px;text-align:left;font-size:10px;text-transform:uppercase;}
+    td{border:1px solid #ccc;padding:4px 6px;vertical-align:top;}
+    td.num{text-align:right;}
+    tbody tr:nth-child(even){background:#f6f6f6;}
+    .vacio{color:#777;font-style:italic;padding:8px 0;}
+    @media print{body{margin:10mm;} .stat{-webkit-print-color-adjust:exact;print-color-adjust:exact;} th,tbody tr:nth-child(even){-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+  </style></head><body>
+    <h1>Reporte de Consistencia ROP02 vs ROP05</h1>
+    <div class="meta">Período: <b>${esc(periodoLabel||"Todo el período")}</b> &nbsp;·&nbsp; Generado: ${esc(generado)}</div>
+    <div class="resumen">
+      <div class="stat"><div class="v">${faltanEn05?.length||0}</div><div class="l">Sin producción en ROP05</div></div>
+      <div class="stat"><div class="v">${faltanEn02?.length||0}</div><div class="l">Sin parte diario en ROP02</div></div>
+      <div class="stat"><div class="v">${totalReg}</div><div class="l">Total de problemas</div></div>
+    </div>
+    <h2>Sin producción en ROP05 (${faltanEn05?.length||0})</h2>
+    ${filas05?`<table><thead><tr><th>Fecha</th><th>Proyecto</th><th>Máquina</th><th>N° Parte</th><th>Operario</th><th>Supervisor</th><th>Horas</th><th>Estado</th><th>Tarea (ROP02)</th></tr></thead><tbody>${filas05}</tbody></table>`:`<div class="vacio">No hay registros para el período seleccionado.</div>`}
+    <h2>Sin parte diario en ROP02 (${faltanEn02?.length||0})</h2>
+    ${filas02?`<table><thead><tr><th>Fecha</th><th>Proyecto</th><th>Máquina</th><th>Supervisor</th><th>Tarea</th><th>Horas</th><th>Cantidad</th><th>Unidad</th></tr></thead><tbody>${filas02}</tbody></table>`:`<div class="vacio">No hay registros para el período seleccionado.</div>`}
+  </body></html>`;
+
+  // Impresión en la misma página: el reporte se carga en un iframe oculto y se
+  // dispara el diálogo de imprimir sin abrir pestañas ni ventanas nuevas.
+  const prev=document.getElementById("reporte-control-print-frame");
+  if(prev)prev.remove();
+  const iframe=document.createElement("iframe");
+  iframe.id="reporte-control-print-frame";
+  iframe.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  document.body.appendChild(iframe);
+  const doc=iframe.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  const lanzarPrint=()=>{
+    try{
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }catch(err){
+      alert("No se pudo abrir el diálogo de impresión: "+err.message);
+    }
+    // Limpiar el iframe después de que se cierre el diálogo de impresión
+    setTimeout(()=>{try{iframe.remove();}catch(_){}},60000);
+  };
+  // Esperar a que el iframe termine de renderizar antes de imprimir
+  if(doc.readyState==="complete")setTimeout(lanzarPrint,150);
+  else iframe.onload=()=>setTimeout(lanzarPrint,150);
+}
+
 function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   const LISTA_MAESTRA_STORAGE_KEY="delta_lista_maestra_equipos_filters_v1";
   const readListaMaestraSaved=(key,def="")=>{
@@ -7949,6 +8034,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   React.useLayoutEffect(()=>{useListaVidaUtilRef.current=useListaVidaUtil;},[useListaVidaUtil]);
   React.useLayoutEffect(()=>{vidaUtilOverrideRef.current=vidaUtilOverride;},[vidaUtilOverride]);
   const [hombreVestido,setHombreVestido]=React.useState(Number(initialCostosMantState.hombreVestido)||0);
+  // Horas efectivas por tipo de propiedad: propios = propiedad DELTA, arrendados = el resto
+  const [hsPropios,setHsPropios]=React.useState(Number(initialCostosMantState.hsPropios)||0);
+  const [hsArrendados,setHsArrendados]=React.useState(Number(initialCostosMantState.hsArrendados)||0);
   const [costosMantSorts,setCostosMantSorts]=React.useState({});
 
   const saveCostosMantRef=React.useRef(null);
@@ -7961,11 +8049,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,
           modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,monthlyDollar,
           costoMensualScrollLeft:costoMensualScrollLeftRef.current||0,
-          useListaVidaUtil,vidaUtilOverride,hombreVestido
+          useListaVidaUtil,vidaUtilOverride,hombreVestido,hsPropios,hsArrendados
         }));
       }catch(_){}
     },300);
-  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,vidaUtilState,hombreVestido]);
+  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,vidaUtilState,hombreVestido,hsPropios,hsArrendados]);
 
   const hastaCostoMensual=fechaH||"";
 
@@ -9663,6 +9751,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const hs=x?.section==="JM"?(Number(hsEfJM)||0):(Number(hsEfFS)||0);
       return hs>0?((Number(p.total)||0)+mo)/hs:0;
     };
+    // Hs efectivas por equipo según propiedad: DELTA = equipos propios, resto = arrendados
+    const getHsEfectivasCM=(x)=>{
+      const prop=String(propiedadEquipo(x.equipo)||"").trim().toUpperCase();
+      return prop.includes("DELTA")?(Number(hsPropios)||0):(Number(hsArrendados)||0);
+    };
     const sumCM=(section,kind,monthKey=null)=>{
       const rows=section==="TOTAL"?rowsCM:rowsCM.filter(x=>x.section===section);
       return rows.reduce((sum,x)=>{
@@ -9673,6 +9766,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         if(kind==="totalB")return sum+Math.round(Number(x.total)||0);
         if(kind==="mo")return sum+Math.round(Number(getManoObraCostoMensual(x))||0);
         if(kind==="usdHs")return sum+Math.round(Number(getUsdHoraCM(x))||0);
+        if(kind==="hsEf")return sum+Math.round(Number(getHsEfectivasCM(x))||0);
         const p=promedioCM(x);
         return sum+Math.round(Number(p[kind])||0);
       },0);
@@ -9691,6 +9785,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       row["Promedio Correctivo"]=Math.round(p.corr||0);
       row["Promedio Total"]=Math.round(p.total||0);
       row["Mano de Obra"]=Math.round(getManoObraCostoMensual(x)||0);
+      row["Hs efectivas"]=Math.round(getHsEfectivasCM(x)||0);
       row["USD/hora"]=Math.round(getUsdHoraCM(x)||0);
       return row;
     });
@@ -9705,6 +9800,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       promCorr:x=>promedioCM(x).corr,
       promTotal:x=>promedioCM(x).total,
       mo:x=>getManoObraCostoMensual(x),
+      hsEf:x=>getHsEfectivasCM(x),
       usdHs:x=>getUsdHoraCM(x),
     };
     (mesesCM||[]).forEach(m=>{
@@ -9748,7 +9844,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                 })}
                 <th style={{...thS,position:"sticky",top:0,zIndex:6,minWidth:110,background:"#166534",color:"#fff"}}>Total B</th>
                 <th colSpan={3} style={{...thS,textAlign:"center",background:"#7c2d12",color:"#fff",top:0,position:"sticky",zIndex:6}}>Promedio</th>
-                <th colSpan={2} style={{...thS,textAlign:"center",background:"#312e81",color:"#fff",top:0,position:"sticky",zIndex:6}}>Mano de obra</th>
+                <th colSpan={3} style={{...thS,textAlign:"center",background:"#312e81",color:"#fff",top:0,position:"sticky",zIndex:6}}>Mano de obra</th>
               </tr>
               <tr>
                 <SortableTH sortId="costoMensual" sortKey="equipo" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thL,position:"sticky",left:0,top:31,zIndex:8,background:"#2563eb",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</SortableTH>
@@ -9758,7 +9854,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                 })}
                 <th style={{...thS,top:31,position:"sticky",zIndex:6,background:"#15803d",color:"#fff"}}>Total B</th>
                 <th colSpan={3} style={{...thS,textAlign:"center",background:"#9a3412",color:"#fff",top:31,position:"sticky",zIndex:6}}>PROMEDIO</th>
-                <th colSpan={2} style={{...thS,textAlign:"center",background:"#3730a3",color:"#fff",top:31,position:"sticky",zIndex:6}}>MANO DE OBRA</th>
+                <th colSpan={3} style={{...thS,textAlign:"center",background:"#3730a3",color:"#fff",top:31,position:"sticky",zIndex:6}}>MANO DE OBRA</th>
               </tr>
               <tr>
                 <th style={{...thL,position:"sticky",left:0,top:62,zIndex:8,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}> </th>
@@ -9777,13 +9873,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                 <SortableTH sortId="costoMensual" sortKey="promCorr" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Correctivo</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="promTotal" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Total</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="mo" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Mano de Obra</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="hsEf" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Hs efectivas</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="usdHs" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/hora</SortableTH>
               </tr>
             </thead>
             <tbody>
               {sections.map(sec=>(
                 <React.Fragment key={sec.id}>
-                  <tr><td colSpan={4+mesesCM.length*3+3} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
+                  <tr><td colSpan={4+mesesCM.length*3+4} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
                   {costoMensualRowsOrdenadas(sec.id).map((x,i)=>(
                     <tr key={sec.id+"__"+x.equipo} style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)"}}>
                       <td style={{...tdL,position:"sticky",left:0,zIndex:2,background:i%2===0?C.card:C.surface}}>{x.equipo}</td>
@@ -9806,6 +9903,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                         </>
                       )})()}
                       <td style={{...tdS,background:C.purple+"12",color:C.purple,fontWeight:800}}>{fmtU(getManoObraCostoMensual(x))}</td>
+                      <td style={{...tdS,background:C.purple+"12",color:C.teal,fontWeight:800}}>{getHsEfectivasCM(x)>0?fmtNum(Math.round(getHsEfectivasCM(x))):"—"}</td>
                       <td style={{...tdS,background:C.purple+"12",color:"#ddd",fontWeight:800}}>{fmtU(getUsdHoraCM(x))}</td>
                     </tr>
                   ))}
@@ -9826,6 +9924,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e"}}>{fmtU(sumCM(sec.id,"corr"))}</td>
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e",color:"#fff"}}>{fmtU(sumCM(sec.id,"total"))}</td>
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCM(sec.id,"mo"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtNum(sumCM(sec.id,"hsEf"))}</td>
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCM(sec.id,"usdHs"))}</td>
                   </tr>
                 </React.Fragment>
@@ -9847,6 +9946,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b"}}>{fmtU(sumCM("TOTAL","corr"))}</td>
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b",color:"#fff"}}>{fmtU(sumCM("TOTAL","total"))}</td>
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCM("TOTAL","mo"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtNum(sumCM("TOTAL","hsEf"))}</td>
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCM("TOTAL","usdHs"))}</td>
               </tr>
             </tbody>
@@ -9953,6 +10053,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             {label:"Mec. FS",val:mecFS,set:setMecFS,w:52},
             {label:"CTA MEC. FS",val:ctaMecFS,set:setCtaMecFS,w:62},
             {label:"Hombre Vestido (USD)",val:hombreVestido,set:setHombreVestido,w:88},
+            {label:"Hs Eq. Propios",val:hsPropios,set:setHsPropios,w:58},
+            {label:"Hs Eq. Arrendados",val:hsArrendados,set:setHsArrendados,w:58},
           ].map(({label,val,set,w})=>(
             <div key={label} style={{display:"flex",alignItems:"center",gap:5,flex:"0 0 auto"}}>
               <span style={{fontSize:10,color:C.textMuted,whiteSpace:"nowrap"}}>{label}</span>
