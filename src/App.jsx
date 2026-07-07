@@ -6392,33 +6392,52 @@ function ViewCHC({rop02All,extState,setExtState}){
 }
 
 
-// ─── ParamInput — input numérico con debounce para no invalidar useMemos en cada tecla
+// ─── ParamInput — input numérico fluido
+// No recalcula la pantalla pesada mientras se escribe: guarda el número al salir del campo
+// o al presionar Enter. Así los parámetros no tildan el Informe de Costos.
 function ParamInput({value,set,style}){
   const[local,setLocal]=React.useState(String(value??''));
-  const timerRef=React.useRef(null);
-  // Sync if external value changes (e.g. on load)
   const prevValue=React.useRef(value);
+
   React.useEffect(()=>{
     if(prevValue.current!==value){
       prevValue.current=value;
       setLocal(String(value??''));
     }
   },[value]);
+
+  const commit=React.useCallback((raw)=>{
+    const txt=String(raw??'').trim();
+    if(txt===''){
+      setLocal(String(prevValue.current??''));
+      return;
+    }
+    const n=Number(txt.replace(',','.'));
+    if(Number.isFinite(n)){
+      prevValue.current=n;
+      set(n);
+      setLocal(String(n));
+    }else{
+      setLocal(String(prevValue.current??''));
+    }
+  },[set]);
+
   const handleChange=React.useCallback((e)=>{
-    const raw=e.target.value;
-    setLocal(raw);
-    if(timerRef.current)clearTimeout(timerRef.current);
-    timerRef.current=setTimeout(()=>{
-      const n=Number(raw);
-      if(!isNaN(n)){prevValue.current=n;set(n);}
-    },400);
-  },[set]);
+    setLocal(e.target.value);
+  },[]);
+
   const handleBlur=React.useCallback((e)=>{
-    if(timerRef.current)clearTimeout(timerRef.current);
-    const n=Number(e.target.value);
-    if(!isNaN(n)){prevValue.current=n;set(n);setLocal(String(n));}
-  },[set]);
-  return <input type="number" value={local} onChange={handleChange} onBlur={handleBlur} style={style}/>;
+    commit(e.target.value);
+  },[commit]);
+
+  const handleKeyDown=React.useCallback((e)=>{
+    if(e.key==='Enter'){
+      commit(e.currentTarget.value);
+      e.currentTarget.blur();
+    }
+  },[commit]);
+
+  return <input type="number" value={local} onChange={handleChange} onBlur={handleBlur} onKeyDown={handleKeyDown} style={style}/>;
 }
 
 // ─── AmortRow — fila memoizada de la tabla de amortización ──────────────────
@@ -8187,19 +8206,23 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     }catch(_){return{};}
   },[]);
   const initialCostosMantState=React.useMemo(()=>readCostosMantState(),[readCostosMantState]);
+  const readSavedNumber=React.useCallback((key,fallback)=>{
+    const n=Number(initialCostosMantState?.[key]);
+    return Number.isFinite(n)?n:fallback;
+  },[initialCostosMantState]);
 
   const [tab,setTab]=React.useState(initialCostosMantState.tab||"t1");
-  const [usdRate2,setUsdRate2]=React.useState(Number(initialCostosMantState.usdRate2)||1400);
-  const [hsEfJM,setHsEfJM]=React.useState(Number(initialCostosMantState.hsEfJM)||180);
-  const [hsEfFS,setHsEfFS]=React.useState(Number(initialCostosMantState.hsEfFS)||180);
-  const [mecJM,setMecJM]=React.useState(Number(initialCostosMantState.mecJM)||8);
-  const [ctaMecJM,setCtaMecJM]=React.useState(Number(initialCostosMantState.ctaMecJM)||Number(initialCostosMantState.ctaMec)||2);
-  const [mecFS,setMecFS]=React.useState(Number(initialCostosMantState.mecFS)||8);
-  const [ctaMecFS,setCtaMecFS]=React.useState(Number(initialCostosMantState.ctaMecFS)||Number(initialCostosMantState.ctaMec)||1);
-  const [ctaJM,setCtaJM]=React.useState(Number(initialCostosMantState.ctaJM)||2);
-  const [ctaFS,setCtaFS]=React.useState(Number(initialCostosMantState.ctaFS)||1);
-  const [costMec,setCostMec]=React.useState(Number(initialCostosMantState.costMec)||2390.27);
-  const [costCTA,setCostCTA]=React.useState(Number(initialCostosMantState.costCTA)||3000);
+  const [usdRate2,setUsdRate2]=React.useState(()=>readSavedNumber("usdRate2",1400));
+  const [hsEfJM,setHsEfJM]=React.useState(()=>readSavedNumber("hsEfJM",180));
+  const [hsEfFS,setHsEfFS]=React.useState(()=>readSavedNumber("hsEfFS",180));
+  const [mecJM,setMecJM]=React.useState(()=>readSavedNumber("mecJM",8));
+  const [ctaMecJM,setCtaMecJM]=React.useState(()=>readSavedNumber("ctaMecJM",readSavedNumber("ctaMec",2)));
+  const [mecFS,setMecFS]=React.useState(()=>readSavedNumber("mecFS",8));
+  const [ctaMecFS,setCtaMecFS]=React.useState(()=>readSavedNumber("ctaMecFS",readSavedNumber("ctaMec",1)));
+  const [ctaJM,setCtaJM]=React.useState(()=>readSavedNumber("ctaJM",2));
+  const [ctaFS,setCtaFS]=React.useState(()=>readSavedNumber("ctaFS",1));
+  const [costMec,setCostMec]=React.useState(()=>readSavedNumber("costMec",2390.27));
+  const [costCTA,setCostCTA]=React.useState(()=>readSavedNumber("costCTA",3000));
   const [monthlyDollar,setMonthlyDollar]=React.useState(()=>({
     ...Object.fromEntries((HIST_COSTO_MENSUAL_ACUMULADO.months||[]).map(m=>[m.key,Number(m.dollar)||1400])),
     ...(initialCostosMantState.monthlyDollar||{})
@@ -8265,10 +8288,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const vidaUtilOverrideRef=React.useRef(vidaUtilOverride);
   React.useLayoutEffect(()=>{useListaVidaUtilRef.current=useListaVidaUtil;},[useListaVidaUtil]);
   React.useLayoutEffect(()=>{vidaUtilOverrideRef.current=vidaUtilOverride;},[vidaUtilOverride]);
-  const [hombreVestido,setHombreVestido]=React.useState(Number(initialCostosMantState.hombreVestido)||0);
+  const [hombreVestido,setHombreVestido]=React.useState(()=>readSavedNumber("hombreVestido",0));
   // Horas efectivas por tipo de propiedad: propios = propiedad DELTA, arrendados = el resto
-  const [hsPropios,setHsPropios]=React.useState(Number(initialCostosMantState.hsPropios)||0);
-  const [hsArrendados,setHsArrendados]=React.useState(Number(initialCostosMantState.hsArrendados)||0);
+  const [hsPropios,setHsPropios]=React.useState(()=>readSavedNumber("hsPropios",0));
+  const [hsArrendados,setHsArrendados]=React.useState(()=>readSavedNumber("hsArrendados",0));
   const [costosMantSorts,setCostosMantSorts]=React.useState({});
 
   const saveCostosMantRef=React.useRef(null);
@@ -9715,9 +9738,16 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       if(tieneJM){hs+=Number(hsEfJM)||0;cnt++;}
       if(tieneFS){hs+=Number(hsEfFS)||0;cnt++;}
       if(cnt===0){hs=(Number(hsEfJM)||0)+(Number(hsEfFS)||0);cnt=2;}
-      const hsEf=cnt>0?hs/cnt:0;
+      const hsPorProyecto=cnt>0?hs/cnt:0;
 
       const esDeltaEq=String(x.propiedad||"").toUpperCase().includes("DELTA");
+      // Hs paramétricas por propiedad:
+      // - Equipos Delta: Hs Eq. Propios
+      // - Equipos no Delta / arrendados: Hs Eq. Arrendados
+      // Si el parámetro está vacío o en 0, se usa como respaldo el promedio JM/FS anterior.
+      const hsParam=esDeltaEq?(Number(hsPropios)||0):(Number(hsArrendados)||0);
+      const hsEf=hsParam>0?hsParam:hsPorProyecto;
+
       // vidaBase: la vida sin override (de lista maestra). Para Delta es x.vida que viene de getVidaUtilEquipo
       // pero como getVidaUtilEquipo ya usa refs, necesitamos la vida de lista maestra pura para el display
       const vidaBase=x.vida; // vida que viene de rowsAmortizacion (puede ser override via ref)
@@ -9729,7 +9759,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const pctMant=amortFinal>0?x.mantUSDhs/amortFinal:0;
       return {...x,vida:vidaFinal,vidaBase:x.vidaListaMaestra||x.vidaBase||vidaFinal,amort:amortFinal,hhHombreVestido,totalUSDhs,pctMant,_esDelta:esDeltaEq,_hsEf:hsEf};
     });
-  },[rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS]);
+  },[rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS,hsPropios,hsArrendados]);
 
 
   const rowsAmortizacionOrdenadas=React.useMemo(()=>{
@@ -10271,30 +10301,65 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       </div>
 
       {/* Header parámetros */}
-      <div style={{display:"flex",flexDirection:"column",gap:8,padding:"10px 14px",background:"rgba(28,28,28,0.82)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",borderRadius:10,border:`1px solid ${C.border}55`,overflow:"hidden"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          <span style={{fontWeight:800,fontSize:13,color:C.text,marginRight:2}}>Parámetros</span>
+      <div style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:"rgba(28,28,28,0.86)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",borderRadius:12,border:`1px solid ${C.border}55`,overflow:"hidden"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontWeight:900,fontSize:14,color:C.text}}>Parámetros</span>
+            <span style={{fontSize:11,color:C.textMuted}}>Valores guardados automáticamente</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,color:C.green}}>JM: <b>U$S {fmtNum(Math.round(subtotalJM))}</b></span>
+            <span style={{fontSize:12,color:C.teal}}>FS: <b>U$S {fmtNum(Math.round(subtotalFS))}</b></span>
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"minmax(330px,1.05fr) minmax(330px,1.05fr) minmax(300px,.9fr)",gap:10,alignItems:"stretch"}}>
           {[
-            {label:"USD/ARS",val:usdRate2,set:setUsdRate2,w:78},
-            {label:"Hs ef. JM",val:hsEfJM,set:setHsEfJM,w:58},
-            {label:"Hs ef. FS",val:hsEfFS,set:setHsEfFS,w:58},
-            {label:"Mec. Unit (USD/mes)",val:costMec,set:setCostMec,w:88},
-            {label:"CTA Unit (USD/mes)",val:costCTA,set:setCostCTA,w:82},
-            {label:"Mec. JM",val:mecJM,set:setMecJM,w:52},
-            {label:"CTA MEC. JM",val:ctaMecJM,set:setCtaMecJM,w:62},
-            {label:"Mec. FS",val:mecFS,set:setMecFS,w:52},
-            {label:"CTA MEC. FS",val:ctaMecFS,set:setCtaMecFS,w:62},
-            {label:"Hombre Vestido (USD)",val:hombreVestido,set:setHombreVestido,w:88},
-            {label:"Hs Eq. Propios",val:hsPropios,set:setHsPropios,w:58},
-            {label:"Hs Eq. Arrendados",val:hsArrendados,set:setHsArrendados,w:58},
-          ].map(({label,val,set,w})=>(
-            <div key={label} style={{display:"flex",alignItems:"center",gap:5,flex:"0 0 auto"}}>
-              <span style={{fontSize:10,color:C.textMuted,whiteSpace:"nowrap"}}>{label}</span>
-              <ParamInput value={val} set={set} style={{...inp,width:w,padding:"6px 8px"}}/>
+            {titulo:"Costos base",items:[
+              {label:"USD/ARS",full:"Tipo de cambio USD/ARS",val:usdRate2,set:setUsdRate2,w:96},
+              {label:"Mec. Unit.",full:"Costo mensual por mecánico (USD/mes)",val:costMec,set:setCostMec,w:112},
+              {label:"CTA Unit.",full:"Costo mensual por CTA (USD/mes)",val:costCTA,set:setCostCTA,w:112},
+              {label:"Hombre Vest.",full:"Costo Hombre Vestido (USD/hora)",val:hombreVestido,set:setHombreVestido,w:112},
+            ]},
+            {titulo:"Horas de referencia",items:[
+              {label:"Hs ef. JM",full:"Horas efectivas de referencia para José María",val:hsEfJM,set:setHsEfJM,w:88},
+              {label:"Hs ef. FS",full:"Horas efectivas de referencia para Filo del Sol",val:hsEfFS,set:setHsEfFS,w:88},
+              {label:"Hs Eq. Prop.",full:"Horas mensuales de equipos propios",val:hsPropios,set:setHsPropios,w:88},
+              {label:"Hs Eq. Arr.",full:"Horas mensuales de equipos arrendados",val:hsArrendados,set:setHsArrendados,w:88},
+            ]},
+          ].map((grupo)=>(
+            <div key={grupo.titulo} style={{padding:"10px 12px",border:`1px solid ${C.border}44`,borderRadius:10,background:"rgba(10,10,10,0.24)",minWidth:0}}>
+              <div style={{fontSize:11,fontWeight:900,color:C.textSub,textTransform:"uppercase",letterSpacing:.3,marginBottom:8}}>{grupo.titulo}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(140px,1fr))",gap:8}}>
+                {grupo.items.map(({label,full,val,set,w})=>(
+                  <label key={grupo.titulo+label} title={full} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,minWidth:0,cursor:"help"}}>
+                    <span style={{fontSize:10,color:C.textMuted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{label}</span>
+                    <ParamInput value={val} set={set} style={{...inp,width:w,padding:"6px 8px"}}/>
+                  </label>
+                ))}
+              </div>
             </div>
           ))}
+
+          <div style={{padding:"10px 12px",border:`1px solid ${C.border}44`,borderRadius:10,background:"rgba(10,10,10,0.24)",minWidth:0}}>
+            <div style={{fontSize:11,fontWeight:900,color:C.textSub,textTransform:"uppercase",letterSpacing:.3,marginBottom:8}}>Dotación</div>
+            <div style={{display:"grid",gridTemplateColumns:"42px 1fr 1fr",gap:8,alignItems:"center"}}>
+              <span style={{fontSize:10,color:C.textMuted,fontWeight:800}}>Proyecto</span>
+              <span title="Cantidad de mecánicos asignados" style={{fontSize:10,color:C.textMuted,fontWeight:800,cursor:"help"}}>Mecánicos</span>
+              <span title="Cantidad de CTA mecánicos asignados" style={{fontSize:10,color:C.textMuted,fontWeight:800,cursor:"help"}}>CTA mec.</span>
+
+              <span style={{fontSize:11,color:C.green,fontWeight:900}}>JM</span>
+              <ParamInput value={mecJM} set={setMecJM} style={{...inp,width:"100%",padding:"6px 8px"}}/>
+              <ParamInput value={ctaMecJM} set={setCtaMecJM} style={{...inp,width:"100%",padding:"6px 8px"}}/>
+
+              <span style={{fontSize:11,color:C.teal,fontWeight:900}}>FS</span>
+              <ParamInput value={mecFS} set={setMecFS} style={{...inp,width:"100%",padding:"6px 8px"}}/>
+              <ParamInput value={ctaMecFS} set={setCtaMecFS} style={{...inp,width:"100%",padding:"6px 8px"}}/>
+            </div>
+          </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap",paddingTop:6,borderTop:`1px solid ${C.border}55`}}>
+
+        <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",padding:"8px 10px",border:`1px solid ${C.border}33`,borderRadius:9,background:"rgba(0,0,0,0.18)"}}>
           <span style={{fontSize:12,fontWeight:800,color:C.text}}>Subtotal mecánico</span>
           <span style={{fontSize:12,color:C.green}}>JM: <b>U$S {fmtNum(Math.round(subtotalJM))}</b></span>
           <span style={{fontSize:12,color:C.teal}}>FS: <b>U$S {fmtNum(Math.round(subtotalFS))}</b></span>
