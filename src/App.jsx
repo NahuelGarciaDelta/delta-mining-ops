@@ -1389,6 +1389,7 @@ function multiSelectedLabels(value, options){
 }
 function MultiSel({label,value,onChange,options}){
   const[open,setOpen]=useState(false);
+  const[search,setSearch]=useState("");
   const[pos,setPos]=useState({top:0,left:0,width:240});
   const[tipOpen,setTipOpen]=useState(false);
   const[tipPos,setTipPos]=useState({top:0,left:0});
@@ -1401,6 +1402,8 @@ function MultiSel({label,value,onChange,options}){
   const selectedLabels=multiSelectedLabels(value,options);
   const isActive=Array.isArray(selected)&&selected.length>0;
   const realOptions=(options||[]).filter(o=>o.value!==def);
+  const searchNorm=String(search||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+  const visibleOptions=searchNorm?realOptions.filter(o=>String(o.label||o.value||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(searchNorm)):realOptions;
 
   const updatePos=useCallback(()=>{
     const el=btnRef.current;
@@ -1484,12 +1487,13 @@ function MultiSel({label,value,onChange,options}){
         Todos
       </label>
       <div style={{height:1,background:C.border,margin:"4px 0"}}/>
-      {realOptions.map(o=>(
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." autoFocus style={{width:"100%",boxSizing:"border-box",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"7px 8px",fontSize:12,outline:"none",margin:"3px 0 6px",fontFamily:"Inter"}}/>
+      {visibleOptions.length?visibleOptions.map(o=>(
         <label key={o.value} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:selectedArr.includes(o.value)?C.text:C.textSub}}>
           <input type="checkbox" checked={selectedArr.includes(o.value)} onChange={()=>toggle(o.value)} style={{accentColor:C.accent}}/>
           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</span>
         </label>
-      ))}
+      )):<div style={{padding:"9px 8px",fontSize:12,color:C.textMuted}}>Sin resultados</div>}
     </div>,document.body
   ):null;
 
@@ -1705,6 +1709,7 @@ const VIEW_SOURCES={
   costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos"],
   costosUnitarios:["insumos","rma15_fs","rma15_jm"],
   listaEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
+  tallerCentral:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
 };
 
 // ─── ViewListaMaestraEquipos ──────────────────────────────────────────────────
@@ -7778,7 +7783,8 @@ function Login({onLogin}){
       alignItems:"center",
       justifyContent:"center",
       flexDirection:"column",
-      gap:24
+      gap:24,
+      paddingTop:70
     }}>
       <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
       <img src={LOGO} alt="Delta Mining" style={{height:80,objectFit:"contain",marginBottom:8}}/>
@@ -10969,17 +10975,42 @@ function ViewCambiosTurno({rop02All=[]}){
   );
 }
 
-function ViewBienvenida({onOpenModule}){
+function ViewBienvenida({onOpenModule,listaEquipos=[],rop02All=[],onReloadLista}){
+  const tallerRows=Array.isArray(listaEquipos)?listaEquipos:[];
+  const tallerGet=(row,cands)=>{
+    const keys=Object.keys(row||{});
+    for(const cand of cands){
+      const wanted=String(cand||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+      for(const k of keys){
+        const kk=String(k||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+        if(kk===wanted||kk.includes(wanted)||wanted.includes(kk))return row[k];
+      }
+    }
+    return "";
+  };
+  const tallerCount=(cands)=>{
+    const m=new Map();
+    tallerRows.forEach(r=>{
+      const raw=String(tallerGet(r,cands)||"Sin dato").trim()||"Sin dato";
+      m.set(raw,(m.get(raw)||0)+1);
+    });
+    return [...m.entries()].sort((a,b)=>b[1]-a[1]||String(a[0]).localeCompare(String(b[0])));
+  };
+  const tallerTipos=tallerCount(["Familia","Tipo","Equipo"]);
+  const tallerPropiedad=tallerCount(["Propiedad"]);
+  const tallerMarcas=tallerCount(["Marca"]);
   return(
     <div style={{
       position:"relative",
       width:"100%",
-      height:"calc(100vh - 82px)",
+      minHeight:"100vh",
       display:"flex",
       alignItems:"center",
       justifyContent:"center",
-      overflow:"hidden",
+      overflowY:"auto",
+      overflowX:"hidden",
       borderRadius:16,
+      padding:"46px 16px 28px",
     }}>
       {/* Full background image */}
       <img
@@ -11011,8 +11042,8 @@ function ViewBienvenida({onOpenModule}){
         flexDirection:"column",
         alignItems:"center",
         justifyContent:"flex-end",
-        height:"100%",
-        paddingBottom:64,
+        width:"min(1480px, 100%)",
+        minHeight:"calc(100vh - 140px)",
         gap:12,
       }}>
         {/* Logo Delta Mining vectorial: no se pixela y no tiene fondo blanco */}
@@ -11082,10 +11113,13 @@ function ViewBienvenida({onOpenModule}){
         }}/>
 
         <div style={{
-          display:"grid",
-          gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",
+          display:"flex",
+          justifyContent:"center",
+          alignItems:"center",
+          flexWrap:"nowrap",
           gap:14,
-          width:"min(760px,90vw)",
+          width:"100%",
+          maxWidth:1100,
           marginTop:28,
         }}>
           {[
@@ -11093,12 +11127,15 @@ function ViewBienvenida({onOpenModule}){
             {label:"Mantenimiento",module:"mantenimiento",view:"mant",color:C.yellow},
             {label:"Calidad",module:"calidad",view:"chc",color:C.green},
             {label:"Abastecimiento",module:"abastecimiento",view:"abastecimiento",color:C.yellow},
+            {label:"Taller Central",module:"tallerCentral",view:"tallerCentral",color:C.teal},
           ].map(item=>(
             <button
               key={item.label}
               type="button"
               onClick={()=>onOpenModule&&onOpenModule(item.module,item.view)}
               style={{
+                width:170,
+                minWidth:170,
                 minHeight:86,
                 borderRadius:18,
                 border:`1px solid ${item.color}66`,
@@ -11130,7 +11167,80 @@ function ViewBienvenida({onOpenModule}){
             </button>
           ))}
         </div>
+
       </div>
+    </div>
+  );
+}
+
+
+function ViewTallerCentral({listaEquipos=[],rop02All=[],onReloadLista}){
+  const rows=Array.isArray(listaEquipos)?listaEquipos:[];
+  const getVal=(row,cands)=>{
+    const keys=Object.keys(row||{});
+    for(const cand of cands){
+      const wanted=String(cand||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+      for(const k of keys){
+        const kk=String(k||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
+        if(kk===wanted||kk.includes(wanted)||wanted.includes(kk))return row[k];
+      }
+    }
+    return "";
+  };
+  const countBy=(cands)=>{
+    const m=new Map();
+    rows.forEach(r=>{
+      const raw=String(getVal(r,cands)||"Sin dato").trim()||"Sin dato";
+      m.set(raw,(m.get(raw)||0)+1);
+    });
+    return [...m.entries()].sort((a,b)=>b[1]-a[1]||String(a[0]).localeCompare(String(b[0])));
+  };
+  const tipos=countBy(["Familia","Tipo de equipo","Tipo","Equipo"]);
+  const propiedades=countBy(["Propiedad"]);
+  const marcas=countBy(["Marca"]);
+  const combustibles=countBy(["Tipo de Combustible","Tipo Combustible","Combustible"]);
+  const modelos=countBy(["Modelo","Modelo Equipo","Modelo de Equipo"]);
+  const anios=rows.map(r=>Number(String(getVal(r,["Año de Fabricacion","Año Fabricacion","Anio Fabricacion","Año Fabricación"])||"").replace(/[^0-9]/g,""))).filter(n=>n>1900&&n<2200);
+  const antigProm=anios.length?((new Date().getFullYear()-anios.reduce((a,b)=>a+b,0)/anios.length).toFixed(1)):"—";
+  const BoxList=({title,items,color})=>(
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:12,minHeight:170}}>
+      <div style={{fontSize:12,fontWeight:900,color,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>{title}</div>
+      <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:132,overflow:"auto",paddingRight:4}}>
+        {items.slice(0,10).map(([name,count])=>(
+          <div key={name} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,fontSize:12,color:C.text}}>
+            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={name}>{name}</span>
+            <Badge color={color}>{fmtNum(count)}</Badge>
+          </div>
+        ))}
+        {!items.length&&<div style={{fontSize:12,color:C.textMuted}}>Sin datos cargados.</div>}
+      </div>
+    </div>
+  );
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <Card title="Taller Central">
+        <div style={{padding:14,display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
+            <StatCard icon="equip" label="Equipos cargados" value={fmtNum(rows.length)} sub="Lista Maestra de Equipos" color={C.teal} small/>
+            <StatCard icon="database" label="Tipos de equipo" value={fmtNum(tipos.length)} sub="Familias distintas" color={C.blue} small/>
+            <StatCard icon="check" label="Propiedades" value={fmtNum(propiedades.length)} sub="Delta / alquilados / terceros" color={C.green} small/>
+            <StatCard icon="parts" label="Marcas" value={fmtNum(marcas.length)} sub="Marcas distintas" color={C.yellow} small/>
+            <StatCard icon="truck" label="Modelos" value={fmtNum(modelos.length)} sub="Modelos distintos" color={C.purple} small/>
+            <StatCard icon="fuel" label="Combustibles" value={fmtNum(combustibles.length)} sub="Tipos registrados" color={C.red} small/>
+            <StatCard icon="hours" label="Antigüedad prom." value={antigProm} sub="Años aproximados" color={C.textSub} small/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
+            <BoxList title="Equipos por tipo" items={tipos} color={C.blue}/>
+            <BoxList title="Equipos por propiedad" items={propiedades} color={C.green}/>
+            <BoxList title="Equipos por marca" items={marcas} color={C.yellow}/>
+            <BoxList title="Tipo de combustible" items={combustibles} color={C.red}/>
+          </div>
+        </div>
+      </Card>
+      {rows.length>0
+        ? <ViewListaMaestraEquipos rows={rows} rop02All={rop02All||[]} onReloadLista={onReloadLista}/>
+        : <BlockingDataLoader label="Cargando Lista Maestra de Equipos..." />
+      }
     </div>
   );
 }
@@ -11180,7 +11290,7 @@ const RABA03_COLUMNS = [
   {key:"nSolicitud", label:"N° de solicitud", width:110},
   {key:"empresa", label:"Empresa", width:120},
   {key:"fechaSolicitud", label:"Fecha de solicitud", width:135},
-  {key:"fechaRequerida", label:"Fecha requerida del producto", width:135},
+  {key:"fechaRequerida", label:"Fecha requerida", width:135},
   {key:"pedidoPor", label:"Pedido por", width:150},
   {key:"centroCosto", label:"Centro de Costo", width:140},
   {key:"codigoArticulo", label:"Código de artículo", width:140},
@@ -11190,15 +11300,41 @@ const RABA03_COLUMNS = [
   {key:"cantidadRestante", label:"Cant. restante", align:"right", width:125}
 ];
 
-const RABA08_STORAGE_KEY = "dm_raba08_remitos_v1";
+const RABA03_EXPORT_COLUMNS = RABA03_COLUMNS.filter(c=>c.key!=="cantidadRestante");
+const RABA03_EXTRA_COLUMNS = [
+  {key:"numeroRemito", label:"Nº Remito", width:130},
+  {key:"fechaSalida", label:"Fecha de salida", width:130},
+  {key:"cantidadRemito", label:"Cantidad", align:"right", width:105},
+  {key:"indicador", label:"Indicador", align:"right", width:105}
+];
 
-function AbastecimientoModule(){
+const RABA08_STORAGE_KEY = "dm_raba08_remitos_v1";
+const STOCK_CONTROL_STORAGE_KEY = "dm_control_stock_excel_v1";
+const STOCK_CONTROL_COLUMNS = [
+  {key:"codigoArticulo", label:"Cód. artículo", width:112},
+  {key:"descripcion", label:"Descripción", width:260},
+  {key:"descripcionDeposito", label:"Descripción depósito", width:190},
+  {key:"controlStock", label:"U.m. control stock", width:82},
+  {key:"saldoControlStock", label:"Saldo control stock", align:"right", width:105, numeric:true},
+  {key:"cantidadARecibirControlStock", label:"Cantidad a recibir control stock", align:"right", width:126, numeric:true},
+  {key:"puntoPedido", label:"Punto de pedido", align:"right", width:104, numeric:true},
+  {key:"cantidadARecibir", label:"Cantidad a recibir", align:"right", width:110, numeric:true},
+];
+
+function AbastecimientoModule({initialTab="solicitudes"}={}){
   const [rows,setRows]=useState([]);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState(null);
-  const [tab,setTab]=useState("pendientes");
+  const [tab,setTab]=useState(initialTab);
+  useEffect(()=>{setTab(initialTab);},[initialTab]);
   const [query,setQuery]=useState("");
-  const [project,setProject]=useState("TODOS");
+  const [project,setProject]=useState("todos");
+  const [company,setCompany]=useState("todos");
+  const [supervisor,setSupervisor]=useState("todos");
+  const [rabaFilterMode,setRabaFilterMode]=useState("dia");
+  const [rabaDate,setRabaDate]=useState("");
+  const [rabaDateFrom,setRabaDateFrom]=useState("");
+  const [rabaDateTo,setRabaDateTo]=useState("");
   const [sort,setSort]=useState({key:"nSolicitud",dir:"asc"});
   const [remitos,setRemitos]=useState(()=>{
     try{return JSON.parse(window.localStorage.getItem(RABA08_STORAGE_KEY)||"[]");}
@@ -11212,6 +11348,19 @@ function AbastecimientoModule(){
     observaciones:"",
     items:[{codigo:"",descripcion:"",cantidad:""}]
   });
+  const [remitoSearch,setRemitoSearch]=useState("");
+  const [remitoDetalleId,setRemitoDetalleId]=useState(null);
+  const [stockRows,setStockRows]=useState(()=>{
+    try{return JSON.parse(window.localStorage.getItem(STOCK_CONTROL_STORAGE_KEY)||"[]");}
+    catch(_){return [];}
+  });
+  const [stockFileName,setStockFileName]=useState(()=>{
+    try{return window.localStorage.getItem(STOCK_CONTROL_STORAGE_KEY+"_file")||"";}
+    catch(_){return "";}
+  });
+  const [stockFilters,setStockFilters]=useState({codigoArticulo:"todos",descripcion:"todos",descripcionDeposito:"todos",controlStock:"todos",saldoControlStock:"todos",cantidadARecibirControlStock:"todos",puntoPedido:"todos",cantidadARecibir:"todos"});
+  const [stockSort,setStockSort]=useState({key:null,dir:null});
+  const [stockVisibleLimit,setStockVisibleLimit]=useState(350);
   const [importModal,setImportModal]=useState({
     open:false,
     loading:false,
@@ -11220,14 +11369,32 @@ function AbastecimientoModule(){
     message:"",
     error:""
   });
+  const [successAlert,setSuccessAlert]=useState(null);
+  const raba03TopScrollRef=useRef(null);
+  const raba03TableScrollRef=useRef(null);
 
   useEffect(()=>{
     try{window.localStorage.setItem(RABA08_STORAGE_KEY,JSON.stringify(remitos));}
     catch(_){}
   },[remitos]);
+  useEffect(()=>{
+    try{
+      window.localStorage.setItem(STOCK_CONTROL_STORAGE_KEY,JSON.stringify(stockRows));
+      window.localStorage.setItem(STOCK_CONTROL_STORAGE_KEY+"_file",stockFileName||"");
+    }catch(_){}
+  },[stockRows,stockFileName]);
+
+  useEffect(()=>{
+    setStockVisibleLimit(350);
+  },[stockFilters,stockSort]);
 
   const norm=useCallback((v)=>String(v||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim(),[]);
   const normCode=useCallback((v)=>String(v||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9]+/g,"").trim(),[]);
+  const canonicalSupervisor=useCallback((v)=>{
+    const tokens=String(v||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9]+/g," ").trim().split(/\s+/).filter(Boolean);
+    if(!tokens.length)return "";
+    return [...tokens].sort((a,b)=>a.localeCompare(b,"es")).join(" ");
+  },[]);
   const normalizeCentroCosto=useCallback((v)=>{
     const t=norm(v);
     if(!t)return "";
@@ -11301,6 +11468,12 @@ function AbastecimientoModule(){
     return isNaN(n)?0:n;
   },[]);
 
+  const filteredRemitos=useMemo(()=>{
+    const q=norm(remitoSearch);
+    if(!q)return remitos;
+    return (remitos||[]).filter(rem=>norm(rem.comprobante).includes(q));
+  },[remitos,remitoSearch,norm]);
+
   const sentByCode=useMemo(()=>{
     const map={};
     (remitos||[]).forEach(remito=>{
@@ -11316,6 +11489,31 @@ function AbastecimientoModule(){
     return map;
   },[remitos,normCode,toNumber,normalizeCentroCosto]);
 
+  const remitosByCode=useMemo(()=>{
+    const map={};
+    (remitos||[]).forEach(remito=>{
+      const proyecto=normalizeCentroCosto(remito.observaciones||remito.destino||remito.centroCosto||"");
+      (remito.items||[]).forEach(item=>{
+        const code=normCode(item.codigo);
+        const qty=toNumber(item.cantidad);
+        if(!code||qty<=0)return;
+        const keys=[`${code}__*`];
+        if(proyecto)keys.push(`${code}__${proyecto}`);
+        keys.forEach(key=>{
+          if(!map[key])map[key]=[];
+          map[key].push({
+            numero:remito.comprobante||"",
+            fecha:formatDateLocal(remito.fecha),
+            cantidad:qty,
+            lugar:remito.destino||remito.observaciones||remito.origen||"",
+            insumo:item.descripcion||""
+          });
+        });
+      });
+    });
+    return map;
+  },[remitos,normCode,toNumber,normalizeCentroCosto,formatDateLocal]);
+
   const normalizeRow=useCallback((r,idx)=>{
     const codigo=String(pick(r,["Código de articulo","Código de artículo","Codigo de articulo","Codigo de artículo","Código artículo","Codigo articulo","Código","Codigo"])||"").trim();
     const solicitada=toNumber(pick(r,["Cant. Solicitada","Cantidad solicitada","Cant Solicitada","Cantidad"]));
@@ -11326,7 +11524,7 @@ function AbastecimientoModule(){
     const restante=Math.max(0,solicitada-enviada);
     return {
       id:`raba03-${idx}`,
-      nSolicitud:String(idx+1),
+      nSolicitud:String(pick(r,["N° de solicitud","Nº de solicitud","N de solicitud","Numero de solicitud","Número de solicitud","Solicitud"])||idx+1).trim(),
       empresa:String(pick(r,["Empresa"])||"").trim(),
       fechaSolicitud:formatDateLocal(pick(r,["Fecha de solicitud","Fecha solicitud","F. Sol."])),
       fechaRequerida:formatDateLocal(pick(r,["Fecha requerida del producto","Fecha requerida","F. Req."])),
@@ -11350,9 +11548,10 @@ function AbastecimientoModule(){
       norm(row.pedidoPor||row["Autorizado por:"]||row["Autorizado por"]||row["Pedido por"]),
       norm(normalizeCentroCosto(row.centroCosto||row["Centro de Costo"]||row["Centro de costo"])),
       normCode(row.codigoArticulo||row["Código de articulo"]||row["Codigo de articulo"]||row["Código de artículo"]),
-      norm(row.descripcion||row["Descripción de lo que se pidio"]||row["Descripcion de lo que se pidio"])
+      norm(row.descripcion||row["Descripción de lo que se pidio"]||row["Descripcion de lo que se pidio"]),
+      String(toNumber(row.cantidadSolicitada||row["Cant. Solicitada"]||row["Cantidad solicitada"]||row["Cantidad"]||0))
     ].join("|");
-  },[formatDateLocal,norm,normCode,normalizeCentroCosto]);
+  },[formatDateLocal,norm,normCode,normalizeCentroCosto,toNumber]);
 
   const existingSolicitudKeys=useMemo(()=>new Set(rows.map(buildSolicitudKey)),[rows,buildSolicitudKey]);
 
@@ -11394,7 +11593,7 @@ function AbastecimientoModule(){
       const wb=XLSX.read(buffer,{type:"array",cellDates:true});
       const sheetName=wb.SheetNames[0];
       const ws=wb.Sheets[sheetName];
-      const rawRows=XLSX.utils.sheet_to_json(ws,{defval:"",raw:false,dateNF:"dd/mm/yyyy",range:5});
+      const rawRows=XLSX.utils.sheet_to_json(ws,{defval:"",raw:true,range:5});
 
       const pickExcel=(row,names)=>{
         const keys=Object.keys(row||{});
@@ -11414,10 +11613,59 @@ function AbastecimientoModule(){
         return "";
       };
 
+      const formatImportedExcelDate=(value)=>{
+        if(value===null||value===undefined||value==="")return "";
+
+        const pad=(n)=>String(n).padStart(2,"0");
+        const format=(d)=>{
+          if(!(d instanceof Date)||isNaN(d.getTime()))return "";
+          return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`;
+        };
+
+        if(value instanceof Date){
+          return format(value);
+        }
+
+        if(typeof value==="number"&&isFinite(value)){
+          const parsed=XLSX.SSF&&XLSX.SSF.parse_date_code?XLSX.SSF.parse_date_code(value):null;
+          if(parsed&&parsed.y&&parsed.m&&parsed.d){
+            return `${pad(parsed.d)}/${pad(parsed.m)}/${parsed.y}`;
+          }
+        }
+
+        const txt=String(value).trim();
+        if(!txt)return "";
+
+        const iso=txt.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+        if(iso){
+          return `${pad(Number(iso[3]))}/${pad(Number(iso[2]))}/${Number(iso[1])}`;
+        }
+
+        const m=txt.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
+        if(m){
+          let a=Number(m[1]);
+          let b=Number(m[2]);
+          let y=Number(m[3]);
+          if(y<100)y+=2000;
+
+          // Los RABA01 exportados vienen como MM/DD/YYYY.
+          // Si el primer número es mayor a 12, asumimos que ya venía DD/MM/YYYY.
+          let day=a;
+          let month=b;
+          if(a<=12){
+            month=a;
+            day=b;
+          }
+          return `${pad(day)}/${pad(month)}/${y}`;
+        }
+
+        return txt;
+      };
+
       const prepared=rawRows.map(row=>({
         empresa:String(pickExcel(row,["Empresa"] )||"").trim(),
-        fechaSolicitud:String(pickExcel(row,["Fecha de solicitud"] )||"").trim(),
-        fechaRequerida:String(pickExcel(row,["Fecha requerida del producto","Fecha requerida"] )||"").trim(),
+        fechaSolicitud:formatImportedExcelDate(pickExcel(row,["Fecha de solicitud"] )),
+        fechaRequerida:formatImportedExcelDate(pickExcel(row,["Fecha requerida del producto","Fecha requerida"] )),
         pedidoPor:String(pickExcel(row,["Autorizado por:","Autorizado por","Pedido por"] )||"").trim(),
         centroCosto:normalizeCentroCosto(pickExcel(row,["Centro de Costo","Centro de costo","Proyecto"] )||""),
         codigoArticulo:String(pickExcel(row,["Código de articulo","Código de artículo","Codigo de articulo","Codigo de artículo","Código artículo","Codigo articulo"] )||"").trim(),
@@ -11432,17 +11680,30 @@ function AbastecimientoModule(){
         return;
       }
 
-      const previewRows=prepared.map((row,idx)=>{
-        const repeated=existingSolicitudKeys.has(buildSolicitudKey(row));
-        return {...row,previewId:idx+1,estado:repeated?"Actualizar":"Nuevo"};
+      const keyCount=new Map();
+      prepared.forEach(row=>{
+        const k=buildSolicitudKey(row);
+        keyCount.set(k,(keyCount.get(k)||0)+1);
       });
+      const previewRows=prepared.map((row,idx)=>{
+        const k=buildSolicitudKey(row);
+        const repeatedInFile=(keyCount.get(k)||0)>1;
+        const alreadyInBase=existingSolicitudKeys.has(k);
+        return {...row,previewId:idx+1,estado:repeatedInFile?"Repetida":(alreadyInBase?"Ya existe":"Nueva")};
+      });
+      const repetidasArchivo=previewRows.filter(r=>r.estado==="Repetida").length;
+      const yaExistentes=previewRows.filter(r=>r.estado==="Ya existe").length;
+      const aviso=[];
+      aviso.push(`Se detectaron ${previewRows.length} solicitudes. Se agregarán TODAS como filas nuevas.`);
+      if(repetidasArchivo)aviso.push(`${repetidasArchivo} filas están repetidas dentro del archivo.`);
+      if(yaExistentes)aviso.push(`${yaExistentes} filas parecen existir en la base actual.`);
 
       setImportModal({
         open:true,
         loading:false,
         fileName:file.name||"Excel de solicitudes",
         rows:previewRows,
-        message:`Se detectaron ${previewRows.length} solicitudes: ${previewRows.filter(r=>r.estado==="Nuevo").length} nuevas y ${previewRows.filter(r=>r.estado==="Actualizar").length} para actualizar.`,
+        message:aviso.join(" "),
         error:""
       });
     }catch(err){
@@ -11464,11 +11725,16 @@ function AbastecimientoModule(){
       setImportModal(prev=>({...prev,loading:true,error:""}));
       const res=await fetch(APPS_SCRIPT_URL,{
         method:"POST",
-        body:new URLSearchParams({payload:JSON.stringify({action:"add_raba03_rows",rows:rowsToSend,mode:"upsert"})})
+        body:new URLSearchParams({payload:JSON.stringify({action:"add_raba03_rows_append_only",rows:rowsToSend})})
       });
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron cargar las solicitudes en RABA03.");
-      setImportModal(prev=>({...prev,loading:false,message:`Carga realizada: ${json.insertedRows||0} nuevas y ${json.updatedRows||0} actualizadas.`,error:""}));
+      const inserted=Number(json.insertedRows||0);
+      const duplicates=Number(json.duplicateRows||0);
+      let msg=`${inserted} filas nuevas agregadas`;
+      if(duplicates>0)msg+=` · aviso: ${duplicates} repetidas detectadas`;
+      setImportModal(prev=>({...prev,open:false,loading:false,message:"",error:""}));
+      setSuccessAlert({message:msg});
       setTab("solicitudes");
       await loadRaba03();
     }catch(err){
@@ -11478,17 +11744,98 @@ function AbastecimientoModule(){
     }
   },[importModal.rows,loadRaba03]);
 
-  const projects=useMemo(()=>["TODOS",...Array.from(new Set(rows.map(r=>r.centroCosto).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es"))],[rows]);
+  const guardarDatosRABA03=useCallback(async()=>{
+    const payloadRows=(rows||[])
+      .filter(r=>String(r.nSolicitud||"").trim())
+      .map(r=>{
+        const code=normCode(r.codigoArticulo);
+        const proyecto=normalizeCentroCosto(r.centroCosto);
+        const matches=[...(remitosByCode[`${code}__${proyecto}`]||[])];
+        const seen=new Set();
+        const unique=matches.filter(m=>{
+          const k=`${m.numero}__${m.fecha}__${m.cantidad}`;
+          if(seen.has(k))return false;
+          seen.add(k);
+          return true;
+        });
+        const numeros=[...new Set(unique.map(m=>String(m.numero||"").trim()).filter(Boolean))];
+        const fechas=[...new Set(unique.map(m=>String(m.fecha||"").trim()).filter(Boolean))];
+        const cantidadRemito=unique.reduce((acc,m)=>acc+toNumber(m.cantidad),0);
+        return {
+          nSolicitud:r.nSolicitud,
+          cantidadEnviada:toNumber(r.cantidadEnviada),
+          numeroRemito:numeros.join(" / "),
+          fechaSalida:fechas.join(" / "),
+          cantidad:cantidadRemito
+        };
+      });
+    if(!payloadRows.length){
+      window.alert("No hay datos para guardar.");
+      return;
+    }
+    try{
+      setLoading(true);
+      setError(null);
+      const res=await fetch(APPS_SCRIPT_URL,{
+        method:"POST",
+        body:new URLSearchParams({payload:JSON.stringify({action:"save_raba03_cant_enviada",rows:payloadRows})})
+      });
+      const json=await res.json();
+      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron guardar los datos en RABA03 base.");
+      setSuccessAlert({message:`${Number(json.updatedRows||0)} filas guardadas en RABA03 base`});
+      await loadRaba03();
+    }catch(err){
+      const msg=err?.message||String(err);
+      setError(msg);
+      window.alert("Error guardando datos: "+msg);
+    }finally{
+      setLoading(false);
+    }
+  },[rows,toNumber,loadRaba03,normCode,normalizeCentroCosto,remitosByCode]);
+
+  const projects=useMemo(()=>Array.from(new Set(rows.map(r=>r.centroCosto).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows]);
+  const companies=useMemo(()=>Array.from(new Set(rows.map(r=>r.empresa).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows]);
+  const supervisors=useMemo(()=>Array.from(new Set(rows.map(r=>canonicalSupervisor(r.pedidoPor)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows,canonicalSupervisor]);
+
+  const fechaSolicitudISO=useCallback((v)=>{
+    const txt=String(v||"").trim();
+    if(!txt)return "";
+    const dm=txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if(dm){
+      let y=Number(dm[3]);
+      if(y<100)y+=2000;
+      return `${String(y).padStart(4,"0")}-${String(dm[2]).padStart(2,"0")}-${String(dm[1]).padStart(2,"0")}`;
+    }
+    const iso=txt.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(iso)return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const d=new Date(txt);
+    if(!isNaN(d.getTime()))return d.toISOString().slice(0,10);
+    return "";
+  },[]);
 
   const filteredRows=useMemo(()=>{
-    const q=query.trim().toLowerCase();
+    const q=norm(query);
     return rows.filter(r=>{
-      if(project!=="TODOS"&&r.centroCosto!==project)return false;
-      if(tab==="pendientes"&&toNumber(r.cantidadRestante)<=0)return false;
+      const solicitada=toNumber(r.cantidadSolicitada);
+      const enviada=toNumber(r.cantidadEnviada);
+      const restante=toNumber(r.cantidadRestante);
+      const fechaISO=fechaSolicitudISO(r.fechaSolicitud);
+      if(!matchMulti(r.centroCosto,project,"todos"))return false;
+      if(!matchMulti(r.empresa,company,"todos"))return false;
+      if(!matchMulti(canonicalSupervisor(r.pedidoPor),supervisor,"todos"))return false;
+      if(rabaFilterMode==="dia"&&rabaDate&&fechaISO!==rabaDate)return false;
+      if(rabaFilterMode==="periodo"){
+        if(rabaDateFrom&&fechaISO&&fechaISO<rabaDateFrom)return false;
+        if(rabaDateTo&&fechaISO&&fechaISO>rabaDateTo)return false;
+        if((rabaDateFrom||rabaDateTo)&&!fechaISO)return false;
+      }
+      if(tab==="pendientes"&&enviada>0)return false;
+      if(tab==="parciales"&&!(enviada>0&&restante>0))return false;
+      if(tab==="cerradas"&&!(solicitada>0&&restante<=0))return false;
       if(!q)return true;
-      return [r.nSolicitud,r.empresa,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada,r.cantidadEnviada,r.cantidadRestante].some(v=>String(v||"").toLowerCase().includes(q));
+      return [r.nSolicitud,r.empresa,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada,r.cantidadEnviada,r.cantidadRestante].some(v=>norm(v).includes(q));
     });
-  },[rows,project,query,tab,toNumber]);
+  },[rows,project,company,supervisor,rabaFilterMode,rabaDate,rabaDateFrom,rabaDateTo,query,tab,toNumber,fechaSolicitudISO,norm,canonicalSupervisor]);
 
   const sortedRows=useMemo(()=>{
     const dir=sort.dir==="asc"?1:-1;
@@ -11512,11 +11859,138 @@ function AbastecimientoModule(){
   },[filteredRows,sort]);
 
   const stats=useMemo(()=>{
-    const pendientes=rows.filter(r=>toNumber(r.cantidadRestante)>0).length;
+    const pendientes=rows.filter(r=>toNumber(r.cantidadEnviada)<=0).length;
+    const parciales=rows.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0).length;
+    const cerradas=rows.filter(r=>toNumber(r.cantidadSolicitada)>0&&toNumber(r.cantidadRestante)<=0).length;
     const enviados=rows.filter(r=>toNumber(r.cantidadEnviada)>0).length;
-    const completos=rows.filter(r=>toNumber(r.cantidadSolicitada)>0&&toNumber(r.cantidadRestante)===0).length;
-    return {pendientes,total:rows.length,enviados,completos};
+    return {pendientes,parciales,cerradas,total:rows.length,enviados};
   },[rows,toNumber]);
+
+  const parseRabaDateMs=useCallback((v)=>{
+    const txt=String(v||"").trim();
+    if(!txt)return null;
+    const dm=txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if(dm){
+      let y=Number(dm[3]);
+      if(y<100)y+=2000;
+      const d=new Date(y,Number(dm[2])-1,Number(dm[1]));
+      return isNaN(d.getTime())?null:d.getTime();
+    }
+    const iso=txt.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(iso){
+      const d=new Date(Number(iso[1]),Number(iso[2])-1,Number(iso[3]));
+      return isNaN(d.getTime())?null:d.getTime();
+    }
+    const d=new Date(txt);
+    return isNaN(d.getTime())?null:d.getTime();
+  },[]);
+
+  const calcularIndicadorRABA03=useCallback((fechaSolicitud,fechaSalida)=>{
+    const ini=parseRabaDateMs(fechaSolicitud);
+    const fin=parseRabaDateMs(fechaSalida);
+    if(ini===null||fin===null)return "";
+    return Math.round((fin-ini)/86400000);
+  },[parseRabaDateMs]);
+
+  const raba03DownloadRows=useMemo(()=>{
+    const out=[];
+    (sortedRows||[]).forEach(row=>{
+      const code=normCode(row.codigoArticulo);
+      const proyecto=normalizeCentroCosto(row.centroCosto);
+      const matches=[...(remitosByCode[`${code}__${proyecto}`]||[])];
+      const seen=new Set();
+      const unique=matches.filter(m=>{
+        const k=`${m.numero}__${m.fecha}__${m.cantidad}`;
+        if(seen.has(k))return false;
+        seen.add(k);
+        return true;
+      });
+      const base={};
+      RABA03_EXPORT_COLUMNS.forEach(c=>{base[c.key]=(c.key==="fechaSolicitud"||c.key==="fechaRequerida")?formatDateLocal(row[c.key]):(row[c.key] instanceof Date?formatDateLocal(row[c.key]):(row[c.key]??""));});
+      if(unique.length){
+        unique.forEach(m=>out.push({
+          ...base,
+          numeroRemito:m.numero||"",
+          fechaSalida:m.fecha||"",
+          cantidadRemito:m.cantidad||"",
+          indicador:calcularIndicadorRABA03(row.fechaSolicitud,m.fecha)
+        }));
+      }else{
+        out.push({...base,numeroRemito:"",fechaSalida:"",cantidadRemito:"",indicador:""});
+      }
+    });
+    return out;
+  },[sortedRows,remitosByCode,normCode,normalizeCentroCosto,calcularIndicadorRABA03]);
+
+  const generarRABA03Excel=useCallback(()=>{
+    const baseRows=raba03DownloadRows||[];
+    if(!baseRows.length){
+      window.alert("No hay filas para exportar en RABA03.");
+      return;
+    }
+    const columns=[...RABA03_EXPORT_COLUMNS,...RABA03_EXTRA_COLUMNS];
+    const headers=columns.map(c=>c.label);
+    const out=baseRows.map(row=>columns.map(c=>row[c.key] instanceof Date?formatDateLocal(row[c.key]):(row[c.key]??"")));
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet([headers,...out]);
+    ws["!cols"]=columns.map(c=>({wch:Math.max(12,Math.round((c.width||120)/8))}));
+    XLSX.utils.book_append_sheet(wb,ws,"RABA03");
+    const stamp=new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb,`RABA03_${stamp}.xlsx`);
+  },[raba03DownloadRows]);
+
+  useEffect(()=>{
+    window.dmGenerateRABA03=generarRABA03Excel;
+    return()=>{
+      if(window.dmGenerateRABA03===generarRABA03Excel)delete window.dmGenerateRABA03;
+    };
+  },[generarRABA03Excel]);
+
+  useEffect(()=>{
+    if(tab!=="raba03")return;
+    const top=raba03TopScrollRef.current;
+    const table=raba03TableScrollRef.current;
+    if(!top||!table)return;
+    let lock=false;
+    const fromTop=()=>{
+      if(lock)return;
+      lock=true;
+      table.scrollLeft=top.scrollLeft;
+      lock=false;
+    };
+    const fromTable=()=>{
+      if(lock)return;
+      lock=true;
+      top.scrollLeft=table.scrollLeft;
+      lock=false;
+    };
+    top.addEventListener("scroll",fromTop,{passive:true});
+    table.addEventListener("scroll",fromTable,{passive:true});
+    return()=>{
+      top.removeEventListener("scroll",fromTop);
+      table.removeEventListener("scroll",fromTable);
+    };
+  },[tab,raba03DownloadRows.length]);
+
+  const hayFiltrosRaba=useMemo(()=>Boolean(
+    query.trim()||
+    !multiIsAll(project,"todos")||
+    !multiIsAll(company,"todos")||
+    !multiIsAll(supervisor,"todos")||
+    (rabaFilterMode==="dia"&&rabaDate)||
+    (rabaFilterMode==="periodo"&&(rabaDateFrom||rabaDateTo))
+  ),[query,project,company,supervisor,rabaFilterMode,rabaDate,rabaDateFrom,rabaDateTo]);
+
+  const resetRabaFilters=useCallback(()=>{
+    setQuery("");
+    setProject("todos");
+    setCompany("todos");
+    setSupervisor("todos");
+    setRabaDate("");
+    setRabaDateFrom("");
+    setRabaDateTo("");
+    setRabaFilterMode("dia");
+  },[]);
 
   const addRemitoItem=()=>setRemitoForm(prev=>({...prev,items:[...prev.items,{codigo:"",descripcion:"",cantidad:""}]}));
   const updateRemitoItem=(index,field,value)=>setRemitoForm(prev=>({
@@ -11693,7 +12167,7 @@ function AbastecimientoModule(){
       observaciones:"",
       items:[{codigo:"",descripcion:"",cantidad:""}]
     });
-    setTab("pendientes");
+    setRemitoSearch("");
   };
 
   const deleteRemito=(id)=>{
@@ -11712,6 +12186,203 @@ function AbastecimientoModule(){
   const tdStyle={padding:"9px 11px",borderBottom:`1px solid ${C.border}22`,color:C.text,fontSize:12,fontWeight:600,verticalAlign:"middle"};
   const inputStyle={height:34,border:`1px solid ${C.border}`,borderRadius:10,background:"rgba(10,10,10,.65)",color:C.text,padding:"0 12px",fontSize:12,fontWeight:600};
 
+
+  const handleStockExcelUpload=useCallback(async(file)=>{
+    if(!file)return;
+    try{
+      setLoading(true);
+      setError(null);
+      const buffer=await file.arrayBuffer();
+      const wb=XLSX.read(buffer,{type:"array",cellDates:true});
+      const required=[
+        {key:"codigoArticulo", labels:["cod articulo","codigo articulo"]},
+        {key:"descripcion", labels:["descripcion"]},
+        {key:"descripcionDeposito", labels:["descripcion deposito"]},
+        {key:"controlStock", labels:["um control stock","u m control stock","u.m. control stock","u.m control stock","unidad control stock","unidad medida control stock","control stock"]},
+        {key:"saldoControlStock", labels:["saldo control stock"]},
+        {key:"cantidadARecibirControlStock", labels:["cantidad a recibir control stock"]},
+        {key:"puntoPedido", labels:["punto de pedido"]},
+        {key:"cantidadARecibir", labels:["cantidad a recibir"]},
+      ];
+      const cleanHeader=(v)=>norm(String(v||"").replace(/c[oó]d\.?/i,"codigo"));
+      const findHeader=(row)=>{
+        const headers=(row||[]).map(cleanHeader);
+        const map={};
+        for(const col of required){
+          const idx=headers.findIndex(h=>col.labels.includes(h));
+          if(idx<0)return null;
+          map[col.key]=idx;
+        }
+        return map;
+      };
+      let foundRows=[];
+      let headerMap=null;
+      let headerRow=-1;
+      let sheetName="";
+      for(const name of wb.SheetNames){
+        const ws=wb.Sheets[name];
+        const arr=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:true});
+        const idx=arr.findIndex(row=>findHeader(row));
+        if(idx>=0){
+          foundRows=arr;
+          headerMap=findHeader(arr[idx]);
+          headerRow=idx;
+          sheetName=name;
+          break;
+        }
+      }
+      if(!headerMap){
+        throw new Error("No encontré una fila con los encabezados indicados.");
+      }
+      const get=(row,key)=>row[headerMap[key]];
+      const parsed=foundRows.slice(headerRow+1)
+        .filter(row=>!findHeader(row))
+        .map((row,idx)=>({
+          id:`stock-${Date.now()}-${idx}`,
+          codigoArticulo:String(get(row,"codigoArticulo")||"").trim(),
+          descripcion:String(get(row,"descripcion")||"").trim(),
+          descripcionDeposito:String(get(row,"descripcionDeposito")||"").trim(),
+          controlStock:String(get(row,"controlStock")||"").trim(),
+          saldoControlStock:toNumber(get(row,"saldoControlStock")),
+          cantidadARecibirControlStock:toNumber(get(row,"cantidadARecibirControlStock")),
+          puntoPedido:toNumber(get(row,"puntoPedido")),
+          cantidadARecibir:toNumber(get(row,"cantidadARecibir")),
+        }))
+        .filter(r=>(r.codigoArticulo||r.descripcion||r.descripcionDeposito||r.controlStock||r.saldoControlStock||r.cantidadARecibirControlStock||r.puntoPedido||r.cantidadARecibir) && Number(r.saldoControlStock)!==0);
+      setStockRows(parsed);
+      setStockVisibleLimit(350);
+      setStockFileName(`${file.name||"Excel"}${sheetName?` · ${sheetName}`:""}`);
+      setTab("stock");
+    }catch(err){
+      setError(`Error leyendo Control de stock: ${err.message||err}`);
+    }finally{
+      setLoading(false);
+    }
+  },[norm,toNumber]);
+
+  const stockTextCollator=useMemo(()=>new Intl.Collator("es",{numeric:true,sensitivity:"base"}),[]);
+  const formatStockOptionLabel=useCallback((key,value)=>{
+    const col=STOCK_CONTROL_COLUMNS.find(c=>c.key===key);
+    if(col?.numeric)return fmtNum(Number(value)||0);
+    return String(value||"Sin dato");
+  },[]);
+  const stockFilterOptions=useMemo(()=>{
+    const build=(key)=>{
+      const col=STOCK_CONTROL_COLUMNS.find(c=>c.key===key);
+      const map=new Map();
+      (stockRows||[]).forEach(row=>{
+        const raw=row?.[key];
+        const value=col?.numeric?String(Number(raw)||0):String(raw||"").trim();
+        if(!value)return;
+        if(!map.has(value))map.set(value,{value,label:formatStockOptionLabel(key,value)});
+      });
+      const arr=Array.from(map.values()).sort((a,b)=>{
+        if(col?.numeric)return (Number(a.value)||0)-(Number(b.value)||0);
+        return stockTextCollator.compare(a.label,b.label);
+      });
+      return [{value:"todos",label:`Todos ${col?.label||key}`} ,...arr];
+    };
+    return STOCK_CONTROL_COLUMNS.reduce((acc,col)=>{
+      acc[col.key]=build(col.key);
+      return acc;
+    },{});
+  },[stockRows,formatStockOptionLabel,stockTextCollator]);
+  const stockMatchesFilter=useCallback((key,value)=>{
+    const selected=stockFilters[key];
+    if(!Array.isArray(selected)||selected.length===0||selected.includes("todos"))return true;
+    const col=STOCK_CONTROL_COLUMNS.find(c=>c.key===key);
+    const normalized=col?.numeric?String(Number(value)||0):String(value||"").trim();
+    return selected.includes(normalized);
+  },[stockFilters]);
+  const filteredStockRows=useMemo(()=>stockRows.filter(r=>{
+    return STOCK_CONTROL_COLUMNS.every(col=>stockMatchesFilter(col.key,r[col.key]));
+  }),[stockRows,stockMatchesFilter]);
+  const sortedStockRows=useMemo(()=>{
+    if(!stockSort.key||!stockSort.dir)return filteredStockRows;
+    const dir=stockSort.dir==="asc"?1:-1;
+    const key=stockSort.key;
+    const col=STOCK_CONTROL_COLUMNS.find(c=>c.key===key);
+    const numeric=!!col?.numeric;
+    return [...filteredStockRows].sort((a,b)=>{
+      const av=a[key];
+      const bv=b[key];
+      if(numeric)return ((Number(av)||0)-(Number(bv)||0))*dir;
+      return stockTextCollator.compare(String(av||""),String(bv||""))*dir;
+    });
+  },[filteredStockRows,stockSort,stockTextCollator]);
+  const visibleStockRows=useMemo(()=>sortedStockRows.slice(0,stockVisibleLimit),[sortedStockRows,stockVisibleLimit]);
+  const toggleStockSort=(key)=>setStockSort(prev=>{
+    if(prev.key!==key)return {key,dir:"asc"};
+    if(prev.dir==="asc")return {key,dir:"desc"};
+    return {key:null,dir:null};
+  });
+  const stockNumberColor=(value)=>{
+    const n=Number(value);
+    if(!n)return C.text;
+    return n<0?C.red:C.green;
+  };
+  const setStockFilter=(key,value)=>setStockFilters(prev=>({...prev,[key]:value}));
+  const renderStockControl=()=>{
+    return (
+      <div style={{display:"grid",gap:14}}>
+        <Card>
+          <div style={{padding:14,display:"flex",alignItems:"flex-end",gap:10,flexWrap:"wrap"}}>
+            <label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>
+              📥 Cargar Excel Stock
+              <input type="file" accept=".xlsx,.xls" onChange={e=>{handleStockExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
+            </label>
+            <button onClick={()=>{setStockRows([]);setStockFileName("");setStockVisibleLimit(350);}} style={{height:34,border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,borderRadius:10,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Limpiar tabla</button>
+            <div style={{color:C.textSub,fontSize:12,fontWeight:800}}>{stockFileName||"Sin archivo cargado"}</div>
+            <div style={{marginLeft:"auto",color:C.textSub,fontSize:12,fontWeight:800}}>Mostrando {fmtNum(visibleStockRows.length)} de {fmtNum(sortedStockRows.length)} filtradas · Total {fmtNum(stockRows.length)} filas</div>
+          </div>
+        </Card>
+        <Card>
+          <div style={{padding:14,display:"flex",gap:8,alignItems:"flex-end",flexWrap:"nowrap",overflowX:"auto"}}>
+            {STOCK_CONTROL_COLUMNS.map(col=>(
+              <MultiSel
+                key={col.key}
+                label={col.label}
+                value={stockFilters[col.key]}
+                onChange={value=>setStockFilter(col.key,value)}
+                options={stockFilterOptions[col.key]||[{value:"todos",label:`Todos ${col.label}`}]} />
+            ))}
+          </div>
+        </Card>
+        <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden",backdropFilter:"blur(6px)"}}>
+          <div style={{overflow:"auto",maxHeight:"calc(100vh - 270px)"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:1220,tableLayout:"fixed"}}>
+              <thead style={{position:"sticky",top:0,background:"rgba(16,16,16,.96)",zIndex:1}}>
+                <tr>
+                  {STOCK_CONTROL_COLUMNS.map(col=>(
+                    <th key={col.key} onClick={()=>toggleStockSort(col.key)} style={{...thStyle,textAlign:col.align||"left",width:col.width,minWidth:col.width,maxWidth:col.width,whiteSpace:"normal",lineHeight:1.15}}>
+                      {col.label}{stockSort.key===col.key?(stockSort.dir==="asc"?" ▲":" ▼"):""}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visibleStockRows.length?visibleStockRows.map(row=>(
+                  <tr key={row.id}>
+                    {STOCK_CONTROL_COLUMNS.map(col=>(
+                      <td key={col.key} style={{...tdStyle,textAlign:col.align||"left",width:col.width,maxWidth:col.width,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",color:col.numeric?stockNumberColor(row[col.key]):tdStyle.color,fontWeight:col.numeric&&Number(row[col.key])!==0?900:tdStyle.fontWeight}}>
+                        {typeof row[col.key]==="number"?fmtNum(row[col.key]):String(row[col.key]||"")}
+                      </td>
+                    ))}
+                  </tr>
+                )):(
+                  <tr><td colSpan={STOCK_CONTROL_COLUMNS.length} style={{...tdStyle,color:C.textSub,textAlign:"center",padding:28}}>Cargá una planilla de Excel con los encabezados indicados.</td></tr>
+                )}
+              </tbody>
+            </table>
+            {visibleStockRows.length<sortedStockRows.length&&(<div style={{padding:12,textAlign:"center",borderTop:`1px solid ${C.border}`,background:"rgba(16,16,16,.82)"}}>
+              <button onClick={()=>setStockVisibleLimit(v=>v+350)} style={{height:34,border:`1px solid ${C.border}`,background:"rgba(255,255,255,.06)",color:C.text,borderRadius:10,padding:"0 14px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Ver más filas ({fmtNum(sortedStockRows.length-visibleStockRows.length)} restantes)</button>
+            </div>)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderMainTable=()=> (
     <div style={{overflowX:"auto",background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.18)",backdropFilter:"blur(6px)"}}>
       <table style={{width:"100%",minWidth:1420,borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",tableLayout:"fixed"}}>
@@ -11729,8 +12400,8 @@ function AbastecimientoModule(){
             <tr key={r.id}>
               <td style={tdStyle}>{r.nSolicitud}</td>
               <td style={tdStyle}>{r.empresa||"—"}</td>
-              <td style={tdStyle}>{r.fechaSolicitud||"—"}</td>
-              <td style={tdStyle}>{r.fechaRequerida||"—"}</td>
+              <td style={tdStyle}>{formatDateLocal(r.fechaSolicitud)||"—"}</td>
+              <td style={tdStyle}>{formatDateLocal(r.fechaRequerida)||"—"}</td>
               <td style={tdStyle}>{r.pedidoPor||"—"}</td>
               <td style={tdStyle}>{r.centroCosto?<span style={badgeStyle("info")}>{r.centroCosto}</span>:"—"}</td>
               <td style={tdStyle}>{r.codigoArticulo||"S/C"}</td>
@@ -11747,6 +12418,88 @@ function AbastecimientoModule(){
       <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(sortedRows.length)} ítems mostrados</div>
     </div>
   );
+
+  const renderRABA03Descarga=()=>{
+    const columns=[...RABA03_EXPORT_COLUMNS,...RABA03_EXTRA_COLUMNS];
+    const tableMinWidth=1540;
+    return (
+      <div style={{display:"grid",gap:14}}>
+        <Card>
+          <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"nowrap",overflowX:"auto"}}>
+            <Icon name="filter" size={14} color={C.textSub}/>
+            <div style={{display:"flex",gap:7,flex:"0 0 auto"}}>
+              <TabBtn active={rabaFilterMode==="dia"} onClick={()=>setRabaFilterMode("dia")}>Por día</TabBtn>
+              <TabBtn active={rabaFilterMode==="periodo"} onClick={()=>setRabaFilterMode("periodo")}>Por período</TabBtn>
+            </div>
+            {rabaFilterMode==="dia"&&<DateIn label="Fecha" value={rabaDate} onChange={setRabaDate}/>}
+            {rabaFilterMode==="periodo"&&<><PeriodMonthYear fechaD={rabaDateFrom} fechaH={rabaDateTo} setFechaD={setRabaDateFrom} setFechaH={setRabaDateTo}/><DateIn label="Desde" value={rabaDateFrom} onChange={setRabaDateFrom} max={rabaDateTo||undefined}/><DateIn label="Hasta" value={rabaDateTo} onChange={setRabaDateTo} min={rabaDateFrom||undefined} warn={rabaDateTo&&rabaDateFrom&&rabaDateTo<rabaDateFrom?"≥ Desde":null}/></>}
+            <MultiSel label="Proyecto" value={project} onChange={setProject} options={[{value:"todos",label:"Todos"},...projects.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Empresa" value={company} onChange={setCompany} options={[{value:"todos",label:"Todas"},...companies.map(e=>({value:e,label:e}))]}/>
+            <MultiSel label="Supervisor" value={supervisor} onChange={setSupervisor} options={[{value:"todos",label:"Todos"},...supervisors.map(s=>({value:s,label:s}))]}/>
+            <div style={{display:"flex",flexDirection:"column",gap:3,minWidth:290,flex:"0 0 290px"}}>
+              <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Buscar</label>
+              <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar descripción, código, solicitante..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"Inter"}}/>
+            </div>
+            <button onClick={resetRabaFilters} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltrosRaba?1:0.3,pointerEvents:hayFiltrosRaba?"auto":"none",alignSelf:"flex-end",flex:"0 0 auto"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
+            <button onClick={guardarDatosRABA03} style={{marginLeft:"auto",border:`1px solid ${C.blue}66`,background:`${C.blue}18`,color:C.blue,borderRadius:10,padding:"9px 13px",fontSize:12,fontWeight:900,cursor:"pointer",fontFamily:"Inter",display:"inline-flex",alignItems:"center",gap:8,alignSelf:"flex-end",flex:"0 0 auto"}}>
+              <Icon name="check" size={16} color="currentColor"/>
+              Guardar datos
+            </button>
+            <button onClick={generarRABA03Excel} style={{border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:10,padding:"9px 13px",fontSize:12,fontWeight:900,cursor:"pointer",fontFamily:"Inter",display:"inline-flex",alignItems:"center",gap:8,alignSelf:"flex-end",flex:"0 0 auto"}}>
+              <Icon name="fileSpreadsheet" size={16} color="currentColor"/>
+              Generar RABA03
+            </button>
+          </div>
+        </Card>
+        <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.18)",backdropFilter:"blur(6px)",overflow:"hidden"}}>
+          <div ref={raba03TopScrollRef} style={{overflowX:"auto",overflowY:"hidden",height:18,borderBottom:`1px solid ${C.border}22`,background:"rgba(0,0,0,.22)"}}>
+            <div style={{width:tableMinWidth,height:1}}/>
+          </div>
+          <div ref={raba03TableScrollRef} style={{overflow:"auto",maxHeight:"calc(100vh - 260px)",minHeight:260}}>
+            <table style={{width:"100%",minWidth:tableMinWidth,borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",tableLayout:"fixed"}}>
+              <thead>
+                <tr>
+                  {columns.map(col=>(
+                    <th key={col.key} style={{...thStyle,cursor:"default",textAlign:col.align||"left",width:col.width,position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)",boxShadow:"0 1px 0 rgba(255,255,255,.08)"}}>
+                      {col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {raba03DownloadRows.length?raba03DownloadRows.map((r,idx)=>(
+                  <tr key={`raba03-preview-${idx}`}>
+                    {columns.map(col=>(
+                      <td key={col.key} style={{...tdStyle,textAlign:col.align||"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={String(r[col.key] instanceof Date?formatDateLocal(r[col.key]):(r[col.key]??""))}>
+                        {typeof r[col.key]==="number"?fmtNum(r[col.key]):String(r[col.key] instanceof Date?formatDateLocal(r[col.key]):(r[col.key]??""))||"—"}
+                      </td>
+                    ))}
+                  </tr>
+                )):(
+                  <tr><td colSpan={columns.length} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>Sin datos para mostrar.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(raba03DownloadRows.length)} filas listas para descargar</div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSuccessAlert=()=>{
+    if(!successAlert)return null;
+    return (
+      <div style={{position:"fixed",inset:0,zIndex:10000,background:"rgba(0,0,0,.50)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+        <div style={{width:"min(430px,92vw)",background:"rgba(24,24,24,.97)",border:`1px solid ${C.green}66`,borderRadius:18,boxShadow:"0 30px 90px rgba(0,0,0,.55)",padding:22,display:"grid",gap:16,textAlign:"center"}}>
+          <div style={{width:48,height:48,borderRadius:14,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${C.green}88`,background:`${C.green}18`,color:C.green,fontSize:24,fontWeight:900}}>✓</div>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>Carga realizada</div>
+          <div style={{fontSize:15,fontWeight:900,color:C.green}}>{successAlert.message}</div>
+          <button onClick={()=>setSuccessAlert(null)} style={{justifySelf:"center",border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:10,padding:"10px 18px",fontWeight:900,cursor:"pointer"}}>Aceptar</button>
+        </div>
+      </div>
+    );
+  };
 
   const renderImportModal=()=>{
     if(!importModal.open)return null;
@@ -11794,7 +12547,7 @@ function AbastecimientoModule(){
           </div>
           <div style={{padding:"14px 18px",borderTop:`1px solid ${C.border}55`,display:"flex",justifyContent:"flex-end",gap:10}}>
             <button onClick={()=>setImportModal(prev=>({...prev,open:false}))} disabled={importModal.loading} style={{border:`1px solid ${C.border}`,background:"rgba(255,255,255,.06)",color:C.text,borderRadius:10,padding:"9px 13px",fontWeight:900,cursor:"pointer"}}>Cancelar</button>
-            <button onClick={confirmSolicitudesImport} disabled={importModal.loading||!importModal.rows.length} style={{border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:10,padding:"9px 13px",fontWeight:900,cursor:"pointer",opacity:(importModal.loading||!importModal.rows.length)?.6:1}}>{importModal.loading?"Cargando...":"Confirmar carga"}</button>
+            <button onClick={confirmSolicitudesImport} disabled={importModal.loading||!importModal.rows.length} style={{border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:10,padding:"9px 13px",fontWeight:900,cursor:"pointer",opacity:(importModal.loading||!importModal.rows.length)?0.6:1}}>{importModal.loading?"Cargando...":"Confirmar carga"}</button>
           </div>
         </div>
       </div>
@@ -11848,18 +12601,59 @@ function AbastecimientoModule(){
       </div>
 
       <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden",backdropFilter:"blur(6px)"}}>
-        <div style={{padding:14,borderBottom:`1px solid ${C.border}33`,fontWeight:900,color:C.text}}>Remitos cargados</div>
-        {remitos.length?remitos.map(rem=>(
+        <div style={{padding:14,borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontWeight:900,color:C.text}}>Remitos cargados</div>
+            <div style={{fontSize:11,color:C.textSub,fontWeight:700}}>Quedan guardados en este navegador aunque cierres la app.</div>
+          </div>
+          <input value={remitoSearch} onChange={e=>setRemitoSearch(e.target.value)} placeholder="Buscar por N° de remito" style={{...inputStyle,minWidth:240}}/>
+        </div>
+        {filteredRemitos.length?filteredRemitos.map(rem=>(
           <div key={rem.id} style={{padding:14,borderBottom:`1px solid ${C.border}22`,display:"grid",gap:8}}>
             <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}>
               <div style={{fontWeight:900,color:C.text}}>{rem.comprobante} · {formatDateLocal(rem.fecha)} <span style={{color:C.textSub,fontWeight:700}}>({rem.observaciones||"sin observaciones"})</span></div>
-              <button onClick={()=>deleteRemito(rem.id)} style={{border:`1px solid ${C.red}66`,background:`${C.red}16`,color:C.red,borderRadius:10,padding:"6px 10px",fontWeight:900,cursor:"pointer"}}>Eliminar</button>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <button onClick={()=>setRemitoDetalleId(prev=>prev===rem.id?null:rem.id)} style={{border:`1px solid ${C.blue}66`,background:`${C.blue}16`,color:C.blue,borderRadius:10,padding:"6px 10px",fontWeight:900,cursor:"pointer"}}>{remitoDetalleId===rem.id?"Ocultar detalle":"Ver detalle"}</button>
+                <button onClick={()=>deleteRemito(rem.id)} style={{border:`1px solid ${C.red}66`,background:`${C.red}16`,color:C.red,borderRadius:10,padding:"6px 10px",fontWeight:900,cursor:"pointer"}}>Eliminar</button>
+              </div>
             </div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {(rem.items||[]).map((it,i)=><span key={i} style={badgeStyle("info")}>{it.codigo}: {fmtNum(it.cantidad)}</span>)}
             </div>
+            {remitoDetalleId===rem.id&&(
+              <div style={{border:`1px solid ${C.border}55`,borderRadius:12,overflow:"hidden",background:"rgba(0,0,0,.18)"}}>
+                <div style={{padding:"10px 12px",display:"grid",gridTemplateColumns:"repeat(4,minmax(140px,1fr))",gap:10,borderBottom:`1px solid ${C.border}33`}}>
+                  <div><span style={{fontSize:10,color:C.textSub,fontWeight:900,textTransform:"uppercase"}}>Fecha</span><div style={{color:C.text,fontWeight:900}}>{formatDateLocal(rem.fecha)}</div></div>
+                  <div><span style={{fontSize:10,color:C.textSub,fontWeight:900,textTransform:"uppercase"}}>N° remito</span><div style={{color:C.text,fontWeight:900}}>{rem.comprobante||"S/N"}</div></div>
+                  <div><span style={{fontSize:10,color:C.textSub,fontWeight:900,textTransform:"uppercase"}}>Lugar</span><div style={{color:C.text,fontWeight:900}}>{rem.destino||rem.origen||rem.observaciones||"-"}</div></div>
+                  <div><span style={{fontSize:10,color:C.textSub,fontWeight:900,textTransform:"uppercase"}}>Origen</span><div style={{color:C.text,fontWeight:900}}>{rem.origen||"-"}</div></div>
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif"}}>
+                    <thead style={{background:"rgba(0,0,0,.28)"}}>
+                      <tr>
+                        <th style={{...thStyle,cursor:"default",width:120}}>Código</th>
+                        <th style={{...thStyle,cursor:"default"}}>Insumo</th>
+                        <th style={{...thStyle,cursor:"default",textAlign:"right",width:130}}>Cantidad</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(rem.items||[]).map((it,i)=>(
+                        <tr key={i}>
+                          <td style={tdStyle}>{it.codigo||"-"}</td>
+                          <td style={tdStyle}>{it.descripcion||"-"}</td>
+                          <td style={{...tdStyle,textAlign:"right",fontWeight:900}}>{fmtNum(it.cantidad)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
-        )):<div style={{padding:18,color:C.textSub,fontWeight:700}}>Todavía no hay remitos cargados.</div>}
+        )):(
+          <div style={{padding:18,color:C.textSub,fontWeight:700}}>{remitos.length?"No hay remitos que coincidan con la búsqueda.":"Todavía no hay remitos cargados."}</div>
+        )}
       </div>
     </div>
   );
@@ -11867,48 +12661,45 @@ function AbastecimientoModule(){
   return (
     <div style={{display:"grid",gap:14,fontFamily:"Inter, system-ui, sans-serif"}}>
       {renderImportModal()}
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,padding:16,backdropFilter:"blur(6px)",boxShadow:"0 20px 60px rgba(0,0,0,.18)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:38,height:38,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:C.red,border:`1px solid ${C.red}80`,background:`${C.red}18`,fontWeight:900}}>DM</div>
-          <div>
-            <div style={{fontSize:16,fontWeight:900,color:C.text}}>RABA03 — Seguimiento de Compras 2026</div>
-            <div style={{fontSize:11,color:C.textSub}}>Delta Mining S.A · RABA01 Solicitud · RABA07 OC · RABA08 Remito</div>
+      {renderSuccessAlert()}
+      {!["remito","stock","raba03"].includes(tab)&&(<Card>
+        <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+          <Icon name="filter" size={14} color={C.textSub}/>
+          <div style={{display:"flex",gap:7}}>
+            <TabBtn active={rabaFilterMode==="dia"} onClick={()=>setRabaFilterMode("dia")}>Por día</TabBtn>
+            <TabBtn active={rabaFilterMode==="periodo"} onClick={()=>setRabaFilterMode("periodo")}>Por período</TabBtn>
           </div>
-        </div>
-        <button onClick={loadRaba03} style={{border:`1px solid ${C.red}70`,background:`${C.red}18`,color:C.red,borderRadius:10,padding:"8px 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Actualizar</button>
-      </div>
-
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",background:"rgba(16,16,16,.72)",border:`1px solid ${C.border}`,borderRadius:16,padding:"8px 10px"}}>
-        {[["pendientes","⚠️ Pendientes"],["solicitudes","📋 Solicitudes"],["remito","📦 Remito"]].map(([id,label])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{border:"none",borderBottom:`3px solid ${tab===id?C.red:"transparent"}`,background:tab===id?`${C.red}18`:"transparent",color:tab===id?C.text:C.textSub,borderRadius:"10px 10px 0 0",padding:"10px 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>{label}</button>
-        ))}
-      </div>
-
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
-        <StatCard icon="warn" label="Ítems pendientes" value={fmtNum(stats.pendientes)} sub="cantidad restante > 0" color={C.yellow} small/>
-        <StatCard icon="report" label="Total ítems" value={fmtNum(stats.total)} sub="solicitados" color={C.blue} small/>
-        <StatCard icon="check" label="Con envío" value={fmtNum(stats.enviados)} sub="con remito cargado" color={C.green} small/>
-        <StatCard icon="check" label="Completos" value={fmtNum(stats.completos)} sub="sin cantidad restante" color={C.green} small/>
-      </div>
-
-      {tab!=="remito"&&(
-        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,padding:14,backdropFilter:"blur(6px)"}}>
-          <span style={{fontSize:11,fontWeight:900,color:C.textSub,textTransform:"uppercase",letterSpacing:".07em"}}>Filtrar:</span>
-          <select value={project} onChange={e=>setProject(e.target.value)} style={{height:34,border:`1px solid ${C.border}`,borderRadius:10,background:"rgba(10,10,10,.65)",color:C.text,padding:"0 10px",fontSize:12,fontWeight:700}}>
-            {projects.map(p=><option key={p} value={p}>{p==="TODOS"?"Todos los proyectos":p}</option>)}
-          </select>
-          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar descripción, código, N°, solicitante..." style={{height:34,minWidth:290,border:`1px solid ${C.border}`,borderRadius:10,background:"rgba(10,10,10,.65)",color:C.text,padding:"0 12px",fontSize:12,fontWeight:600}}/>
-          <label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}} title="Importar Excel con encabezados en fila 6">
+          {rabaFilterMode==="dia"&&<DateIn label="Fecha" value={rabaDate} onChange={setRabaDate}/>}
+          {rabaFilterMode==="periodo"&&<><PeriodMonthYear fechaD={rabaDateFrom} fechaH={rabaDateTo} setFechaD={setRabaDateFrom} setFechaH={setRabaDateTo}/><DateIn label="Desde" value={rabaDateFrom} onChange={setRabaDateFrom} max={rabaDateTo||undefined}/><DateIn label="Hasta" value={rabaDateTo} onChange={setRabaDateTo} min={rabaDateFrom||undefined} warn={rabaDateTo&&rabaDateFrom&&rabaDateTo<rabaDateFrom?"≥ Desde":null}/></>}
+          <MultiSel label="Proyecto" value={project} onChange={setProject} options={[{value:"todos",label:"Todos"},...projects.map(p=>({value:p,label:p}))]}/>
+          <MultiSel label="Empresa" value={company} onChange={setCompany} options={[{value:"todos",label:"Todas"},...companies.map(e=>({value:e,label:e}))]}/>
+          <MultiSel label="Supervisor" value={supervisor} onChange={setSupervisor} options={[{value:"todos",label:"Todos"},...supervisors.map(s=>({value:s,label:s}))]}/>
+          <div style={{display:"flex",flexDirection:"column",gap:3,minWidth:290}}>
+            <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Buscar</label>
+            <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar descripción, código, solicitante..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"7px 10px",fontSize:12,outline:"none",fontFamily:"Inter"}}/>
+          </div>
+          {tab==="solicitudes"&&(<label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer",alignSelf:"flex-end"}} title="Importar Excel con encabezados en fila 6">
             📥 Cargar Excel Solicitudes
             <input type="file" accept=".xlsx,.xls" onChange={e=>{handleSolicitudesExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
-          </label>
+          </label>)}
+          <button onClick={loadRaba03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="refresh" size={11} color={C.red}/>Actualizar</button>
+          <button onClick={guardarDatosRABA03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.blue}44`,background:`${C.blue}16`,color:C.blue,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="check" size={11} color={C.blue}/>Guardar datos</button>
+          <button onClick={resetRabaFilters} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltrosRaba?1:0.3,pointerEvents:hayFiltrosRaba?"auto":"none",alignSelf:"flex-end"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
-      )}
+      </Card>)}
+
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
+        <StatCard icon="warn" label="Pendientes" value={fmtNum(stats.pendientes)} sub="sin artículos enviados" color={C.yellow} small/>
+        <StatCard icon="report" label="Parciales" value={fmtNum(stats.parciales)} sub="enviados parcialmente" color={C.blue} small/>
+        <StatCard icon="check" label="Cerradas" value={fmtNum(stats.cerradas)} sub="cantidad completa enviada" color={C.green} small/>
+        <StatCard icon="report" label="Total ítems" value={fmtNum(stats.total)} sub="solicitudes cargadas" color={C.blue} small/>
+      </div>
 
       {error&&<div style={{border:`1px solid ${C.red}66`,background:`${C.red}14`,color:C.red,borderRadius:14,padding:14,fontWeight:800}}>Error leyendo RABA03: {error}</div>}
       {loading&&<div style={{color:C.textSub,fontWeight:800,padding:8}}>Cargando RABA03...</div>}
 
-      {tab==="remito"?renderRemito():renderMainTable()}
+      {tab==="stock"?renderStockControl():(tab==="remito"?renderRemito():(tab==="raba03"?renderRABA03Descarga():renderMainTable()))}
     </div>
   );
 }
@@ -12014,7 +12805,7 @@ export default function App(){
   const[stRma15CtrlEquipo,setStRma15CtrlEquipo]=useState(()=>savedOr("stRma15CtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:""}));
   const[stCHC,setStCHC]=useState(()=>savedOr("stCHC",{proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()}));
   const[stRanking,setStRanking]=useState(()=>savedOr("stRanking",{proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""}));
-  const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_control_rop02:true,grp_rop05:true,grp_rma15:true,grp_admin:true}));
+  const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_control_rop02:true,grp_rop05:true,grp_rma15:true,grp_abastecimiento:true,grp_admin:true}));
   const[usdRate,setUsdRate]=useState(null);
 
   // Tipo de cambio: se pide recién cuando una vista de costos/mantenimiento lo necesita.
@@ -12215,7 +13006,10 @@ export default function App(){
   },[view,loadSources,loadInitial]);
 
   useEffect(()=>{
-    if(view==="bienvenida")return;
+    if(view==="bienvenida"){
+      loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"]);
+      return;
+    }
     if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){
       loadInitial();
       return;
@@ -12307,10 +13101,11 @@ export default function App(){
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Abastecimiento"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoRABA03:"RABA03"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
+    tallerCentral:"Dashboard y Lista Maestra de Equipos para taller central: equipos por tipo, propiedad, marca, combustible y tabla completa.",
     rop02:"ROP02 = Reporte de Operación de máquinas: parte diario por turno (TD = turno día, TN = turno noche), con horómetros, tareas y observaciones.",
     horometros:"Resume por máquina el horómetro inicial del primer registro filtrado y el horómetro final del último registro del período seleccionado.",
     vehiculos:"Mismo reporte que ROP02 (TD/TN, horómetros, km), pero para camiones y camionetas en lugar de máquinas.",
@@ -12354,10 +13149,24 @@ export default function App(){
         ]},
       ];
     }
+    if(activeModule==="tallerCentral"){
+      return [
+        {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"tallerCentral",icon:"database",label:"Taller Central",type:"item",color:C.teal},
+      ];
+    }
     if(activeModule==="abastecimiento"){
       return [
         {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
-        {id:"abastecimiento",icon:"report",label:"Abastecimiento",type:"item",color:C.yellow},
+        {id:"grp_abastecimiento",icon:"report",label:"Abastecimiento",type:"group",color:C.yellow,children:[
+          {id:"abastecimiento",icon:"report",label:"Solicitudes"},
+          {id:"abastecimientoPendientes",icon:"warn",label:"Pendientes"},
+          {id:"abastecimientoParciales",icon:"report",label:"Parciales"},
+          {id:"abastecimientoCerradas",icon:"check",label:"Cerradas"},
+          {id:"abastecimientoRemito",icon:"truck",label:"Remito"},
+          {id:"abastecimientoStock",icon:"database",label:"Control de stock"},
+          {id:"abastecimientoRABA03",icon:"fileSpreadsheet",label:"RABA03"},
+        ]},
       ];
     }
     return navStructure.filter(item=>!["dashboard","chc"].includes(item.id));
@@ -12462,9 +13271,10 @@ export default function App(){
             )}
             {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida onOpenModule={openModuleFromWelcome}/>}
+                {view==="bienvenida"&&<ViewBienvenida onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>}
                 {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
                 {view==="listaEquipos"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Lista de Equipos..." />)}
+                {view==="tallerCentral"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Taller Central..." />)}
                 {view==="rop02"&&(dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
                 {view==="horometros"&&(dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<BlockingDataLoader label="Cargando Horómetros..." />)}
                 {view==="vehiculos"&&(dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} listaEquipos={listaEquipos} extState={stVeh} setExtState={setStVeh}/>:<BlockingDataLoader label="Cargando Vehículos..." />)}
@@ -12482,7 +13292,7 @@ export default function App(){
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
-                {view==="abastecimiento"&&<AbastecimientoModule/>}
+                {["abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRemito","abastecimientoStock","abastecimientoRABA03"].includes(view)&&(<AbastecimientoModule initialTab={({abastecimiento:"solicitudes",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoRABA03:"raba03"})[view]}/>) }
                 {view==="control"&&(dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<BlockingDataLoader label="Cargando Control ROP05 vs ROP02..." />)}
               </>
             )}
