@@ -7735,40 +7735,82 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 function Login({onLogin}){
-  const USUARIOS_PERMITIDOS=[
+  const USUARIOS_FALLBACK=[
     "nahuel.garcia@deltamining.com.ar",
     "melina.torrejon@deltamining.com.ar",
-    "jesica@deltamining.com.ar"
+    "jesica@deltamining.com.ar",
+    "franco.a@deltamining.com.ar",
+    "fernando.c@deltamining.com.ar",
+    "lucas.torres@deltamining.com.ar"
   ];
 
   const[usuario,setUsuario]=React.useState("");
   const[pass,setPass]=React.useState("");
   const[error,setError]=React.useState("");
   const[shake,setShake]=React.useState(false);
+  const[validando,setValidando]=React.useState(false);
 
   const showError=(msg)=>{
     setError(msg);
     setShake(true);
     setTimeout(()=>setShake(false),500);
-    setTimeout(()=>setError(""),2500);
+    setTimeout(()=>setError(""),3000);
   };
 
-  const handleSubmit=()=>{
-    const mail=usuario.trim().toLowerCase();
+  const normalizarMail=(v)=>String(v||"").trim().toLowerCase();
+  const usuarioActivo=(u)=>{
+    const activo=String(u?.activo??u?.Activo??u?.ACTIVO??"SI").trim().toUpperCase();
+    return !(activo==="NO"||activo==="FALSE"||activo==="0"||activo==="INACTIVO");
+  };
 
-    if(!USUARIOS_PERMITIDOS.includes(mail)){
-      showError("Usuario no autorizado");
+  const cargarUsuariosAutorizados=async()=>{
+    try{
+      const res=await fetch(`${APPS_SCRIPT_URL}?action=usuarios&_=${Date.now()}`);
+      const json=await res.json();
+      if(!json||!json.ok||!Array.isArray(json.data))throw new Error(json?.error?.message||"No se pudo leer la hoja de usuarios");
+      const usuarios=json.data
+        .map(u=>({
+          email:normalizarMail(u.email||u.Email||u.mail||u.Mail||u.correo||u.Correo),
+          rol:String(u.rol||u.Rol||u.role||u.Role||"USUARIO").trim().toUpperCase(),
+          proyecto:String(u.proyecto||u.Proyecto||"TODOS").trim().toUpperCase(),
+          activo:u.activo??u.Activo??"SI"
+        }))
+        .filter(u=>u.email&&usuarioActivo(u));
+      return usuarios;
+    }catch(err){
+      console.warn("No se pudo leer la hoja de usuarios. Se usa fallback local.",err);
+      return USUARIOS_FALLBACK.map(email=>({email,rol:email.includes("nahuel")||email.includes("mahuel")?"ADMIN":"USUARIO",proyecto:"TODOS",activo:"SI"}));
+    }
+  };
+
+  const handleSubmit=async()=>{
+    const mail=normalizarMail(usuario);
+    if(!mail){
+      showError("Ingresá tu usuario");
       return;
     }
-
     if(pass!=="DELTA.MINING.APP"){
       showError("Contraseña incorrecta");
       return;
     }
 
-    sessionStorage.setItem("dm_auth","1");
-    sessionStorage.setItem("dm_user",mail);
-    onLogin();
+    setValidando(true);
+    try{
+      const usuarios=await cargarUsuariosAutorizados();
+      const autorizado=usuarios.find(u=>u.email===mail);
+      if(!autorizado){
+        showError("Usuario no autorizado");
+        return;
+      }
+
+      sessionStorage.setItem("dm_auth","1");
+      sessionStorage.setItem("dm_user",mail);
+      sessionStorage.setItem("dm_role",autorizado.rol||"USUARIO");
+      sessionStorage.setItem("dm_project",autorizado.proyecto||"TODOS");
+      onLogin();
+    }finally{
+      setValidando(false);
+    }
   };
 
   return(
@@ -7816,16 +7858,16 @@ function Login({onLogin}){
         {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>{error}</div>}
         <button
           onClick={handleSubmit}
-          style={{background:C.accent,border:"none",borderRadius:8,color:"#fff",padding:"10px",fontSize:14,fontWeight:700,fontFamily:"Inter",cursor:"pointer",letterSpacing:".06em"}}
+          disabled={validando}
+          style={{background:C.accent,border:"none",borderRadius:8,color:"#fff",padding:"10px",fontSize:14,fontWeight:700,fontFamily:"Inter",cursor:validando?"wait":"pointer",letterSpacing:".06em",opacity:validando?.75:1}}
         >
-          INGRESAR
+          {validando?"VALIDANDO...":"INGRESAR"}
         </button>
       </div>
       <div style={{fontSize:10,color:C.textMuted}}>Delta Mining OPS — Acceso restringido</div>
     </div>
   );
 }
-
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 const IMG_CARGADORA_FRONTAL=`data:image/webp;base64,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`;
@@ -11312,13 +11354,13 @@ const RABA08_STORAGE_KEY = "dm_raba08_remitos_v1";
 const STOCK_CONTROL_STORAGE_KEY = "dm_control_stock_excel_v1";
 const STOCK_CONTROL_COLUMNS = [
   {key:"codigoArticulo", label:"Cód. artículo", width:112},
-  {key:"descripcion", label:"Descripción", width:260},
-  {key:"descripcionDeposito", label:"Descripción depósito", width:190},
-  {key:"controlStock", label:"U.m. control stock", width:82},
-  {key:"saldoControlStock", label:"Saldo control stock", align:"right", width:105, numeric:true},
-  {key:"cantidadARecibirControlStock", label:"Cantidad a recibir control stock", align:"right", width:126, numeric:true},
-  {key:"puntoPedido", label:"Punto de pedido", align:"right", width:104, numeric:true},
-  {key:"cantidadARecibir", label:"Cantidad a recibir", align:"right", width:110, numeric:true},
+  {key:"descripcion", label:"Descripción", width:245},
+  {key:"descripcionAdicional", label:"Desc. Adicional", width:245},
+  {key:"descripcionDeposito", label:"Descripción depósito", width:210},
+  {key:"controlStock", label:"U.m. control stock", width:92},
+  {key:"saldoControlStock", label:"Saldo control stock", align:"right", width:115, numeric:true},
+  {key:"stockMaximo", label:"Stock máximo", align:"right", width:105, numeric:true},
+  {key:"stockMinimo", label:"Stock mínimo", align:"right", width:105, numeric:true},
 ];
 
 function AbastecimientoModule({initialTab="solicitudes"}={}){
@@ -11358,9 +11400,11 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     try{return window.localStorage.getItem(STOCK_CONTROL_STORAGE_KEY+"_file")||"";}
     catch(_){return "";}
   });
-  const [stockFilters,setStockFilters]=useState({codigoArticulo:"todos",descripcion:"todos",descripcionDeposito:"todos",controlStock:"todos",saldoControlStock:"todos",cantidadARecibirControlStock:"todos",puntoPedido:"todos",cantidadARecibir:"todos"});
+  const STOCK_FILTER_COLUMNS = STOCK_CONTROL_COLUMNS.filter(c=>["codigoArticulo","descripcion","descripcionDeposito"].includes(c.key));
+  const [stockFilters,setStockFilters]=useState({codigoArticulo:"todos",descripcion:"todos",descripcionDeposito:"todos"});
   const [stockSort,setStockSort]=useState({key:null,dir:null});
   const [stockVisibleLimit,setStockVisibleLimit]=useState(350);
+  const [codigoEdits,setCodigoEdits]=useState({});
   const [importModal,setImportModal]=useState({
     open:false,
     loading:false,
@@ -11793,6 +11837,36 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     }
   },[rows,toNumber,loadRaba03,normCode,normalizeCentroCosto,remitosByCode]);
 
+
+  const guardarCodigosRABA03=useCallback(async()=>{
+    const payloadRows=Object.entries(codigoEdits)
+      .map(([nSolicitud,codigoArticulo])=>({nSolicitud,codigoArticulo:String(codigoArticulo||"").trim()}))
+      .filter(r=>String(r.nSolicitud||"").trim());
+    if(!payloadRows.length){
+      window.alert("No hay códigos modificados para guardar.");
+      return;
+    }
+    try{
+      setLoading(true);
+      setError(null);
+      const res=await fetch(APPS_SCRIPT_URL,{
+        method:"POST",
+        body:new URLSearchParams({payload:JSON.stringify({action:"save_raba03_codigos",rows:payloadRows})})
+      });
+      const json=await res.json();
+      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron guardar los códigos en RABA03 base.");
+      setCodigoEdits({});
+      setSuccessAlert({message:`${Number(json.updatedRows||0)} códigos actualizados en RABA03 base`});
+      await loadRaba03();
+    }catch(err){
+      const msg=err?.message||String(err);
+      setError(msg);
+      window.alert("Error guardando códigos: "+msg);
+    }finally{
+      setLoading(false);
+    }
+  },[codigoEdits,loadRaba03]);
+
   const projects=useMemo(()=>Array.from(new Set(rows.map(r=>r.centroCosto).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows]);
   const companies=useMemo(()=>Array.from(new Set(rows.map(r=>r.empresa).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows]);
   const supervisors=useMemo(()=>Array.from(new Set(rows.map(r=>canonicalSupervisor(r.pedidoPor)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows,canonicalSupervisor]);
@@ -11921,6 +11995,73 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     });
     return out;
   },[sortedRows,remitosByCode,normCode,normalizeCentroCosto,calcularIndicadorRABA03]);
+
+  const raba03DashboardRows=useMemo(()=>{
+    const out=[];
+    (rows||[]).forEach(row=>{
+      const code=normCode(row.codigoArticulo);
+      const proyecto=normalizeCentroCosto(row.centroCosto);
+      const matches=[...(remitosByCode[`${code}__${proyecto}`]||[])];
+      const seen=new Set();
+      const unique=matches.filter(m=>{
+        const k=`${m.numero}__${m.fecha}__${m.cantidad}`;
+        if(seen.has(k))return false;
+        seen.add(k);
+        return true;
+      });
+      if(unique.length){
+        unique.forEach(m=>out.push({
+          nSolicitud:row.nSolicitud,
+          empresa:row.empresa||"",
+          centroCosto:row.centroCosto||"SIN PROYECTO",
+          codigoArticulo:row.codigoArticulo||"S/C",
+          descripcion:row.descripcion||"",
+          cantidadSolicitada:row.cantidadSolicitada||0,
+          numeroRemito:m.numero||"",
+          fechaSalida:m.fecha||"",
+          cantidadRemito:m.cantidad||0,
+          indicador:calcularIndicadorRABA03(row.fechaSolicitud,m.fecha)
+        }));
+      }
+    });
+    return out;
+  },[rows,remitosByCode,normCode,normalizeCentroCosto,calcularIndicadorRABA03]);
+
+  const abastecimientoDashboardData=useMemo(()=>{
+    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));
+    const avg=movimientos.length?movimientos.reduce((a,r)=>a+r.indicadorNum,0)/movimientos.length:0;
+    const max=movimientos.length?Math.max(...movimientos.map(r=>r.indicadorNum)):0;
+    const min=movimientos.length?Math.min(...movimientos.map(r=>r.indicadorNum)):0;
+    const pendientes=rows.filter(r=>toNumber(r.cantidadEnviada)<=0).length;
+    const parciales=rows.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0).length;
+    const cerradas=rows.filter(r=>toNumber(r.cantidadSolicitada)>0&&toNumber(r.cantidadRestante)<=0).length;
+    const porProyecto=Object.values(movimientos.reduce((acc,r)=>{
+      const key=String(r.centroCosto||"SIN PROYECTO").trim()||"SIN PROYECTO";
+      if(!acc[key])acc[key]={name:key,total:0,count:0,promedio:0};
+      acc[key].total+=r.indicadorNum; acc[key].count+=1; acc[key].promedio=acc[key].total/acc[key].count;
+      return acc;
+    },{})).sort((a,b)=>b.promedio-a.promedio);
+    const porMes=Object.values(movimientos.reduce((acc,r)=>{
+      const d=parseRabaDateMs(r.fechaSalida);
+      const key=d!==null?new Date(d).toISOString().slice(0,7):"SIN FECHA";
+      if(!acc[key])acc[key]={mes:key,salidas:0,promedio:0,totalIndicador:0};
+      acc[key].salidas+=1; acc[key].totalIndicador+=r.indicadorNum; acc[key].promedio=acc[key].totalIndicador/acc[key].salidas;
+      return acc;
+    },{})).sort((a,b)=>String(a.mes).localeCompare(String(b.mes)));
+    const estados=[
+      {name:"Pendientes",value:pendientes,color:C.yellow},
+      {name:"Parciales",value:parciales,color:C.blue},
+      {name:"Cerradas",value:cerradas,color:C.green},
+    ];
+    const demora=[
+      {name:"0-3 días",value:movimientos.filter(r=>r.indicadorNum>=0&&r.indicadorNum<=3).length,color:C.green},
+      {name:"4-7 días",value:movimientos.filter(r=>r.indicadorNum>=4&&r.indicadorNum<=7).length,color:C.blue},
+      {name:"8-15 días",value:movimientos.filter(r=>r.indicadorNum>=8&&r.indicadorNum<=15).length,color:C.yellow},
+      {name:">15 días",value:movimientos.filter(r=>r.indicadorNum>15).length,color:C.red},
+    ];
+    const masDemorados=[...movimientos].sort((a,b)=>b.indicadorNum-a.indicadorNum).slice(0,8);
+    return {movimientos,avg,max,min,pendientes,parciales,cerradas,total:rows.length,porProyecto,porMes,estados,demora,masDemorados};
+  },[raba03DashboardRows,rows,toNumber,parseRabaDateMs]);
 
   const generarRABA03Excel=useCallback(()=>{
     const baseRows=raba03DownloadRows||[];
@@ -12195,14 +12336,14 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       const buffer=await file.arrayBuffer();
       const wb=XLSX.read(buffer,{type:"array",cellDates:true});
       const required=[
-        {key:"codigoArticulo", labels:["cod articulo","codigo articulo"]},
+        {key:"codigoArticulo", labels:["cod articulo","codigo articulo","cod artículo","cód articulo","cód artículo"]},
         {key:"descripcion", labels:["descripcion"]},
-        {key:"descripcionDeposito", labels:["descripcion deposito"]},
-        {key:"controlStock", labels:["um control stock","u m control stock","u.m. control stock","u.m control stock","unidad control stock","unidad medida control stock","control stock"]},
+        {key:"descripcionAdicional", labels:["desc adicional","descripcion adicional","descripción adicional"]},
+        {key:"descripcionDeposito", labels:["descripcion deposito","descripción depósito"]},
+        {key:"controlStock", labels:["um control stock","u m control stock","u.m. control stock","u.m control stock","u m. control stock","unidad control stock","unidad medida control stock","control stock"]},
         {key:"saldoControlStock", labels:["saldo control stock"]},
-        {key:"cantidadARecibirControlStock", labels:["cantidad a recibir control stock"]},
-        {key:"puntoPedido", labels:["punto de pedido"]},
-        {key:"cantidadARecibir", labels:["cantidad a recibir"]},
+        {key:"stockMaximo", labels:["stock maximo","stock máximo"]},
+        {key:"stockMinimo", labels:["stock minimo","stock mínimo"]},
       ];
       const cleanHeader=(v)=>norm(String(v||"").replace(/c[oó]d\.?/i,"codigo"));
       const findHeader=(row)=>{
@@ -12241,14 +12382,14 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
           id:`stock-${Date.now()}-${idx}`,
           codigoArticulo:String(get(row,"codigoArticulo")||"").trim(),
           descripcion:String(get(row,"descripcion")||"").trim(),
+          descripcionAdicional:String(get(row,"descripcionAdicional")||"").trim(),
           descripcionDeposito:String(get(row,"descripcionDeposito")||"").trim(),
           controlStock:String(get(row,"controlStock")||"").trim(),
           saldoControlStock:toNumber(get(row,"saldoControlStock")),
-          cantidadARecibirControlStock:toNumber(get(row,"cantidadARecibirControlStock")),
-          puntoPedido:toNumber(get(row,"puntoPedido")),
-          cantidadARecibir:toNumber(get(row,"cantidadARecibir")),
+          stockMaximo:toNumber(get(row,"stockMaximo")),
+          stockMinimo:toNumber(get(row,"stockMinimo")),
         }))
-        .filter(r=>(r.codigoArticulo||r.descripcion||r.descripcionDeposito||r.controlStock||r.saldoControlStock||r.cantidadARecibirControlStock||r.puntoPedido||r.cantidadARecibir) && Number(r.saldoControlStock)!==0);
+        .filter(r=>(r.codigoArticulo||r.descripcion||r.descripcionAdicional||r.descripcionDeposito||r.controlStock||r.saldoControlStock||r.stockMinimo||r.stockMaximo));
       setStockRows(parsed);
       setStockVisibleLimit(350);
       setStockFileName(`${file.name||"Excel"}${sheetName?` · ${sheetName}`:""}`);
@@ -12261,6 +12402,11 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   },[norm,toNumber]);
 
   const stockTextCollator=useMemo(()=>new Intl.Collator("es",{numeric:true,sensitivity:"base"}),[]);
+  const isStockDepositoPermitido=useCallback((row)=>{
+    const dep=String(row?.descripcionDeposito||"").trim().toUpperCase();
+    return dep==="DEPOSITO CENTRAL"||dep==="DEPOSITO BATIDERO"||dep==="DEPOSITO FILO DEL SOL";
+  },[]);
+  const stockBaseRows=useMemo(()=>stockRows.filter(isStockDepositoPermitido),[stockRows,isStockDepositoPermitido]);
   const formatStockOptionLabel=useCallback((key,value)=>{
     const col=STOCK_CONTROL_COLUMNS.find(c=>c.key===key);
     if(col?.numeric)return fmtNum(Number(value)||0);
@@ -12270,7 +12416,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     const build=(key)=>{
       const col=STOCK_CONTROL_COLUMNS.find(c=>c.key===key);
       const map=new Map();
-      (stockRows||[]).forEach(row=>{
+      (stockBaseRows||[]).forEach(row=>{
         const raw=row?.[key];
         const value=col?.numeric?String(Number(raw)||0):String(raw||"").trim();
         if(!value)return;
@@ -12282,11 +12428,11 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       });
       return [{value:"todos",label:`Todos ${col?.label||key}`} ,...arr];
     };
-    return STOCK_CONTROL_COLUMNS.reduce((acc,col)=>{
+    return STOCK_FILTER_COLUMNS.reduce((acc,col)=>{
       acc[col.key]=build(col.key);
       return acc;
     },{});
-  },[stockRows,formatStockOptionLabel,stockTextCollator]);
+  },[stockBaseRows,formatStockOptionLabel,stockTextCollator]);
   const stockMatchesFilter=useCallback((key,value)=>{
     const selected=stockFilters[key];
     if(!Array.isArray(selected)||selected.length===0||selected.includes("todos"))return true;
@@ -12294,9 +12440,9 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     const normalized=col?.numeric?String(Number(value)||0):String(value||"").trim();
     return selected.includes(normalized);
   },[stockFilters]);
-  const filteredStockRows=useMemo(()=>stockRows.filter(r=>{
-    return STOCK_CONTROL_COLUMNS.every(col=>stockMatchesFilter(col.key,r[col.key]));
-  }),[stockRows,stockMatchesFilter]);
+  const filteredStockRows=useMemo(()=>stockBaseRows.filter(r=>{
+    return STOCK_FILTER_COLUMNS.every(col=>stockMatchesFilter(col.key,r[col.key]));
+  }),[stockBaseRows,stockMatchesFilter]);
   const sortedStockRows=useMemo(()=>{
     if(!stockSort.key||!stockSort.dir)return filteredStockRows;
     const dir=stockSort.dir==="asc"?1:-1;
@@ -12321,6 +12467,304 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     if(!n)return C.text;
     return n<0?C.red:C.green;
   };
+  const stockDashboardData=useMemo(()=>{
+    const rows=(filteredStockRows||[]).map(r=>{
+      const saldo=Number(r.saldoControlStock)||0;
+      const min=Number(r.stockMinimo)||0;
+      const max=Number(r.stockMaximo)||0;
+      return {...r,saldo,min,max,faltante:Math.max(0,min-saldo),exceso:Math.max(0,saldo-max)};
+    });
+    const bajoMinimo=rows.filter(r=>r.min>0&&r.saldo<r.min).sort((a,b)=>b.faltante-a.faltante);
+    const sobreMaximo=rows.filter(r=>r.max>0&&r.saldo>r.max).sort((a,b)=>b.exceso-a.exceso);
+    const dentroRango=rows.filter(r=>!(r.min>0&&r.saldo<r.min)&&!(r.max>0&&r.saldo>r.max));
+    return {rows,bajoMinimo,sobreMaximo,dentroRango};
+  },[filteredStockRows]);
+
+  const generarInformeReposicionPDF=useCallback(()=>{
+    const rows=[...(stockDashboardData.bajoMinimo||[])].sort((a,b)=>{
+      const dep=stockTextCollator.compare(String(a.descripcionDeposito||""),String(b.descripcionDeposito||""));
+      if(dep!==0)return dep;
+      return (Number(b.faltante)||0)-(Number(a.faltante)||0);
+    });
+    if(!rows.length){
+      window.alert("No hay insumos por debajo del stock mínimo para generar informe.");
+      return;
+    }
+    const fecha=new Date().toLocaleDateString("es-AR");
+    const grupos=rows.reduce((acc,r)=>{
+      const dep=String(r.descripcionDeposito||"SIN DEPÓSITO").trim()||"SIN DEPÓSITO";
+      if(!acc[dep])acc[dep]=[];
+      acc[dep].push(r);
+      return acc;
+    },{});
+    const escapeHtml=(v)=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+    const body=Object.keys(grupos).sort((a,b)=>stockTextCollator.compare(a,b)).map(dep=>`
+      <section class="deposito">
+        <h2>${escapeHtml(dep)}</h2>
+        <table>
+          <thead><tr><th>Código</th><th>Insumo</th><th class="num">Saldo</th><th class="num">Stock mínimo</th><th class="num">Cantidad a enviar</th></tr></thead>
+          <tbody>
+            ${grupos[dep].map(r=>`
+              <tr>
+                <td>${escapeHtml(r.codigoArticulo||"S/C")}</td>
+                <td>${escapeHtml(r.descripcion||r.descripcionAdicional||"—")}</td>
+                <td class="num">${escapeHtml(fmtNum(r.saldo))}</td>
+                <td class="num">${escapeHtml(fmtNum(r.min))}</td>
+                <td class="num fuerte">${escapeHtml(fmtNum(r.faltante))}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </section>`).join("");
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>Informe reposición urgente</title>
+      <style>
+        @page{size:A4;margin:14mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:18px 0 8px;padding:7px 9px;background:#111;color:#fff;border-radius:5px}.meta{font-size:11px;color:#555;margin-bottom:14px}.resumen{display:flex;gap:10px;margin:10px 0 14px}.card{border:1px solid #ddd;border-radius:8px;padding:8px 10px;font-size:12px}.card b{font-size:18px;color:#d00}table{width:100%;border-collapse:collapse;margin-bottom:8px;page-break-inside:auto}th,td{border:1px solid #ddd;padding:6px 7px;font-size:11px;vertical-align:top}th{background:#f2f2f2;text-align:left}.num{text-align:right;white-space:nowrap}.fuerte{font-weight:800;color:#d00}.deposito{page-break-inside:auto}.footer{position:fixed;bottom:0;left:0;right:0;font-size:9px;color:#777;text-align:center}
+      </style></head><body>
+      <h1>Informe de reposición urgente</h1>
+      <div class="meta">Generado el ${escapeHtml(fecha)} · Fuente: ${escapeHtml(stockFileName||"Excel de stock")}</div>
+      <div class="resumen"><div class="card">Artículos críticos<br><b>${escapeHtml(fmtNum(rows.length))}</b></div><div class="card">Depósitos<br><b>${escapeHtml(fmtNum(Object.keys(grupos).length))}</b></div></div>
+      ${body}<div class="footer">Delta Mining · Reposición urgente por stock mínimo</div>
+      <script>window.onload=function(){setTimeout(function(){window.print();},250)};<\/script></body></html>`;
+    const iframe=document.createElement("iframe");
+    iframe.style.position="fixed";
+    iframe.style.right="0";
+    iframe.style.bottom="0";
+    iframe.style.width="0";
+    iframe.style.height="0";
+    iframe.style.border="0";
+    iframe.setAttribute("aria-hidden","true");
+    document.body.appendChild(iframe);
+    const doc=iframe.contentWindow?.document;
+    if(!doc){window.alert("No se pudo preparar la ventana de impresión.");return;}
+    doc.open();
+    doc.write(html.replace("<script>window.onload=function(){setTimeout(function(){window.print();},250)};<\/script>",""));
+    doc.close();
+    setTimeout(()=>{
+      try{iframe.contentWindow?.focus();iframe.contentWindow?.print();}
+      finally{setTimeout(()=>{try{document.body.removeChild(iframe);}catch(_){}},1200);}
+    },350);
+  },[stockDashboardData.bajoMinimo,stockTextCollator,stockFileName,fmtNum]);
+
+  const renderStockAlertTable=(title,rows,kind)=>{
+    const isLow=kind==="low";
+    const accent=isLow?C.red:C.yellow;
+    const extraLabel=isLow?"Faltante":"Exceso";
+    const limitKey=isLow?"stockMinimo":"stockMaximo";
+    const extraKey=isLow?"faltante":"exceso";
+    const cols=[
+      {key:"codigoArticulo",label:"Código"},
+      {key:"descripcion",label:"Descripción"},
+      {key:"descripcionDeposito",label:"Depósito"},
+      {key:"saldoControlStock",label:"Saldo",numeric:true,align:"right"},
+      {key:limitKey,label:isLow?"Stock mínimo":"Stock máximo",numeric:true,align:"right"},
+      {key:extraKey,label:extraLabel,numeric:true,align:"right"},
+    ];
+    let shownRows=[...(rows||[])];
+    if(stockSort.key&&stockSort.dir){
+      const dir=stockSort.dir==="asc"?1:-1;
+      const col=cols.find(c=>c.key===stockSort.key);
+      shownRows.sort((a,b)=>{
+        if(col?.numeric)return ((Number(a[stockSort.key])||0)-(Number(b[stockSort.key])||0))*dir;
+        return stockTextCollator.compare(String(a[stockSort.key]||""),String(b[stockSort.key]||""))*dir;
+      });
+    }
+    return (
+      <Card>
+        <div style={{padding:14,borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+          <div style={{fontSize:15,fontWeight:900,color:C.text}}>{title}</div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",justifyContent:"flex-end"}}>
+            {isLow&&(<button onClick={generarInformeReposicionPDF} style={{height:32,border:`1px solid ${C.blue}66`,background:`${C.blue}18`,color:C.blue,borderRadius:10,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>📄 Generar informe PDF</button>)}
+            <span style={{...badgeStyle(isLow?"bad":"warn"),color:accent,borderColor:`${accent}66`,background:`${accent}16`}}>{fmtNum(rows.length)} alertas</span>
+          </div>
+        </div>
+        <div style={{overflow:"auto",maxHeight:360}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:880}}>
+            <thead style={{position:"sticky",top:0,background:"rgba(16,16,16,.96)",zIndex:1}}>
+              <tr>
+                {cols.map(col=>(
+                  <th key={col.key} onClick={()=>toggleStockSort(col.key)} style={{...thStyle,textAlign:col.align||"left"}}>
+                    {col.label}{stockSort.key===col.key?(stockSort.dir==="asc"?" ▲":" ▼"):""}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shownRows.length?shownRows.slice(0,300).map(r=>(
+                <tr key={`${kind}-${r.id}`}>
+                  <td style={tdStyle}>{r.codigoArticulo||"S/C"}</td>
+                  <td style={{...tdStyle,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={[r.descripcion,r.descripcionAdicional].filter(Boolean).join(" — ")}>{r.descripcion||r.descripcionAdicional||"—"}</td>
+                  <td style={{...tdStyle,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.descripcionDeposito}>{r.descripcionDeposito||"—"}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:900,color:accent}}>{fmtNum(r.saldo)}</td>
+                  <td style={{...tdStyle,textAlign:"right"}}>{fmtNum(isLow?r.min:r.max)}</td>
+                  <td style={{...tdStyle,textAlign:"right",fontWeight:900,color:accent}}>{fmtNum(isLow?r.faltante:r.exceso)}</td>
+                </tr>
+              )):(
+                <tr><td colSpan={6} style={{...tdStyle,textAlign:"center",padding:24,color:C.textSub}}>Sin alertas para mostrar.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    );
+  };
+
+  const renderAbastecimientoDashboard=()=>{
+    const d=abastecimientoDashboardData;
+    const pieColors=[C.yellow,C.blue,C.green,C.red,C.teal];
+    return (
+      <div style={{display:"grid",gap:14}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
+          <StatCard icon="report" label="Promedio indicador" value={`${fmtNum(d.avg.toFixed(1))} días`} sub="fecha salida - fecha solicitud" color={C.red} small/>
+          <StatCard icon="check" label="Ítems con salida" value={fmtNum(d.movimientos.length)} sub="con remito asignado" color={C.green} small/>
+          <StatCard icon="warn" label="Pendientes" value={fmtNum(d.pendientes)} sub="sin artículos enviados" color={C.yellow} small/>
+          <StatCard icon="database" label="Total solicitudes" value={fmtNum(d.total)} sub="ítems cargados" color={C.blue} small/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1.25fr .75fr",gap:14,alignItems:"stretch"}}>
+          <Card>
+            <div style={{padding:14,borderBottom:`1px solid ${C.border}33`}}>
+              <div style={{fontSize:15,fontWeight:900,color:C.text}}>Promedio de indicador por centro de costo</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.textSub}}>Días promedio entre solicitud y salida de remito.</div>
+            </div>
+            <div style={{height:260,padding:12}}>
+              {d.porProyecto.length?(
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={d.porProyecto} layout="vertical" margin={{left:8,right:18,top:6,bottom:6}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={`${C.border}55`}/>
+                    <XAxis type="number" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <YAxis type="category" dataKey="name" tick={{fill:C.textSub,fontSize:10}} width={112} axisLine={false} tickLine={false}/>
+                    <Tooltip contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.text}} formatter={v=>`${fmtNum(Number(v).toFixed(1))} días`}/>
+                    <Bar dataKey="promedio" fill={C.red} radius={[0,8,8,0]}/>
+                  </BarChart>
+                </ResponsiveContainer>
+              ):(<div style={{color:C.textSub,fontWeight:800,padding:20}}>Todavía no hay salidas con indicador para graficar.</div>)}
+            </div>
+          </Card>
+          <Card>
+            <div style={{padding:14,borderBottom:`1px solid ${C.border}33`}}>
+              <div style={{fontSize:15,fontWeight:900,color:C.text}}>Estado de solicitudes</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.textSub}}>Pendientes, parciales y cerradas.</div>
+            </div>
+            <div style={{height:260,padding:12,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={d.estados.filter(x=>x.value>0)} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>
+                    {d.estados.filter(x=>x.value>0).map((entry,i)=><Cell key={entry.name} fill={entry.color||pieColors[i%pieColors.length]}/>) }
+                  </Pie>
+                  <Tooltip contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.text}} formatter={v=>fmtNum(v)}/>
+                  <Legend wrapperStyle={{color:C.textSub,fontSize:11}}/>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          <Card>
+            <div style={{padding:14,borderBottom:`1px solid ${C.border}33`}}>
+              <div style={{fontSize:15,fontWeight:900,color:C.text}}>Salidas por mes</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.textSub}}>Cantidad de remitos asociados a solicitudes.</div>
+            </div>
+            <div style={{height:240,padding:12}}>
+              {d.porMes.length?(
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={d.porMes} margin={{left:8,right:16,top:8,bottom:4}}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={`${C.border}55`}/>
+                    <XAxis dataKey="mes" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <Tooltip contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.text}} formatter={v=>fmtNum(v)}/>
+                    <Area type="monotone" dataKey="salidas" stroke={C.green} fill={`${C.green}33`} strokeWidth={2}/>
+                  </AreaChart>
+                </ResponsiveContainer>
+              ):(<div style={{color:C.textSub,fontWeight:800,padding:20}}>Sin salidas cargadas.</div>)}
+            </div>
+          </Card>
+          <Card>
+            <div style={{padding:14,borderBottom:`1px solid ${C.border}33`}}>
+              <div style={{fontSize:15,fontWeight:900,color:C.text}}>Distribución de demoras</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.textSub}}>Cantidad de ítems por rango de indicador.</div>
+            </div>
+            <div style={{height:240,padding:12}}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={d.demora} margin={{left:8,right:16,top:8,bottom:4}}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={`${C.border}55`}/>
+                  <XAxis dataKey="name" tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false}/>
+                  <YAxis tick={{fill:C.textMuted,fontSize:10}} axisLine={false} tickLine={false} allowDecimals={false}/>
+                  <Tooltip contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.text}} formatter={v=>fmtNum(v)}/>
+                  <Bar dataKey="value" radius={[8,8,0,0]}>
+                    {d.demora.map(entry=><Cell key={entry.name} fill={entry.color}/>) }
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        </div>
+        <Card>
+          <div style={{padding:14,borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:900,color:C.text}}>Ítems con mayor demora</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.textSub}}>Ordenado por indicador más alto.</div>
+            </div>
+            <span style={badgeStyle("info")}>Máx. {fmtNum(d.max)} días · Mín. {fmtNum(d.min)} días</span>
+          </div>
+          <div style={{overflow:"auto",maxHeight:320}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:980}}>
+              <thead style={{position:"sticky",top:0,background:"rgba(16,16,16,.96)",zIndex:1}}>
+                <tr><th style={thStyle}>N° solicitud</th><th style={thStyle}>Código</th><th style={thStyle}>Descripción</th><th style={thStyle}>Centro costo</th><th style={thStyle}>Remito</th><th style={thStyle}>Fecha salida</th><th style={{...thStyle,textAlign:"right"}}>Indicador</th></tr>
+              </thead>
+              <tbody>
+                {d.masDemorados.length?d.masDemorados.map((r,i)=>(
+                  <tr key={`demora-${r.nSolicitud}-${r.numeroRemito}-${i}`}>
+                    <td style={tdStyle}>{r.nSolicitud}</td><td style={tdStyle}>{r.codigoArticulo}</td><td style={{...tdStyle,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.descripcion}>{r.descripcion||"—"}</td><td style={tdStyle}>{r.centroCosto}</td><td style={tdStyle}>{r.numeroRemito||"—"}</td><td style={tdStyle}>{formatDateLocal(r.fechaSalida)||r.fechaSalida||"—"}</td><td style={{...tdStyle,textAlign:"right",fontWeight:900,color:Number(r.indicador)>15?C.red:C.yellow}}>{fmtNum(r.indicador)} días</td>
+                  </tr>
+                )):(<tr><td colSpan={7} style={{...tdStyle,textAlign:"center",padding:24,color:C.textSub}}>Sin movimientos para mostrar.</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    );
+  };
+
+  const renderStockDashboard=()=>{
+    const d=stockDashboardData;
+    return (
+      <div style={{display:"grid",gap:14}}>
+        <Card>
+          <div style={{padding:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>
+              📥 Cargar Excel Stock
+              <input type="file" accept=".xlsx,.xls" onChange={e=>{handleStockExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
+            </label>
+            <div style={{color:C.textSub,fontSize:12,fontWeight:800}}>{stockFileName||"Sin archivo cargado"}</div>
+          </div>
+        </Card>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
+          <StatCard icon="database" label="Artículos analizados" value={fmtNum(d.rows.length)} sub="del Excel cargado" color={C.blue} small/>
+          <StatCard icon="warn" label="Bajo stock mínimo" value={fmtNum(d.bajoMinimo.length)} sub="requieren reposición" color={C.red} small/>
+          <StatCard icon="check" label="Dentro del rango" value={fmtNum(d.dentroRango.length)} sub="sin alerta" color={C.green} small/>
+          <StatCard icon="warn" label="Sobre stock máximo" value={fmtNum(d.sobreMaximo.length)} sub="exceso de inventario" color={C.yellow} small/>
+        </div>
+        {renderStockFiltersCard()}
+        {renderStockAlertTable("Reposición urgente: saldo menor al stock mínimo",d.bajoMinimo,"low")}
+        {renderStockAlertTable("Exceso de stock: saldo mayor al stock máximo",d.sobreMaximo,"high")}
+      </div>
+    );
+  };
+
+  const renderStockFiltersCard=()=> (
+    <Card>
+      <div style={{padding:14,display:"flex",gap:8,alignItems:"flex-end",flexWrap:"nowrap",overflowX:"auto"}}>
+        {STOCK_FILTER_COLUMNS.map(col=>(
+          <MultiSel
+            key={col.key}
+            label={col.label}
+            value={stockFilters[col.key]}
+            onChange={value=>setStockFilter(col.key,value)}
+            options={stockFilterOptions[col.key]||[{value:"todos",label:`Todos ${col.label}`}]} />
+        ))}
+        <button onClick={()=>{setStockFilters({codigoArticulo:"todos",descripcion:"todos",descripcionDeposito:"todos"});setStockSort({key:null,dir:null});}} style={{height:34,border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,borderRadius:10,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer",flex:"0 0 auto"}}>Limpiar filtros</button>
+      </div>
+    </Card>
+  );
+
   const setStockFilter=(key,value)=>setStockFilters(prev=>({...prev,[key]:value}));
   const renderStockControl=()=>{
     return (
@@ -12333,24 +12777,13 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
             </label>
             <button onClick={()=>{setStockRows([]);setStockFileName("");setStockVisibleLimit(350);}} style={{height:34,border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,borderRadius:10,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Limpiar tabla</button>
             <div style={{color:C.textSub,fontSize:12,fontWeight:800}}>{stockFileName||"Sin archivo cargado"}</div>
-            <div style={{marginLeft:"auto",color:C.textSub,fontSize:12,fontWeight:800}}>Mostrando {fmtNum(visibleStockRows.length)} de {fmtNum(sortedStockRows.length)} filtradas · Total {fmtNum(stockRows.length)} filas</div>
+            <div style={{marginLeft:"auto",color:C.textSub,fontSize:12,fontWeight:800}}>Mostrando {fmtNum(visibleStockRows.length)} de {fmtNum(sortedStockRows.length)} filtradas · Total {fmtNum(stockBaseRows.length)} filas</div>
           </div>
         </Card>
-        <Card>
-          <div style={{padding:14,display:"flex",gap:8,alignItems:"flex-end",flexWrap:"nowrap",overflowX:"auto"}}>
-            {STOCK_CONTROL_COLUMNS.map(col=>(
-              <MultiSel
-                key={col.key}
-                label={col.label}
-                value={stockFilters[col.key]}
-                onChange={value=>setStockFilter(col.key,value)}
-                options={stockFilterOptions[col.key]||[{value:"todos",label:`Todos ${col.label}`}]} />
-            ))}
-          </div>
-        </Card>
+        {renderStockFiltersCard()}
         <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden",backdropFilter:"blur(6px)"}}>
           <div style={{overflow:"auto",maxHeight:"calc(100vh - 270px)"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",minWidth:1220,tableLayout:"fixed"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:1260,tableLayout:"fixed"}}>
               <thead style={{position:"sticky",top:0,background:"rgba(16,16,16,.96)",zIndex:1}}>
                 <tr>
                   {STOCK_CONTROL_COLUMNS.map(col=>(
@@ -12418,6 +12851,75 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(sortedRows.length)} ítems mostrados</div>
     </div>
   );
+
+
+  const renderEditarCodigos=()=>{
+    const modifiedCount=Object.keys(codigoEdits).length;
+    const editRows=sortedRows;
+    return (
+      <div style={{display:"grid",gap:14}}>
+        <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.18)",backdropFilter:"blur(6px)",overflow:"hidden"}}>
+          <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:900,color:C.text}}>Editar códigos de solicitudes</div>
+              <div style={{fontSize:11,fontWeight:700,color:C.textSub}}>Modificá los códigos y presioná Guardar datos para actualizar la planilla base.</div>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <span style={badgeStyle(modifiedCount?"warn":"info")}>{fmtNum(modifiedCount)} códigos modificados</span>
+              {modifiedCount>0&&<button onClick={()=>setCodigoEdits({})} style={{border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,borderRadius:10,padding:"7px 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Descartar cambios</button>}
+            </div>
+          </div>
+          <div style={{overflow:"auto",maxHeight:"calc(100vh - 330px)",minHeight:280}}>
+            <table style={{width:"100%",minWidth:1280,borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",tableLayout:"fixed"}}>
+              <thead>
+                <tr>
+                  <th style={{...thStyle,cursor:"default",width:110,position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)"}}>N° Solicitud</th>
+                  <th style={{...thStyle,cursor:"default",width:120,position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)"}}>Empresa</th>
+                  <th style={{...thStyle,cursor:"default",width:125,position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)"}}>Fecha solicitud</th>
+                  <th style={{...thStyle,cursor:"default",width:150,position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)"}}>Pedido por</th>
+                  <th style={{...thStyle,cursor:"default",width:140,position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)"}}>Centro de costo</th>
+                  <th style={{...thStyle,cursor:"default",width:170,position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)"}}>Código de artículo</th>
+                  <th style={{...thStyle,cursor:"default",position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)"}}>Descripción</th>
+                  <th style={{...thStyle,cursor:"default",width:130,textAlign:"right",position:"sticky",top:0,zIndex:2,background:"rgba(0,0,0,.82)"}}>Cant. solicitada</th>
+                </tr>
+              </thead>
+              <tbody>
+                {editRows.length?editRows.map(r=>{
+                  const currentValue=Object.prototype.hasOwnProperty.call(codigoEdits,r.nSolicitud)?codigoEdits[r.nSolicitud]:r.codigoArticulo;
+                  const changed=Object.prototype.hasOwnProperty.call(codigoEdits,r.nSolicitud);
+                  return (
+                    <tr key={`edit-code-${r.id}`} style={{background:changed?`${C.yellow}12`:undefined}}>
+                      <td style={tdStyle}>{r.nSolicitud}</td>
+                      <td style={tdStyle}>{r.empresa||"—"}</td>
+                      <td style={tdStyle}>{formatDateLocal(r.fechaSolicitud)||"—"}</td>
+                      <td style={tdStyle}>{r.pedidoPor||"—"}</td>
+                      <td style={tdStyle}>{r.centroCosto?<span style={badgeStyle("info")}>{r.centroCosto}</span>:"—"}</td>
+                      <td style={tdStyle}>
+                        <input value={currentValue||""} onChange={e=>{
+                          const value=e.target.value;
+                          setCodigoEdits(prev=>{
+                            const next={...prev};
+                            if(String(value||"").trim()===String(r.codigoArticulo||"").trim())delete next[r.nSolicitud];
+                            else next[r.nSolicitud]=value;
+                            return next;
+                          });
+                        }} placeholder="S/C" style={{...inputStyle,width:"100%",height:32,borderColor:changed?`${C.yellow}aa`:C.border,background:changed?`${C.yellow}10`:inputStyle.background,color:changed?C.yellow:C.text,fontWeight:900}}/>
+                      </td>
+                      <td style={{...tdStyle,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.descripcion}>{r.descripcion||"—"}</td>
+                      <td style={{...tdStyle,textAlign:"right"}}>{fmtNum(r.cantidadSolicitada)}</td>
+                    </tr>
+                  );
+                }):(
+                  <tr><td colSpan={8} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>Sin solicitudes para editar.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(editRows.length)} solicitudes mostradas</div>
+        </div>
+      </div>
+    );
+  };
 
   const renderRABA03Descarga=()=>{
     const columns=[...RABA03_EXPORT_COLUMNS,...RABA03_EXTRA_COLUMNS];
@@ -12662,7 +13164,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     <div style={{display:"grid",gap:14,fontFamily:"Inter, system-ui, sans-serif"}}>
       {renderImportModal()}
       {renderSuccessAlert()}
-      {!["remito","stock","raba03"].includes(tab)&&(<Card>
+      {!["dashboard","remito","stock","stockDashboard","raba03"].includes(tab)&&(<Card>
         <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
           <Icon name="filter" size={14} color={C.textSub}/>
           <div style={{display:"flex",gap:7}}>
@@ -12683,23 +13185,25 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
             <input type="file" accept=".xlsx,.xls" onChange={e=>{handleSolicitudesExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
           </label>)}
           <button onClick={loadRaba03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="refresh" size={11} color={C.red}/>Actualizar</button>
-          <button onClick={guardarDatosRABA03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.blue}44`,background:`${C.blue}16`,color:C.blue,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="check" size={11} color={C.blue}/>Guardar datos</button>
+          <button onClick={tab==="editarCodigos"?guardarCodigosRABA03:guardarDatosRABA03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.blue}44`,background:`${C.blue}16`,color:C.blue,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="check" size={11} color={C.blue}/>Guardar datos</button>
           <button onClick={resetRabaFilters} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltrosRaba?1:0.3,pointerEvents:hayFiltrosRaba?"auto":"none",alignSelf:"flex-end"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
       </Card>)}
 
 
+      {!["dashboard","stock","stockDashboard"].includes(tab)&&(
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
         <StatCard icon="warn" label="Pendientes" value={fmtNum(stats.pendientes)} sub="sin artículos enviados" color={C.yellow} small/>
         <StatCard icon="report" label="Parciales" value={fmtNum(stats.parciales)} sub="enviados parcialmente" color={C.blue} small/>
         <StatCard icon="check" label="Cerradas" value={fmtNum(stats.cerradas)} sub="cantidad completa enviada" color={C.green} small/>
         <StatCard icon="report" label="Total ítems" value={fmtNum(stats.total)} sub="solicitudes cargadas" color={C.blue} small/>
       </div>
+      )}
 
       {error&&<div style={{border:`1px solid ${C.red}66`,background:`${C.red}14`,color:C.red,borderRadius:14,padding:14,fontWeight:800}}>Error leyendo RABA03: {error}</div>}
       {loading&&<div style={{color:C.textSub,fontWeight:800,padding:8}}>Cargando RABA03...</div>}
 
-      {tab==="stock"?renderStockControl():(tab==="remito"?renderRemito():(tab==="raba03"?renderRABA03Descarga():renderMainTable()))}
+      {tab==="dashboard"?renderAbastecimientoDashboard():(tab==="stock"?renderStockControl():(tab==="stockDashboard"?renderStockDashboard():(tab==="remito"?renderRemito():(tab==="raba03"?renderRABA03Descarga():(tab==="editarCodigos"?renderEditarCodigos():renderMainTable())))))}
     </div>
   );
 }
@@ -12805,7 +13309,7 @@ export default function App(){
   const[stRma15CtrlEquipo,setStRma15CtrlEquipo]=useState(()=>savedOr("stRma15CtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:""}));
   const[stCHC,setStCHC]=useState(()=>savedOr("stCHC",{proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()}));
   const[stRanking,setStRanking]=useState(()=>savedOr("stRanking",{proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""}));
-  const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_control_rop02:true,grp_rop05:true,grp_rma15:true,grp_abastecimiento:true,grp_admin:true}));
+  const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_control_rop02:true,grp_rop05:true,grp_rma15:true,grp_abastecimiento:true,grp_stockcritico:true,grp_admin:true}));
   const[usdRate,setUsdRate]=useState(null);
 
   // Tipo de cambio: se pide recién cuando una vista de costos/mantenimiento lo necesita.
@@ -13006,10 +13510,9 @@ export default function App(){
   },[view,loadSources,loadInitial]);
 
   useEffect(()=>{
-    if(view==="bienvenida"){
-      loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"]);
-      return;
-    }
+    // Al abrir la app no se cargan datos: primero se muestra Bienvenida.
+    // La carga desde Google Sheets empieza recién cuando el usuario entra a un módulo.
+    if(view==="bienvenida") return;
     if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){
       loadInitial();
       return;
@@ -13101,7 +13604,7 @@ export default function App(){
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoRABA03:"RABA03"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -13159,13 +13662,18 @@ export default function App(){
       return [
         {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
         {id:"grp_abastecimiento",icon:"report",label:"Abastecimiento",type:"group",color:C.yellow,children:[
+          {id:"abastecimientoDashboard",icon:"dashboard",label:"Dashboard"},
           {id:"abastecimiento",icon:"report",label:"Solicitudes"},
           {id:"abastecimientoPendientes",icon:"warn",label:"Pendientes"},
           {id:"abastecimientoParciales",icon:"report",label:"Parciales"},
           {id:"abastecimientoCerradas",icon:"check",label:"Cerradas"},
           {id:"abastecimientoRemito",icon:"truck",label:"Remito"},
-          {id:"abastecimientoStock",icon:"database",label:"Control de stock"},
           {id:"abastecimientoRABA03",icon:"fileSpreadsheet",label:"RABA03"},
+          {id:"abastecimientoEditarCodigos",icon:"fileSpreadsheet",label:"Editar códigos"},
+        ]},
+        {id:"grp_stockcritico",icon:"database",label:"Stock crítico",type:"group",color:C.teal,children:[
+          {id:"abastecimientoStockDashboard",icon:"dashboard",label:"Dashboard Stock"},
+          {id:"abastecimientoStock",icon:"database",label:"Control de stock"},
         ]},
       ];
     }
@@ -13292,7 +13800,7 @@ export default function App(){
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
-                {["abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRemito","abastecimientoStock","abastecimientoRABA03"].includes(view)&&(<AbastecimientoModule initialTab={({abastecimiento:"solicitudes",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoRABA03:"raba03"})[view]}/>) }
+                {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<AbastecimientoModule initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/>) }
                 {view==="control"&&(dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<BlockingDataLoader label="Cargando Control ROP05 vs ROP02..." />)}
               </>
             )}
