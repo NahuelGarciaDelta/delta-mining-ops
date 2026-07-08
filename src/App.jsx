@@ -8334,30 +8334,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[initialCostosMantState]);
 
   const [tab,setTab]=React.useState(initialCostosMantState.tab||"t1");
-  // Pestaña renderizada: se actualiza unos ms después del tab seleccionado.
-  // Esto permite que el botón responda instantáneo y evita bloquear la UI
-  // mientras React prepara tablas pesadas del informe.
-  const [costosRenderTab,setCostosRenderTab]=React.useState(initialCostosMantState.tab||"t1");
-  const [isCostosTabPending,setIsCostosTabPending]=React.useState(false);
+  // Cambio directo de pestaña: sin pantalla intermedia.
   const [isCostosTabPendingTransition,startCostosTabTransition]=React.useTransition?React.useTransition():[false,(fn)=>fn()];
-  const costosTabTimerRef=React.useRef(null);
+  const costosRenderTab=tab;
+  const isCostosTabPending=false;
   const setTabCostosFluido=React.useCallback((nextTab)=>{
     if(nextTab===tab)return;
-    setTab(nextTab);
-    setIsCostosTabPending(true);
-    if(costosTabTimerRef.current)window.clearTimeout(costosTabTimerRef.current);
-    // Damos un frame libre para que se pinte el tab activo antes de montar la tabla pesada.
-    costosTabTimerRef.current=window.setTimeout(()=>{
-      startCostosTabTransition(()=>setCostosRenderTab(nextTab));
-    },80);
+    startCostosTabTransition(()=>setTab(nextTab));
   },[tab,startCostosTabTransition]);
-  React.useEffect(()=>{
-    if(costosRenderTab===tab){
-      const id=window.setTimeout(()=>setIsCostosTabPending(false),30);
-      return()=>window.clearTimeout(id);
-    }
-  },[costosRenderTab,tab]);
-  React.useEffect(()=>()=>{if(costosTabTimerRef.current)window.clearTimeout(costosTabTimerRef.current);},[]);
   const useCostoDebouncedValue=(value,delay=850)=>{
     const [debounced,setDebounced]=React.useState(value);
     React.useEffect(()=>{
@@ -10813,26 +10797,18 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         ))}
       </div>
 
-      {(isCostosTabPending||isCostosTabPendingTransition)&&(
-        <Card title="Preparando informe">
-          <div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:13}}>
-            Actualizando vista sin bloquear la selección de filtros...
-          </div>
-        </Card>
-      )}
+      {costosRenderTab==="t1"&&<TablaCostos datos={tabla1} tot={totCostos} titulo={`Tabla de costos (${proyectoTitulo}) (${tabla1.length} equipos)`} filename="Tabla_de_costos_filtrada"/>}
 
-      {costosRenderTab==="t1"&&!isCostosTabPending&&<TablaCostos datos={tabla1} tot={totCostos} titulo={`Tabla de costos (${proyectoTitulo}) (${tabla1.length} equipos)`} filename="Tabla_de_costos_filtrada"/>}
+      {costosRenderTab==="t6"&&<TablaCostoMensualAcumulado/>}
 
-      {costosRenderTab==="t6"&&!isCostosTabPending&&<TablaCostoMensualAcumulado/>}
-
-      {costosRenderTab==="t4"&&!isCostosTabPending&&(
+      {costosRenderTab==="t4"&&(
         <Card title="Mano de Obra" action={<BotonDescargar onClick={()=>descargarExcel("Mano_de_Obra",rowsManoObraExcel)}/>}>
           {/* Filtros AISLADOS para Mano de Obra — independientes de los filtros del resto de tablas */}
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:"rgba(20,30,20,0.6)"}}>
             <span style={{fontSize:12,fontWeight:800,color:C.green}}>Filtros Mano de Obra</span>
-            <MultiSel label="Propiedad MO" value={fMOPropiedad} onChange={setFMOPropiedadFluido} options={moPropiedadOpts}/>
-            <MultiSel label="Tipo equipo MO" value={fMOTipoEquipo} onChange={setFMOTipoEquipoFluido} options={moTipoEquipoOpts}/>
-            <MultiSel label="Máquinas MO" value={fMOMaquinas} onChange={setFMOMaquinasFluido} options={moMaquinaOpts}/>
+            <MultiSel label="Propiedad MO" value={fMOPropiedad} onChange={setFMOPropiedadFluido} options={moPropiedadOpts} commitOnClose commitDelay={650}/>
+            <MultiSel label="Tipo equipo MO" value={fMOTipoEquipo} onChange={setFMOTipoEquipoFluido} options={moTipoEquipoOpts} commitOnClose commitDelay={650}/>
+            <MultiSel label="Máquinas MO" value={fMOMaquinas} onChange={setFMOMaquinasFluido} options={moMaquinaOpts} commitOnClose commitDelay={650}/>
             <button onClick={()=>{setFMOPropiedad("todos");setFMOTipoEquipo("todos");setFMOMaquinas("todos");}}
               style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer"}}>Limpiar</button>
             <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Registros: <b style={{color:C.text}}>{rma15FiltradoMO.length}</b></span>
@@ -10890,7 +10866,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         </Card>
       )}
 
-      {costosRenderTab==="t7"&&!isCostosTabPending&&(()=>{
+      {costosRenderTab==="t7"&&(()=>{
         // Top 3 insumos más caros por equipo, separados en correctivo y preventivo
         const top3Data=React.useMemo?null:(()=>{})(); // computed inline below
         const byEquipo={};
@@ -11027,7 +11003,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         );
       })()}
 
-      {costosRenderTab==="t5"&&!isCostosTabPending&&(
+      {costosRenderTab==="t5"&&(
         <Card title="Costo horario de amortización y mantenimiento" action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",rowsAmortizacionExcel)}/>}> 
           {renderCostosQuickFilters("t5",true)}
           {(!listaEquipos||listaEquipos.length===0)?(
@@ -11103,12 +11079,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         </Card>
       )}
 
-      {costosRenderTab==="t8"&&!isCostosTabPending&&(
+      {costosRenderTab==="t8"&&(
         <Card title="Resumen por equipo" action={<BotonDescargar onClick={()=>descargarExcel("Resumen_por_equipo",rowsResumenPorEquipoExcel)}/>}>
           <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"12px 14px",borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.18)"}}>
-            <MultiSel label="Tipo máquina" value={fResumenTipo} onChange={v=>setFiltroFluido(setFResumenTipo,v)} options={resumenTipoOptions}/>
-            <MultiSel label="Equipo" value={fResumenEquipo} onChange={v=>setFiltroFluido(setFResumenEquipo,v)} options={resumenEquipoOptions}/>
-            <MultiSel label="Propiedad" value={fResumenPropiedad} onChange={v=>setFiltroFluido(setFResumenPropiedad,v)} options={resumenPropiedadOptions}/>
+            <MultiSel label="Tipo máquina" value={fResumenTipo} onChange={v=>setFiltroFluido(setFResumenTipo,v)} options={resumenTipoOptions} commitOnClose commitDelay={650}/>
+            <MultiSel label="Equipo" value={fResumenEquipo} onChange={v=>setFiltroFluido(setFResumenEquipo,v)} options={resumenEquipoOptions} commitOnClose commitDelay={650}/>
+            <MultiSel label="Propiedad" value={fResumenPropiedad} onChange={v=>setFiltroFluido(setFResumenPropiedad,v)} options={resumenPropiedadOptions} commitOnClose commitDelay={650}/>
             <button onClick={()=>{setFResumenTipo("todos");setFResumenEquipo("todos");setFResumenPropiedad("todos");}}
               style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer",height:33}}>Limpiar filtros</button>
             <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted,paddingBottom:8}}>Equipos considerados: <b style={{color:C.text}}>{rowsResumenPorEquipoBase.length}</b></span>
