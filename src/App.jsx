@@ -1165,7 +1165,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
     }
 
     return{type:"text",value:raw.toLocaleLowerCase("es-AR")};
-  },[closeMenu]);
+  },[]);
 
   const detectInitialDir=useCallback((key)=>{
     const sortCol=cols.find((c,i)=>colSortId(c,i)===key);
