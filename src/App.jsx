@@ -1165,7 +1165,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
     }
 
     return{type:"text",value:raw.toLocaleLowerCase("es-AR")};
-  },[]);
+  },[closeMenu]);
 
   const detectInitialDir=useCallback((key)=>{
     const sortCol=cols.find((c,i)=>colSortId(c,i)===key);
@@ -1387,23 +1387,65 @@ function multiSelectedLabels(value, options){
   if(!Array.isArray(normalized))return [];
   return normalized.map(v=>({value:v,label:(options.find(o=>o.value===v)?.label)||v}));
 }
-function MultiSel({label,value,onChange,options}){
+function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=180}){
   const[open,setOpen]=useState(false);
   const[search,setSearch]=useState("");
+  // Valor local: permite marcar varias opciones sin cerrar el desplegable ni recalcular toda la pantalla en cada click.
+  const[draftValue,setDraftValue]=useState(value);
   const[pos,setPos]=useState({top:0,left:0,width:240});
   const[tipOpen,setTipOpen]=useState(false);
   const[tipPos,setTipPos]=useState({top:0,left:0});
+  const draftRef=useRef(value);
   const ref=useRef(null);
   const btnRef=useRef(null);
   const rafRef=useRef(null);
+  const commitRef=useRef(null);
   const def=multiDefault(options);
-  const selected=normalizeMultiValue(value,options);
+  const displayValue=open?draftValue:value;
+  const selected=normalizeMultiValue(displayValue,options);
   const selectedArr=Array.isArray(selected)?selected:[];
-  const selectedLabels=multiSelectedLabels(value,options);
+  const selectedLabels=multiSelectedLabels(displayValue,options);
   const isActive=Array.isArray(selected)&&selected.length>0;
   const realOptions=(options||[]).filter(o=>o.value!==def);
   const searchNorm=String(search||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
   const visibleOptions=searchNorm?realOptions.filter(o=>String(o.label||o.value||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(searchNorm)):realOptions;
+
+  useEffect(()=>{
+    if(!open)setDraftValue(value);
+  },[value,open]);
+
+  useEffect(()=>{
+    draftRef.current=draftValue;
+  },[draftValue]);
+
+  useEffect(()=>()=>{
+    if(commitRef.current)clearTimeout(commitRef.current);
+  },[]);
+
+  const commitNow=useCallback((next)=>{
+    if(commitRef.current){clearTimeout(commitRef.current);commitRef.current=null;}
+    const a=JSON.stringify(normalizeMultiValue(next,options));
+    const b=JSON.stringify(normalizeMultiValue(value,options));
+    if(a===b)return;
+    if(React.startTransition)React.startTransition(()=>onChange(next));
+    else onChange(next);
+  },[onChange,options,value]);
+
+  const commitValue=useCallback((next)=>{
+    setDraftValue(next);
+    draftRef.current=next;
+    if(commitRef.current){clearTimeout(commitRef.current);commitRef.current=null;}
+    if(commitOnClose)return;
+    commitRef.current=setTimeout(()=>{
+      commitNow(next);
+    },commitDelay);
+  },[commitNow,commitOnClose,commitDelay]);
+
+  const closeMenu=useCallback(()=>{
+    if(commitOnClose)commitNow(draftRef.current);
+    setOpen(false);
+    setSearch("");
+  },[commitOnClose,commitNow]);
 
   const updatePos=useCallback(()=>{
     const el=btnRef.current;
@@ -1433,14 +1475,15 @@ function MultiSel({label,value,onChange,options}){
     const handler=e=>{
       if(ref.current&&ref.current.contains(e.target))return;
       if(e.target.closest&&e.target.closest('[data-multisel-menu="true"]'))return;
-      setOpen(false);
+      closeMenu();
     };
     document.addEventListener("mousedown",handler);
     return()=>{
       document.removeEventListener("mousedown",handler);
       if(rafRef.current)cancelAnimationFrame(rafRef.current);
+      if(commitRef.current)clearTimeout(commitRef.current);
     };
-  },[]);
+  },[closeMenu]);
 
   useEffect(()=>{
     if(!open)return;
@@ -1455,11 +1498,11 @@ function MultiSel({label,value,onChange,options}){
 
   const emit=(arr)=>{
     const clean=arr.filter(Boolean).filter(v=>v!==def);
-    if(clean.length===0||clean.length>=realOptions.length)onChange(def);
-    else onChange(clean);
+    if(clean.length===0||clean.length>=realOptions.length)commitValue(def);
+    else commitValue(clean);
   };
   const toggle=(v)=>{
-    if(v===def){onChange(def);return;}
+    if(v===def){commitValue(def);return;}
     const set=new Set(selectedArr);
     if(set.has(v))set.delete(v);else set.add(v);
     emit([...set]);
@@ -1481,9 +1524,9 @@ function MultiSel({label,value,onChange,options}){
   ):null;
 
   const menu=open?ReactDOM.createPortal(
-    <div data-multisel-menu="true" style={{position:"fixed",top:pos.top,left:pos.left,zIndex:999999,width:pos.width,maxHeight:300,overflow:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:6}}>
+    <div data-multisel-menu="true" onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} style={{position:"fixed",top:pos.top,left:pos.left,zIndex:999999,width:pos.width,maxHeight:300,overflow:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:6}}>
       <label style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:allChecked?C.accent:C.textSub,fontWeight:allChecked?700:500}}>
-        <input type="checkbox" checked={allChecked} onChange={()=>onChange(def)} style={{accentColor:C.accent}}/>
+        <input type="checkbox" checked={allChecked} onChange={()=>commitValue(def)} style={{accentColor:C.accent}}/>
         Todos
       </label>
       <div style={{height:1,background:C.border,margin:"4px 0"}}/>
@@ -1494,6 +1537,10 @@ function MultiSel({label,value,onChange,options}){
           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</span>
         </label>
       )):<div style={{padding:"9px 8px",fontSize:12,color:C.textMuted}}>Sin resultados</div>}
+      {commitOnClose&&<div style={{display:"flex",gap:6,position:"sticky",bottom:0,background:C.surface,borderTop:`1px solid ${C.border}`,padding:"7px 4px 2px",marginTop:4}}>
+        <button onClick={closeMenu} style={{flex:1,border:`1px solid ${C.accent}66`,background:C.redDim,color:C.accent,borderRadius:7,padding:"7px 8px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"Inter"}}>Aplicar</button>
+        <button onClick={()=>{setDraftValue(value);draftRef.current=value;setOpen(false);setSearch("");}} style={{border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,borderRadius:7,padding:"7px 8px",fontSize:12,cursor:"pointer",fontFamily:"Inter"}}>Cancelar</button>
+      </div>}
     </div>,document.body
   ):null;
 
@@ -1502,7 +1549,7 @@ function MultiSel({label,value,onChange,options}){
       <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>{label}</label>
       <div style={{position:"relative",display:"flex"}}>
         {isActive&&(
-          <button onClick={(e)=>{e.stopPropagation();onChange(def);}} title="Limpiar filtro" aria-label="Limpiar filtro"
+          <button onClick={(e)=>{e.stopPropagation();setDraftValue(def);draftRef.current=def;commitNow(def);if(open)setOpen(false);}} title="Limpiar filtro" aria-label="Limpiar filtro"
             style={{position:"absolute",left:5,top:"50%",transform:"translateY(-50%)",width:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",background:C.red+"33",border:"none",borderRadius:"50%",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700,lineHeight:1,padding:0,zIndex:2}}>
             ×
           </button>
@@ -1510,9 +1557,9 @@ function MultiSel({label,value,onChange,options}){
         <button ref={btnRef} type="button"
           onMouseEnter={()=>{updateTipPos();setTipOpen(true);}}
           onMouseLeave={()=>setTipOpen(false)}
-          onClick={()=>{updatePos();setTipOpen(false);setOpen(o=>!o);}}
+          onClick={()=>{if(open){closeMenu();return;}setDraftValue(value);draftRef.current=value;updatePos();setTipOpen(false);setOpen(true);}}
           style={{background:C.surface,border:`1px solid ${isActive?C.accent+"55":C.border}`,borderRadius:7,color:C.text,padding:`7px 28px 7px ${isActive?26:10}px`,fontSize:12,cursor:"pointer",outline:"none",minWidth:130,width:"100%",textAlign:"left",fontFamily:"Inter",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
-          {multiSummary(value,options)}
+          {multiSummary(displayValue,options)}
         </button>
         <Icon name="chevronDown" size={15} color={C.textMuted} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
       </div>
@@ -1893,6 +1940,8 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   const[editSelected,setEditSelected]=useState("");
   const[savingEdit,setSavingEdit]=useState(false);
   const[editMsg,setEditMsg]=useState(null);
+  const[syncingListaExcel,setSyncingListaExcel]=useState(false);
+  const[syncMsg,setSyncMsg]=useState(null);
 
   useEffect(()=>{
     try{localStorage.setItem(`${LISTA_MAESTRA_STORAGE_KEY}_search`,search||"");}
@@ -2138,6 +2187,65 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
     }
   },[formFields,newEquipo,onReloadLista]);
 
+  const buildListaExcelUpdates=useCallback(()=>{
+    const updates=[];
+    const horasField=horasKey||formFields.find(f=>f.special==="horometro")?.key||"HORAS";
+    const toNum=(v)=>{
+      if(v===null||v===undefined||v==="")return NaN;
+      const n=Number(String(v).replace(/\./g,"").replace(",",".").replace(/[^0-9.\-]/g,""));
+      return Number.isFinite(n)?n:NaN;
+    };
+    dataWithKey.forEach(row=>{
+      if(!row||!row._ropInfo||row._horometroValue==null)return;
+      const codigoDrusila=drusilaKey?String(row[drusilaKey]||"").trim():"";
+      const codigoNuevo=codigoNuevoKey?String(row[codigoNuevoKey]||"").trim():"";
+      if(!codigoDrusila&&!codigoNuevo)return;
+      const appNum=toNum(row._horometroValue);
+      const excelNum=toNum(row[horasField]);
+      if(!Number.isFinite(appNum))return;
+      if(Number.isFinite(excelNum)&&Math.abs(appNum-excelNum)<0.0001)return;
+      updates.push({
+        originalKeys:{
+          codigoDrusila,
+          codigoNuevo,
+          codigoPrincipal:mainMachineCode(codigoDrusila||codigoNuevo),
+          codigoDrusilaNorm:normalizeMachineCode(codigoDrusila),
+          codigoNuevoNorm:normalizeMachineCode(codigoNuevo),
+          lookupKeys:machineLookupVariants(codigoDrusila,codigoNuevo),
+          codigoDrusilaHeader:drusilaKey||"",
+          codigoNuevoHeader:codigoNuevoKey||"",
+          useRowNumber:false,
+        },
+        row:{[horasField]:String(Math.round(appNum*100)/100)}
+      });
+    });
+    return updates;
+  },[dataWithKey,drusilaKey,codigoNuevoKey,horasKey,formFields]);
+
+  const actualizarListaEnExcel=useCallback(async()=>{
+    const updates=buildListaExcelUpdates();
+    if(!updates.length){
+      setSyncMsg({type:"success",text:"No hay diferencias para actualizar. Los horómetros ya coinciden con la app."});
+      return;
+    }
+    const ok=window.confirm(`Se actualizarán ${updates.length} horómetros en la planilla base Lista Maestra de Equipos. ¿Continuar?`);
+    if(!ok)return;
+    setSyncingListaExcel(true);
+    setSyncMsg({type:"info",text:`Actualizando ${updates.length} equipos en Google Sheets...`});
+    try{
+      const res=await postBulkUpdateListaEquipos(updates);
+      const updated=res.updatedRows??res.updated??updates.length;
+      const skipped=res.skippedRows??0;
+      const failed=res.failedRows??0;
+      setSyncMsg({type:failed?"error":"success",text:failed?`Se actualizaron ${updated}, fallaron ${failed} y se omitieron ${skipped}. Revisá permisos o códigos no encontrados.`:`${updated} equipos actualizados en Excel${skipped?` (${skipped} omitidos)`:""}.`});
+      if(onReloadLista)await onReloadLista();
+    }catch(err){
+      setSyncMsg({type:"error",text:err.message||"No se pudo actualizar la Lista Maestra."});
+    }finally{
+      setSyncingListaExcel(false);
+    }
+  },[buildListaExcelUpdates,onReloadLista]);
+
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
@@ -2166,6 +2274,9 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
           <button onClick={()=>{setEditOpen(o=>!o);setEditMsg(null);if(addOpen)setAddOpen(false);}} style={{background:editOpen?C.accentDim:C.yellowDim,border:`1px solid ${editOpen?C.accent+"55":C.yellow+"44"}`,borderRadius:7,color:editOpen?C.accent:C.yellow,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
             ✎ Modificar equipos
           </button>
+          <button onClick={actualizarListaEnExcel} disabled={syncingListaExcel} title="Actualiza en Excel los horómetros que la app toma desde ROP02 y que estén distintos a la Lista Maestra" style={{background:C.blueDim,border:`1px solid ${C.blue}55`,borderRadius:7,color:C.blue,padding:"7px 11px",fontSize:12,fontWeight:800,cursor:syncingListaExcel?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0,opacity:syncingListaExcel?0.65:1}}>
+            {syncingListaExcel?<Spinner size={13}/>:<Icon name="refresh" size={13} color={C.blue}/>} Actualizar en Excel
+          </button>
           <button onClick={()=>generarExcelListaMaestra(filtered,cols,new Date().toISOString().slice(0,10).replace(/-/g,""))} style={{background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:7,color:C.green,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
             ⬇ Generar reporte
           </button>
@@ -2179,6 +2290,14 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar equipo, tipo, marca, proyecto..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:210,width:260,outline:"none",flexShrink:0}}/>
         </div>
       }>
+        {syncMsg&&(
+          <div style={{margin:"0 0 14px",padding:"10px 13px",borderRadius:8,fontSize:12,fontWeight:600,
+            color:syncMsg.type==="error"?C.red:syncMsg.type==="success"?C.green:C.blue,
+            background:syncMsg.type==="error"?C.redDim:syncMsg.type==="success"?C.greenDim:C.blueDim,
+            border:`1px solid ${syncMsg.type==="error"?C.red:syncMsg.type==="success"?C.green:C.blue}55`}}>
+            {syncMsg.text}
+          </div>
+        )}
         {editOpen&&(
           <div style={{margin:"0 0 14px",padding:"18px 18px 14px",background:C.surface,border:`1px solid ${C.yellow}44`,borderRadius:10,boxShadow:"0 2px 12px rgba(0,0,0,.2)"}}>
             {/* ── Header ── */}
@@ -8095,6 +8214,9 @@ async function postAddListaEquipo(row){
 async function postUpdateListaEquipo(originalKeys,row){
   return postToAppsScript({action:"update_lista_equipo",originalKeys,row});
 }
+async function postBulkUpdateListaEquipos(updates){
+  return postToAppsScript({action:"bulk_update_lista_equipos_from_app",updates});
+}
 async function postUpdateROP02Row(target,rowKey,fields){
   return postToAppsScript({action:"update_rop02_row",target,rowKey,fields});
 }
@@ -8212,6 +8334,38 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[initialCostosMantState]);
 
   const [tab,setTab]=React.useState(initialCostosMantState.tab||"t1");
+  // Pestaña renderizada: se actualiza unos ms después del tab seleccionado.
+  // Esto permite que el botón responda instantáneo y evita bloquear la UI
+  // mientras React prepara tablas pesadas del informe.
+  const [costosRenderTab,setCostosRenderTab]=React.useState(initialCostosMantState.tab||"t1");
+  const [isCostosTabPending,setIsCostosTabPending]=React.useState(false);
+  const [isCostosTabPendingTransition,startCostosTabTransition]=React.useTransition?React.useTransition():[false,(fn)=>fn()];
+  const costosTabTimerRef=React.useRef(null);
+  const setTabCostosFluido=React.useCallback((nextTab)=>{
+    if(nextTab===tab)return;
+    setTab(nextTab);
+    setIsCostosTabPending(true);
+    if(costosTabTimerRef.current)window.clearTimeout(costosTabTimerRef.current);
+    // Damos un frame libre para que se pinte el tab activo antes de montar la tabla pesada.
+    costosTabTimerRef.current=window.setTimeout(()=>{
+      startCostosTabTransition(()=>setCostosRenderTab(nextTab));
+    },80);
+  },[tab,startCostosTabTransition]);
+  React.useEffect(()=>{
+    if(costosRenderTab===tab){
+      const id=window.setTimeout(()=>setIsCostosTabPending(false),30);
+      return()=>window.clearTimeout(id);
+    }
+  },[costosRenderTab,tab]);
+  React.useEffect(()=>()=>{if(costosTabTimerRef.current)window.clearTimeout(costosTabTimerRef.current);},[]);
+  const useCostoDebouncedValue=(value,delay=850)=>{
+    const [debounced,setDebounced]=React.useState(value);
+    React.useEffect(()=>{
+      const id=window.setTimeout(()=>setDebounced(value),delay);
+      return ()=>window.clearTimeout(id);
+    },[value,delay]);
+    return debounced;
+  };
   const [usdRate2,setUsdRate2]=React.useState(()=>readSavedNumber("usdRate2",1400));
   const [hsEfJM,setHsEfJM]=React.useState(()=>readSavedNumber("hsEfJM",180));
   const [hsEfFS,setHsEfFS]=React.useState(()=>readSavedNumber("hsEfFS",180));
@@ -8258,6 +8412,70 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const [fTipoEquipo,setFTipoEquipo]=React.useState(initialCostosMantState.fTipoEquipo||"todos");
   const [fProyecto,setFProyecto]=React.useState(initialCostosMantState.fProyecto||"todos");
   const [fPropiedad,setFPropiedad]=React.useState(initialCostosMantState.fPropiedad||"todos");
+
+  // Filtros independientes por tabla dentro de Costos de Mantenimiento.
+  // Cada pestaña mantiene su propia selección para no arrastrar filtros de otra tabla.
+  const COSTOS_TABLAS_FILTRABLES=React.useMemo(()=>["t1","t7","t6","t5"],[]);
+  const defaultCostosFiltrosTabla=React.useCallback(()=>({
+    t1:{tipo:"todos",equipo:"todos",propiedad:"todos"},
+    t7:{tipo:"todos",equipo:"todos",propiedad:"todos"},
+    t6:{tipo:"todos",equipo:"todos",propiedad:"todos"},
+    t5:{tipo:"todos",equipo:"todos",propiedad:"todos"},
+  }),[]);
+  const [costosFiltrosTabla,setCostosFiltrosTabla]=React.useState(()=>({
+    ...defaultCostosFiltrosTabla(),
+    ...(initialCostosMantState.costosFiltrosTabla||initialCostosMantState.costosFiltrosPorTabla||{})
+  }));
+  const getCostosFiltrosTabla=React.useCallback((key)=>{
+    const base=defaultCostosFiltrosTabla();
+    return {...(base[key]||base.t1),...((costosFiltrosTabla||{})[key]||{})};
+  },[costosFiltrosTabla,defaultCostosFiltrosTabla]);
+  const setCostoFiltroTabla=React.useCallback((key,campo,value)=>{
+    const apply=()=>setCostosFiltrosTabla(prev=>{
+      const base=defaultCostosFiltrosTabla();
+      const actual={...(base[key]||base.t1),...((prev||{})[key]||{})};
+      return {...(prev||{}),[key]:{...actual,[campo]:value}};
+    });
+    if(React.startTransition)React.startTransition(apply);
+    else apply();
+  },[defaultCostosFiltrosTabla]);
+  const resetCostoFiltroTabla=React.useCallback((key)=>{
+    const apply=()=>setCostosFiltrosTabla(prev=>({...(prev||{}),[key]:{tipo:"todos",equipo:"todos",propiedad:"todos"}}));
+    if(React.startTransition)React.startTransition(apply);
+    else apply();
+  },[]);
+  const resetCostosFiltrosTodasTablas=React.useCallback(()=>{
+    const apply=()=>setCostosFiltrosTabla(defaultCostosFiltrosTabla());
+    if(React.startTransition)React.startTransition(apply);
+    else apply();
+  },[defaultCostosFiltrosTabla]);
+  const activeCostosFiltroKey=COSTOS_TABLAS_FILTRABLES.includes(costosRenderTab)?costosRenderTab:"t1";
+  const isCostosTabTabla=costosRenderTab==="t1";
+  const isCostosTabTop3=costosRenderTab==="t7";
+  const isCostosTabAcumulado=costosRenderTab==="t6";
+  const isCostosTabManoObra=costosRenderTab==="t4";
+  const isCostosTabAmortizacion=costosRenderTab==="t5";
+  const isCostosTabResumen=costosRenderTab==="t8";
+  const filtrosCostosActivos=getCostosFiltrosTabla(activeCostosFiltroKey);
+  const dFCMaquinas=useCostoDebouncedValue(filtrosCostosActivos.equipo,850);
+  const dFCTipoEquipo=useCostoDebouncedValue(filtrosCostosActivos.tipo,850);
+  const dFCPropiedad=useCostoDebouncedValue(filtrosCostosActivos.propiedad,850);
+
+  // Filtros generales diferidos para que elegir opciones no congele la pantalla.
+  // El selector cambia al instante y los cálculos pesados se actualizan un momento después.
+  const dFMaquinas=useCostoDebouncedValue(fMaquinas,850);
+  const dFTipoEquipo=useCostoDebouncedValue(fTipoEquipo,850);
+  const dFProyecto=useCostoDebouncedValue(fProyecto,850);
+  const dFPropiedad=useCostoDebouncedValue(fPropiedad,850);
+  const setFiltroFluido=React.useCallback((setter,value)=>{
+    if(React.startTransition)React.startTransition(()=>setter(value));
+    else setter(value);
+  },[]);
+  const setFMaquinasFluido=React.useCallback(v=>setFiltroFluido(setFMaquinas,v),[setFiltroFluido]);
+  const setFTipoEquipoFluido=React.useCallback(v=>setFiltroFluido(setFTipoEquipo,v),[setFiltroFluido]);
+  const setFProyectoFluido=React.useCallback(v=>setFiltroFluido(setFProyecto,v),[setFiltroFluido]);
+  const setFPropiedadFluido=React.useCallback(v=>setFiltroFluido(setFPropiedad,v),[setFiltroFluido]);
+
   const [fechaDCostoMensual,setFechaDCostoMensual]=React.useState(initialCostosMantState.fechaDCostoMensual||"");
   const [fechaHCostoMensual,setFechaHCostoMensual]=React.useState(initialCostosMantState.fechaHCostoMensual||"");
   // Filtros AISLADOS exclusivamente para la tabla Mano de Obra.
@@ -8265,6 +8483,22 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const [fMOMaquinas,setFMOMaquinas]=React.useState("todos");
   const [fMOTipoEquipo,setFMOTipoEquipo]=React.useState("todos");
   const [fMOPropiedad,setFMOPropiedad]=React.useState("todos");
+  const dFMOMaquinas=useCostoDebouncedValue(fMOMaquinas,850);
+  const dFMOTipoEquipo=useCostoDebouncedValue(fMOTipoEquipo,850);
+  const dFMOPropiedad=useCostoDebouncedValue(fMOPropiedad,850);
+  const setFMOMaquinasFluido=React.useCallback(v=>setFiltroFluido(setFMOMaquinas,v),[setFiltroFluido]);
+  const setFMOTipoEquipoFluido=React.useCallback(v=>setFiltroFluido(setFMOTipoEquipo,v),[setFiltroFluido]);
+  const setFMOPropiedadFluido=React.useCallback(v=>setFiltroFluido(setFMOPropiedad,v),[setFiltroFluido]);
+  // Filtros propios del Resumen por equipo: no afectan las demás tablas.
+  // Aceptan selección múltiple igual que el resto de filtros de la app.
+  const [fResumenTipo,setFResumenTipo]=React.useState(initialCostosMantState.fResumenTipo||"todos");
+  const [fResumenEquipo,setFResumenEquipo]=React.useState(initialCostosMantState.fResumenEquipo||"todos");
+  const [fResumenPropiedad,setFResumenPropiedad]=React.useState(initialCostosMantState.fResumenPropiedad||"todos");
+  // Diferimos estos filtros para que el menú responda al instante y el cálculo pesado
+  // del resumen se haga un momento después, sin trabar la interfaz.
+  const dFResumenTipo=useCostoDebouncedValue(fResumenTipo,850);
+  const dFResumenEquipo=useCostoDebouncedValue(fResumenEquipo,850);
+  const dFResumenPropiedad=useCostoDebouncedValue(fResumenPropiedad,850);
   // Estado combinado para useListaVidaUtil y vidaUtilOverride en un solo objeto
   // → garantiza que ambos se actualicen en el mismo render, sin estados intermedios
   const [vidaUtilState,setVidaUtilState]=React.useState(()=>{
@@ -8303,12 +8537,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify({
           tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,
           modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,monthlyDollar,
+          costosFiltrosTabla,
+          fResumenTipo,fResumenEquipo,fResumenPropiedad,
           costoMensualScrollLeft:costoMensualScrollLeftRef.current||0,
           useListaVidaUtil,vidaUtilOverride,hombreVestido,hsPropios,hsArrendados
         }));
       }catch(_){}
     },300);
-  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,vidaUtilState,hombreVestido,hsPropios,hsArrendados]);
+  },[tab,usdRate2,hsEfJM,hsEfFS,mecJM,ctaMecJM,mecFS,ctaMecFS,ctaJM,ctaFS,costMec,costCTA,monthlyDollar,modoFecha,fechaDia,fechaD,fechaH,fMaquinas,fTipoEquipo,fProyecto,fPropiedad,fechaDCostoMensual,fechaHCostoMensual,fResumenTipo,fResumenEquipo,fResumenPropiedad,vidaUtilState,hombreVestido,hsPropios,hsArrendados]);
 
   const hastaCostoMensual=fechaH||"";
 
@@ -8528,23 +8764,23 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const costoRowsProyectoOpts=React.useMemo(()=>rma15PorFecha||[],[rma15PorFecha]);
 
   const costoRowsPropiedadOpts=React.useMemo(()=>
-    costoRowsProyectoOpts.filter(r=>matchMulti(r.proyecto,fProyecto,"todos")),
-    [costoRowsProyectoOpts,fProyecto]
+    costoRowsProyectoOpts.filter(r=>matchMulti(r.proyecto,dFProyecto,"todos")),
+    [costoRowsProyectoOpts,dFProyecto]
   );
 
   const costoRowsTipoEquipoOpts=React.useMemo(()=>
-    costoRowsPropiedadOpts.filter(r=>matchPropiedadMeta(metaEquipoCosto(r.maquina),fPropiedad)),
-    [costoRowsPropiedadOpts,fPropiedad,metaEquipoCosto,matchPropiedadMeta]
+    costoRowsPropiedadOpts.filter(r=>matchPropiedadMeta(metaEquipoCosto(r.maquina),dFPropiedad)),
+    [costoRowsPropiedadOpts,dFPropiedad,metaEquipoCosto,matchPropiedadMeta]
   );
 
   const costoRowsMaquinaOpts=React.useMemo(()=>
     costoRowsTipoEquipoOpts.filter(r=>{
-      if(multiIsAll(fTipoEquipo,"todos"))return true;
+      if(multiIsAll(dFTipoEquipo,"todos"))return true;
       const tipo=metaEquipoCosto(r.maquina).tipo;
-      const sel=Array.isArray(fTipoEquipo)?fTipoEquipo:[];
+      const sel=Array.isArray(dFTipoEquipo)?dFTipoEquipo:[];
       return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
     }),
-    [costoRowsTipoEquipoOpts,fTipoEquipo,metaEquipoCosto]
+    [costoRowsTipoEquipoOpts,dFTipoEquipo,metaEquipoCosto]
   );
 
   const proyectoOpts=React.useMemo(()=>[
@@ -8635,52 +8871,91 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     ...uniq(moRowsMaquinaOpts.map(r=>metaEquipoCosto(r.maquina).display).filter(Boolean)).map(m=>({value:m,label:m}))
   ],[moRowsMaquinaOpts,metaEquipoCosto]);
 
+  // Caches de filtros base: evita refiltrar toda la fuente cuando la pestaña no los necesita.
+  const rma15FiltradoMOCacheRef=React.useRef([]);
+  const rma15FiltradoCacheRef=React.useRef([]);
+  const rma15CostoMensualFiltradoCacheRef=React.useRef([]);
+  const historialAcumuladoFiltradoCacheRef=React.useRef([]);
+  const historialAcumuladoFiltradoMOCacheRef=React.useRef([]);
+
   // rma15 filtrado SOLO para Mano de Obra (usa fMO*)
   const rma15FiltradoMO=React.useMemo(()=>{
-    return (rma15PorFecha||[]).filter(r=>{
+    if(!isCostosTabManoObra)return rma15FiltradoMOCacheRef.current||[];
+    const out=(rma15PorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
-      if(!matchMulti(r.proyecto,fProyecto,"todos"))return false;
-      if(!matchPropiedadMeta(meta,fMOPropiedad))return false;
-      if(!matchMulti(meta.display,fMOMaquinas,"todos"))return false;
-      if(multiIsAll(fMOTipoEquipo,"todos"))return true;
+      if(!matchMulti(r.proyecto,dFProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,dFMOPropiedad))return false;
+      if(!matchMulti(meta.display,dFMOMaquinas,"todos"))return false;
+      if(multiIsAll(dFMOTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
-      const sel=Array.isArray(fMOTipoEquipo)?fMOTipoEquipo:[];
+      const sel=Array.isArray(dFMOTipoEquipo)?dFMOTipoEquipo:[];
       return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
     });
-  },[rma15PorFecha,fProyecto,fMOPropiedad,fMOMaquinas,fMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+    rma15FiltradoMOCacheRef.current=out;
+    return out;
+  },[isCostosTabManoObra,rma15PorFecha,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
   const rma15Filtrado=React.useMemo(()=>{
-    return (rma15PorFecha||[]).filter(r=>{
+    const activeCalc=isCostosTabTabla||isCostosTabTop3;
+    if(!activeCalc)return rma15FiltradoCacheRef.current||[];
+    const out=(rma15PorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
-      if(!matchMulti(r.proyecto,fProyecto,"todos"))return false;
-      if(!matchPropiedadMeta(meta,fPropiedad))return false;
-      if(!matchMulti(meta.display,fMaquinas,"todos"))return false;
-      if(multiIsAll(fTipoEquipo,"todos"))return true;
+      if(!matchMulti(r.proyecto,dFProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,dFCPropiedad))return false;
+      if(!matchMulti(meta.display,dFCMaquinas,"todos"))return false;
+      if(multiIsAll(dFCTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
-      const sel=Array.isArray(fTipoEquipo)?fTipoEquipo:[];
+      const sel=Array.isArray(dFCTipoEquipo)?dFCTipoEquipo:[];
       return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
     });
-  },[rma15PorFecha,fProyecto,fPropiedad,fMaquinas,fTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+    rma15FiltradoCacheRef.current=out;
+    return out;
+  },[isCostosTabTabla,isCostosTabTop3,rma15PorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
   const rma15CostoMensualFiltrado=React.useMemo(()=>{
-    // Usa el período propio de Costo mensual acumulado, pero los demás filtros generales.
-    return (rma15CostoMensualPorFecha||[]).filter(r=>{
+    // Usa el período propio de Costo mensual acumulado y los filtros propios de esa pestaña.
+    const activeCalc=isCostosTabAcumulado||isCostosTabAmortizacion||isCostosTabResumen;
+    if(!activeCalc)return rma15CostoMensualFiltradoCacheRef.current||[];
+    const out=(rma15CostoMensualPorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
-      if(!matchMulti(r.proyecto,fProyecto,"todos"))return false;
-      if(!matchPropiedadMeta(meta,fPropiedad))return false;
-      if(!matchMulti(meta.display,fMaquinas,"todos"))return false;
-      if(multiIsAll(fTipoEquipo,"todos"))return true;
+      if(!matchMulti(r.proyecto,dFProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,dFCPropiedad))return false;
+      if(!matchMulti(meta.display,dFCMaquinas,"todos"))return false;
+      if(multiIsAll(dFCTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
-      const sel=Array.isArray(fTipoEquipo)?fTipoEquipo:[];
+      const sel=Array.isArray(dFCTipoEquipo)?dFCTipoEquipo:[];
       return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
     });
-  },[rma15CostoMensualPorFecha,fProyecto,fPropiedad,fMaquinas,fTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+    rma15CostoMensualFiltradoCacheRef.current=out;
+    return out;
+  },[isCostosTabAcumulado,isCostosTabAmortizacion,isCostosTabResumen,rma15CostoMensualPorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
   const fmtU=v=>v==null||v===0?"—":"$"+fmtNum(Math.round(v));
   const fmtUSD2=v=>v==null||v===0?"—":"U$S "+fmtNum(Math.round(v));
 
   // Tabla de costos desde RMA15
+  const tabla1CacheRef=React.useRef([]);
   const tabla1=React.useMemo(()=>{
+    const activeCalc=isCostosTabTabla||isCostosTabTop3;
+    if(!activeCalc)return tabla1CacheRef.current||[];
+    const map={};
+    (rma15Filtrado||[]).forEach(r=>{
+      const meta=metaEquipoCosto(r.maquina);
+      const eq=meta.display;
+      if(!map[eq])map[eq]={equipo:eq,propiedad:meta.propiedad||"S/D",prev:0,corr:0};
+      (r.insumos||[]).forEach(ins=>{
+        const t=String(r.tipoMant||"").toUpperCase();
+        if(t.includes("PREV"))map[eq].prev+=ins.costoTotal||0;
+        else map[eq].corr+=ins.costoTotal||0;
+      });
+    });
+    const out=Object.values(map).filter(x=>x.prev>0||x.corr>0).sort((a,b)=>a.equipo.localeCompare(b.equipo)).map(x=>({...x,total:x.prev+x.corr}));
+    tabla1CacheRef.current=out;
+    return out;
+  },[isCostosTabTabla,isCostosTabTop3,rma15Filtrado,metaEquipoCosto]);
+
+  const tabla2=tabla1;
+  /* const tabla2=React.useMemo(()=>{
     const map={};
     (rma15Filtrado||[]).forEach(r=>{
       const meta=metaEquipoCosto(r.maquina);
@@ -8693,36 +8968,37 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       });
     });
     return Object.values(map).filter(x=>x.prev>0||x.corr>0).sort((a,b)=>a.equipo.localeCompare(b.equipo)).map(x=>({...x,total:x.prev+x.corr}));
-  },[rma15Filtrado,metaEquipoCosto]);
+  },[rma15Filtrado,metaEquipoCosto]); */
 
-  const tabla2=React.useMemo(()=>{
-    const map={};
-    (rma15Filtrado||[]).forEach(r=>{
-      const meta=metaEquipoCosto(r.maquina);
-      const eq=meta.display;
-      if(!map[eq])map[eq]={equipo:eq,propiedad:meta.propiedad||"S/D",prev:0,corr:0};
-      (r.insumos||[]).forEach(ins=>{
-        const t=String(r.tipoMant||"").toUpperCase();
-        if(t.includes("PREV"))map[eq].prev+=ins.costoTotal||0;
-        else map[eq].corr+=ins.costoTotal||0;
-      });
-    });
-    return Object.values(map).filter(x=>x.prev>0||x.corr>0).sort((a,b)=>a.equipo.localeCompare(b.equipo)).map(x=>({...x,total:x.prev+x.corr}));
-  },[rma15Filtrado,metaEquipoCosto]);
-
-  const mesesAcumulado=React.useMemo(()=>
-    buildMonthKeysCosto(rma15Filtrado||[],modoFecha,fechaDia,fechaD,fechaH),
-    [rma15Filtrado,modoFecha,fechaDia,fechaD,fechaH]
-  );
+  const mesesAcumuladoCacheRef=React.useRef([]);
+  const mesesAcumulado=React.useMemo(()=>{
+    const activeCalc=isCostosTabAcumulado||isCostosTabManoObra;
+    if(!activeCalc)return mesesAcumuladoCacheRef.current||[];
+    const out=buildMonthKeysCosto(rma15Filtrado||[],modoFecha,fechaDia,fechaD,fechaH);
+    mesesAcumuladoCacheRef.current=out;
+    return out;
+  },[isCostosTabAcumulado,isCostosTabManoObra,rma15Filtrado,modoFecha,fechaDia,fechaD,fechaH]);
 
   // Debe calcularse ANTES de acumuladoEquipos. Si queda debajo, React intenta usar
   // subtotalJM/subtotalFS antes de inicializarlos y la pestaña se pone en blanco.
   const subtotalJM=(Number(mecJM)||0)*(Number(costMec)||0)+(Number(ctaMecJM)||0)*(Number(costCTA)||0);
   const subtotalFS=(Number(mecFS)||0)*(Number(costMec)||0)+(Number(ctaMecFS)||0)*(Number(costCTA)||0);
 
+  // Cache de cálculos pesados: al cambiar de ventana o seleccionar filtros,
+  // no se recalculan pestañas ocultas. Esto evita los tirones al navegar.
+  const acumuladoEquiposCacheRef=React.useRef([]);
+  const costoMensualAcumuladoCacheRef=React.useRef([]);
+  const costoMensualAcumuladoMOCacheRef=React.useRef([]);
+  const rowsAmortizacionCacheRef=React.useRef([]);
+  const rowsAmortizacionHHCacheRef=React.useRef([]);
+  const rowsAmortizacionOrdCacheRef=React.useRef([]);
+  const rowsAmortizacionFiltCacheRef=React.useRef([]);
+
   const acumuladoEquipos=React.useMemo(()=>{
+    const activeCalc=isCostosTabAcumulado||isCostosTabManoObra;
+    if(!activeCalc)return acumuladoEquiposCacheRef.current||[];
     const map={};
-    (rma15CostoMensualPorFecha||[]).forEach(r=>{
+    (rma15CostoMensualFiltrado||[]).forEach(r=>{
       const mes=monthKeyCosto(r.fecha);
       if(!mes)return;
       const proy=String(r.proyecto||"").toUpperCase();
@@ -8748,7 +9024,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       });
     });
 
-    return Object.values(map)
+    const out=Object.values(map)
       .filter(x=>x.total>0)
       .map(x=>{
         const mesesConDatos=mesesAcumulado.filter(m=>Number(x.months[m.key]?.total)>0).length;
@@ -8760,7 +9036,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         return {...x,promedio,mo,hsEf,usdHs:hsEf>0?(x.total+mo)/hsEf:0};
       })
       .sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
-  },[rma15Filtrado,mesesAcumulado,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,metaEquipoCosto]);
+    acumuladoEquiposCacheRef.current=out;
+    return out;
+  },[isCostosTabAcumulado,isCostosTabManoObra,rma15CostoMensualFiltrado,mesesAcumulado,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,metaEquipoCosto]);
 
   const acumuladoSubtotales=React.useMemo(()=>{
     const mk=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesAcumulado||[]).map(m=>[m.key,{prev:0,corr:0,total:0}])),promedio:0,mo:0,hsEf:0,usdHs:0});
@@ -8867,7 +9145,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const inp={background:"rgba(255,255,255,0.06)",border:`1px solid ${C.border}`,borderRadius:6,color:C.text,padding:"5px 9px",fontSize:12,fontFamily:"Inter",outline:"none",width:"100%"};
 
   const TabBtn=({id,label})=>(
-    <button onClick={()=>setTab(id)} style={{padding:"8px 16px",borderRadius:7,
+    <button onClick={()=>setTabCostosFluido(id)} style={{padding:"8px 16px",borderRadius:7,
       border:`1px solid ${tab===id?"transparent":"rgba(255,255,255,0.18)"}`,
       background:tab===id?C.accent:"rgba(28,28,28,0.82)",color:tab===id?"#fff":C.text,
       cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",transition:"all .15s",
@@ -8968,37 +9246,44 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const historialAcumuladoFiltrado=React.useMemo(()=>{
     // Costo mensual acumulado: el período es propio de la tabla,
     // pero proyecto / propiedad / tipo / máquinas responden a los filtros generales.
-    return (HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
+    const activeCalc=isCostosTabAcumulado||isCostosTabAmortizacion||isCostosTabResumen;
+    if(!activeCalc)return historialAcumuladoFiltradoCacheRef.current||[];
+    const out=(HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
       const proyecto=sectionProyectoCosto(x.section);
       const meta=metaEquipoCosto(x.equipo);
-      if(!matchMulti(proyecto,fProyecto,"todos"))return false;
-      if(!matchPropiedadMeta(meta,fPropiedad))return false;
-      if(!matchMulti(meta.display,fMaquinas,"todos")&&!matchMulti(x.equipo,fMaquinas,"todos"))return false;
-      if(!multiIsAll(fTipoEquipo,"todos")){
+      if(!matchMulti(proyecto,dFProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,dFPropiedad))return false;
+      if(!matchMulti(meta.display,dFMaquinas,"todos")&&!matchMulti(x.equipo,dFMaquinas,"todos"))return false;
+      if(!multiIsAll(dFTipoEquipo,"todos")){
         const tipo=meta.tipo;
-        const sel=Array.isArray(fTipoEquipo)?fTipoEquipo:[];
+        const sel=Array.isArray(dFTipoEquipo)?dFTipoEquipo:[];
         if(!(sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo))))return false;
       }
       return true;
     });
-  },[fProyecto,fPropiedad,fMaquinas,fTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
+    historialAcumuladoFiltradoCacheRef.current=out;
+    return out;
+  },[isCostosTabAcumulado,isCostosTabAmortizacion,isCostosTabResumen,dFProyecto,dFPropiedad,dFMaquinas,dFTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
 
   // Historial filtrado con filtros MO aislados (para Mano de Obra)
   const historialAcumuladoFiltradoMO=React.useMemo(()=>{
-    return (HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
+    if(!isCostosTabManoObra)return historialAcumuladoFiltradoMOCacheRef.current||[];
+    const out=(HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
       const proyecto=sectionProyectoCosto(x.section);
       const meta=metaEquipoCosto(x.equipo);
-      if(!matchMulti(proyecto,fProyecto,"todos"))return false;
-      if(!matchPropiedadMeta(meta,fMOPropiedad))return false;
-      if(!matchMulti(meta.display,fMOMaquinas,"todos")&&!matchMulti(x.equipo,fMOMaquinas,"todos"))return false;
-      if(!multiIsAll(fMOTipoEquipo,"todos")){
+      if(!matchMulti(proyecto,dFProyecto,"todos"))return false;
+      if(!matchPropiedadMeta(meta,dFMOPropiedad))return false;
+      if(!matchMulti(meta.display,dFMOMaquinas,"todos")&&!matchMulti(x.equipo,dFMOMaquinas,"todos"))return false;
+      if(!multiIsAll(dFMOTipoEquipo,"todos")){
         const tipo=meta.tipo;
-        const sel=Array.isArray(fMOTipoEquipo)?fMOTipoEquipo:[];
+        const sel=Array.isArray(dFMOTipoEquipo)?dFMOTipoEquipo:[];
         if(!(sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo))))return false;
       }
       return true;
     });
-  },[fProyecto,fMOPropiedad,fMOMaquinas,fMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
+    historialAcumuladoFiltradoMOCacheRef.current=out;
+    return out;
+  },[isCostosTabManoObra,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
 
   const mesesFijosAcumuladoMensual=React.useMemo(()=>
     (HIST_COSTO_MENSUAL_ACUMULADO.months||[]).filter(m=>monthInFechaFiltroCosto(m.key)),
@@ -9028,6 +9313,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[mesesCostoMensual,monthlyDollar,usdRate2]);
 
   const costoMensualAcumulado=React.useMemo(()=>{
+    const activeCalc=isCostosTabAcumulado||isCostosTabAmortizacion||isCostosTabResumen;
+    if(!activeCalc)return costoMensualAcumuladoCacheRef.current||[];
     const map={};
     const ensure=(equipo,section)=>{
       const key=section+"__"+equipo;
@@ -9073,11 +9360,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         row.total+=Number(d.total)||0;
       });
     });
-    return Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
-  },[historialAcumuladoFiltrado,mesesFijosAcumuladoMensual,rma15CostoMensualFiltrado,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
+    const out=Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
+    costoMensualAcumuladoCacheRef.current=out;
+    return out;
+  },[isCostosTabAcumulado,isCostosTabAmortizacion,isCostosTabResumen,historialAcumuladoFiltrado,mesesFijosAcumuladoMensual,rma15CostoMensualFiltrado,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
 
   // costoMensualAcumulado con filtros MO aislados (para distribuir MO sobre todas las máquinas seleccionadas en MO)
   const costoMensualAcumuladoMO=React.useMemo(()=>{
+    if(!isCostosTabManoObra)return costoMensualAcumuladoMOCacheRef.current||[];
     const map={};
     const ensure=(equipo,section)=>{
       const key=section+"__"+equipo;
@@ -9120,8 +9410,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         row.total+=Number(d.total)||0;
       });
     });
-    return Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
-  },[historialAcumuladoFiltradoMO,mesesFijosAcumuladoMensual,rma15FiltradoMO,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
+    const out=Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
+    costoMensualAcumuladoMOCacheRef.current=out;
+    return out;
+  },[isCostosTabManoObra,historialAcumuladoFiltradoMO,mesesFijosAcumuladoMensual,rma15FiltradoMO,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
 
   React.useLayoutEffect(()=>{
     if(tab==="t6")restoreCostoMensualScroll();
@@ -9668,6 +9960,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra]);
 
   const rowsAmortizacion=React.useMemo(()=>{
+    if(!isCostosTabAmortizacion)return rowsAmortizacionCacheRef.current||[];
     // Colapsar por equipo: si un equipo opera en FS y JM aparece dos veces en
     // costoMensualAcumulado. Sumamos mantUSDhs de todas las secciones y mostramos
     // una sola fila por equipo (adq y vida son propiedades del equipo, no de la sección).
@@ -9675,12 +9968,49 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     (costoMensualAcumulado||[]).forEach(x=>{
       if(!x.equipo)return;
       if(!byEquipo[x.equipo]){
-        byEquipo[x.equipo]={equipo:x.equipo,mantUSDhsTotal:0,proyectos:[],sections:[]};
+        byEquipo[x.equipo]={equipo:x.equipo,mantUSDhsTotal:0,proyectos:[],sections:[],_fromLista:false};
       }
       byEquipo[x.equipo].mantUSDhsTotal+=getUsdHoraCostoMensual(x);
       const p=sectionProyectoCosto(x.section);
       if(p&&!byEquipo[x.equipo].proyectos.includes(p))byEquipo[x.equipo].proyectos.push(p);
       if(x.section&&!byEquipo[x.equipo].sections.includes(x.section))byEquipo[x.equipo].sections.push(x.section);
+    });
+
+    // Agregar también los equipos que existen en Lista Maestra aunque todavía no
+    // tengan registros de mantenimiento en el período. Así, cuando se incorpora
+    // un equipo nuevo en Excel/App (ej.: MOT-0008), aparece automáticamente en
+    // esta tabla por su tipo/prefijo y no hay que tocar el código.
+    const yaCargadosCanon=new Set(Object.keys(byEquipo).map(eq=>canonicalEquivalentMachineCode(cleanMachine(mainMachineCode(eq)))));
+    const codigoListaEquipoCosto=(eq)=>{
+      return getValue(eq||{},[
+        "Código Drusila","Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila",
+        "Código Nuevo","Codigo Nuevo","Código nuevo","Codigo nuevo","Codigo Interno","Código Interno","CODIGO N° INTERNO","Interno","Código Actual","Codigo Actual",
+        "Código Viejo","Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"
+      ]);
+    };
+    const prefijosAmortizacion=new Set((AMORTIZACION_GRUPOS||[]).flatMap(g=>[...(g.prefixes||[]),...(g.equipos||[]).map(e=>String(e||"").split("-")[0])]).filter(Boolean));
+
+    (listaEquipos||[]).forEach(eq=>{
+      const code=cleanMachine(mainMachineCode(codigoListaEquipoCosto(eq)));
+      if(!code||isInvalidEquipoCodeCosto(code))return;
+      const canon=canonicalEquivalentMachineCode(code);
+      if(!canon||yaCargadosCanon.has(canon))return;
+
+      const info=amortizacionGrupoInfo(code);
+      const prefix=String(code||"").split("-")[0];
+      // Para no ensuciar la tabla con vehículos u otros ítems no productivos,
+      // sólo se agregan automáticamente los equipos que entran en los grupos
+      // definidos para amortización, o aquellos cuyo tipo de lista coincide.
+      if(!prefijosAmortizacion.has(prefix)&&Number(info.grupoIndex)>=999)return;
+
+      byEquipo[code]={
+        equipo:code,
+        mantUSDhsTotal:0,
+        proyectos:[],
+        sections:[],
+        _fromLista:true
+      };
+      yaCargadosCanon.add(canon);
     });
 
     const base=Object.values(byEquipo).map(e=>{
@@ -9720,17 +10050,20 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       arr.forEach((x,i)=>{x.promTipo=prom;x._firstTipo=i===0;x._grupoSize=i===0?arr.length:0;});
     });
 
-    return base.sort((a,b)=>
+    const out=base.sort((a,b)=>
       a._grupoIndex-b._grupoIndex ||
       a._ordenGrupo-b._ordenGrupo ||
       a.equipo.localeCompare(b.equipo)
     );
-  },[costoMensualAcumulado,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto]);
+    rowsAmortizacionCacheRef.current=out;
+    return out;
+  },[isCostosTabAmortizacion,costoMensualAcumulado,listaEquipos,AMORTIZACION_GRUPOS,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto,isInvalidEquipoCodeCosto]);
 
   // Enriquecer con HH Hombre Vestido y lógica no-Delta (depende de estado hombreVestido, hsEf)
   // vidaBase = vida de lista maestra (sin override), para mostrarlo en la celda cuando override=false
   const rowsAmortizacionConHH=React.useMemo(()=>{
-    return (rowsAmortizacion||[]).map(x=>{
+    if(!isCostosTabAmortizacion)return rowsAmortizacionHHCacheRef.current||[];
+    const out=(rowsAmortizacion||[]).map(x=>{
       const sections=x.sections||[];
       const tieneJM=sections.includes("JM");
       const tieneFS=sections.includes("FS");
@@ -9759,10 +10092,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const pctMant=amortFinal>0?x.mantUSDhs/amortFinal:0;
       return {...x,vida:vidaFinal,vidaBase:x.vidaListaMaestra||x.vidaBase||vidaFinal,amort:amortFinal,hhHombreVestido,totalUSDhs,pctMant,_esDelta:esDeltaEq,_hsEf:hsEf};
     });
-  },[rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS,hsPropios,hsArrendados]);
+    rowsAmortizacionHHCacheRef.current=out;
+    return out;
+  },[isCostosTabAmortizacion,rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS,hsPropios,hsArrendados]);
 
 
   const rowsAmortizacionOrdenadas=React.useMemo(()=>{
+    if(!isCostosTabAmortizacion)return rowsAmortizacionOrdCacheRef.current||[];
     // Recalcular promTipo usando el pctMant final (post HH / no-Delta)
     const gruposConHH={};
     (rowsAmortizacionConHH||[]).forEach(x=>{(gruposConHH[x.tipo]=gruposConHH[x.tipo]||[]).push(x);});
@@ -9776,7 +10112,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const sorted=sortRowsForTable(rowsConProm,costosMantSorts.amortizacion,{
       equipo:r=>r.equipo,propiedad:r=>r.propiedad,tipo:r=>r.tipo,modelo:r=>r.modelo,adq:r=>r.adq,vida:r=>r.vida,amort:r=>r.amort,hhHombreVestido:r=>r.hhHombreVestido,mantUSDhs:r=>r.mantUSDhs,totalUSDhs:r=>r.totalUSDhs,pctMant:r=>r.pctMant,promTipo:r=>r.promTipo
     });
-    return (sorted||[]).map((x,i,arr)=>{
+    const out=(sorted||[]).map((x,i,arr)=>{
       const first=i===0||String(arr[i-1]?.tipo||'')!==String(x.tipo||'');
       let size=1;
       if(first){
@@ -9784,10 +10120,31 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       }
       return {...x,_firstTipoDisplay:first,_grupoSizeDisplay:size};
     });
-  },[rowsAmortizacionConHH,costosMantSorts.amortizacion]);
+    rowsAmortizacionOrdCacheRef.current=out;
+    return out;
+  },[isCostosTabAmortizacion,rowsAmortizacionConHH,costosMantSorts.amortizacion]);
 
 
-  const rowsAmortizacionExcel=React.useMemo(()=>(rowsAmortizacionOrdenadas||[]).map(x=>({
+  const filtrosAmortizacion=getCostosFiltrosTabla("t5");
+  const dFAmortEquipo=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.equipo):filtrosAmortizacion.equipo;
+  const dFAmortTipo=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.tipo):filtrosAmortizacion.tipo;
+  const dFAmortPropiedad=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.propiedad):filtrosAmortizacion.propiedad;
+  const rowsAmortizacionOrdenadasFiltradas=React.useMemo(()=>{
+    if(!isCostosTabAmortizacion)return rowsAmortizacionFiltCacheRef.current||[];
+    const out=(rowsAmortizacionOrdenadas||[]).filter(x=>{
+      if(!matchMulti(x.equipo,dFAmortEquipo,"todos"))return false;
+      if(!matchMulti(x.propiedad||"S/D",dFAmortPropiedad,"todos"))return false;
+      if(multiIsAll(dFAmortTipo,"todos"))return true;
+      const sel=Array.isArray(dFAmortTipo)?dFAmortTipo:[];
+      const tipo=String(x.tipo||"").toUpperCase();
+      const metaTipo=metaEquipoCosto(x.equipo).tipo;
+      return sel.includes(tipo)||sel.includes(metaTipo)||(sel.includes("MAQUINAS")&&(esMaquinaCosto(tipo)||esMaquinaCosto(metaTipo)));
+    });
+    rowsAmortizacionFiltCacheRef.current=out;
+    return out;
+  },[isCostosTabAmortizacion,rowsAmortizacionOrdenadas,dFAmortEquipo,dFAmortTipo,dFAmortPropiedad,metaEquipoCosto]);
+
+  const rowsAmortizacionExcel=React.useMemo(()=>(rowsAmortizacionOrdenadasFiltradas||[]).map(x=>({
     Equipo:x.equipo,
     Propiedad:x.propiedad||"S/D",
     Tipo:x.tipo||"S/D",
@@ -9800,16 +10157,24 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     "Total (USD/hs)":Math.round(x.totalUSDhs||0),
     "% Mant.":x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—",
     "Promedio por tipo":x._firstTipoDisplay?(x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"):"",
-  })),[rowsAmortizacionOrdenadas]);
+  })),[rowsAmortizacionOrdenadasFiltradas]);
 
 
   const resumenEquipoNombre=React.useCallback((tipo,modelo="")=>{
     const t=String(tipo||"S/D").trim().toUpperCase();
     const m=String(modelo||"").trim().toUpperCase();
+    const compactModelo=m.replace(/[\s\-_/]+/g,"");
+
+    // Mantener en Resumen por equipo la misma separación que se usa en Amortización:
+    // - PC350 no se mezcla con el promedio de excavadoras PC200/PC210.
+    // - L120 no se mezcla con el promedio de cargadoras frontales medianas.
+    // Esto evita que el costo horario de amortización y el % mantenimiento del tipo queden sesgados.
+    if(t.includes("EXCAVADORA 1")||compactModelo.includes("PC350"))return "Excavadora PC350";
+    if(t.includes("CARGADORA 1")||compactModelo.includes("L120"))return "Cargador Frontal L120";
 
     // La L330 se estaba mostrando como cargadora frontal por venir dentro del grupo
     // de CARGADORA en Amortización, pero operativamente corresponde a Minicargadora.
-    if(m.includes("L330"))return "Minicargadora";
+    if(compactModelo.includes("L330"))return "Minicargadora";
 
     if(t.includes("MOTONIVELADORA"))return "Motoniveladora";
     if(t.includes("MINICARGADORA"))return "Minicargadora";
@@ -9865,18 +10230,73 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return getModeloFromListaRow(eq,modeloFallback);
   },[listaEquipos,getEquipoListaMaestra,getModeloFromListaRow]);
 
+  const getResumenTipoLabel=React.useCallback((x)=>{
+    const modelo=x?._resumenModelo||x?.modelo||modeloListaEquipo(x?.equipo,x?.modelo)||"";
+    return resumenEquipoNombre(x?.tipo,modelo);
+  },[modeloListaEquipo,resumenEquipoNombre]);
+
+  const resumenFiltroRows=React.useMemo(()=>{
+    // Enriquecemos una sola vez la tabla fuente del resumen. Antes, cada filtro
+    // volvía a buscar modelo/tipo contra toda la Lista Maestra y eso hacía que se tilde.
+    return (rowsAmortizacionOrdenadas||[]).map(x=>{
+      const modeloResumen=modeloListaEquipo(x?.equipo,x?.modelo)||x?.modelo||"";
+      const tipoLabel=getResumenTipoLabel({...x,_resumenModelo:modeloResumen})||"S/D";
+      const tipoValue=cleanKey(tipoLabel)||"sd";
+      const equipoValue=String(x.equipo||"").trim();
+      const propiedadValue=String(x.propiedad||"S/D").trim()||"S/D";
+      return {
+        ...x,
+        _resumenModelo:modeloResumen,
+        _resumenTipoLabel:tipoLabel,
+        _resumenTipoValue:tipoValue,
+        _resumenEquipoValue:equipoValue,
+        _resumenPropiedadValue:propiedadValue,
+      };
+    });
+  },[rowsAmortizacionOrdenadas,modeloListaEquipo,getResumenTipoLabel]);
+
+  const resumenTipoOptions=React.useMemo(()=>{
+    const map=new Map();
+    (resumenFiltroRows||[]).forEach(x=>{
+      const label=x._resumenTipoLabel||"S/D";
+      const value=x._resumenTipoValue||cleanKey(label)||"sd";
+      if(!map.has(value))map.set(value,label);
+    });
+    return [{value:"todos",label:"Todos los tipos"},...Array.from(map.entries()).sort((a,b)=>String(a[1]).localeCompare(String(b[1]))).map(([value,label])=>({value,label}))];
+  },[resumenFiltroRows]);
+
+  const resumenEquipoOptions=React.useMemo(()=>{
+    const vals=Array.from(new Set((resumenFiltroRows||[]).map(x=>x._resumenEquipoValue).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+    return [{value:"todos",label:"Todos los equipos"},...vals.map(v=>({value:v,label:v}))];
+  },[resumenFiltroRows]);
+
+  const resumenPropiedadOptions=React.useMemo(()=>{
+    const vals=Array.from(new Set((resumenFiltroRows||[]).map(x=>x._resumenPropiedadValue||"S/D").filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+    return [{value:"todos",label:"Todas las propiedades"},...vals.map(v=>({value:v,label:v}))];
+  },[resumenFiltroRows]);
+
+  const rowsResumenPorEquipoBase=React.useMemo(()=>{
+    return (resumenFiltroRows||[]).filter(x=>{
+      if(!matchMulti(x._resumenTipoValue,dFResumenTipo,"todos"))return false;
+      if(!matchMulti(x._resumenEquipoValue,dFResumenEquipo,"todos"))return false;
+      if(!matchMulti(x._resumenPropiedadValue,dFResumenPropiedad,"todos"))return false;
+      return true;
+    });
+  },[resumenFiltroRows,dFResumenTipo,dFResumenEquipo,dFResumenPropiedad]);
+
   const rowsResumenPorEquipo=React.useMemo(()=>{
     const grupos={};
 
-    (rowsAmortizacionOrdenadas||[]).forEach(x=>{
-      const tipoGrupo=String(x.tipo||"S/D").trim()||"S/D";
+    (rowsResumenPorEquipoBase||[]).forEach(x=>{
+      const tipoGrupo=String(x._resumenTipoLabel||x.tipo||"S/D").trim()||"S/D";
       const key=cleanKey(tipoGrupo);
 
       if(!grupos[key]){
         grupos[key]={
           tipoGrupo,
           amorts:[],
-          promTipos:[],
+          pctMantVals:[],
+          totalVals:[],
           modelos:{},
           modeloOrden:[],
           detalleMaquinas:[],
@@ -9888,10 +10308,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const amort=Number(x.amort)||0;
       if(amort>0)grupos[key].amorts.push(amort);
 
-      const promTipo=Number(x.promTipo)||0;
-      if(promTipo>0)grupos[key].promTipos.push(promTipo);
+      const pctMant=Number(x.pctMant)||0;
+      if(pctMant>0)grupos[key].pctMantVals.push(pctMant);
 
-      const modelo=modeloListaEquipo(x.equipo,x.modelo)||"—";
+      const totalUSDhs=Number(x.totalUSDhs)||0;
+      if(totalUSDhs>0)grupos[key].totalVals.push(totalUSDhs);
+
+      const modelo=x._resumenModelo||modeloListaEquipo(x.equipo,x.modelo)||"—";
       const modeloKey=cleanKey(modelo);
       if(!grupos[key].modelos[modeloKey]){
         grupos[key].modelos[modeloKey]={modelo,count:0,orden:grupos[key].modeloOrden.length};
@@ -9903,7 +10326,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         equipo:x.equipo||"—",
         modelo,
         propiedad:x.propiedad||"S/D",
+        amort:Number(x.amort)||0,
         pctMant:Number(x.pctMant)||0,
+        totalUSDhs:Number(x.totalUSDhs)||0,
       });
 
       grupos[key].orden=Math.min(grupos[key].orden,Number(x._grupoIndex)||999);
@@ -9913,26 +10338,27 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return Object.values(grupos)
       .sort((a,b)=>a.orden-b.orden||a.ordenTipo-b.ordenTipo||a.tipoGrupo.localeCompare(b.tipoGrupo))
       .map(g=>{
+        // Promedio real según los equipos visibles después de aplicar filtros.
+        // Ej.: si filtrás Propiedad = DELTA, Topadora calcula sólo con topadoras Delta.
         const costoAmort=g.amorts.length?g.amorts.reduce((s,v)=>s+v,0)/g.amorts.length:0;
-        // promTipo ya es el promedio por tipo/grupo que se ve en Amortización.
-        // Si hay varias filas, repetimos ese mismo valor sin volver a partir el grupo por modelo.
-        const pctMant=g.promTipos.length?g.promTipos.reduce((s,v)=>s+v,0)/g.promTipos.length:0;
+        const pctMant=g.pctMantVals.length?g.pctMantVals.reduce((s,v)=>s+v,0)/g.pctMantVals.length:0;
+        const costoTotal=g.totalVals.length?g.totalVals.reduce((s,v)=>s+v,0)/g.totalVals.length:costoAmort*(1+pctMant);
         const modelos=Object.values(g.modelos||{});
         const modeloPredominante=modelos.length
           ? modelos.sort((a,b)=>b.count-a.count||a.orden-b.orden||String(a.modelo).localeCompare(String(b.modelo)))[0].modelo
           : "—";
         const modeloFinal=modeloPredominante||"—";
         return {
-          maquina:resumenEquipoNombre(g.tipoGrupo,modeloFinal),
+          maquina:g.tipoGrupo,
           modelo:modeloFinal,
           costoAmort,
           pctMant,
-          costoTotal:costoAmort*(1+pctMant),
+          costoTotal,
           _tipoGrupo:g.tipoGrupo,
           _detalleMaquinas:g.detalleMaquinas||[],
         };
       });
-  },[rowsAmortizacionOrdenadas,resumenEquipoNombre,modeloListaEquipo]);
+  },[rowsResumenPorEquipoBase,resumenEquipoNombre,modeloListaEquipo]);
 
   const rowsResumenPorEquipoExcel=React.useMemo(()=>(rowsResumenPorEquipo||[]).map(x=>({
     "Maquina":x.maquina,
@@ -10083,6 +10509,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
     return(
       <Card title={`Costo mensual acumulado (Todos los proyectos) (${rowsCM.length} equipos)`} action={<BotonDescargar onClick={()=>descargarExcel("Costo_mensual_acumulado",rowsExcelCM)}/>}> 
+        {renderCostosQuickFilters("t6",true)}
         <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:"rgba(20,30,20,0.6)"}}>
           <span style={{fontSize:12,fontWeight:800,color:C.green}}>Filtros Costo mensual</span>
           <DateIn label="Desde" value={fechaDCostoMensual} onChange={setFechaDCostoMensual} max={hastaCostoMensual||undefined}/>
@@ -10239,7 +10666,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     );
     return(
     <Card title={titulo} action={<BotonDescargar onClick={()=>descargarExcel(filename,rowsTablaCostosExcel(datos,tot))}/>}>
-      <div style={{overflowX:"auto"}}>
+      {renderCostosQuickFilters("t1",true)}
+      <div style={{overflowX:"auto"}}> 
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead><tr>
             {sortableCostHead("tablaCostos","equipo","Equipo",thL)}
@@ -10273,6 +10701,19 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const soloFiltroMesCostos = tab==="t1" || tab==="t7";
 
+
+  const renderCostosQuickFilters=React.useCallback((tableKey="t1",compact=false)=>{
+    const filtros=getCostosFiltrosTabla(tableKey);
+    return (
+      <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:compact?"rgba(0,0,0,.18)":"rgba(0,0,0,.14)"}}>
+        <MultiSel label="Tipo máquina" value={filtros.tipo} onChange={v=>setCostoFiltroTabla(tableKey,"tipo",v)} options={tipoEquipoOpts} commitOnClose commitDelay={650}/>
+        <MultiSel label="Equipo" value={filtros.equipo} onChange={v=>setCostoFiltroTabla(tableKey,"equipo",v)} options={maquinaOpts} commitOnClose commitDelay={650}/>
+        <MultiSel label="Propiedad" value={filtros.propiedad} onChange={v=>setCostoFiltroTabla(tableKey,"propiedad",v)} options={propiedadOpts} commitOnClose commitDelay={650}/>
+        <button onClick={()=>resetCostoFiltroTabla(tableKey)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer",height:33}}>Limpiar filtros</button>
+      </div>
+    );
+  },[getCostosFiltrosTabla,setCostoFiltroTabla,resetCostoFiltroTabla,tipoEquipoOpts,maquinaOpts,propiedadOpts]);
+
   React.useEffect(()=>{
     if(!soloFiltroMesCostos)return;
     const mismoMes=fechaD&&fechaH&&String(fechaD).slice(0,7)===String(fechaH).slice(0,7);
@@ -10292,11 +10733,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           <DateIn label="Desde" value={fechaD} onChange={setFechaD}/>
           <DateIn label="Hasta" value={fechaH} onChange={setFechaH}/>
         </>}
-        <MultiSel label="Proyecto" value={fProyecto} onChange={setFProyecto} options={proyectoOpts}/>
-        <MultiSel label="Propiedad" value={fPropiedad} onChange={setFPropiedad} options={propiedadOpts}/>
-        <MultiSel label="Tipo de equipo" value={fTipoEquipo} onChange={setFTipoEquipo} options={tipoEquipoOpts}/>
-        <MultiSel label="Máquinas" value={fMaquinas} onChange={setFMaquinas} options={maquinaOpts}/>
-        <button onClick={()=>{setFechaDia("");setFechaD("");setFechaH("");setFProyecto("todos");setFPropiedad("todos");setFTipoEquipo("todos");setFMaquinas("todos");}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer"}}>Limpiar filtros</button>
+        <MultiSel label="Proyecto" value={fProyecto} onChange={setFProyectoFluido} options={proyectoOpts}/>
+        <button onClick={()=>{setFechaDia("");setFechaD("");setFechaH("");setFProyecto("todos");setFPropiedad("todos");setFTipoEquipo("todos");setFMaquinas("todos");resetCostosFiltrosTodasTablas();}} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer"}}>Limpiar filtros</button>
         <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Registros RMA15 filtrados: <b style={{color:C.text}}>{rma15Filtrado.length}</b> / {rma15?.length||0}</span>
       </div>
 
@@ -10367,6 +10805,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         </div>
       </div>
 
+
       {/* Tabs */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         {[["t1","Tabla de costos"],["t7","Top 3 Insumos"],["t6","Costo mensual acumulado"],["t4","Mano de Obra"],["t5","Amortización"],["t8","Resumen por equipo"]].map(([id,lbl])=>(
@@ -10374,18 +10813,26 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         ))}
       </div>
 
-      {tab==="t1"&&<TablaCostos datos={tabla1} tot={totCostos} titulo={`Tabla de costos (${proyectoTitulo}) (${tabla1.length} equipos)`} filename="Tabla_de_costos_filtrada"/>}
+      {(isCostosTabPending||isCostosTabPendingTransition)&&(
+        <Card title="Preparando informe">
+          <div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:13}}>
+            Actualizando vista sin bloquear la selección de filtros...
+          </div>
+        </Card>
+      )}
 
-      {tab==="t6"&&<TablaCostoMensualAcumulado/>}
+      {costosRenderTab==="t1"&&!isCostosTabPending&&<TablaCostos datos={tabla1} tot={totCostos} titulo={`Tabla de costos (${proyectoTitulo}) (${tabla1.length} equipos)`} filename="Tabla_de_costos_filtrada"/>}
 
-      {tab==="t4"&&(
+      {costosRenderTab==="t6"&&!isCostosTabPending&&<TablaCostoMensualAcumulado/>}
+
+      {costosRenderTab==="t4"&&!isCostosTabPending&&(
         <Card title="Mano de Obra" action={<BotonDescargar onClick={()=>descargarExcel("Mano_de_Obra",rowsManoObraExcel)}/>}>
           {/* Filtros AISLADOS para Mano de Obra — independientes de los filtros del resto de tablas */}
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:"rgba(20,30,20,0.6)"}}>
             <span style={{fontSize:12,fontWeight:800,color:C.green}}>Filtros Mano de Obra</span>
-            <MultiSel label="Propiedad MO" value={fMOPropiedad} onChange={setFMOPropiedad} options={moPropiedadOpts}/>
-            <MultiSel label="Tipo equipo MO" value={fMOTipoEquipo} onChange={setFMOTipoEquipo} options={moTipoEquipoOpts}/>
-            <MultiSel label="Máquinas MO" value={fMOMaquinas} onChange={setFMOMaquinas} options={moMaquinaOpts}/>
+            <MultiSel label="Propiedad MO" value={fMOPropiedad} onChange={setFMOPropiedadFluido} options={moPropiedadOpts}/>
+            <MultiSel label="Tipo equipo MO" value={fMOTipoEquipo} onChange={setFMOTipoEquipoFluido} options={moTipoEquipoOpts}/>
+            <MultiSel label="Máquinas MO" value={fMOMaquinas} onChange={setFMOMaquinasFluido} options={moMaquinaOpts}/>
             <button onClick={()=>{setFMOPropiedad("todos");setFMOTipoEquipo("todos");setFMOMaquinas("todos");}}
               style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer"}}>Limpiar</button>
             <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Registros: <b style={{color:C.text}}>{rma15FiltradoMO.length}</b></span>
@@ -10443,7 +10890,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         </Card>
       )}
 
-      {tab==="t7"&&(()=>{
+      {costosRenderTab==="t7"&&!isCostosTabPending&&(()=>{
         // Top 3 insumos más caros por equipo, separados en correctivo y preventivo
         const top3Data=React.useMemo?null:(()=>{})(); // computed inline below
         const byEquipo={};
@@ -10493,10 +10940,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         const tdTop={padding:"6px 10px",fontSize:11,borderBottom:`1px solid ${C.border}55`,color:C.text,background:"rgba(20,20,20,0.72)"};
         const tdTopN={...tdTop,textAlign:"right"};
         return(
-          <div style={{display:"flex",flexDirection:"column",gap:12,marginTop:8}}>
-            <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:10}}>
-              <BotonDescargar onClick={()=>descargarExcel("Top_3_Insumos",rowsTop3InsumosExcel())}/>
-            </div>
+          <Card title={`Top 3 Insumos (${equipos.length} equipos)`} action={<BotonDescargar onClick={()=>descargarExcel("Top_3_Insumos",rowsTop3InsumosExcel())}/>}>
+            {renderCostosQuickFilters("t7",true)}
+            <div style={{display:"flex",flexDirection:"column",gap:20,padding:12}}>
             <div style={{display:"flex",flexDirection:"column",gap:20}}>
             {equipos.map(eq=>{
               const corrRows=top3(eq.corr);
@@ -10576,12 +11022,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
               </div>
             )}
             </div>
-          </div>
+            </div>
+          </Card>
         );
       })()}
 
-      {tab==="t5"&&(
+      {costosRenderTab==="t5"&&!isCostosTabPending&&(
         <Card title="Costo horario de amortización y mantenimiento" action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",rowsAmortizacionExcel)}/>}> 
+          {renderCostosQuickFilters("t5",true)}
           {(!listaEquipos||listaEquipos.length===0)?(
             <div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:13}}>
               Cargá la <b>Lista Maestra de Equipos</b> desde el menú lateral para ver esta tabla.
@@ -10609,7 +11057,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                               setVidaUtilState(s=>{
                                 const lista={};
                                 const override={...s.override};
-                                rowsAmortizacionOrdenadas.filter(x=>x._esDelta).forEach(x=>{
+                                rowsAmortizacionOrdenadasFiltradas.filter(x=>x._esDelta).forEach(x=>{
                                   lista[x.equipo]=false;
                                   // Usar getVidaUtilListaMaestra directamente — fuente de verdad pura
                                   if(!(override[x.equipo]>0)){
@@ -10634,7 +11082,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                   {sortableCostHead("amortizacion","promTipo","Promedio por tipo",{...thS,textAlign:"center"})}
                 </tr></thead>
                 <tbody>
-                  {rowsAmortizacionOrdenadas.map((x,i)=>(
+                  {rowsAmortizacionOrdenadasFiltradas.map((x,i)=>(
                     <AmortRow
                       key={x.equipo}
                       x={x}
@@ -10655,8 +11103,16 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         </Card>
       )}
 
-      {tab==="t8"&&(
+      {costosRenderTab==="t8"&&!isCostosTabPending&&(
         <Card title="Resumen por equipo" action={<BotonDescargar onClick={()=>descargarExcel("Resumen_por_equipo",rowsResumenPorEquipoExcel)}/>}>
+          <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"12px 14px",borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.18)"}}>
+            <MultiSel label="Tipo máquina" value={fResumenTipo} onChange={v=>setFiltroFluido(setFResumenTipo,v)} options={resumenTipoOptions}/>
+            <MultiSel label="Equipo" value={fResumenEquipo} onChange={v=>setFiltroFluido(setFResumenEquipo,v)} options={resumenEquipoOptions}/>
+            <MultiSel label="Propiedad" value={fResumenPropiedad} onChange={v=>setFiltroFluido(setFResumenPropiedad,v)} options={resumenPropiedadOptions}/>
+            <button onClick={()=>{setFResumenTipo("todos");setFResumenEquipo("todos");setFResumenPropiedad("todos");}}
+              style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer",height:33}}>Limpiar filtros</button>
+            <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted,paddingBottom:8}}>Equipos considerados: <b style={{color:C.text}}>{rowsResumenPorEquipoBase.length}</b></span>
+          </div>
           {(!rowsResumenPorEquipo||rowsResumenPorEquipo.length===0)?(
             <div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:13}}>
               Sin datos para mostrar. Revisá los filtros o cargá la Lista Maestra de Equipos.
@@ -10686,7 +11142,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                           <tr>
                             <td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.10);color:#fff;font-weight:700;white-space:nowrap">${esc(d.equipo)}</td>
                             <td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.10);color:#ddd;white-space:nowrap">${esc(d.propiedad||"S/D")}</td>
-                            <td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.10);color:#ffb300;font-weight:800;text-align:right;white-space:nowrap">${Number(d.pctMant)>0?(Number(d.pctMant)*100).toFixed(0)+"%":"—"}</td>
+                            <td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.10);color:#ffb300;font-weight:800;text-align:right;white-space:nowrap">${Number(d.amort)>0?"USD "+Math.round(Number(d.amort)):"—"}</td>
+                            <td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.10);color:#b86cff;font-weight:800;text-align:right;white-space:nowrap">${Number(d.pctMant)>0?(Number(d.pctMant)*100).toFixed(0)+"%":"—"}</td>
                           </tr>`).join("");
                         const tip=document.createElement("div");
                         tip.id="resumen-equipo-tip";
@@ -10699,10 +11156,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                               <tr>
                                 <th style="padding:4px 8px;text-align:left;color:#999;border-bottom:1px solid rgba(255,255,255,.18);font-size:11px">Máquina</th>
                                 <th style="padding:4px 8px;text-align:left;color:#999;border-bottom:1px solid rgba(255,255,255,.18);font-size:11px">Propiedad</th>
+                                <th style="padding:4px 8px;text-align:right;color:#999;border-bottom:1px solid rgba(255,255,255,.18);font-size:11px">Amort.</th>
                                 <th style="padding:4px 8px;text-align:right;color:#999;border-bottom:1px solid rgba(255,255,255,.18);font-size:11px">% Mant.</th>
                               </tr>
                             </thead>
-                            <tbody>${rows||`<tr><td colspan="3" style="padding:6px 8px;color:#777">Sin detalle</td></tr>`}</tbody>
+                            <tbody>${rows||`<tr><td colspan="4" style="padding:6px 8px;color:#777">Sin detalle</td></tr>`}</tbody>
                           </table>`;
                         positionTip(tip,e.clientX,e.clientY);
                       }}
@@ -11416,6 +11874,8 @@ const RABA03_EXTRA_COLUMNS = [
 ];
 
 const RABA08_STORAGE_KEY = "dm_raba08_remitos_v1";
+const RABA03_REJECTED_STORAGE_KEY = "dm_raba03_solicitudes_rechazadas_v1";
+const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";
 const STOCK_CONTROL_STORAGE_KEY = "dm_control_stock_excel_v1";
 const STOCK_CONTROL_COLUMNS = [
   {key:"codigoArticulo", label:"Cód. artículo", width:112},
@@ -11430,6 +11890,15 @@ const STOCK_CONTROL_COLUMNS = [
 
 function AbastecimientoModule({initialTab="solicitudes"}={}){
   const [rows,setRows]=useState([]);
+  const [rejectedSolicitudes,setRejectedSolicitudes]=useState(()=>{
+    try{return JSON.parse(window.localStorage.getItem(RABA03_REJECTED_STORAGE_KEY)||"{}");}
+    catch(_){return {};}
+  });
+  const [closedSolicitudes,setClosedSolicitudes]=useState(()=>{
+    try{return JSON.parse(window.localStorage.getItem(RABA03_CLOSED_STORAGE_KEY)||"{}");}
+    catch(_){return {};}
+  });
+  const [rejectModal,setRejectModal]=useState({open:false,row:null,observacion:""});
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState(null);
   const [tab,setTab]=useState(initialTab);
@@ -11494,6 +11963,16 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   },[stockRows,stockFileName]);
 
   useEffect(()=>{
+    try{window.localStorage.setItem(RABA03_REJECTED_STORAGE_KEY,JSON.stringify(rejectedSolicitudes||{}));}
+    catch(_){}
+  },[rejectedSolicitudes]);
+
+  useEffect(()=>{
+    try{window.localStorage.setItem(RABA03_CLOSED_STORAGE_KEY,JSON.stringify(closedSolicitudes||{}));}
+    catch(_){}
+  },[closedSolicitudes]);
+
+  useEffect(()=>{
     setStockVisibleLimit(350);
   },[stockFilters,stockSort]);
 
@@ -11511,6 +11990,16 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     if(t.includes("filo del sol")||t.includes("filo")||t.includes("fds")||t.includes("fs"))return "FILO DEL SOL";
     if(t.includes("oficina")||t.includes("deposito")||t.includes("depósito")||t.includes("admin"))return "OFICINA";
     return String(v||"").trim().toUpperCase();
+  },[norm]);
+
+  const normalizeEmpresa=useCallback((v)=>{
+    const raw=String(v||"").trim();
+    const t=norm(raw);
+    if(!t)return "";
+    if(t.includes("delta"))return "DELTA MINING";
+    if(t.includes("minera jose maria")||t.includes("jose maria"))return "JOSE MARIA";
+    if(t.includes("filo del sol")||t.includes("filo"))return "FILO DEL SOL";
+    return raw.toUpperCase().replace(/\s+/g," ").trim();
   },[norm]);
 
   const pick=useCallback((obj,names)=>{
@@ -11634,7 +12123,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     return {
       id:`raba03-${idx}`,
       nSolicitud:String(pick(r,["N° de solicitud","Nº de solicitud","N de solicitud","Numero de solicitud","Número de solicitud","Solicitud"])||idx+1).trim(),
-      empresa:String(pick(r,["Empresa"])||"").trim(),
+      empresa:normalizeEmpresa(pick(r,["Empresa"])),
       fechaSolicitud:formatDateLocal(pick(r,["Fecha de solicitud","Fecha solicitud","F. Sol."])),
       fechaRequerida:formatDateLocal(pick(r,["Fecha requerida del producto","Fecha requerida","F. Req."])),
       pedidoPor:String(pick(r,["Pedido por","Solicitante"])||"").trim(),
@@ -11645,7 +12134,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       cantidadEnviada:enviada,
       cantidadRestante:restante
     };
-  },[formatDateLocal,pick,sentByCode,normCode,toNumber,normalizeCentroCosto]);
+  },[formatDateLocal,pick,sentByCode,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa]);
 
   const buildSolicitudKey=useCallback((row)=>{
     const fechaSol=formatDateLocal(row.fechaSolicitud||row["Fecha de solicitud"]||"");
@@ -11663,6 +12152,60 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   },[formatDateLocal,norm,normCode,normalizeCentroCosto,toNumber]);
 
   const existingSolicitudKeys=useMemo(()=>new Set(rows.map(buildSolicitudKey)),[rows,buildSolicitudKey]);
+
+  const openRejectSolicitud=useCallback((row)=>{
+    setRejectModal({open:true,row,observacion:""});
+  },[]);
+
+  const confirmRejectSolicitud=useCallback(()=>{
+    const row=rejectModal.row;
+    if(!row)return;
+    const observacion=String(rejectModal.observacion||"").trim();
+    if(!observacion){
+      window.alert("Ingresá una observación para rechazar la solicitud.");
+      return;
+    }
+    const key=buildSolicitudKey(row);
+    setRejectedSolicitudes(prev=>({
+      ...(prev||{}),
+      [key]:{
+        observacion,
+        nSolicitud:row.nSolicitud||"",
+        codigoArticulo:row.codigoArticulo||"",
+        descripcion:row.descripcion||"",
+        fecha:new Date().toISOString(),
+        usuario:"APP"
+      }
+    }));
+    setRejectModal({open:false,row:null,observacion:""});
+  },[rejectModal,buildSolicitudKey]);
+
+  const closeSolicitudManual=useCallback((row)=>{
+    if(!row)return;
+    const ok=window.confirm("¿Cerrar esta solicitud parcial aunque no se hayan enviado todos los artículos?");
+    if(!ok)return;
+    const key=buildSolicitudKey(row);
+    setClosedSolicitudes(prev=>({
+      ...(prev||{}),
+      [key]:{
+        nSolicitud:row.nSolicitud||"",
+        codigoArticulo:row.codigoArticulo||"",
+        descripcion:row.descripcion||"",
+        fecha:new Date().toISOString(),
+        motivo:"Cierre manual desde Parciales"
+      }
+    }));
+  },[buildSolicitudKey]);
+
+  const restoreRejectedSolicitud=useCallback((row)=>{
+    if(!row)return;
+    const key=buildSolicitudKey(row);
+    setRejectedSolicitudes(prev=>{
+      const next={...(prev||{})};
+      delete next[key];
+      return next;
+    });
+  },[buildSolicitudKey]);
 
   const loadRaba03=useCallback(async()=>{
     setLoading(true);
@@ -11772,7 +12315,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       };
 
       const prepared=rawRows.map(row=>({
-        empresa:String(pickExcel(row,["Empresa"] )||"").trim(),
+        empresa:normalizeEmpresa(pickExcel(row,["Empresa"] )),
         fechaSolicitud:formatImportedExcelDate(pickExcel(row,["Fecha de solicitud"] )),
         fechaRequerida:formatImportedExcelDate(pickExcel(row,["Fecha requerida del producto","Fecha requerida"] )),
         pedidoPor:String(pickExcel(row,["Autorizado por:","Autorizado por","Pedido por"] )||"").trim(),
@@ -11822,7 +12365,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     }finally{
       setLoading(false);
     }
-  },[norm,toNumber,normalizeCentroCosto,existingSolicitudKeys,buildSolicitudKey]);
+  },[norm,toNumber,normalizeCentroCosto,normalizeEmpresa,existingSolicitudKeys,buildSolicitudKey]);
 
   const confirmSolicitudesImport=useCallback(async()=>{
     const rowsToSend=(importModal.rows||[]).map(({previewId,estado,...row})=>row);
@@ -11955,10 +12498,19 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   const filteredRows=useMemo(()=>{
     const q=norm(query);
     return rows.filter(r=>{
+      const key=buildSolicitudKey(r);
+      const rechazada=Boolean(rejectedSolicitudes&&rejectedSolicitudes[key]);
+      const cerradaManual=Boolean(closedSolicitudes&&closedSolicitudes[key]);
       const solicitada=toNumber(r.cantidadSolicitada);
       const enviada=toNumber(r.cantidadEnviada);
       const restante=toNumber(r.cantidadRestante);
+      const cerrada=solicitada>0&&(restante<=0||cerradaManual);
       const fechaISO=fechaSolicitudISO(r.fechaSolicitud);
+      if(tab==="rechazadas"){
+        if(!rechazada)return false;
+      }else if(rechazada){
+        return false;
+      }
       if(!matchMulti(r.centroCosto,project,"todos"))return false;
       if(!matchMulti(r.empresa,company,"todos"))return false;
       if(!matchMulti(canonicalSupervisor(r.pedidoPor),supervisor,"todos"))return false;
@@ -11969,12 +12521,13 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
         if((rabaDateFrom||rabaDateTo)&&!fechaISO)return false;
       }
       if(tab==="pendientes"&&enviada>0)return false;
-      if(tab==="parciales"&&!(enviada>0&&restante>0))return false;
-      if(tab==="cerradas"&&!(solicitada>0&&restante<=0))return false;
+      if(tab==="parciales"&&!(enviada>0&&restante>0&&!cerradaManual))return false;
+      if(tab==="cerradas"&&!cerrada)return false;
       if(!q)return true;
-      return [r.nSolicitud,r.empresa,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada,r.cantidadEnviada,r.cantidadRestante].some(v=>norm(v).includes(q));
+      const obs=rejectedSolicitudes?.[key]?.observacion||"";
+      return [r.nSolicitud,r.empresa,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada,r.cantidadEnviada,r.cantidadRestante,obs].some(v=>norm(v).includes(q));
     });
-  },[rows,project,company,supervisor,rabaFilterMode,rabaDate,rabaDateFrom,rabaDateTo,query,tab,toNumber,fechaSolicitudISO,norm,canonicalSupervisor]);
+  },[rows,project,company,supervisor,rabaFilterMode,rabaDate,rabaDateFrom,rabaDateTo,query,tab,toNumber,fechaSolicitudISO,norm,canonicalSupervisor,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);
 
   const sortedRows=useMemo(()=>{
     const dir=sort.dir==="asc"?1:-1;
@@ -11998,12 +12551,14 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   },[filteredRows,sort]);
 
   const stats=useMemo(()=>{
-    const pendientes=rows.filter(r=>toNumber(r.cantidadEnviada)<=0).length;
-    const parciales=rows.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0).length;
-    const cerradas=rows.filter(r=>toNumber(r.cantidadSolicitada)>0&&toNumber(r.cantidadRestante)<=0).length;
-    const enviados=rows.filter(r=>toNumber(r.cantidadEnviada)>0).length;
-    return {pendientes,parciales,cerradas,total:rows.length,enviados};
-  },[rows,toNumber]);
+    const activos=rows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);
+    const pendientes=activos.filter(r=>toNumber(r.cantidadEnviada)<=0).length;
+    const parciales=activos.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;
+    const cerradas=activos.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).length;
+    const rechazadas=rows.length-activos.length;
+    const enviados=activos.filter(r=>toNumber(r.cantidadEnviada)>0).length;
+    return {pendientes,parciales,cerradas,rechazadas,total:rows.length,enviados};
+  },[rows,toNumber,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);
 
   const parseRabaDateMs=useCallback((v)=>{
     const txt=String(v||"").trim();
@@ -12144,6 +12699,35 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     const stamp=new Date().toISOString().slice(0,10);
     XLSX.writeFile(wb,`RABA03_${stamp}.xlsx`);
   },[raba03DownloadRows]);
+
+  const generarExcelEstadoRABA03=useCallback(()=>{
+    const baseRows=sortedRows||[];
+    if(!baseRows.length){
+      window.alert("No hay filas para exportar.");
+      return;
+    }
+
+    const estadoLabel={
+      pendientes:"Pendientes",
+      parciales:"Parciales",
+      cerradas:"Cerradas",
+      rechazadas:"Rechazadas"
+    }[tab]||"Solicitudes";
+
+    const headers=["Código","Descripción","Cantidad"];
+    const out=baseRows.map(r=>[
+      String(r.codigoArticulo||"S/C"),
+      String(r.descripcion||""),
+      toNumber(r.cantidadSolicitada)
+    ]);
+
+    const wb=XLSX.utils.book_new();
+    const ws=XLSX.utils.aoa_to_sheet([headers,...out]);
+    ws["!cols"]=[{wch:16},{wch:65},{wch:14}];
+    XLSX.utils.book_append_sheet(wb,ws,estadoLabel.slice(0,31));
+    const stamp=new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb,`RABA03_${estadoLabel}_${stamp}.xlsx`);
+  },[sortedRows,tab,toNumber]);
 
   useEffect(()=>{
     window.dmGenerateRABA03=generarRABA03Excel;
@@ -12881,9 +13465,14 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     );
   };
 
-  const renderMainTable=()=> (
+  const renderMainTable=()=>{
+    const showActions=["solicitudes","pendientes","parciales","cerradas"].includes(tab);
+    const showRejectedObs=tab==="rechazadas";
+    const extraWidth=showActions||showRejectedObs?210:0;
+    const colSpan=RABA03_COLUMNS.length+(showActions||showRejectedObs?1:0);
+    return (
     <div style={{overflowX:"auto",background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.18)",backdropFilter:"blur(6px)"}}>
-      <table style={{width:"100%",minWidth:1420,borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",tableLayout:"fixed"}}>
+      <table style={{width:"100%",minWidth:1420+extraWidth,borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",tableLayout:"fixed"}}>
         <thead style={{background:"rgba(0,0,0,.35)"}}>
           <tr>
             {RABA03_COLUMNS.map(col=>(
@@ -12891,10 +13480,15 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
                 {col.label}{sort.key===col.key?<span style={{color:C.red}}> {sort.dir==="asc"?"↑":"↓"}</span>:null}
               </th>
             ))}
+            {(showActions||showRejectedObs)&&<th style={{...thStyle,cursor:"default",width:extraWidth,textAlign:"left"}}>{showRejectedObs?"Observación rechazo":"Acciones"}</th>}
           </tr>
         </thead>
         <tbody>
-          {sortedRows.length?sortedRows.map(r=>(
+          {sortedRows.length?sortedRows.map(r=>{
+            const key=buildSolicitudKey(r);
+            const rejectInfo=rejectedSolicitudes?.[key];
+            const manualClosed=Boolean(closedSolicitudes?.[key]);
+            return (
             <tr key={r.id}>
               <td style={tdStyle}>{r.nSolicitud}</td>
               <td style={tdStyle}>{r.empresa||"—"}</td>
@@ -12906,16 +13500,33 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
               <td style={{...tdStyle,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={r.descripcion}>{r.descripcion||"—"}</td>
               <td style={{...tdStyle,textAlign:"right"}}>{fmtNum(r.cantidadSolicitada)}</td>
               <td style={{...tdStyle,textAlign:"right",color:toNumber(r.cantidadEnviada)>0?C.green:C.text}}>{fmtNum(r.cantidadEnviada)}</td>
-              <td style={{...tdStyle,textAlign:"right",color:toNumber(r.cantidadRestante)>0?C.yellow:C.green}}>{fmtNum(r.cantidadRestante)}</td>
+              <td style={{...tdStyle,textAlign:"right",color:(toNumber(r.cantidadRestante)>0&&!manualClosed)?C.yellow:C.green}}>{manualClosed?<span title="Cierre manual">Cerrada manual</span>:fmtNum(r.cantidadRestante)}</td>
+              {showActions&&(
+                <td style={{...tdStyle,whiteSpace:"nowrap"}}>
+                  <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+                    <button onClick={()=>openRejectSolicitud(r)} style={{border:`1px solid ${C.red}66`,background:`${C.red}18`,color:C.red,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>Rechazar</button>
+                    {tab==="parciales"&&<button onClick={()=>closeSolicitudManual(r)} style={{border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>Cerrar</button>}
+                  </div>
+                </td>
+              )}
+              {showRejectedObs&&(
+                <td style={{...tdStyle,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={rejectInfo?.observacion||""}>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis"}}>{rejectInfo?.observacion||"—"}</span>
+                    <button onClick={()=>restoreRejectedSolicitud(r)} style={{marginLeft:"auto",border:`1px solid ${C.blue}66`,background:`${C.blue}18`,color:C.blue,borderRadius:8,padding:"4px 8px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter",flex:"0 0 auto"}}>Restaurar</button>
+                  </div>
+                </td>
+              )}
             </tr>
-          )):(
-            <tr><td colSpan={RABA03_COLUMNS.length} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>Sin datos para mostrar.</td></tr>
+          );}) : (
+            <tr><td colSpan={colSpan} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>Sin datos para mostrar.</td></tr>
           )}
         </tbody>
       </table>
       <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(sortedRows.length)} ítems mostrados</div>
     </div>
-  );
+    );
+  };
 
 
   const renderEditarCodigos=()=>{
@@ -13063,6 +13674,26 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
           <div style={{fontSize:18,fontWeight:900,color:C.text}}>Carga realizada</div>
           <div style={{fontSize:15,fontWeight:900,color:C.green}}>{successAlert.message}</div>
           <button onClick={()=>setSuccessAlert(null)} style={{justifySelf:"center",border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:10,padding:"10px 18px",fontWeight:900,cursor:"pointer"}}>Aceptar</button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderRejectModal=()=>{
+    if(!rejectModal.open)return null;
+    const row=rejectModal.row||{};
+    return (
+      <div style={{position:"fixed",inset:0,zIndex:10020,background:"rgba(0,0,0,.58)",display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+        <div style={{width:"min(560px,94vw)",background:"rgba(24,24,24,.97)",border:`1px solid ${C.red}66`,borderRadius:18,boxShadow:"0 30px 90px rgba(0,0,0,.55)",padding:20,display:"grid",gap:14}}>
+          <div>
+            <div style={{fontSize:18,fontWeight:900,color:C.text}}>Rechazar solicitud</div>
+            <div style={{fontSize:12,fontWeight:700,color:C.textSub,marginTop:4}}>Solicitud {row.nSolicitud||"—"} · {row.codigoArticulo||"S/C"} · {row.descripcion||""}</div>
+          </div>
+          <textarea value={rejectModal.observacion} onChange={e=>setRejectModal(prev=>({...prev,observacion:e.target.value}))} placeholder="Escribí la observación del rechazo..." autoFocus style={{...inputStyle,minHeight:120,resize:"vertical",lineHeight:1.35}}/>
+          <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
+            <button onClick={()=>setRejectModal({open:false,row:null,observacion:""})} style={{border:`1px solid ${C.border}`,background:"rgba(255,255,255,.06)",color:C.text,borderRadius:10,padding:"9px 13px",fontWeight:900,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={confirmRejectSolicitud} style={{border:`1px solid ${C.red}66`,background:`${C.red}18`,color:C.red,borderRadius:10,padding:"9px 13px",fontWeight:900,cursor:"pointer"}}>Rechazar</button>
+          </div>
         </div>
       </div>
     );
@@ -13228,6 +13859,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   return (
     <div style={{display:"grid",gap:14,fontFamily:"Inter, system-ui, sans-serif"}}>
       {renderImportModal()}
+      {renderRejectModal()}
       {renderSuccessAlert()}
       {!["dashboard","remito","stock","stockDashboard","raba03"].includes(tab)&&(<Card>
         <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
@@ -13250,6 +13882,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
             <input type="file" accept=".xlsx,.xls" onChange={e=>{handleSolicitudesExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
           </label>)}
           <button onClick={loadRaba03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="refresh" size={11} color={C.red}/>Actualizar</button>
+          {["pendientes","parciales","cerradas","rechazadas"].includes(tab)&&(<button onClick={generarExcelEstadoRABA03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,cursor:"pointer",fontSize:11,fontWeight:900,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="fileSpreadsheet" size={12} color={C.green}/>Descargar Excel</button>)}
           <button onClick={tab==="editarCodigos"?guardarCodigosRABA03:guardarDatosRABA03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.blue}44`,background:`${C.blue}16`,color:C.blue,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="check" size={11} color={C.blue}/>Guardar datos</button>
           <button onClick={resetRabaFilters} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltrosRaba?1:0.3,pointerEvents:hayFiltrosRaba?"auto":"none",alignSelf:"flex-end"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
         </div>
@@ -13257,10 +13890,11 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
 
 
       {!["dashboard","stock","stockDashboard"].includes(tab)&&(
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(140px,1fr))",gap:10}}>
         <StatCard icon="warn" label="Pendientes" value={fmtNum(stats.pendientes)} sub="sin artículos enviados" color={C.yellow} small/>
         <StatCard icon="report" label="Parciales" value={fmtNum(stats.parciales)} sub="enviados parcialmente" color={C.blue} small/>
-        <StatCard icon="check" label="Cerradas" value={fmtNum(stats.cerradas)} sub="cantidad completa enviada" color={C.green} small/>
+        <StatCard icon="check" label="Cerradas" value={fmtNum(stats.cerradas)} sub="cantidad completa enviada o cierre manual" color={C.green} small/>
+        <StatCard icon="close" label="Rechazadas" value={fmtNum(stats.rechazadas)} sub="con observación" color={C.red} small/>
         <StatCard icon="report" label="Total ítems" value={fmtNum(stats.total)} sub="solicitudes cargadas" color={C.blue} small/>
       </div>
       )}
@@ -13669,7 +14303,7 @@ export default function App(){
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -13732,6 +14366,7 @@ export default function App(){
           {id:"abastecimientoPendientes",icon:"warn",label:"Pendientes"},
           {id:"abastecimientoParciales",icon:"report",label:"Parciales"},
           {id:"abastecimientoCerradas",icon:"check",label:"Cerradas"},
+          {id:"abastecimientoRechazadas",icon:"close",label:"Solicitudes rechazadas"},
           {id:"abastecimientoRemito",icon:"truck",label:"Remito"},
           {id:"abastecimientoRABA03",icon:"fileSpreadsheet",label:"RABA03"},
           {id:"abastecimientoEditarCodigos",icon:"fileSpreadsheet",label:"Editar códigos"},
@@ -13837,9 +14472,9 @@ export default function App(){
             {fatalError&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
             {!fatalError&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
-                <Spinner size={36}/>
-                <div style={{color:C.textMuted,fontSize:13}}>Cargando datos desde Google Sheets...</div>
-                <div style={{fontFamily:"monospace",fontSize:10,color:C.borderLight}}>{APPS_SCRIPT_URL.slice(0,60)}...</div>
+                <img src="/loader.gif" alt="Cargando" style={{width:320,height:"auto"}}/>
+                <div style={{color:C.text,fontSize:22,fontWeight:800}}>Cargando datos...</div>
+                <div style={{color:C.textMuted,fontSize:13}}>Sincronizando información</div>
               </div>
             )}
             {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
@@ -13865,7 +14500,7 @@ export default function App(){
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
-                {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<AbastecimientoModule initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/>) }
+                {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<AbastecimientoModule initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/>) }
                 {view==="control"&&(dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<BlockingDataLoader label="Cargando Control ROP05 vs ROP02..." />)}
               </>
             )}
