@@ -10005,9 +10005,17 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     };
     const prefijosAmortizacion=new Set((AMORTIZACION_GRUPOS||[]).flatMap(g=>[...(g.prefixes||[]),...(g.equipos||[]).map(e=>String(e||"").split("-")[0])]).filter(Boolean));
 
+    // Equipos de Lista Maestra sin ningún registro de mantenimiento histórico.
+    // Se excluyen únicamente cuando entrarían por Lista Maestra; si en el futuro
+    // aparecen en Costo acumulado por tener mantenimiento, volverán a mostrarse.
+    const equiposSinMantenimientoExcluirAmortizacion=new Set([
+      "MOT-0023","MOT-0025","PCA-0002","RTP-0009","TOP-0020"
+    ].map(canonicalEquivalentMachineCode));
+
     (listaEquipos||[]).forEach(eq=>{
       const code=cleanMachine(mainMachineCode(codigoListaEquipoCosto(eq)));
       if(!code||isInvalidEquipoCodeCosto(code))return;
+      if(equiposSinMantenimientoExcluirAmortizacion.has(canonicalEquivalentMachineCode(code)))return;
       const canon=canonicalEquivalentMachineCode(code);
       if(!canon||yaCargadosCanon.has(canon))return;
 
