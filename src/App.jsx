@@ -5318,9 +5318,12 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
 
 
 function ViewAtrasoROP02({rop02All}){
-  const STORAGE_KEY="delta_rop02_atrasos_admitidos_v1";
+  const STORAGE_KEY="delta_rop02_atrasos_admitidos_v2";
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded && normalizeMachineCode(r.maquina)!=="CAA-0002" && r.fecha),[rop02All]);
   const [admitidos,setAdmitidos]=useState(()=>{try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");}catch{return{};}});
+  const [modalAtraso,setModalAtraso]=useState(null);
+  const [motivoTipo,setMotivoTipo]=useState("Bajó a San Juan");
+  const [motivoOtro,setMotivoOtro]=useState("");
   const saveAdmitidos=useCallback((next)=>{setAdmitidos(next);try{localStorage.setItem(STORAGE_KEY,JSON.stringify(next));}catch{}},[]);
   const hoyISO=useMemo(()=>{
     const d=new Date();
@@ -5328,13 +5331,16 @@ function ViewAtrasoROP02({rop02All}){
     return d.toISOString().slice(0,10);
   },[]);
   const keyEquipoAtraso=useCallback((maquina)=>canonicalEquivalentMachineCode(String(maquina||"").replace(/[-\s]*\(.*?\)/g,"")).replace(/[-_]JM$/i,""),[]);
+
   const data=useMemo(()=>{
     const dayMs=86400000;
-    const diffDias=(a,b)=>Math.floor((new Date(a+"T00:00:00")-new Date(b+"T00:00:00"))/dayMs);
+    const toDate=iso=>new Date(iso+"T00:00:00");
+    const diffDias=(a,b)=>Math.floor((toDate(a)-toDate(b))/dayMs);
+    const addDays=(iso,n)=>{const d=toDate(iso);d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);};
     const fechasEntre=(desde,hasta)=>{
       const out=[];
-      const d=new Date(desde+"T00:00:00");
-      const h=new Date(hasta+"T00:00:00");
+      const d=toDate(desde);
+      const h=toDate(hasta);
       d.setDate(d.getDate()+1);
       while(d<h){out.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1);}
       return out;
@@ -5342,84 +5348,108 @@ function ViewAtrasoROP02({rop02All}){
 
     const fechas=uniq(rop02Prod.map(r=>r.fecha)).sort();
     const ultimaFecha=fechas[fechas.length-1]||"";
-    const ultimaDate=ultimaFecha?new Date(ultimaFecha+"T00:00:00"):null;
-    const hoyDate=new Date(hoyISO+"T00:00:00");
-    const diasAtraso=ultimaDate?Math.floor((hoyDate-ultimaDate)/dayMs):null;
-    const rowsUltima=rop02Prod.filter(r=>r.fecha===ultimaFecha);
-    const presentes=new Set(rowsUltima.map(r=>keyEquipoAtraso(r.maquina)).filter(Boolean));
-    const desdeRef=ultimaDate?new Date(ultimaDate.getTime()-7*dayMs):null;
-    const desdeRefISO=desdeRef?desdeRef.toISOString().slice(0,10):"";
-    const desdeSaltos=ultimaDate?new Date(ultimaDate.getTime()-45*dayMs):null;
-    const desdeSaltosISO=desdeSaltos?desdeSaltos.toISOString().slice(0,10):"";
-    const hist={};
-    const porEquipo={};
+    const diasAtraso=ultimaFecha?diffDias(hoyISO,ultimaFecha):null;
+    const rowsUltima=ultimaFecha?rop02Prod.filter(r=>r.fecha===ultimaFecha):[];
+    const presentesUltima=new Set(rowsUltima.map(r=>keyEquipoAtraso(r.maquina)).filter(Boolean));
 
+    const porEquipo={};
     rop02Prod.forEach(r=>{
       const k=keyEquipoAtraso(r.maquina);
       if(!k)return;
-      if(!porEquipo[k])porEquipo[k]={maquina:r.maquina,proyecto:r.proyecto,supervisor:r.supervisor,fechas:new Set()};
-      if(!desdeSaltosISO||r.fecha>=desdeSaltosISO)porEquipo[k].fechas.add(r.fecha);
-
-      if(!ultimaFecha||r.fecha>=ultimaFecha||r.fecha<desdeRefISO)return;
-      if(!hist[k])hist[k]={maquina:r.maquina,proyecto:r.proyecto,supervisor:r.supervisor,registros:0,fechas:new Set(),ultima:r.fecha};
-      hist[k].registros+=1;
-      hist[k].fechas.add(r.fecha);
-      if(r.fecha>hist[k].ultima)hist[k].ultima=r.fecha;
+      if(!porEquipo[k])porEquipo[k]={codigo:k,maquina:r.maquina,proyecto:r.proyecto,supervisor:r.supervisor,fechas:new Set(),registros:0};
+      porEquipo[k].fechas.add(r.fecha);
+      porEquipo[k].registros+=1;
+      if(r.proyecto)porEquipo[k].proyecto=r.proyecto;
+      if(r.supervisor)porEquipo[k].supervisor=r.supervisor;
     });
 
-    const faltantes=Object.entries(hist).filter(([k,v])=>!presentes.has(k)&&v.fechas.size>=2).map(([k,v])=>{
-      const id=`faltante_${k}_${ultimaFecha}`;
-      const causa=String(admitidos[id]?.causa||"").trim();
-      const diasSinCarga=ultimaDate?Math.floor((ultimaDate-new Date(v.ultima+"T00:00:00"))/dayMs):0;
-      return{ id,tipo:"Faltante",codigo:k,maquina:v.maquina,proyecto:v.proyecto,supervisor:v.supervisor,ultimaCarga:v.ultima,diasSinCarga,registros:v.registros,diasConCarga:v.fechas.size,causa,admitido:Boolean(causa)};
-    }).filter(r=>r.diasSinCarga>1).sort((a,b)=>b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));
-
-    const saltos=[];
-    Object.entries(porEquipo).forEach(([k,v])=>{
+    // Equipo atrasado: venía registrándose en la ventana previa de 7 días y su
+    // última carga tiene 2 días o más respecto de hoy.
+    const inicioVentana=addDays(hoyISO,-8);
+    const finVentana=addDays(hoyISO,-1);
+    const atrasados=Object.values(porEquipo).map(v=>{
       const fechasEq=[...v.fechas].sort();
+      const ultimaCarga=fechasEq[fechasEq.length-1]||"";
+      const diasSinCarga=ultimaCarga?diffDias(hoyISO,ultimaCarga):0;
+      const fechasVentana=fechasEq.filter(f=>f>=inicioVentana&&f<=finVentana);
+      const id=`atrasado_${v.codigo}_${ultimaCarga}`;
+      const saved=admitidos[id]||{};
+      return{
+        id,tipo:"Atrasado",codigo:v.codigo,maquina:v.maquina,proyecto:v.proyecto,supervisor:v.supervisor,
+        ultimaCarga,diasSinCarga,diasConCarga:fechasVentana.length,registros:v.registros,
+        causa:String(saved.causa||"").trim(),admitido:Boolean(saved.admitido||saved.causa),fechaAdmitido:saved.fechaAdmitido||"",usuario:saved.usuario||""
+      };
+    }).filter(r=>r.diasSinCarga>=2&&r.diasConCarga>=1)
+      .sort((a,b)=>b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));
+
+    const desdeSaltos=ultimaFecha?addDays(ultimaFecha,-45):"";
+    const saltos=[];
+    Object.values(porEquipo).forEach(v=>{
+      const fechasEq=[...v.fechas].filter(f=>!desdeSaltos||f>=desdeSaltos).sort();
       if(fechasEq.length<2)return;
       for(let i=1;i<fechasEq.length;i++){
         const desde=fechasEq[i-1];
         const hasta=fechasEq[i];
         const diasSalto=diffDias(hasta,desde)-1;
         if(diasSalto<=0)continue;
-        const diasSinCarga=fechasEntre(desde,hasta);
-        const id=`salto_${k}_${desde}_${hasta}`;
-        const causa=String(admitidos[id]?.causa||"").trim();
+        const id=`salto_${v.codigo}_${desde}_${hasta}`;
+        const saved=admitidos[id]||{};
         saltos.push({
-          id,tipo:"Salto",codigo:k,maquina:v.maquina,proyecto:v.proyecto,supervisor:v.supervisor,
+          id,tipo:"Salto",codigo:v.codigo,maquina:v.maquina,proyecto:v.proyecto,supervisor:v.supervisor,
           ultimaCarga:desde,proximaCarga:hasta,diasSinCarga:diasSalto,
-          diasSinCargaDetalle:diasSinCarga.join(", "),causa,admitido:Boolean(causa)
+          diasSinCargaDetalle:fechasEntre(desde,hasta).join(", "),
+          causa:String(saved.causa||"").trim(),admitido:Boolean(saved.admitido||saved.causa),fechaAdmitido:saved.fechaAdmitido||""
         });
       }
     });
     saltos.sort((a,b)=>b.ultimaCarga.localeCompare(a.ultimaCarga)||b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));
 
-    return{ultimaFecha,diasAtraso,faltantes,saltos,totalUltima:rowsUltima.length,equiposUltima:presentes.size};
+    return{ultimaFecha,diasAtraso,atrasados,saltos,totalUltima:rowsUltima.length,equiposUltima:presentesUltima.size,inicioVentana,finVentana};
   },[rop02Prod,admitidos,hoyISO,keyEquipoAtraso]);
 
-  const pedirCausa=(row)=>{
-    const texto=row.tipo==="Salto"
-      ?`Causa del salto sin carga de ${row.maquina} entre ${fmtFecha(row.ultimaCarga)} y ${fmtFecha(row.proximaCarga)}:`
-      :`Causa por la que se descontinuó la carga de ${row.maquina}:`;
-    const causa=window.prompt(texto,row.causa||"");
-    if(causa===null)return;
-    const clean=String(causa||"").trim();
-    if(!clean){
-      const next={...admitidos}; delete next[row.id]; saveAdmitidos(next); return;
-    }
-    saveAdmitidos({...admitidos,[row.id]:{causa:clean,fechaAdmitido:new Date().toISOString(),maquina:row.maquina,tipo:row.tipo}});
+  const abrirJustificacion=(row)=>{
+    setModalAtraso(row);
+    setMotivoTipo(row.causa||"Bajó a San Juan");
+    setMotivoOtro("");
   };
 
-  const accionBtn=(row)=><button onClick={()=>pedirCausa(row)} style={{border:`1px solid ${row.admitido?C.green:C.yellow}55`,background:row.admitido?C.greenDim:C.yellowDim,color:row.admitido?C.green:C.yellow,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Admitir falta de equipo</button>;
+  const confirmarJustificacion=()=>{
+    if(!modalAtraso)return;
+    const causa=motivoTipo==="Otro"
+      ? String(motivoOtro||"").trim()
+      : String(motivoTipo||"").trim();
+    if(!causa){window.alert("Ingresá un motivo para justificar el equipo.");return;}
+    const usuario=sessionStorage.getItem("dm_user")||"Usuario";
+    saveAdmitidos({...admitidos,[modalAtraso.id]:{
+      admitido:true,
+      causa,
+      fechaAdmitido:new Date().toISOString(),
+      usuario,
+      maquina:modalAtraso.maquina,
+      tipo:modalAtraso.tipo,
+      proyecto:modalAtraso.proyecto,
+      supervisor:modalAtraso.supervisor,
+      ultimaCarga:modalAtraso.ultimaCarga,
+      diasSinCarga:modalAtraso.diasSinCarga
+    }});
+    setModalAtraso(null);
+  };
+
+  const restaurar=(row)=>{
+    const next={...admitidos};
+    delete next[row.id];
+    saveAdmitidos(next);
+  };
+
+  const accionBtn=(row)=><button onClick={()=>abrirJustificacion(row)} style={{border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.yellow,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Justificar</button>;
 
   const cols=useMemo(()=>[
     {key:"maquina",label:"Equipo",render:v=><Badge color={C.purple}>{v}</Badge>},
     {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
+    {key:"supervisor",label:"Supervisor",render:v=>v||"—"},
     {key:"ultimaCarga",label:"Última carga",render:v=>fmtFecha(v)},
-    {key:"diasSinCarga",label:"Días sin carga",render:v=><span style={{color:v>1?C.red:C.yellow,fontWeight:800}}>{v}</span>},
-    {key:"diasConCarga",label:"Días previos"},
-    {key:"causa",label:"Causa admitida",wrap:true,render:v=>v?<span style={{color:C.green,fontWeight:700}}>{v}</span>:<span style={{color:C.red,fontWeight:700}}>Sin causa</span>},
+    {key:"diasSinCarga",label:"Días de atraso",render:v=><span style={{color:C.red,fontWeight:900}}>{v}</span>},
+    {key:"diasConCarga",label:"Cargas últimos 7 días"},
     {key:"accion",label:"Acción",render:(_,r)=>accionBtn(r)},
   ],[admitidos]);
 
@@ -5428,36 +5458,80 @@ function ViewAtrasoROP02({rop02All}){
     {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
     {key:"ultimaCarga",label:"Cargó hasta",render:v=>fmtFecha(v)},
     {key:"proximaCarga",label:"Volvió a cargar",render:v=>fmtFecha(v)},
-    {key:"diasSinCarga",label:"Días saltados",render:v=><span style={{color:v>0?C.red:C.green,fontWeight:800}}>{v}</span>},
+    {key:"diasSinCarga",label:"Días saltados",render:v=><span style={{color:C.red,fontWeight:800}}>{v}</span>},
     {key:"diasSinCargaDetalle",label:"Fechas sin carga",wrap:true,render:v=><span style={{fontSize:12,color:C.textSub}}>{v||"—"}</span>},
-    {key:"causa",label:"Causa admitida",wrap:true,render:v=>v?<span style={{color:C.green,fontWeight:700}}>{v}</span>:<span style={{color:C.red,fontWeight:700}}>Sin causa</span>},
-    {key:"accion",label:"Acción",render:(_,r)=>accionBtn(r)},
+    {key:"causa",label:"Motivo aceptado",wrap:true,render:v=>v?<span style={{color:C.green,fontWeight:700}}>{v}</span>:<span style={{color:C.red,fontWeight:700}}>Pendiente</span>},
+    {key:"accion",label:"Acción",render:(_,r)=>r.admitido?<button onClick={()=>restaurar(r)} style={{border:`1px solid ${C.green}55`,background:C.greenDim,color:C.green,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Restaurar</button>:accionBtn(r)},
   ],[admitidos]);
 
-  const faltantesSinCausa=data.faltantes.filter(r=>!r.admitido).length;
+  const colsAceptados=useMemo(()=>[
+    {key:"maquina",label:"Equipo",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"proyecto",label:"Proyecto",render:v=><Badge color={proyColor(v)}>{v||"—"}</Badge>},
+    {key:"supervisor",label:"Supervisor",render:v=>v||"—"},
+    {key:"ultimaCarga",label:"Última carga",render:v=>fmtFecha(v)},
+    {key:"diasSinCarga",label:"Días de atraso",render:v=><span style={{color:C.yellow,fontWeight:900}}>{v}</span>},
+    {key:"causa",label:"Motivo",wrap:true,render:v=><span style={{color:C.green,fontWeight:700}}>{v||"—"}</span>},
+    {key:"fechaAdmitido",label:"Fecha aceptación",render:v=>v?new Date(v).toLocaleString("es-AR"):"—"},
+    {key:"usuario",label:"Aceptó",render:v=>v||"Usuario"},
+    {key:"accion",label:"Acción",render:(_,r)=><button onClick={()=>restaurar(r)} style={{border:`1px solid ${C.green}55`,background:C.greenDim,color:C.green,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Restaurar</button>},
+  ],[admitidos]);
+
+  const atrasadosPendientes=data.atrasados.filter(r=>!r.admitido);
+  const atrasadosAceptados=data.atrasados.filter(r=>r.admitido);
   const saltosSinCausa=data.saltos.filter(r=>!r.admitido).length;
   const atrasoGeneral=data.diasAtraso!==null&&data.diasAtraso>1;
+
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
       {atrasoGeneral&&<AlertBanner type="warn">Pasó más de 1 día desde la última carga de ROP02. Última carga detectada: <strong>{fmtFecha(data.ultimaFecha)}</strong> ({data.diasAtraso} días).</AlertBanner>}
       {!atrasoGeneral&&data.ultimaFecha&&<AlertBanner type="success">La carga general de ROP02 está al día. Última carga detectada: <strong>{fmtFecha(data.ultimaFecha)}</strong>.</AlertBanner>}
       {!data.ultimaFecha&&<AlertBanner type="warn">No se detectaron cargas de ROP02.</AlertBanner>}
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
         <StatCard icon="hours" label="Última carga" value={data.ultimaFecha?fmtFecha(data.ultimaFecha):"—"} sub={data.diasAtraso!==null?`${data.diasAtraso} días desde la última carga`:"Sin datos"} color={atrasoGeneral?C.red:C.green} small/>
         <StatCard icon="equip" label="Equipos última carga" value={data.equiposUltima} sub={`${data.totalUltima} registros en el último día`} color={C.purple} small/>
-        <StatCard icon="warn" label="Faltantes sin causa" value={faltantesSinCausa} sub="Equipos que venían cargándose" color={faltantesSinCausa?C.red:C.green} small/>
+        <StatCard icon="warn" label="Equipos atrasados" value={atrasadosPendientes.length} sub="Venían cargándose y dejaron de aparecer" color={atrasadosPendientes.length?C.red:C.green} small/>
+        <StatCard icon="check" label="Atrasos aceptados" value={atrasadosAceptados.length} sub="Ej.: equipos que bajaron a San Juan" color={C.green} small/>
         <StatCard icon="warn" label="Saltos sin causa" value={saltosSinCausa} sub="Cortes intermedios por equipo" color={saltosSinCausa?C.red:C.green} small/>
-        <StatCard icon="check" label="Faltantes admitidos" value={data.faltantes.filter(r=>r.admitido).length+data.saltos.filter(r=>r.admitido).length} color={C.green} small/>
       </div>
-      {faltantesSinCausa>0&&<AlertBanner type="warn">Hay equipos que venían con cargas y no aparecen en la última carga de ROP02. Mientras no tengan causa admitida, seguirán apareciendo como alerta.</AlertBanner>}
-      {saltosSinCausa>0&&<AlertBanner type="warn">Hay equipos que se venían cargando, tuvieron uno o más días sin carga en el medio y luego volvieron a cargarse. Mientras no tengan causa admitida, seguirán apareciendo como alerta.</AlertBanner>}
-      <Card title={`Equipos con posible descontinuidad (${data.faltantes.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols.filter(c=>c.key!=="accion"),data.faltantes,"Atraso_ROP02")}/>}> 
-        <Table cols={cols} rows={data.faltantes} maxH={520} emptyMsg="No se detectaron equipos faltantes según las cargas previas"/>
+
+      {atrasadosPendientes.length>0&&<AlertBanner type="warn">Se detectaron equipos que tuvieron carga en los 7 días anteriores y ahora llevan 2 días o más sin aparecer. Revisalos y presioná <strong>Justificar</strong> cuando la falta sea válida, por ejemplo porque el equipo bajó a San Juan.</AlertBanner>}
+
+      <Card title={`Equipos atrasados (${atrasadosPendientes.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols.filter(c=>c.key!=="accion"),atrasadosPendientes,"Equipos_Atrasados_ROP02")}/>}>
+        <Table cols={cols} rows={atrasadosPendientes} maxH={560} emptyMsg="No se detectaron equipos atrasados según las cargas de los últimos 7 días"/>
       </Card>
-      <Card title={`Saltos de carga por equipo (${data.saltos.length})`} action={<BtnExcel onClick={()=>excelFromCols(colsSaltos.filter(c=>c.key!=="accion"),data.saltos,"Saltos_ROP02")}/>}> 
+
+      <Card title={`Equipos aceptados (${atrasadosAceptados.length})`} action={<BtnExcel onClick={()=>excelFromCols(colsAceptados.filter(c=>c.key!=="accion"),atrasadosAceptados,"Equipos_Aceptados_ROP02")}/>}>
+        <Table cols={colsAceptados} rows={atrasadosAceptados} maxH={420} emptyMsg="Todavía no hay equipos aceptados o justificados"/>
+      </Card>
+
+      <Card title={`Saltos de carga por equipo (${data.saltos.length})`} action={<BtnExcel onClick={()=>excelFromCols(colsSaltos.filter(c=>c.key!=="accion"),data.saltos,"Saltos_ROP02")}/>}>
         <Table cols={colsSaltos} rows={data.saltos} maxH={520} emptyMsg="No se detectaron saltos intermedios de carga por equipo"/>
       </Card>
-      <AlertBanner type="info">Criterio usado: se compara la última fecha cargada contra los equipos que tuvieron cargas en al menos 2 días dentro de los 7 días previos. Además, se detectan saltos intermedios por equipo dentro de los últimos 45 días cargados.</AlertBanner>
+
+      {modalAtraso&&<div style={{position:"fixed",inset:0,zIndex:9999,background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{width:"min(520px,96vw)",background:"#232323",opacity:1,backdropFilter:"none",WebkitBackdropFilter:"none",border:`1px solid ${C.border}`,borderRadius:14,boxShadow:"0 20px 60px rgba(0,0,0,.45)",padding:20,display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>Justificar ausencia de equipo</div>
+          <div style={{fontSize:13,color:C.textSub}}>Equipo: <strong style={{color:C.purple}}>{modalAtraso.maquina}</strong> · Última carga: <strong>{fmtFecha(modalAtraso.ultimaCarga)}</strong></div>
+          <label style={{display:"flex",flexDirection:"column",gap:7,fontSize:12,fontWeight:800,color:C.textSub}}>
+            Motivo
+            <select value={motivoTipo} onChange={e=>setMotivoTipo(e.target.value)} style={{background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px"}}>
+              <option>Bajó a San Juan</option>
+              <option>En taller</option>
+              <option>Fuera de servicio</option>
+              <option>En mantenimiento</option>
+              <option>Otro</option>
+            </select>
+          </label>
+          {motivoTipo==="Otro"&&<textarea value={motivoOtro} onChange={e=>setMotivoOtro(e.target.value)} placeholder="Escribí el motivo..." rows={3} style={{background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",resize:"vertical"}}/>}
+          <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
+            <button onClick={()=>setModalAtraso(null)} style={{border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={confirmarJustificacion} style={{border:`1px solid ${C.green}66`,background:C.greenDim,color:C.green,borderRadius:8,padding:"9px 14px",fontWeight:900,cursor:"pointer"}}>Aceptar</button>
+          </div>
+        </div>
+      </div>}
+
+      <AlertBanner type="info">Criterio usado: un equipo se marca atrasado cuando tuvo al menos una carga dentro de los 7 días anteriores y lleva 2 días o más sin volver a cargarse. Los equipos justificados quedan en “Equipos aceptados”; al restaurarlos vuelven a “Equipos atrasados” y a su Excel.</AlertBanner>
     </div>
   );
 }
