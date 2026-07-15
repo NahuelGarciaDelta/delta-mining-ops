@@ -13717,6 +13717,93 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     return isNaN(n)?0:n;
   },[]);
 
+  const buildRemitosCompartidos=useCallback((sheetRows=[])=>{
+    const read=(obj,names)=>{
+      const keys=Object.keys(obj||{});
+      for(const name of names){
+        const wanted=norm(name);
+        const exact=keys.find(k=>norm(k)===wanted);
+        if(exact!==undefined)return obj[exact];
+      }
+      for(const name of names){
+        const wanted=norm(name);
+        const partial=keys.find(k=>{
+          const nk=norm(k);
+          return nk&&(nk.includes(wanted)||wanted.includes(nk));
+        });
+        if(partial!==undefined)return obj[partial];
+      }
+      return "";
+    };
+    const grouped=new Map();
+    (sheetRows||[]).forEach(row=>{
+      const id=String(read(row,["ID_REMITO","idRemito","id"])||"").trim();
+      const codigo=String(read(row,["CODIGO_ARTICULO","codigoArticulo","codigo"])||"").trim();
+      const cantidad=toNumber(read(row,["CANTIDAD_ENVIADA","cantidadEnviada","cantidad"]));
+      if(!id||!codigo||cantidad<=0)return;
+      if(!grouped.has(id)){
+        const observaciones=String(read(row,["OBSERVACIONES","observaciones"])||"").trim();
+        const destino=String(read(row,["DESTINO","destino"])||"").trim();
+        const origen=String(read(row,["ORIGEN","origen"])||"").trim();
+        const proyecto=normalizeCentroCosto(read(row,["PROYECTO","proyecto"])||observaciones||destino||origen);
+        grouped.set(id,{
+          id,
+          comprobante:String(read(row,["N_REMITO","nRemito","comprobante"])||"S/N").trim(),
+          fecha:String(read(row,["FECHA_REMITO","fechaRemito","fecha"])||"").trim(),
+          origen,
+          destino,
+          proyecto,
+          observaciones,
+          createdAt:String(read(row,["FECHA_CARGA_APP","fechaCargaApp","createdAt"])||"").trim(),
+          usuarioCarga:String(read(row,["USUARIO_CARGA","usuarioCarga","usuario"])||"").trim(),
+          shared:true,
+          items:[]
+        });
+      }
+      grouped.get(id).items.push({
+        codigo,
+        descripcion:String(read(row,["DESCRIPCION","descripcion"])||"").trim(),
+        cantidad
+      });
+    });
+    return Array.from(grouped.values()).sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+  },[norm,toNumber,normalizeCentroCosto]);
+
+  const loadRemitosCompartidos=useCallback(async()=>{
+    try{
+      const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&_=${Date.now()}`;
+      const res=await fetch(url);
+      const json=await res.json();
+      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los remitos cargados.");
+      const shared=buildRemitosCompartidos(json.data||[]);
+      const sharedIds=new Set(shared.map(r=>r.id));
+      setRemitos(prev=>{
+        const localOnly=(prev||[]).filter(r=>r&&r.id&&!sharedIds.has(r.id)&&!r.shared);
+        return [...shared,...localOnly];
+      });
+    }catch(err){
+      console.warn("No se pudieron sincronizar remitos cargados:",err);
+    }
+  },[buildRemitosCompartidos]);
+
+  useEffect(()=>{
+    loadRemitosCompartidos();
+  },[loadRemitosCompartidos]);
+
+  const saveRemitoCompartido=useCallback(async(remito)=>{
+    const payload={
+      ...remito,
+      usuarioCarga:sessionStorage.getItem("dm_user")||"APP"
+    };
+    const res=await fetch(APPS_SCRIPT_URL,{
+      method:"POST",
+      body:new URLSearchParams({payload:JSON.stringify({action:"save_remito_cargado",remito:payload})})
+    });
+    const json=await res.json();
+    if(!json.ok)throw new Error(json?.error?.message||"No se pudo guardar el remito en la hoja compartida.");
+    return json;
+  },[]);
+
   const filteredRemitos=useMemo(()=>{
     const q=norm(remitoSearch);
     if(!q)return remitos;
@@ -14581,7 +14668,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     }
   },[loadPdfJs,parseRaba08Text,toNumber]);
 
-  const registerRemito=()=>{
+  const registerRemito=async()=>{
     const cleanItems=remitoForm.items
       .map(it=>({codigo:String(it.codigo||"").trim(),descripcion:String(it.descripcion||"").trim(),cantidad:toNumber(it.cantidad)}))
       .filter(it=>it.codigo&&it.cantidad>0);
@@ -14589,30 +14676,59 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       alert("Cargá al menos un artículo con código y cantidad.");
       return;
     }
+    const proyectoDetectado=normalizeCentroCosto([remitoForm.observaciones,remitoForm.destino,remitoForm.origen].filter(Boolean).join(" "));
     const nuevo={
       id:`raba08-${Date.now()}`,
       comprobante:remitoForm.comprobante||"S/N",
       fecha:remitoForm.fecha,
       origen:remitoForm.origen,
       destino:remitoForm.destino,
+      proyecto:proyectoDetectado,
       observaciones:remitoForm.observaciones,
       items:cleanItems,
-      createdAt:new Date().toISOString()
+      createdAt:new Date().toISOString(),
+      shared:false
     };
-    setRemitos(prev=>[nuevo,...prev]);
-    setRemitoForm({
-      comprobante:"",
-      fecha:new Date().toISOString().slice(0,10),
-      origen:"01 DEPOSITO CENTRAL",
-      destino:"",
-      observaciones:"",
-      items:[{codigo:"",descripcion:"",cantidad:""}]
-    });
-    setRemitoSearch("");
+
+    setRemitos(prev=>[nuevo,...prev.filter(r=>r.id!==nuevo.id)]);
+
+    try{
+      setLoading(true);
+      setError(null);
+      await saveRemitoCompartido(nuevo);
+      setRemitos(prev=>prev.map(r=>r.id===nuevo.id?{...r,shared:true}:r));
+      setSuccessAlert({message:"Remito guardado en hoja compartida"});
+      await loadRemitosCompartidos();
+      setRemitoForm({
+        comprobante:"",
+        fecha:new Date().toISOString().slice(0,10),
+        origen:"01 DEPOSITO CENTRAL",
+        destino:"",
+        observaciones:"",
+        items:[{codigo:"",descripcion:"",cantidad:""}]
+      });
+      setRemitoSearch("");
+    }catch(err){
+      const msg=err?.message||String(err);
+      setError(msg);
+      window.alert("El remito quedó guardado en esta PC, pero no se pudo guardar en la hoja compartida: "+msg);
+    }finally{
+      setLoading(false);
+    }
   };
 
-  const deleteRemito=(id)=>{
-    if(window.confirm("¿Eliminar este remito cargado?"))setRemitos(prev=>prev.filter(r=>r.id!==id));
+  const deleteRemito=async(id)=>{
+    if(!window.confirm("¿Eliminar este remito cargado?"))return;
+    setRemitos(prev=>prev.filter(r=>r.id!==id));
+    try{
+      await fetch(APPS_SCRIPT_URL,{
+        method:"POST",
+        body:new URLSearchParams({payload:JSON.stringify({action:"delete_remito_cargado",idRemito:id})})
+      });
+      await loadRemitosCompartidos();
+    }catch(err){
+      console.warn("No se pudo eliminar el remito en la hoja compartida:",err);
+    }
   };
 
   const badgeStyle=(kind)=>({
