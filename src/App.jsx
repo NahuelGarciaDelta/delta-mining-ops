@@ -1559,6 +1559,28 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
   const ref=useRef(null);
   const commitRef=useRef(null);
   const searchRef=useRef(null);
+  const btnRef=useRef(null);
+  const[menuPos,setMenuPos]=useState(null);
+
+  const calcMenuPosition=useCallback(()=>{
+    if(typeof window==="undefined")return null;
+    const el=btnRef.current||ref.current;
+    if(!el)return null;
+    const r=el.getBoundingClientRect();
+    const margin=8;
+    const width=Math.min(360,Math.max(240,r.width));
+    let left=Math.min(Math.max(margin,r.left),Math.max(margin,window.innerWidth-width-margin));
+    let top=r.bottom+6;
+    let maxHeight=Math.min(320,window.innerHeight-top-margin);
+    if(maxHeight<180&&r.top>(window.innerHeight-r.bottom)){
+      maxHeight=Math.min(320,Math.max(180,r.top-margin-6));
+      top=Math.max(margin,r.top-maxHeight-6);
+    }
+    maxHeight=Math.max(160,Math.min(320,maxHeight));
+    if(top+maxHeight>window.innerHeight-margin)top=Math.max(margin,window.innerHeight-margin-maxHeight);
+    return{top,left,width,maxHeight};
+  },[]);
+
   const def=multiDefault(options);
   const displayValue=open?draftValue:value;
   const selected=normalizeMultiValue(displayValue,options);
@@ -1573,7 +1595,7 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
   },[realOptions,searchNorm]);
   // Para que abrir un filtro grande no congele la app, se renderiza una cantidad acotada.
   // Al buscar, filtra sobre todas las opciones y vuelve a mostrar las primeras coincidencias.
-  const MAX_RENDER_OPTIONS=180;
+  const MAX_RENDER_OPTIONS=100;
   const visibleOptions=filteredOptions.slice(0,MAX_RENDER_OPTIONS);
   const hiddenCount=Math.max(0,filteredOptions.length-visibleOptions.length);
 
@@ -1595,6 +1617,18 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
       return()=>clearTimeout(id);
     }
   },[open]);
+
+  useEffect(()=>{
+    if(!open)return;
+    const update=()=>setMenuPos(calcMenuPosition());
+    update();
+    window.addEventListener("resize",update,true);
+    window.addEventListener("scroll",update,true);
+    return()=>{
+      window.removeEventListener("resize",update,true);
+      window.removeEventListener("scroll",update,true);
+    };
+  },[open,calcMenuPosition]);
 
   const commitNow=useCallback((next)=>{
     if(commitRef.current){clearTimeout(commitRef.current);commitRef.current=null;}
@@ -1618,6 +1652,7 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
   const closeMenu=useCallback(()=>{
     if(commitOnClose)commitNow(draftRef.current);
     setOpen(false);
+    setMenuPos(null);
     setSearch("");
   },[commitOnClose,commitNow]);
 
@@ -1646,8 +1681,8 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
   };
   const allChecked=!isActive;
 
-  const menu=open?(
-    <div data-multisel-menu="true" onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:1000000,width:"max(240px, 100%)",maxWidth:360,maxHeight:320,overflow:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:6}}>
+  const menu=open&&menuPos?ReactDOM.createPortal((
+    <div data-multisel-menu="true" onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} style={{position:"fixed",top:menuPos.top,left:menuPos.left,zIndex:2147483000,width:menuPos.width,maxWidth:360,maxHeight:menuPos.maxHeight,overflow:"auto",overscrollBehavior:"contain",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.82)",padding:6,contain:"layout paint",willChange:"transform",isolation:"isolate"}}>
       <label style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:allChecked?C.accent:C.textSub,fontWeight:allChecked?700:500}}>
         <input type="checkbox" checked={allChecked} onChange={()=>commitValue(def)} style={{accentColor:C.accent}}/>
         Todos
@@ -1667,25 +1702,26 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
       )}
       {commitOnClose&&<div style={{display:"flex",gap:6,position:"sticky",bottom:0,background:C.surface,borderTop:`1px solid ${C.border}`,padding:"7px 4px 2px",marginTop:4}}>
         <button onClick={closeMenu} style={{flex:1,border:`1px solid ${C.accent}66`,background:C.redDim,color:C.accent,borderRadius:7,padding:"7px 8px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"Inter"}}>Aplicar</button>
-        <button onClick={()=>{setDraftValue(value);draftRef.current=value;setOpen(false);setSearch("");}} style={{border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,borderRadius:7,padding:"7px 8px",fontSize:12,cursor:"pointer",fontFamily:"Inter"}}>Cancelar</button>
+        <button onClick={()=>{setDraftValue(value);draftRef.current=value;setOpen(false);setMenuPos(null);setSearch("");}} style={{border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,borderRadius:7,padding:"7px 8px",fontSize:12,cursor:"pointer",fontFamily:"Inter"}}>Cancelar</button>
       </div>}
     </div>
-  ):null;
+  ),document.body):null;
 
   return(
     <div ref={ref} style={{display:"flex",flexDirection:"column",gap:3,position:"relative",minWidth:130,zIndex:open?1000000:1,overflow:"visible"}}>
       <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>{label}</label>
       <div style={{position:"relative",display:"flex"}}>
         {isActive&&(
-          <button onClick={(e)=>{e.stopPropagation();setDraftValue(def);draftRef.current=def;commitNow(def);if(open)setOpen(false);}} title="Limpiar filtro" aria-label="Limpiar filtro"
+          <button onClick={(e)=>{e.stopPropagation();setDraftValue(def);draftRef.current=def;commitNow(def);if(open){setOpen(false);setMenuPos(null);}}} title="Limpiar filtro" aria-label="Limpiar filtro"
             style={{position:"absolute",left:5,top:"50%",transform:"translateY(-50%)",width:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",background:C.red+"33",border:"none",borderRadius:"50%",color:C.red,cursor:"pointer",fontSize:10,fontWeight:700,lineHeight:1,padding:0,zIndex:2}}>
             ×
           </button>
         )}
         <button type="button"
+          ref={btnRef}
           onMouseEnter={()=>setTipOpen(true)}
           onMouseLeave={()=>setTipOpen(false)}
-          onClick={()=>{if(open){closeMenu();return;}setDraftValue(value);draftRef.current=value;setTipOpen(false);setOpen(true);}}
+          onClick={()=>{if(open){closeMenu();return;}setDraftValue(value);draftRef.current=value;setTipOpen(false);const pos=calcMenuPosition();setMenuPos(pos);if(pos)setOpen(true);}}
           style={{background:C.surface,border:`1px solid ${isActive?C.accent+"55":C.border}`,borderRadius:7,color:C.text,padding:`7px 28px 7px ${isActive?26:10}px`,fontSize:12,cursor:"pointer",outline:"none",minWidth:130,width:"100%",textAlign:"left",fontFamily:"Inter",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
           {multiSummary(displayValue,options)}
         </button>
@@ -7480,7 +7516,7 @@ function InsumoSearch({value,onChange,opciones}){
   const[q,setQ]=useState("");
   const ref=useRef(null);
   const triggerRef=useRef(null);
-  const[anchorPos,setAnchorPos]=useState({bottom:0,left:0});
+  const[anchorPos,setAnchorPos]=useState({bottom:0,left:0,ready:false});
 
   // Cerrar al clickear afuera — ignorar clicks dentro del portal
   const portalRef=useRef(null);
@@ -7507,14 +7543,21 @@ function InsumoSearch({value,onChange,opciones}){
     <div ref={ref} style={{position:"relative",flexShrink:0}}>
       <div style={{display:"flex",flexDirection:"column",gap:3}}>
         <label style={{fontSize:10,color:"#888",fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Insumo</label>
-        <div ref={triggerRef} onClick={()=>{if(triggerRef.current){const r=triggerRef.current.getBoundingClientRect();setAnchorPos({bottom:r.bottom,left:r.left});}setOpen(o=>!o);setQ("");}}
+        <div ref={triggerRef} onClick={()=>{
+            if(open){setOpen(false);setQ("");return;}
+            const r=triggerRef.current?.getBoundingClientRect();
+            if(!r)return;
+            setAnchorPos({bottom:r.bottom,left:r.left,ready:true});
+            setQ("");
+            setOpen(true);
+          }}
           style={{background:"#1a1a1a",border:`1px solid ${value?"#e8001d44":"#2a2a2a"}`,borderRadius:7,color:value?"#e8001d":"#aaa",padding:"7px 10px",fontSize:11,cursor:"pointer",minWidth:180,maxWidth:240,display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,userSelect:"none"}}>
           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{label}</span>
           <span style={{fontSize:9,flexShrink:0}}>{open?"▲":"▼"}</span>
         </div>
       </div>
-      {open&&ReactDOM.createPortal(
-        <div ref={portalRef} style={{position:"fixed",top:anchorPos.bottom+4,left:anchorPos.left,zIndex:99999,background:"#1c1c1c",border:"1px solid #333",borderRadius:9,minWidth:280,maxWidth:340,boxShadow:"0 8px 24px rgba(0,0,0,.6)",overflow:"hidden"}}>
+      {open&&anchorPos.ready&&ReactDOM.createPortal(
+        <div ref={portalRef} style={{position:"fixed",top:anchorPos.bottom+4,left:anchorPos.left,zIndex:99999,background:"#1c1c1c",border:"1px solid #333",borderRadius:9,minWidth:280,maxWidth:340,boxShadow:"0 8px 24px rgba(0,0,0,.6)",overflow:"hidden",contain:"layout paint",willChange:"transform"}}>
           <div style={{padding:"8px 10px",borderBottom:"1px solid #2a2a2a"}}>
             <input autoFocus value={q} onChange={e=>setQ(e.target.value)}
               placeholder="Buscar por código o nombre..."
@@ -7548,7 +7591,7 @@ function InsumoSearch({value,onChange,opciones}){
 function CodeMultiSearch({value,onChange,options,label="Código"}){
   const[open,setOpen]=useState(false);
   const[search,setSearch]=useState("");
-  const[pos,setPos]=useState({top:0,left:0,width:310});
+  const[pos,setPos]=useState({top:0,left:0,width:310,ready:false});
   const ref=useRef(null);
   const btnRef=useRef(null);
   const selected=Array.isArray(value)?value:[];
@@ -7562,7 +7605,7 @@ function CodeMultiSearch({value,onChange,options,label="Código"}){
 
   const updatePos=useCallback(()=>{
     const el=btnRef.current;
-    if(!el)return;
+    if(!el)return null;
     const r=el.getBoundingClientRect();
     const width=310;
     let left=r.right-width;
@@ -7571,7 +7614,9 @@ function CodeMultiSearch({value,onChange,options,label="Código"}){
     let top=r.bottom+6;
     const maxH=360;
     if(top+maxH>window.innerHeight-12)top=Math.max(12,r.top-maxH-6);
-    setPos({top,left,width});
+    const next={top,left,width,ready:true};
+    setPos(next);
+    return next;
   },[]);
 
   useEffect(()=>{
@@ -7607,8 +7652,8 @@ function CodeMultiSearch({value,onChange,options,label="Código"}){
   };
   const selectedText=isAll?"Todos":(selected.length===1?selected[0]:`${selected.length} códigos`);
 
-  const menu=open?ReactDOM.createPortal(
-    <div data-code-multisearch-menu="true" style={{position:"fixed",left:pos.left,top:pos.top,zIndex:1000000,width:pos.width,maxHeight:360,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:8}}>
+  const menu=(open&&pos.ready)?ReactDOM.createPortal(
+    <div data-code-multisearch-menu="true" style={{position:"fixed",left:pos.left,top:pos.top,zIndex:1000000,width:pos.width,maxHeight:360,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:8,contain:"layout paint",willChange:"transform"}}>
       <input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar código o insumo..." style={{width:"100%",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,outline:"none",marginBottom:8}}/>
       <button type="button" onClick={()=>onChange("todos")} style={{width:"100%",textAlign:"left",background:isAll?C.blueDim:"transparent",border:"none",borderRadius:7,color:isAll?C.blue:C.textSub,padding:"7px 8px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Inter"}}>Todos</button>
       <div style={{height:1,background:C.border,margin:"6px 0"}}/>
@@ -7632,7 +7677,7 @@ function CodeMultiSearch({value,onChange,options,label="Código"}){
 
   return(
     <div ref={ref} style={{position:"relative",minWidth:230}}>
-      <button ref={btnRef} type="button" onClick={()=>{updatePos();setOpen(o=>!o);}} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:C.surface,border:`1px solid ${isAll?C.border:C.blue+"88"}`,borderRadius:8,color:isAll?C.textSub:C.blue,padding:"8px 10px",fontSize:12,fontWeight:700,fontFamily:"Inter",cursor:"pointer"}}>
+      <button ref={btnRef} type="button" onClick={()=>{if(open){setOpen(false);return;}const next=updatePos();if(next)setOpen(true);}} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:C.surface,border:`1px solid ${isAll?C.border:C.blue+"88"}`,borderRadius:8,color:isAll?C.textSub:C.blue,padding:"8px 10px",fontSize:12,fontWeight:700,fontFamily:"Inter",cursor:"pointer"}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}: {selectedText}</span>
         <Icon name="chevronDown" size={14} color={isAll?C.textMuted:C.blue}/>
       </button>
