@@ -1255,6 +1255,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
   const[scrollTop,setScrollTop]=useState(0);
   const[sortKey,setSortKey]=useState(null);
   const[sortDir,setSortDir]=useState("asc");
+  const pinnedTipKeyRef=useRef(null);
 
   // FIX VIBRACIÓN DE TABLAS:
   // La virtualización anterior asumía filas de 36px. Cuando una columna tenía wrap
@@ -1388,22 +1389,42 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
             const customTooltip=typeof r._rowTooltipHtml==="function"?r._rowTooltipHtml(r):r._rowTooltipHtml;
             const hasTooltip=!disableTooltip&&(customTooltip||r.observaciones!==undefined);
             const rowBg=absI%2===0?"transparent":C.surface+"66";
+            const tooltipKey=String(r._tooltipKey||r.codigo||r.id||absI);
+            const buildTooltipHtml=()=>customTooltip||("<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:"+(r.observaciones?"#ccc":"#555")+";margin-top:3px;font-style:"+(r.observaciones?"normal":"italic")+"\">"+(r.observaciones||"Sin observaciones")+"</div></div>");
             return(
               <tr key={absI}
                 style={{background:rowBg,height:useVirtual?ROW_H:undefined,position:"relative",cursor:hasTooltip?"pointer":"default",transition:"background .1s"}}
                 onMouseEnter={e=>{
                   e.currentTarget.dataset.bg=rowBg;
                   e.currentTarget.style.background=C.accent+"22";
-                  if(!hasTooltip)return;
+                  if(!hasTooltip||pinnedTipKeyRef.current)return;
+                  const old=document.getElementById("row-tip-hover");if(old)old.remove();
                   const tip=document.createElement("div");
-                  tip.id="row-tip";
-                  tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none;visibility:hidden`;
-                  tip.innerHTML=customTooltip||("<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:"+(r.observaciones?"#ccc":"#555")+";margin-top:3px;font-style:"+(r.observaciones?"normal":"italic")+"\">"+(r.observaciones||"Sin observaciones")+"</div></div>");
+                  tip.id="row-tip-hover";
+                  tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:390px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none;visibility:hidden`;
+                  tip.innerHTML=buildTooltipHtml();
                   positionTip(tip,e.clientX,e.clientY);
                 }}
                 onMouseLeave={e=>{
                   e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";
-                  const t=document.getElementById("row-tip");if(t)t.remove();
+                  const t=document.getElementById("row-tip-hover");if(t)t.remove();
+                }}
+                onClick={e=>{
+                  if(!hasTooltip)return;
+                  const current=document.getElementById("row-tip-pinned");
+                  if(pinnedTipKeyRef.current===tooltipKey){
+                    if(current)current.remove();
+                    pinnedTipKeyRef.current=null;
+                    return;
+                  }
+                  if(current)current.remove();
+                  const hover=document.getElementById("row-tip-hover");if(hover)hover.remove();
+                  const tip=document.createElement("div");
+                  tip.id="row-tip-pinned";
+                  tip.style.cssText=`position:fixed;z-index:10000;background:${C.surface};border:1px solid ${C.red};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:390px;box-shadow:0 10px 36px rgba(0,0,0,.65);pointer-events:auto;visibility:hidden`;
+                  tip.innerHTML=buildTooltipHtml()+`<div style="margin-top:8px;padding-top:7px;border-top:1px solid ${C.border};font-size:10px;color:${C.textMuted};font-weight:700">Click nuevamente en la fila para desfijar</div>`;
+                  pinnedTipKeyRef.current=tooltipKey;
+                  positionTip(tip,e.clientX,e.clientY);
                 }}
               >
                 {cols.map((c,j)=>{
@@ -7675,7 +7696,15 @@ function ViewCostosUnitarios({insumos,rma15,usdRate}){
 
   const codigosSinPrecio=useMemo(()=>{
     const m={};
-    const fechaMinima="2026-06-01";
+    const anioActual=String(new Date().getFullYear());
+    const fechaMinima=`${anioActual}-06-01`;
+    const escHtml=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
+    const fmtFechaISO=iso=>{
+      const f=normDate(iso);
+      if(!f)return "—";
+      const [y,m,d]=f.split("-");
+      return `${d}/${m}/${y}`;
+    };
 
     // Acepta códigos alfanuméricos y también códigos totalmente numéricos (ej.: 154).
     // Solo se excluyen valores vacíos o marcadores que no representan un artículo real.
@@ -7706,14 +7735,49 @@ function ViewCostosUnitarios({insumos,rma15,usdRate}){
             codigo,
             descripcion:String(i.nombre||codigo).trim()||codigo,
             motivo:existe?"Sin precio asignado":"No está en costos unitarios",
-            usos:0
+            usos:0,
+            usosDetalle:[]
           };
           m[codigo].usos+=1;
+          m[codigo].usosDetalle.push({
+            fecha,
+            equipo:r?.maquina||r?.equipo||r?.codigoEquipo||"—",
+            proyecto:r?.proyecto||r?.lugar||"—"
+          });
           if((m[codigo].descripcion===codigo||!m[codigo].descripcion)&&i.nombre)m[codigo].descripcion=String(i.nombre).trim();
         }
       });
     });
-    return Object.values(m).sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo),"es-AR",{numeric:true,sensitivity:"base"}));
+    return Object.values(m).map(row=>{
+      const detalle=[...(row.usosDetalle||[])]
+        .sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||"")))
+        .slice(0,12);
+      const detalleHtml=detalle.length
+        ? detalle.map(d=>`<tr><td style="padding:5px 8px;border-bottom:1px solid ${C.border}55;color:${C.text}">${escHtml(fmtFechaISO(d.fecha))}</td><td style="padding:5px 8px;border-bottom:1px solid ${C.border}55;color:${C.text};font-weight:800">${escHtml(d.equipo)}</td><td style="padding:5px 8px;border-bottom:1px solid ${C.border}55;color:${C.text}">${escHtml(d.proyecto)}</td></tr>`).join("")
+        : `<tr><td colspan="3" style="padding:6px 8px;color:${C.textMuted}">Sin detalle disponible</td></tr>`;
+      return{
+        ...row,
+        _tooltipKey:`sinprecio-${row.codigo}`,
+        _rowTooltipHtml:`
+          <div style="min-width:340px">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:8px">
+              <div>
+                <div style="font-size:10px;color:${C.textMuted};text-transform:uppercase;letter-spacing:.06em;font-weight:900">Código sin precio</div>
+                <div style="color:${C.blue};font-weight:900;font-size:15px;margin-top:2px">${escHtml(row.codigo)}</div>
+              </div>
+            </div>
+            <div style="color:${C.text};font-weight:800;margin-bottom:10px;line-height:1.25">${escHtml(row.descripcion)}</div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+              <thead><tr>
+                <th style="padding:5px 8px;text-align:left;color:${C.textMuted};text-transform:uppercase;font-size:9px;letter-spacing:.06em;border-bottom:1px solid ${C.border}">Día</th>
+                <th style="padding:5px 8px;text-align:left;color:${C.textMuted};text-transform:uppercase;font-size:9px;letter-spacing:.06em;border-bottom:1px solid ${C.border}">Equipo</th>
+                <th style="padding:5px 8px;text-align:left;color:${C.textMuted};text-transform:uppercase;font-size:9px;letter-spacing:.06em;border-bottom:1px solid ${C.border}">Proyecto</th>
+              </tr></thead>
+              <tbody>${detalleHtml}</tbody>
+            </table>
+          </div>`
+      };
+    }).sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo),"es-AR",{numeric:true,sensitivity:"base"}));
   },[rma15,insumos]);
 
   const colsSinPrecio=[
@@ -7755,8 +7819,8 @@ function ViewCostosUnitarios({insumos,rma15,usdRate}){
           <Table cols={cols} rows={filtered} maxH={720} emptyMsg="Sin costos unitarios para mostrar" disableTooltip/>
         </Card>
       ):(
-        <Card title="Códigos sin precio" action={<BtnExcel onClick={()=>excelFromCols(colsSinPrecio,codigosSinPrecio,"Codigos_Sin_Precio")}/>}>
-          <Table cols={colsSinPrecio} rows={codigosSinPrecio} maxH={720} emptyMsg="No hay códigos sin precio para mostrar" disableTooltip/>
+        <Card title="Códigos sin precio" action={<BtnExcel onClick={()=>generarExcelCodigosSinPrecio(codigosSinPrecio)}/>}>
+          <Table cols={colsSinPrecio} rows={codigosSinPrecio} maxH={720} emptyMsg="No hay códigos sin precio para mostrar"/>
         </Card>
       )}
     </div>
@@ -8881,6 +8945,83 @@ function generarExcelMantenimiento(rows, usdRate, label){
   ws["!cols"]=[{wch:12},{wch:12},{wch:14},{wch:13},{wch:40},{wch:10},{wch:14},{wch:12}];
   XLSX.utils.book_append_sheet(wb,ws,"Mantenimiento");
   XLSX.writeFile(wb,`Mantenimiento_${label}.xlsx`);
+}
+
+
+// ─── Export específico: Códigos sin precio con detalle de uso ─────────────────
+function generarExcelCodigosSinPrecio(rows){
+  const wb=XLSX.utils.book_new();
+
+  const fmtFechaISO=iso=>{
+    const f=normDate(iso);
+    if(!f)return "";
+    const [y,m,d]=String(f).split("-");
+    return `${d}/${m}/${y}`;
+  };
+
+  const detalleTexto=usosDetalle=>{
+    const detalles=[...(usosDetalle||[])]
+      .sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||"")));
+    if(!detalles.length)return "";
+    return detalles.map(d=>{
+      const fecha=fmtFechaISO(d.fecha)||"S/F";
+      const equipo=String(d.equipo||"—").trim()||"—";
+      const proyecto=String(d.proyecto||"—").trim()||"—";
+      return `${fecha} - ${equipo} - ${proyecto}`;
+    }).join(" | ");
+  };
+
+  const resumen=[[
+    "Código",
+    "Descripción",
+    "Usos",
+    "Detalle de uso"
+  ]];
+
+  (rows||[]).forEach(r=>{
+    resumen.push([
+      r.codigo||"",
+      r.descripcion||"",
+      Number(r.usos)||0,
+      detalleTexto(r.usosDetalle)
+    ]);
+  });
+
+  const wsResumen=XLSX.utils.aoa_to_sheet(resumen);
+  wsResumen["!cols"]=[{wch:16},{wch:45},{wch:10},{wch:95}];
+  XLSX.utils.book_append_sheet(wb,wsResumen,"Resumen");
+
+  const detalle=[[
+    "Código",
+    "Descripción",
+    "Día",
+    "Equipo",
+    "Proyecto"
+  ]];
+
+  (rows||[]).forEach(r=>{
+    const detalles=[...(r.usosDetalle||[])]
+      .sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||"")));
+    if(!detalles.length){
+      detalle.push([r.codigo||"",r.descripcion||"","","",""]);
+      return;
+    }
+    detalles.forEach(d=>{
+      detalle.push([
+        r.codigo||"",
+        r.descripcion||"",
+        fmtFechaISO(d.fecha),
+        d.equipo||"—",
+        d.proyecto||"—"
+      ]);
+    });
+  });
+
+  const wsDetalle=XLSX.utils.aoa_to_sheet(detalle);
+  wsDetalle["!cols"]=[{wch:16},{wch:45},{wch:14},{wch:22},{wch:18}];
+  XLSX.utils.book_append_sheet(wb,wsDetalle,"Detalle de uso");
+
+  XLSX.writeFile(wb,"Codigos_Sin_Precio.xlsx");
 }
 
 // ─── Helper universal: genera Excel desde cols/rows igual que la tabla de la app ──
@@ -15495,7 +15636,7 @@ export default function App(){
 
   const costosUnitariosBadge=useMemo(()=>{
     const m={};
-    const fechaMinima="2026-06-01";
+    const fechaMinima=`${new Date().getFullYear()}-06-01`;
     const esCodigoValido=(v)=>{
       const c=normalizeInsumoCode(v);
       if(!c||c.length>60)return false;
