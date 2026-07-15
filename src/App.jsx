@@ -15953,6 +15953,7 @@ export default function App(){
   const hydratedCacheKeysRef=useRef(new Set());
   const sourceRequestsRef=useRef(new Map());
   const lastCheckedBySourceRef=useRef({});
+  const welcomePreloadStartedRef=useRef(false);
   const activeSyncCountRef=useRef(0);
   const SYNC_FRESH_MS=5*60*1000;
 
@@ -16112,6 +16113,99 @@ export default function App(){
     if(sources.length) await loadSources(sources,{force:true,background:false});
     else await loadInitial();
   },[view,loadSources,loadInitial]);
+
+
+  // Precarga silenciosa en Bienvenida.
+  // No cambia la pantalla ni muestra loaders: aprovecha el tiempo en la portada para
+  // consultar las fuentes pesadas y dejarlas cacheadas antes de entrar a los módulos.
+  useEffect(()=>{
+    if(view!=="bienvenida"||welcomePreloadStartedRef.current)return;
+    welcomePreloadStartedRef.current=true;
+    let cancelled=false;
+
+    const preloadSources=[...new Set([
+      ...Object.values(VIEW_SOURCES).flat(),
+      "raba03",
+      "remitos_cargados"
+    ].filter(Boolean))];
+
+    const applyEntries=(entries)=>{
+      if(cancelled||!entries.length)return;
+      startTransition(()=>{
+        setRawSources(prev=>{
+          let changed=false;
+          const next={...prev};
+          entries.forEach(([key,val])=>{
+            if(val?.ok&&Array.isArray(val.data)&&next[key]!==val){
+              next[key]=val;
+              changed=true;
+            }
+          });
+          if(!changed)return prev;
+          rawSourcesRef.current=next;
+          return next;
+        });
+        setLoadedSources(prev=>{
+          let changed=false;
+          const next={...prev};
+          entries.forEach(([key,val])=>{
+            if(val?.ok&&Array.isArray(val.data)&&!next[key]){
+              next[key]=true;
+              changed=true;
+            }
+          });
+          if(!changed)return prev;
+          loadedSourcesRef.current=next;
+          return next;
+        });
+      });
+      setLastUpdate(new Date());
+    };
+
+    const run=async()=>{
+      try{
+        const cacheRecords=await hydrateSourcesFromCache(preloadSources).catch(()=>({}));
+        if(cancelled)return;
+
+        let serverVersions={};
+        try{
+          const syncInfo=await fetchSyncVersions(APPS_SCRIPT_URL);
+          serverVersions=syncInfo?.versions||{};
+        }catch(_){
+          serverVersions={};
+        }
+
+        // En tandas chicas para no congelar la portada ni golpear Apps Script de una sola vez.
+        const chunkSize=3;
+        for(let i=0;i<preloadSources.length&&!cancelled;i+=chunkSize){
+          const chunk=preloadSources.slice(i,i+chunkSize);
+          const results=await Promise.allSettled(chunk.map(key=>
+            fetchOneSource(key,{force:false,serverVersions,cacheRecords})
+          ));
+          const entries=[];
+          results.forEach((result,idx)=>{
+            if(result.status==="fulfilled"&&!result.value?.skipped&&result.value?.value){
+              entries.push([chunk[idx],result.value.value]);
+            }
+          });
+          applyEntries(entries);
+          await new Promise(resolve=>setTimeout(resolve,180));
+        }
+      }catch(_){
+        // Silencioso: si falla la precarga, no interrumpe la bienvenida ni muestra error.
+      }
+    };
+
+    const id=typeof window.requestIdleCallback==="function"
+      ?window.requestIdleCallback(run,{timeout:1200})
+      :window.setTimeout(run,400);
+
+    return()=>{
+      cancelled=true;
+      if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
+  },[view,hydrateSourcesFromCache,fetchOneSource]);
 
   useEffect(()=>{
     if(view==="bienvenida")return;
