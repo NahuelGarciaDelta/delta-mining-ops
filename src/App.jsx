@@ -151,6 +151,86 @@ function semaforo(pct){
   if(pct>=70)return{color:C.yellow,label:"ATENCIÓN",dim:C.yellowDim};
   return{color:C.red,label:"CRÍTICO",dim:C.redDim};
 }
+
+
+// ─── Normalización centralizada ──────────────────────────────────────────────
+// Capa única para que reportes, filtros y cruces no separen datos por diferencias
+// de tildes, mayúsculas, espacios, guiones o nombres equivalentes.
+const DM_ALIAS_MAPS={
+  proyecto:{
+    "JM":"JOSE MARIA","J M":"JOSE MARIA","JOSE MARIA":"JOSE MARIA","JOSÉ MARÍA":"JOSE MARIA","PROYECTO JOSE MARIA":"JOSE MARIA",
+    "FS":"FILO DEL SOL","FDS":"FILO DEL SOL","FILO":"FILO DEL SOL","FILO DEL SOL":"FILO DEL SOL","FILO DE SOL":"FILO DEL SOL","VICUNA":"FILO DEL SOL","VICUÑA":"FILO DEL SOL",
+    "FILO SUR":"FILO SUR","FILOSUR":"FILO SUR","F SUR":"FILO SUR","FSUR":"FILO SUR"
+  },
+  tipoEquipo:{
+    "CARGADOR FRONTAL":"CARGADORA FRONTAL","CARGADORA":"CARGADORA FRONTAL","CARGADORA FRONTAL":"CARGADORA FRONTAL","PALA CARGADORA":"CARGADORA FRONTAL",
+    "MOTONIVELADORA":"MOTONIVELADORA","MOTO NIVELADORA":"MOTONIVELADORA",
+    "RETRO PALA":"RETROPALA","RETROPALA":"RETROPALA",
+    "RODILLO":"RODILLO COMPACTADOR","RODILLO COMPACTADOR":"RODILLO COMPACTADOR","VIBROCOMPACTADOR":"RODILLO COMPACTADOR",
+    "EXCAVADORA":"EXCAVADORA","MINICARGADORA":"MINICARGADORA","MINI CARGADORA":"MINICARGADORA","TOPADORA":"TOPADORA",
+    "VOLCADOR":"CAMIÓN VOLCADOR","CAMION VOLCADOR":"CAMIÓN VOLCADOR","CAMIÓN VOLCADOR":"CAMIÓN VOLCADOR",
+    "REGADOR":"CAMIÓN REGADOR","CAMION REGADOR":"CAMIÓN REGADOR","CAMIÓN REGADOR":"CAMIÓN REGADOR",
+    "COMBUSTIBLE":"CAMIÓN DE COMBUSTIBLE","CAMION COMBUSTIBLE":"CAMIÓN DE COMBUSTIBLE","CAMIÓN COMBUSTIBLE":"CAMIÓN DE COMBUSTIBLE","CAMION DE COMBUSTIBLE":"CAMIÓN DE COMBUSTIBLE",
+    "GRUPO ELECTROGENO":"GRUPO ELECTRÓGENO","GRUPO ELECTRÓGENO":"GRUPO ELECTRÓGENO","GENERADOR":"GRUPO ELECTRÓGENO",
+    "CAMIONETA":"CAMIONETA","CAMIONETAS":"CAMIONETA"
+  },
+  tarea:{
+    "PERFILADO CAMINO":"PERFILADO DE CAMINO","PERFILADO DE CAMINO":"PERFILADO DE CAMINO","PERFILADO DE CAMINOS":"PERFILADO DE CAMINO",
+    "LIMPIEZA NIEVE":"LIMPIEZA DE NIEVE","LIMPIEZA DE NIEVE":"LIMPIEZA DE NIEVE",
+    "LIMPIEZA CAMINO PLATAFORMA":"LIMPIEZA DE CAMINO/PLATAFORMA","LIMPIEZA DE CAMINO PLATAFORMA":"LIMPIEZA DE CAMINO/PLATAFORMA","LIMPIEZA DE CAMINO/PLATAFORMA":"LIMPIEZA DE CAMINO/PLATAFORMA",
+    "CONSTRUCCION PLATAFORMA":"CONSTRUCCIÓN DE PLATAFORMA","CONSTRUCCIÓN PLATAFORMA":"CONSTRUCCIÓN DE PLATAFORMA","CONSTRUCCION DE PLATAFORMA":"CONSTRUCCIÓN DE PLATAFORMA","CONSTRUCCIÓN DE PLATAFORMA":"CONSTRUCCIÓN DE PLATAFORMA",
+    "CONSTRUCCION CAMINO":"CONSTRUCCIÓN DE CAMINO","CONSTRUCCION DE CAMINO":"CONSTRUCCIÓN DE CAMINO","CONSTRUCCIÓN DE CAMINO":"CONSTRUCCIÓN DE CAMINO",
+    "CONSTRUCCION BERMA":"CONSTRUCCIÓN DE BERMA","CONSTRUCCION DE BERMA":"CONSTRUCCIÓN DE BERMA","CONSTRUCCIÓN DE BERMA":"CONSTRUCCIÓN DE BERMA",
+    "CARGA DESCARGA CAMION":"CARGA/DESCARGA DE CAMIÓN","CARGA/DESCARGA CAMION":"CARGA/DESCARGA DE CAMIÓN","CARGA/DESCARGA DE CAMION":"CARGA/DESCARGA DE CAMIÓN","CARGA/DESCARGA DE CAMIÓN":"CARGA/DESCARGA DE CAMIÓN",
+    "TRABAJO HORA":"TRABAJO POR HORA","TRABAJO POR HORA":"TRABAJO POR HORA","TRABAJO A TERCERO":"TRABAJO A TERCERO",
+    "COMPACTACION CAMINO":"COMPACTACIÓN DE CAMINO","COMPACTACION DE CAMINO":"COMPACTACIÓN DE CAMINO","COMPACTACIÓN DE CAMINO":"COMPACTACIÓN DE CAMINO",
+    "COMPACTACION PLATAFORMA":"COMPACTACIÓN DE PLATAFORMA","COMPACTACION DE PLATAFORMA":"COMPACTACIÓN DE PLATAFORMA","COMPACTACIÓN DE PLATAFORMA":"COMPACTACIÓN DE PLATAFORMA"
+  },
+  unidad:{
+    "HS":"HS","H":"HS","HORA":"HS","HORAS":"HS","HRS":"HS",
+    "ML":"ML","M LINEALES":"ML","METROS LINEALES":"ML","METRO LINEAL":"ML","MTS LINEALES":"ML",
+    "KML":"KML","KM":"KML","KILOMETROS LINEALES":"KML","KILÓMETROS LINEALES":"KML","KM LINEALES":"KML",
+    "M2":"M2","M²":"M2","METROS CUADRADOS":"M2",
+    "M3":"M3","M³":"M3","METROS CUBICOS":"M3","METROS CÚBICOS":"M3"
+  }
+};
+function dmNormKey(v){return String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[._/\\-]+/g," ").replace(/\s+/g," ").trim().toUpperCase();}
+function dmApplyAlias(kind,value,def="S/D"){
+  const raw=String(value??"").replace(/\s+/g," ").trim();
+  if(!raw)return def;
+  const map=DM_ALIAS_MAPS[kind]||{};
+  const key=dmNormKey(raw);
+  return map[key]||raw.replace(/[.]/g,"").replace(/\s+/g," ").trim();
+}
+function dmNormalizeProject(v){
+  const key=dmNormKey(v);
+  if(!key)return "S/D";
+  if(key.includes("FILO SUR")||key==="FSUR"||key==="F SUR")return "FILO SUR";
+  if(key.includes("JOSE")||key.includes("MARIA")||key==="JM"||key==="J M")return "JOSE MARIA";
+  if(key.includes("FILO")||key.includes("VICU")||key==="FS"||key==="FDS")return "FILO DEL SOL";
+  return dmApplyAlias("proyecto",v,"S/D");
+}
+function dmNormalizeTipoEquipo(v){return dmApplyAlias("tipoEquipo",v,"");}
+function dmTitleCaseText(value){
+  const txt=String(value??"").replace(/[._]+/g," ").replace(/\s+/g," ").trim();
+  if(!txt)return "";
+  const lower=txt.toLocaleLowerCase("es-AR");
+  const keepLower=new Set(["de","del","la","las","el","los","y","e","a","al","en","por","para","con","sin"]);
+  return lower.split(" ").map((word,idx)=>{
+    if(!word)return word;
+    if(idx>0&&keepLower.has(word))return word;
+    return word.charAt(0).toLocaleUpperCase("es-AR")+word.slice(1);
+  }).join(" ");
+}
+function dmDisplayTarea(value){
+  const raw=String(value??"").replace(/\s+/g," ").trim();
+  if(!raw)return "";
+  if(dmNormKey(raw)==="OTROS")return "Otros";
+  if(dmNormKey(raw)==="NO SE DESCRIBE TAREA")return "No se describe tarea";
+  return dmTitleCaseText(raw);
+}
+function dmNormalizeTarea(v){return dmDisplayTarea(dmApplyAlias("tarea",v,""));}
+function dmNormalizeUnidad(v){return dmApplyAlias("unidad",v,"").toUpperCase();}
 function cleanKey(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[\r\n]+/g," ").replace(/\s+/g," ").trim().toLowerCase();}
 function cleanKeyLoose(v){return cleanKey(v).replace(/[^a-z0-9]+/g,"");}
 function getValue(row,keys){
@@ -727,9 +807,10 @@ function buildTareaMap(tareas){
 function normTarea(raw){
   const s=String(raw||"").trim();
   if(!s)return s;
-  const norm=normalizeName(s);
-  if(_tareaMap[norm])return _tareaMap[norm];
-  return s.replace(/[.]/g,"").replace(/[ ]+/g," ").trim();
+  const alias=dmNormalizeTarea(s);
+  const norm=normalizeName(alias||s);
+  if(_tareaMap[norm])return dmDisplayTarea(_tareaMap[norm]);
+  return dmDisplayTarea((alias||s).replace(/[.]/g,"").replace(/[ ]+/g," ").trim());
 }
 
 function buildCanonicalMap(names){
@@ -780,13 +861,7 @@ function normName(raw){
 }
 
 function normProject(raw){
-  const p=String(raw||"").replace(/\s+/g," ").trim().toUpperCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
-  // OJO: chequear "FILO SUR" ANTES del check genérico de "FILO" (que mapea a FILO DEL SOL)
-  if(p.includes("FILO SUR")||p.includes("FILOSUR")||p.includes("FILO-SUR")||p==="FSUR"||p.includes("F.SUR"))return"FILO SUR";
-  if(p.includes("VICU")||p.includes("FILO")||p==="FDS"||p.includes("F.D.S"))return"FILO DEL SOL";
-  if(p.includes("JOSE")||p.includes("MARIA")||p==="JM"||p.includes("J.M"))return"JOSE MARIA";
-  return p||"S/D";
+  return dmNormalizeProject(raw);
 }
 // Color distintivo por proyecto, usado en badges, bordes y gráficos
 function proyColor(p){
@@ -841,7 +916,7 @@ function normalizeROP02(rows,proyectoDefault){
     const obs=String(getValue(r,["Observaciones","OBSERVACIONES","col_16"])).trim();
 
     const maquina=cleanMachine(internoRaw);
-    const tipoEquipoROP02=equipoRaw||getMachineType(maquina)||"";
+    const tipoEquipoROP02=dmNormalizeTipoEquipo(equipoRaw||getMachineType(maquina)||"");
 
     return{
       fecha:normDate(fechaRaw),maquina,equipo:equipoRaw,
@@ -912,7 +987,7 @@ function normalizeRMA15(r, insumosMap){
     fecha,
     maquina,
     proyecto,
-    tipoEquipo:String(r["EQUIPO"]||"").trim(),
+    tipoEquipo:dmNormalizeTipoEquipo(r["EQUIPO"]||""),
     turno:String(r["TURNO EN QUE SE HIZO LA OT"]||"").trim(),
     tipoMant:String(r["TIPO DE MANTENIMIENTO"]||"").trim(),
     kmHs:parseFloat(String(r["Km / hs"]||"0").replace(/[^0-9.]/g,""))||0,
@@ -1025,11 +1100,11 @@ function normalizeROP05(rows){
       fecha:normDate(fechaParte),
       fechaCarga:normDate(getValue(r,["FechaCarga","Marca Tmeporal","Marca Temporal"])),
       maquina,
-      tipo_maquina:String(pickExact(["Tipo Equipo","TipoEquipo","Tipo de máquina","Tipo de maquina","col_5"])||getValue(r,["Tipo Equipo","TipoEquipo","Tipo de máquina","Tipo de maquina","Equipo","col_5"])||"").trim(),
+      tipo_maquina:dmNormalizeTipoEquipo(pickExact(["Tipo Equipo","TipoEquipo","Tipo de máquina","Tipo de maquina","col_5"])||getValue(r,["Tipo Equipo","TipoEquipo","Tipo de máquina","Tipo de maquina","Equipo","col_5"])||""),
       tarea,
       horas:toNumber(cantHs),
       cantidad:toNumber(cantProd),
-      unidad:String(unidadRaw||"").trim().toUpperCase(),
+      unidad:dmNormalizeUnidad(unidadRaw),
       proyecto:normProject(pickExact(["Proyecto","col_2"])||getValue(r,["Proyecto","col_2"])),
       supervisor:normSupervisorROP05(pickExact(["Supervisor","CorreoSupervisor","col_1"])||getValue(r,["Supervisor","CorreoSupervisor","col_1"])),
       parte:String(pickExact(["N° de Parte","Nº de Parte","NroParte","Nro Parte","N de Parte","Parte","col_4"])||getValue(r,["N° de Parte","Nº de Parte","NroParte","Nro Parte","N de Parte","Parte","col_4"])||"").trim(),
@@ -3941,15 +4016,15 @@ function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia, opts={
   const calcRendimiento=(rows)=>{
     const m={};
     rows.forEach(r=>{
-      const k=r.tarea||"Sin tarea";
+      const k=dmDisplayTarea(r.tarea||"Sin tarea");
       if(!m[k])m[k]={horas:0,horasML:0,horasM2:0,horasM3:0,ml:0,m2:0,m3:0};
       m[k].horas+=r.horas;
       const u=nuROP05(r.unidad);
       const cant=r.cantidad||0;
-      if(u==="METROS LINEALES"){m[k].ml+=cant;m[k].horasML+=r.horas;}
-      else if(u==="KILOMETROS LINEALES"){m[k].ml+=cant*1000;m[k].horasML+=r.horas;}
-      else if(u==="M2"){m[k].m2+=cant;m[k].horasM2+=r.horas;}
-      else if(u==="M3"){m[k].m3+=cant;m[k].horasM3+=r.horas;}
+      if(rop05EsML(u)){m[k].ml+=cant;m[k].horasML+=r.horas;}
+      else if(rop05EsKML(u)){m[k].ml+=cant*1000;m[k].horasML+=r.horas;}
+      else if(rop05EsM2(u)){m[k].m2+=cant;m[k].horasM2+=r.horas;}
+      else if(rop05EsM3(u)){m[k].m3+=cant;m[k].horasM3+=r.horas;}
     });
     return m;
   };
@@ -4222,7 +4297,7 @@ function imprimirGraficoIncidenciaROP05(rows,ctx={}){
   const totalHoras=base.reduce((s,r)=>s+Number(r.horas||0),0);
   const map=new Map();
   base.forEach(r=>{
-    const tarea=String(r?.tarea||"").trim()||"No Se Describe Tarea";
+    const tarea=dmDisplayTarea(String(r?.tarea||"").trim()||"No se describe tarea");
     map.set(tarea,(map.get(tarea)||0)+Number(r.horas||0));
   });
   const ordenadas=Array.from(map.entries()).map(([tarea,horas])=>({tarea,horas})).sort((a,b)=>b.horas-a.horas);
@@ -4338,12 +4413,18 @@ function rop05Between(row,desde,hasta){
 }
 // Normaliza string para comparación de unidades
 const nuROP05=s=>String(s||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
+const rop05UnidadKey=s=>dmNormalizeUnidad(s||"");
+const rop05EsML=u=>rop05UnidadKey(u)==="ML";
+const rop05EsKML=u=>rop05UnidadKey(u)==="KML";
+const rop05EsM2=u=>rop05UnidadKey(u)==="M2";
+const rop05EsM3=u=>rop05UnidadKey(u)==="M3";
+const rop05EsHS=u=>rop05UnidadKey(u)==="HS";
 const ROP05_UNIDADES_CONFIG=[
-  {titulo:"Productividad Metros Lineales",key:"ML",match:(u)=>nuROP05(u)==="METROS LINEALES",   color:C.green},
-  {titulo:"Productividad Km Lineales",    key:"KL",match:(u)=>nuROP05(u)==="KILOMETROS LINEALES",color:C.blue},
-  {titulo:"Productividad Metros Cuadrados",key:"M2",match:(u)=>nuROP05(u)==="M2",               color:C.teal},
-  {titulo:"Productividad Metros Cúbicos", key:"M3",match:(u)=>nuROP05(u)==="M3",                color:C.purple},
-  {titulo:"Trabajos por Hora",            key:"HS",match:(u)=>nuROP05(u)==="HS",                color:C.green},
+  {titulo:"Productividad Metros Lineales",key:"ML",match:rop05EsML,   color:C.green},
+  {titulo:"Productividad Km Lineales",    key:"KL",match:rop05EsKML,color:C.blue},
+  {titulo:"Productividad Metros Cuadrados",key:"M2",match:rop05EsM2,               color:C.teal},
+  {titulo:"Productividad Metros Cúbicos", key:"M3",match:rop05EsM3,                color:C.purple},
+  {titulo:"Trabajos por Hora",            key:"HS",match:rop05EsHS,                color:C.green},
 ];
 const ROP05_CHART_COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316","#84cc16","#6366f1"];
 function rop05Top20MasOtros(items,totalHoras){
@@ -4458,10 +4539,10 @@ function ViewROP05({rop05,extState,setExtState}){
     // Inicializar todas las fechas en 0
     todasFechas.forEach(f=>{m[f]=0;});
     base.forEach(r=>{
-      const u=(r.unidad||"").trim().toUpperCase();
+      const u=rop05UnidadKey(r.unidad);
       let val=0;
-      if(unidadGrafico==="METROS LINEALES"&&u==="METROS LINEALES")val=r.cantidad;
-      else if(unidadGrafico==="KILOMETROS LINEALES"&&(u==="KILOMETROS LINEALES"||u==="KILÓMETROS LINEALES"))val=r.cantidad;
+      if(unidadGrafico==="METROS LINEALES"&&u==="ML")val=r.cantidad;
+      else if(unidadGrafico==="KILOMETROS LINEALES"&&u==="KML")val=r.cantidad;
       else if(unidadGrafico==="M2"&&u==="M2")val=r.cantidad;
       else if(unidadGrafico==="M3"&&u==="M3")val=r.cantidad;
       else if(unidadGrafico==="HS"&&u==="HS")val=r.horas;
@@ -4480,15 +4561,15 @@ function ViewROP05({rop05,extState,setExtState}){
     if((mode!=="periodo"&&mode!=="acumulado")||!filtered.length)return null;
     const tareaMap={};
     filtered.forEach(r=>{
-      const tarea=String(r.tarea||"").trim()||"No Se Describe Tarea";
+      const tarea=dmDisplayTarea(String(r.tarea||"").trim()||"No se describe tarea");
       const u=nuROP05(r.unidad);
       if(!tareaMap[tarea])tareaMap[tarea]={horas:0,horasML:0,horasKL:0,horasM2:0,horasM3:0,ml:0,kl:0,m2:0,m3:0};
       tareaMap[tarea].horas+=Number(r.horas||0);
       const cant=Number(r.cantidad||0);
-      if(u==="METROS LINEALES"){tareaMap[tarea].ml+=cant;tareaMap[tarea].horasML+=Number(r.horas||0);}
-      else if(u==="KILOMETROS LINEALES"){tareaMap[tarea].kl+=cant;tareaMap[tarea].horasKL+=Number(r.horas||0);}
-      else if(u==="M2"){tareaMap[tarea].m2+=cant;tareaMap[tarea].horasM2+=Number(r.horas||0);}
-      else if(u==="M3"){tareaMap[tarea].m3+=cant;tareaMap[tarea].horasM3+=Number(r.horas||0);}
+      if(rop05EsML(u)){tareaMap[tarea].ml+=cant;tareaMap[tarea].horasML+=Number(r.horas||0);}
+      else if(rop05EsKML(u)){tareaMap[tarea].kl+=cant;tareaMap[tarea].horasKL+=Number(r.horas||0);}
+      else if(rop05EsM2(u)){tareaMap[tarea].m2+=cant;tareaMap[tarea].horasM2+=Number(r.horas||0);}
+      else if(rop05EsM3(u)){tareaMap[tarea].m3+=cant;tareaMap[tarea].horasM3+=Number(r.horas||0);}
       // Las tareas con unidad HS/HORAS también quedan incluidas en horas de incidencia.
       // No tienen rendimiento físico asociado, por eso sus ML/M2/M3 quedan en 0.
     });
@@ -4522,7 +4603,7 @@ function ViewROP05({rop05,extState,setExtState}){
     if(mode!=="dia"||!fecha||!filtered.length)return null;
     const tareaMap={};
     filtered.forEach(r=>{
-      const tarea=String(r.tarea||"").trim()||"No Se Describe Tarea";
+      const tarea=dmDisplayTarea(String(r.tarea||"").trim()||"No se describe tarea");
       tareaMap[tarea]=(tareaMap[tarea]||0)+Number(r.horas||0);
     });
     const totalHs=Object.values(tareaMap).reduce((s,v)=>s+v,0);
@@ -12783,19 +12864,45 @@ function openAppCacheDB(){
 }
 function idbRequest_(request){return new Promise((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
 function idbTransactionDone_(tx){return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error("Transacción IndexedDB cancelada"));});}
+const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v2";
+const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v2_";
+function readCacheManifest_(){try{return JSON.parse(window.localStorage.getItem(APP_CACHE_MANIFEST_KEY)||"{}");}catch(_){return{};}}
+function writeCacheManifest_(manifest){try{window.localStorage.setItem(APP_CACHE_MANIFEST_KEY,JSON.stringify(manifest||{}));}catch(_){}}
+function updateCacheManifest_(key,record){
+  const manifest=readCacheManifest_();
+  manifest[key]={updatedAt:record?.updatedAt||new Date().toISOString(),count:record?.count||0,version:APP_CACHE_VERSION};
+  writeCacheManifest_(manifest);
+}
+function readCachedSourceLocal_(key){
+  try{
+    const raw=window.localStorage.getItem(APP_LOCAL_CACHE_PREFIX+key);
+    return raw?JSON.parse(raw):null;
+  }catch(_){return null;}
+}
+function writeCachedSourceLocal_(key,record){
+  try{window.localStorage.setItem(APP_LOCAL_CACHE_PREFIX+key,JSON.stringify(record));updateCacheManifest_(key,record);}
+  catch(_){/* Si localStorage no alcanza, IndexedDB sigue siendo la fuente principal. */}
+}
 async function readCachedSource(key){
-  const db=await openAppCacheDB();
-  const tx=db.transaction(APP_IDB_STORE,"readonly");
-  return idbRequest_(tx.objectStore(APP_IDB_STORE).get(key));
+  try{
+    const db=await openAppCacheDB();
+    const tx=db.transaction(APP_IDB_STORE,"readonly");
+    const rec=await idbRequest_(tx.objectStore(APP_IDB_STORE).get(key));
+    return rec||readCachedSourceLocal_(key);
+  }catch(_){return readCachedSourceLocal_(key);}
 }
 async function readCachedSourceRecords(keys){
   const wanted=[...new Set((keys||[]).filter(Boolean))];
   if(!wanted.length)return{};
-  const db=await openAppCacheDB();
-  const tx=db.transaction(APP_IDB_STORE,"readonly");
-  const store=tx.objectStore(APP_IDB_STORE);
-  const pairs=await Promise.all(wanted.map(async key=>[key,await idbRequest_(store.get(key)).catch(()=>null)]));
-  return Object.fromEntries(pairs);
+  try{
+    const db=await openAppCacheDB();
+    const tx=db.transaction(APP_IDB_STORE,"readonly");
+    const store=tx.objectStore(APP_IDB_STORE);
+    const pairs=await Promise.all(wanted.map(async key=>[key,(await idbRequest_(store.get(key)).catch(()=>null))||readCachedSourceLocal_(key)]));
+    return Object.fromEntries(pairs);
+  }catch(_){
+    return Object.fromEntries(wanted.map(key=>[key,readCachedSourceLocal_(key)]));
+  }
 }
 async function readCachedSources(keys){
   const records=await readCachedSourceRecords(keys);
@@ -12804,29 +12911,45 @@ async function readCachedSources(keys){
   return out;
 }
 async function writeCachedSource(key,value){
-  const db=await openAppCacheDB();
-  const tx=db.transaction(APP_IDB_STORE,"readwrite");
   const count=Array.isArray(value?.data)?value.data.length:0;
-  tx.objectStore(APP_IDB_STORE).put({key,value,updatedAt:new Date().toISOString(),count,version:APP_CACHE_VERSION});
-  await idbTransactionDone_(tx);
+  const record={key,value,updatedAt:new Date().toISOString(),count,version:APP_CACHE_VERSION};
+  writeCachedSourceLocal_(key,record);
+  try{
+    const db=await openAppCacheDB();
+    const tx=db.transaction(APP_IDB_STORE,"readwrite");
+    tx.objectStore(APP_IDB_STORE).put(record);
+    await idbTransactionDone_(tx);
+  }catch(_){/* fallback local ya guardado */}
 }
 async function writeCachedSources(sources){
   const entries=Object.entries(sources||{});
   if(!entries.length)return;
-  const db=await openAppCacheDB();
-  const tx=db.transaction(APP_IDB_STORE,"readwrite");
-  const store=tx.objectStore(APP_IDB_STORE);
   const updatedAt=new Date().toISOString();
-  entries.forEach(([key,value])=>store.put({key,value,updatedAt,count:Array.isArray(value?.data)?value.data.length:0,version:APP_CACHE_VERSION}));
-  await idbTransactionDone_(tx);
+  const records=entries.map(([key,value])=>({key,value,updatedAt,count:Array.isArray(value?.data)?value.data.length:0,version:APP_CACHE_VERSION}));
+  records.forEach(rec=>writeCachedSourceLocal_(rec.key,rec));
+  try{
+    const db=await openAppCacheDB();
+    const tx=db.transaction(APP_IDB_STORE,"readwrite");
+    const store=tx.objectStore(APP_IDB_STORE);
+    records.forEach(rec=>store.put(rec));
+    await idbTransactionDone_(tx);
+  }catch(_){/* fallback local ya guardado */}
 }
 async function clearCachedSource(key){
-  const db=await openAppCacheDB();
-  const tx=db.transaction(APP_IDB_STORE,"readwrite");
-  tx.objectStore(APP_IDB_STORE).delete(key);
-  await idbTransactionDone_(tx);
+  try{window.localStorage.removeItem(APP_LOCAL_CACHE_PREFIX+key);}catch(_){ }
+  const manifest=readCacheManifest_();delete manifest[key];writeCacheManifest_(manifest);
+  try{
+    const db=await openAppCacheDB();
+    const tx=db.transaction(APP_IDB_STORE,"readwrite");
+    tx.objectStore(APP_IDB_STORE).delete(key);
+    await idbTransactionDone_(tx);
+  }catch(_){ }
 }
-function readSavedDataSources(){return{sources:{},updatedAt:null};}
+function readSavedDataSources(){
+  const manifest=readCacheManifest_();
+  const times=Object.values(manifest||{}).map(r=>new Date(r?.updatedAt||0).getTime()).filter(Number.isFinite);
+  return{sources:{},updatedAt:times.length?new Date(Math.max(...times)).toISOString():null};
+}
 function saveDataSourcesToStorage(sources){writeCachedSources(sources).catch(()=>{});}
 function getCachedSourceTimestamp(record){return record?.updatedAt||record?.value?.meta?.updatedAt||record?.value?.updatedAt||null;}
 function getRowIdentity_(row,index){
@@ -14953,6 +15076,44 @@ export default function App(){
   const[dataHydrated,setDataHydrated]=useState(false);
   useEffect(()=>{loadedSourcesRef.current=loadedSources;},[loadedSources]);
   useEffect(()=>{rawSourcesRef.current=rawSources;},[rawSources]);
+
+  // Precarga silenciosa desde caché local: al abrir la app, las vistas ya tienen
+  // datos disponibles antes de consultar Google Sheets. La sincronización real
+  // sigue ocurriendo en segundo plano al entrar a cada módulo.
+  useEffect(()=>{
+    let cancelled=false;
+    const allSources=[...new Set(Object.values(VIEW_SOURCES).flat())];
+    const run=async()=>{
+      const recordMap=await readCachedSourceRecords(allSources).catch(()=>({}));
+      if(cancelled)return;
+      const valid=Object.entries(recordMap||{}).filter(([,rec])=>rec?.value?.ok&&Array.isArray(rec.value.data));
+      if(!valid.length)return;
+      startTransition(()=>{
+        setRawSources(prev=>{
+          const next={...prev};let changed=false;
+          valid.forEach(([key,rec])=>{if(!(next[key]?.ok&&Array.isArray(next[key].data))){next[key]=rec.value;changed=true;}});
+          if(!changed)return prev;
+          rawSourcesRef.current=next;
+          return next;
+        });
+        setLoadedSources(prev=>{
+          const next={...prev};let changed=false;
+          valid.forEach(([key])=>{if(!next[key]){next[key]=true;changed=true;}});
+          if(!changed)return prev;
+          loadedSourcesRef.current=next;
+          return next;
+        });
+      });
+      const times=valid.map(([,rec])=>new Date(rec.updatedAt||0).getTime()).filter(Number.isFinite);
+      if(times.length)setLastUpdate(new Date(Math.max(...times)));
+    };
+    const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(run,{timeout:500}):window.setTimeout(run,120);
+    return()=>{
+      cancelled=true;
+      if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
+  },[]);
 
   const sourceHasData=useCallback((key)=>{
     const src=rawSources&&rawSources[key];
