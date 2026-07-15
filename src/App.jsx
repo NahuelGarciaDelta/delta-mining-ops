@@ -14949,7 +14949,32 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
                   <Pie data={d.estados.filter(x=>x.value>0)} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>
                     {d.estados.filter(x=>x.value>0).map((entry,i)=><Cell key={entry.name} fill={entry.color||pieColors[i%pieColors.length]}/>) }
                   </Pie>
-                  <Tooltip contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,color:C.text}} formatter={v=>fmtNum(v)}/>
+                  <Tooltip
+                    wrapperStyle={{zIndex:50,pointerEvents:"none"}}
+                    content={({active,payload})=>{
+                      if(!active||!payload?.length)return null;
+                      const item=payload[0];
+                      const row=item.payload||{};
+                      const totalEstado=d.estados.reduce((acc,x)=>acc+(Number(x.value)||0),0);
+                      const value=Number(item.value)||0;
+                      const pct=totalEstado>0?((value/totalEstado)*100).toFixed(1):"0.0";
+                      const color=row.color||item.color||C.accent;
+                      return(
+                        <div style={{background:"rgba(16,16,16,.94)",border:`1px solid ${color}66`,borderRadius:10,padding:"8px 11px",boxShadow:"0 12px 28px rgba(0,0,0,.45)",minWidth:140,maxWidth:190,color:C.text,fontSize:11,lineHeight:1.25}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:6}}>
+                            <span style={{width:9,height:9,borderRadius:999,background:color,display:"inline-block",boxShadow:`0 0 10px ${color}66`}}/>
+                            <span style={{fontFamily:"Inter",fontWeight:900,color:C.text}}>{row.name||item.name||"Estado"}</span>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between",gap:12,color:C.textSub}}>
+                            <span>Solicitudes</span><strong style={{color:C.text}}>{fmtNum(value)}</strong>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between",gap:12,color:C.textSub,marginTop:3}}>
+                            <span>Participación</span><strong style={{color}}>{pct}%</strong>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
                   <Legend wrapperStyle={{color:C.textSub,fontSize:11}}/>
                 </PieChart>
               </ResponsiveContainer>
