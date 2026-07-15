@@ -1241,7 +1241,7 @@ function StatCard({icon,value,label,sub,color=C.accent,valueColor,small}){
 }
 function Card({children,style,title,action}){
   return(
-    <div style={{background:"rgba(28,28,28,0.82)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",border:`1px solid ${C.border}55`,borderRadius:12,overflow:"hidden",...style}}>
+    <div style={{background:"rgba(28,28,28,0.82)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",border:`1px solid ${C.border}55`,borderRadius:12,overflow:"visible",...style}}>
       {title&&<div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
         <span style={{fontFamily:"Inter",fontWeight:700,fontSize:13,color:C.text}}>{title}</span>
         {action}
@@ -1554,23 +1554,28 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
   const[search,setSearch]=useState("");
   // Valor local: permite marcar varias opciones sin cerrar el desplegable ni recalcular toda la pantalla en cada click.
   const[draftValue,setDraftValue]=useState(value);
-  const[pos,setPos]=useState({top:0,left:0,width:240});
   const[tipOpen,setTipOpen]=useState(false);
-  const[tipPos,setTipPos]=useState({top:0,left:0});
   const draftRef=useRef(value);
   const ref=useRef(null);
-  const btnRef=useRef(null);
-  const rafRef=useRef(null);
   const commitRef=useRef(null);
+  const searchRef=useRef(null);
   const def=multiDefault(options);
   const displayValue=open?draftValue:value;
   const selected=normalizeMultiValue(displayValue,options);
   const selectedArr=Array.isArray(selected)?selected:[];
   const selectedLabels=multiSelectedLabels(displayValue,options);
   const isActive=Array.isArray(selected)&&selected.length>0;
-  const realOptions=(options||[]).filter(o=>o.value!==def);
+  const realOptions=useMemo(()=>(options||[]).filter(o=>o.value!==def),[options,def]);
   const searchNorm=String(search||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
-  const visibleOptions=searchNorm?realOptions.filter(o=>String(o.label||o.value||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(searchNorm)):realOptions;
+  const filteredOptions=useMemo(()=>{
+    if(!searchNorm)return realOptions;
+    return realOptions.filter(o=>String(o.label||o.value||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(searchNorm));
+  },[realOptions,searchNorm]);
+  // Para que abrir un filtro grande no congele la app, se renderiza una cantidad acotada.
+  // Al buscar, filtra sobre todas las opciones y vuelve a mostrar las primeras coincidencias.
+  const MAX_RENDER_OPTIONS=180;
+  const visibleOptions=filteredOptions.slice(0,MAX_RENDER_OPTIONS);
+  const hiddenCount=Math.max(0,filteredOptions.length-visibleOptions.length);
 
   useEffect(()=>{
     if(!open)setDraftValue(value);
@@ -1584,13 +1589,22 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
     if(commitRef.current)clearTimeout(commitRef.current);
   },[]);
 
+  useEffect(()=>{
+    if(open&&searchRef.current){
+      const id=setTimeout(()=>searchRef.current&&searchRef.current.focus(),0);
+      return()=>clearTimeout(id);
+    }
+  },[open]);
+
   const commitNow=useCallback((next)=>{
     if(commitRef.current){clearTimeout(commitRef.current);commitRef.current=null;}
     const a=JSON.stringify(normalizeMultiValue(next,options));
     const b=JSON.stringify(normalizeMultiValue(value,options));
     if(a===b)return;
-    if(React.startTransition)React.startTransition(()=>onChange(next));
-    else onChange(next);
+    // Cambiar el valor final puede recalcular tablas grandes. Se difiere para no bloquear el click.
+    const run=()=>onChange(next);
+    if(typeof window!=="undefined"&&window.requestIdleCallback)window.requestIdleCallback(run,{timeout:300});
+    else setTimeout(run,0);
   },[onChange,options,value]);
 
   const commitValue=useCallback((next)=>{
@@ -1598,9 +1612,7 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
     draftRef.current=next;
     if(commitRef.current){clearTimeout(commitRef.current);commitRef.current=null;}
     if(commitOnClose)return;
-    commitRef.current=setTimeout(()=>{
-      commitNow(next);
-    },commitDelay);
+    commitRef.current=setTimeout(()=>commitNow(next),commitDelay);
   },[commitNow,commitOnClose,commitDelay]);
 
   const closeMenu=useCallback(()=>{
@@ -1609,54 +1621,17 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
     setSearch("");
   },[commitOnClose,commitNow]);
 
-  const updatePos=useCallback(()=>{
-    const el=btnRef.current;
-    if(!el)return;
-    if(rafRef.current)cancelAnimationFrame(rafRef.current);
-    rafRef.current=requestAnimationFrame(()=>{
-      const r=el.getBoundingClientRect();
-      const width=Math.max(240,r.width);
-      let left=r.left;
-      if(left+width>window.innerWidth-12)left=window.innerWidth-width-12;
-      left=Math.max(12,left);
-      const next={top:r.bottom+6,left,width};
-      setPos(prev=>prev.top===next.top&&prev.left===next.left&&prev.width===next.width?prev:next);
-    });
-  },[]);
-
-  const updateTipPos=useCallback(()=>{
-    const el=btnRef.current;
-    if(!el)return;
-    const r=el.getBoundingClientRect();
-    let left=r.left;
-    let top=r.bottom+8;
-    setTipPos(prev=>prev.top===top&&prev.left===left?prev:{top,left});
-  },[]);
-
   useEffect(()=>{
     const handler=e=>{
       if(ref.current&&ref.current.contains(e.target))return;
-      if(e.target.closest&&e.target.closest('[data-multisel-menu="true"]'))return;
       closeMenu();
     };
     document.addEventListener("mousedown",handler);
     return()=>{
       document.removeEventListener("mousedown",handler);
-      if(rafRef.current)cancelAnimationFrame(rafRef.current);
       if(commitRef.current)clearTimeout(commitRef.current);
     };
   },[closeMenu]);
-
-  useEffect(()=>{
-    if(!open)return;
-    updatePos();
-    window.addEventListener("resize",updatePos);
-    window.addEventListener("scroll",updatePos,true);
-    return()=>{
-      window.removeEventListener("resize",updatePos);
-      window.removeEventListener("scroll",updatePos,true);
-    };
-  },[open,updatePos]);
 
   const emit=(arr)=>{
     const clean=arr.filter(Boolean).filter(v=>v!==def);
@@ -1671,43 +1646,34 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
   };
   const allChecked=!isActive;
 
-  const tooltip=isActive&&tipOpen?ReactDOM.createPortal(
-    <div style={{position:"fixed",top:tipPos.top,left:tipPos.left,zIndex:1000000,minWidth:220,maxWidth:360,maxHeight:260,overflow:"auto",background:C.card,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 16px 45px rgba(0,0,0,.75)",padding:"10px 12px",pointerEvents:"none"}}>
-      <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:7}}>{label} aplicado</div>
-      <div style={{display:"flex",flexDirection:"column",gap:5}}>
-        {selectedLabels.map(item=>(
-          <div key={item.value} style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:C.text,lineHeight:1.25}}>
-            <span style={{color:C.accent,fontWeight:900}}>✓</span>
-            <span>{item.label}</span>
-          </div>
-        ))}
-      </div>
-    </div>,document.body
-  ):null;
-
-  const menu=open?ReactDOM.createPortal(
-    <div data-multisel-menu="true" onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} style={{position:"fixed",top:pos.top,left:pos.left,zIndex:999999,width:pos.width,maxHeight:300,overflow:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:6}}>
+  const menu=open?(
+    <div data-multisel-menu="true" onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:1000000,width:"max(240px, 100%)",maxWidth:360,maxHeight:320,overflow:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.75)",padding:6}}>
       <label style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:allChecked?C.accent:C.textSub,fontWeight:allChecked?700:500}}>
         <input type="checkbox" checked={allChecked} onChange={()=>commitValue(def)} style={{accentColor:C.accent}}/>
         Todos
       </label>
       <div style={{height:1,background:C.border,margin:"4px 0"}}/>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." autoFocus style={{width:"100%",boxSizing:"border-box",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"7px 8px",fontSize:12,outline:"none",margin:"3px 0 6px",fontFamily:"Inter"}}/>
+      <input ref={searchRef} value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{width:"100%",boxSizing:"border-box",background:"rgba(255,255,255,.05)",border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"7px 8px",fontSize:12,outline:"none",margin:"3px 0 6px",fontFamily:"Inter"}}/>
       {visibleOptions.length?visibleOptions.map(o=>(
         <label key={o.value} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:selectedArr.includes(o.value)?C.text:C.textSub}}>
           <input type="checkbox" checked={selectedArr.includes(o.value)} onChange={()=>toggle(o.value)} style={{accentColor:C.accent}}/>
           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.label}</span>
         </label>
       )):<div style={{padding:"9px 8px",fontSize:12,color:C.textMuted}}>Sin resultados</div>}
+      {hiddenCount>0&&(
+        <div style={{padding:"7px 8px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}55`,marginTop:4}}>
+          Mostrando {visibleOptions.length} de {filteredOptions.length}. Usá el buscador para encontrar el resto.
+        </div>
+      )}
       {commitOnClose&&<div style={{display:"flex",gap:6,position:"sticky",bottom:0,background:C.surface,borderTop:`1px solid ${C.border}`,padding:"7px 4px 2px",marginTop:4}}>
         <button onClick={closeMenu} style={{flex:1,border:`1px solid ${C.accent}66`,background:C.redDim,color:C.accent,borderRadius:7,padding:"7px 8px",fontSize:12,fontWeight:800,cursor:"pointer",fontFamily:"Inter"}}>Aplicar</button>
         <button onClick={()=>{setDraftValue(value);draftRef.current=value;setOpen(false);setSearch("");}} style={{border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,borderRadius:7,padding:"7px 8px",fontSize:12,cursor:"pointer",fontFamily:"Inter"}}>Cancelar</button>
       </div>}
-    </div>,document.body
+    </div>
   ):null;
 
   return(
-    <div ref={ref} style={{display:"flex",flexDirection:"column",gap:3,position:"relative",minWidth:130,zIndex:open?999999:1}}>
+    <div ref={ref} style={{display:"flex",flexDirection:"column",gap:3,position:"relative",minWidth:130,zIndex:open?1000000:1,overflow:"visible"}}>
       <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>{label}</label>
       <div style={{position:"relative",display:"flex"}}>
         {isActive&&(
@@ -1716,16 +1682,29 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
             ×
           </button>
         )}
-        <button ref={btnRef} type="button"
-          onMouseEnter={()=>{updateTipPos();setTipOpen(true);}}
+        <button type="button"
+          onMouseEnter={()=>setTipOpen(true)}
           onMouseLeave={()=>setTipOpen(false)}
-          onClick={()=>{if(open){closeMenu();return;}setDraftValue(value);draftRef.current=value;updatePos();setTipOpen(false);setOpen(true);}}
+          onClick={()=>{if(open){closeMenu();return;}setDraftValue(value);draftRef.current=value;setTipOpen(false);setOpen(true);}}
           style={{background:C.surface,border:`1px solid ${isActive?C.accent+"55":C.border}`,borderRadius:7,color:C.text,padding:`7px 28px 7px ${isActive?26:10}px`,fontSize:12,cursor:"pointer",outline:"none",minWidth:130,width:"100%",textAlign:"left",fontFamily:"Inter",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
           {multiSummary(displayValue,options)}
         </button>
         <Icon name="chevronDown" size={15} color={C.textMuted} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",pointerEvents:"none"}}/>
       </div>
-      {tooltip}
+      {isActive&&tipOpen&&!open&&(
+        <div style={{position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:999999,minWidth:220,maxWidth:360,maxHeight:260,overflow:"auto",background:C.card,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 16px 45px rgba(0,0,0,.75)",padding:"10px 12px",pointerEvents:"none"}}>
+          <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em",fontWeight:700,marginBottom:7}}>{label} aplicado</div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {selectedLabels.slice(0,30).map(item=>(
+              <div key={item.value} style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:C.text,lineHeight:1.25}}>
+                <span style={{color:C.accent,fontWeight:900}}>✓</span>
+                <span>{item.label}</span>
+              </div>
+            ))}
+            {selectedLabels.length>30&&<div style={{fontSize:11,color:C.textMuted}}>+ {selectedLabels.length-30} más</div>}
+          </div>
+        </div>
+      )}
       {menu}
     </div>
   );
@@ -9651,14 +9630,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[initialCostosMantState]);
 
   const [tab,setTab]=React.useState(initialCostosMantState.tab||"t1");
-  // Cambio directo de pestaña: sin pantalla intermedia.
-  const [isCostosTabPendingTransition,startCostosTabTransition]=React.useTransition?React.useTransition():[false,(fn)=>fn()];
+  // Cambio directo de pestaña: primero responde el click y después se cargan/calculan datos.
+  // No usar startTransition acá: bajo carga de datos React puede demorar el cambio visual.
   const costosRenderTab=tab;
   const isCostosTabPending=false;
   const setTabCostosFluido=React.useCallback((nextTab)=>{
     if(nextTab===tab)return;
-    startCostosTabTransition(()=>setTab(nextTab));
-  },[tab,startCostosTabTransition]);
+    setTab(nextTab);
+  },[tab]);
   const useCostoDebouncedValue=(value,delay=180)=>{
     const [debounced,setDebounced]=React.useState(value);
     React.useEffect(()=>{
@@ -9757,6 +9736,32 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const isCostosTabManoObra=costosRenderTab==="t4";
   const isCostosTabAmortizacion=costosRenderTab==="t5";
   const isCostosTabResumen=costosRenderTab==="t8";
+
+  React.useEffect(()=>{
+    if(!isCostosTabAmortizacion){
+      setAmortizacionCalcEnabled(false);
+      return;
+    }
+    setAmortizacionVisibleCount(50);
+    setAmortizacionCalcEnabled(false);
+    let alive=true;
+    const run=()=>{
+      if(!alive)return;
+      const apply=()=>setAmortizacionCalcEnabled(true);
+      if(React.startTransition)React.startTransition(apply);
+      else apply();
+    };
+    const id=(window.requestIdleCallback?window.requestIdleCallback(run,{timeout:220}):window.setTimeout(run,60));
+    return ()=>{
+      alive=false;
+      if(window.cancelIdleCallback&&typeof id==="number")window.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
+  },[isCostosTabAmortizacion]);
+
+  // Amortización necesita la distribución de Mano de Obra para calcular
+  // los USD/hs y el promedio por tipo aunque el usuario no haya entrado antes a esa pestaña.
+  const needsManoObraCostos=isCostosTabManoObra||isCostosTabAmortizacion;
   const filtrosCostosActivos=getCostosFiltrosTabla(activeCostosFiltroKey);
   const dFCMaquinas=useCostoDebouncedValue(filtrosCostosActivos.equipo,180);
   const dFCTipoEquipo=useCostoDebouncedValue(filtrosCostosActivos.tipo,180);
@@ -10207,7 +10212,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   // rma15 filtrado SOLO para Mano de Obra (usa fMO*)
   const rma15FiltradoMO=React.useMemo(()=>{
-    if(!isCostosTabManoObra)return rma15FiltradoMOCacheRef.current||[];
+    if(!needsManoObraCostos)return rma15FiltradoMOCacheRef.current||[];
     const out=(rma15PorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
       if(!matchMulti(r.proyecto,dFProyecto,"todos"))return false;
@@ -10220,7 +10225,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     rma15FiltradoMOCacheRef.current=out;
     return out;
-  },[isCostosTabManoObra,rma15PorFecha,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+  },[needsManoObraCostos,rma15PorFecha,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
   const rma15Filtrado=React.useMemo(()=>{
     const activeCalc=isCostosTabTabla||isCostosTabTop3;
@@ -10320,6 +10325,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const rowsAmortizacionHHCacheRef=React.useRef([]);
   const rowsAmortizacionOrdCacheRef=React.useRef([]);
   const rowsAmortizacionFiltCacheRef=React.useRef([]);
+  // Amortización puede ser pesada al entrar porque arma filas, inputs y promedios.
+  // Se habilita el cálculo después del primer pintado y se renderiza en tandas.
+  const [amortizacionCalcEnabled,setAmortizacionCalcEnabled]=React.useState(false);
+  const [amortizacionVisibleCount,setAmortizacionVisibleCount]=React.useState(50);
 
   const acumuladoEquipos=React.useMemo(()=>{
     const activeCalc=isCostosTabAcumulado||isCostosTabManoObra;
@@ -10615,7 +10624,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   // Historial filtrado con filtros MO aislados (para Mano de Obra)
   const historialAcumuladoFiltradoMO=React.useMemo(()=>{
-    if(!isCostosTabManoObra)return historialAcumuladoFiltradoMOCacheRef.current||[];
+    if(!needsManoObraCostos)return historialAcumuladoFiltradoMOCacheRef.current||[];
     const out=(HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
       const proyecto=sectionProyectoCosto(x.section);
       const meta=metaEquipoCosto(x.equipo);
@@ -10631,7 +10640,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     historialAcumuladoFiltradoMOCacheRef.current=out;
     return out;
-  },[isCostosTabManoObra,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
+  },[needsManoObraCostos,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
 
   const mesesFijosAcumuladoMensual=React.useMemo(()=>
     (HIST_COSTO_MENSUAL_ACUMULADO.months||[]).filter(m=>monthInFechaFiltroCosto(m.key)),
@@ -10715,7 +10724,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   // costoMensualAcumulado con filtros MO aislados (para distribuir MO sobre todas las máquinas seleccionadas en MO)
   const costoMensualAcumuladoMO=React.useMemo(()=>{
-    if(!isCostosTabManoObra)return costoMensualAcumuladoMOCacheRef.current||[];
+    if(!needsManoObraCostos)return costoMensualAcumuladoMOCacheRef.current||[];
     const map={};
     const ensure=(equipo,section)=>{
       const key=section+"__"+equipo;
@@ -10761,7 +10770,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const out=Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
     costoMensualAcumuladoMOCacheRef.current=out;
     return out;
-  },[isCostosTabManoObra,historialAcumuladoFiltradoMO,mesesFijosAcumuladoMensual,rma15FiltradoMO,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
+  },[needsManoObraCostos,historialAcumuladoFiltradoMO,mesesFijosAcumuladoMensual,rma15FiltradoMO,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
 
   React.useLayoutEffect(()=>{
     if(tab==="t6")restoreCostoMensualScroll();
@@ -11308,7 +11317,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra]);
 
   const rowsAmortizacion=React.useMemo(()=>{
-    if(!isCostosTabAmortizacion)return rowsAmortizacionCacheRef.current||[];
+    if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionCacheRef.current||[];
     // Colapsar por equipo: si un equipo opera en FS y JM aparece dos veces en
     // costoMensualAcumulado. Sumamos mantUSDhs de todas las secciones y mostramos
     // una sola fila por equipo (adq y vida son propiedades del equipo, no de la sección).
@@ -11413,12 +11422,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     );
     rowsAmortizacionCacheRef.current=out;
     return out;
-  },[isCostosTabAmortizacion,costoMensualAcumulado,listaEquipos,AMORTIZACION_GRUPOS,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto,isInvalidEquipoCodeCosto]);
+  },[isCostosTabAmortizacion,amortizacionCalcEnabled,costoMensualAcumulado,listaEquipos,AMORTIZACION_GRUPOS,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto,isInvalidEquipoCodeCosto]);
 
   // Enriquecer con HH Hombre Vestido y lógica no-Delta (depende de estado hombreVestido, hsEf)
   // vidaBase = vida de lista maestra (sin override), para mostrarlo en la celda cuando override=false
   const rowsAmortizacionConHH=React.useMemo(()=>{
-    if(!isCostosTabAmortizacion)return rowsAmortizacionHHCacheRef.current||[];
+    if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionHHCacheRef.current||[];
     const out=(rowsAmortizacion||[]).map(x=>{
       const sections=x.sections||[];
       const tieneJM=sections.includes("JM");
@@ -11450,11 +11459,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     rowsAmortizacionHHCacheRef.current=out;
     return out;
-  },[isCostosTabAmortizacion,rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS,hsPropios,hsArrendados]);
+  },[isCostosTabAmortizacion,amortizacionCalcEnabled,rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS,hsPropios,hsArrendados]);
 
 
   const rowsAmortizacionOrdenadas=React.useMemo(()=>{
-    if(!isCostosTabAmortizacion)return rowsAmortizacionOrdCacheRef.current||[];
+    if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionOrdCacheRef.current||[];
     // Recalcular promTipo usando el pctMant final (post HH / no-Delta)
     const gruposConHH={};
     (rowsAmortizacionConHH||[]).forEach(x=>{(gruposConHH[x.tipo]=gruposConHH[x.tipo]||[]).push(x);});
@@ -11478,7 +11487,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     rowsAmortizacionOrdCacheRef.current=out;
     return out;
-  },[isCostosTabAmortizacion,rowsAmortizacionConHH,costosMantSorts.amortizacion]);
+  },[isCostosTabAmortizacion,amortizacionCalcEnabled,rowsAmortizacionConHH,costosMantSorts.amortizacion]);
 
 
   const filtrosAmortizacion=getCostosFiltrosTabla("t5");
@@ -11486,7 +11495,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const dFAmortTipo=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.tipo):filtrosAmortizacion.tipo;
   const dFAmortPropiedad=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.propiedad):filtrosAmortizacion.propiedad;
   const rowsAmortizacionOrdenadasFiltradas=React.useMemo(()=>{
-    if(!isCostosTabAmortizacion)return rowsAmortizacionFiltCacheRef.current||[];
+    if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionFiltCacheRef.current||[];
 
     // Primero aplicar los filtros sobre las filas base. El promedio azul debe
     // calcularse únicamente con los equipos visibles de cada tipo, no con el
@@ -11547,10 +11556,44 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     rowsAmortizacionFiltCacheRef.current=out;
     return out;
   },[
-    isCostosTabAmortizacion,rowsAmortizacionConHH,costosMantSorts.amortizacion,
+    isCostosTabAmortizacion,amortizacionCalcEnabled,rowsAmortizacionConHH,costosMantSorts.amortizacion,
     dFAmortEquipo,dFAmortTipo,dFAmortPropiedad,metaEquipoCosto,
     useListaVidaUtil,vidaUtilOverride
   ]);
+
+  // Diferimos el render de la tabla final y lo montamos en tandas para que al entrar
+  // a Amortización no se clave la pantalla armando todas las filas/inputs de una vez.
+  const rowsAmortizacionDeferred=React.useDeferredValue?React.useDeferredValue(rowsAmortizacionOrdenadasFiltradas):rowsAmortizacionOrdenadasFiltradas;
+  React.useEffect(()=>{
+    if(!isCostosTabAmortizacion)return;
+    const total=(rowsAmortizacionDeferred||[]).length;
+    setAmortizacionVisibleCount(50);
+    if(total<=50)return;
+    let alive=true;
+    const step=()=>{
+      if(!alive)return;
+      setAmortizacionVisibleCount(prev=>{
+        const next=Math.min(total,prev+50);
+        if(next<total){
+          const schedule=window.requestIdleCallback||window.requestAnimationFrame||window.setTimeout;
+          schedule(step);
+        }
+        return next;
+      });
+    };
+    const schedule=window.requestIdleCallback||window.requestAnimationFrame||window.setTimeout;
+    const id=schedule(step);
+    return ()=>{
+      alive=false;
+      if(window.cancelIdleCallback&&typeof id==="number")window.cancelIdleCallback(id);
+      else if(window.cancelAnimationFrame&&typeof id==="number")window.cancelAnimationFrame(id);
+      else window.clearTimeout(id);
+    };
+  },[isCostosTabAmortizacion,rowsAmortizacionDeferred]);
+  const rowsAmortizacionRender=React.useMemo(()=>{
+    const rows=rowsAmortizacionDeferred||[];
+    return rows.slice(0,Math.min(rows.length,amortizacionVisibleCount));
+  },[rowsAmortizacionDeferred,amortizacionVisibleCount]);
 
   const rowsAmortizacionExcel=React.useMemo(()=>(rowsAmortizacionOrdenadasFiltradas||[]).map(x=>({
     Equipo:x.equipo,
@@ -12532,6 +12575,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       {costosRenderTab==="t5"&&(
         <Card title="Costo horario de amortización y mantenimiento" action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",rowsAmortizacionExcel)}/>}> 
           {renderCostosQuickFilters("t5",true)}
+          {isCostosTabAmortizacion&&(!amortizacionCalcEnabled||amortizacionVisibleCount<(rowsAmortizacionDeferred||[]).length)&&listaEquipos&&listaEquipos.length>0&&(
+            <div style={{padding:"7px 14px",fontSize:11,color:C.textMuted,borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.12)"}}>
+              Preparando tabla sin bloquear la app{amortizacionCalcEnabled&&rowsAmortizacionDeferred?.length?` · ${Math.min(amortizacionVisibleCount,rowsAmortizacionDeferred.length)} de ${rowsAmortizacionDeferred.length} filas`:""}
+            </div>
+          )}
           {(!listaEquipos||listaEquipos.length===0)?(
             <div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:13}}>
               Cargá la <b>Lista Maestra de Equipos</b> desde el menú lateral para ver esta tabla.
@@ -12584,7 +12632,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                   {sortableCostHead("amortizacion","promTipo","Promedio por tipo",{...thS,textAlign:"center"})}
                 </tr></thead>
                 <tbody>
-                  {rowsAmortizacionOrdenadasFiltradas.map((x,i)=>(
+                  {(rowsAmortizacionRender||[]).map((x,i)=>(
                     <AmortRow
                       key={x.equipo}
                       x={x}
@@ -16116,51 +16164,30 @@ export default function App(){
 
 
   // Precarga silenciosa en Bienvenida.
-  // No cambia la pantalla ni muestra loaders: aprovecha el tiempo en la portada para
-  // consultar las fuentes pesadas y dejarlas cacheadas antes de entrar a los módulos.
+  // Versión liviana: sólo calienta la caché local/remota, pero NO mete todas las
+  // fuentes en el estado de React mientras estás en la portada. Eso evita que un
+  // click a cualquier módulo tenga que competir contra renders/cálculos enormes.
   useEffect(()=>{
     if(view!=="bienvenida"||welcomePreloadStartedRef.current)return;
     welcomePreloadStartedRef.current=true;
     let cancelled=false;
 
+    const stopPreload=()=>{cancelled=true;};
+    window.addEventListener("pointerdown",stopPreload,{once:true,passive:true});
+    window.addEventListener("keydown",stopPreload,{once:true});
+
     const preloadSources=[...new Set([
-      ...Object.values(VIEW_SOURCES).flat(),
+      "lista_equipos",
+      "insumos",
+      "rma15_fs",
+      "rma15_jm",
+      "rop02_fs",
+      "rop02_jm",
+      "rop02_filosur",
+      "rop05",
       "raba03",
       "remitos_cargados"
     ].filter(Boolean))];
-
-    const applyEntries=(entries)=>{
-      if(cancelled||!entries.length)return;
-      startTransition(()=>{
-        setRawSources(prev=>{
-          let changed=false;
-          const next={...prev};
-          entries.forEach(([key,val])=>{
-            if(val?.ok&&Array.isArray(val.data)&&next[key]!==val){
-              next[key]=val;
-              changed=true;
-            }
-          });
-          if(!changed)return prev;
-          rawSourcesRef.current=next;
-          return next;
-        });
-        setLoadedSources(prev=>{
-          let changed=false;
-          const next={...prev};
-          entries.forEach(([key,val])=>{
-            if(val?.ok&&Array.isArray(val.data)&&!next[key]){
-              next[key]=true;
-              changed=true;
-            }
-          });
-          if(!changed)return prev;
-          loadedSourcesRef.current=next;
-          return next;
-        });
-      });
-      setLastUpdate(new Date());
-    };
 
     const run=async()=>{
       try{
@@ -16171,37 +16198,27 @@ export default function App(){
         try{
           const syncInfo=await fetchSyncVersions(APPS_SCRIPT_URL);
           serverVersions=syncInfo?.versions||{};
-        }catch(_){
-          serverVersions={};
-        }
+        }catch(_){serverVersions={};}
 
-        // En tandas chicas para no congelar la portada ni golpear Apps Script de una sola vez.
-        const chunkSize=3;
-        for(let i=0;i<preloadSources.length&&!cancelled;i+=chunkSize){
-          const chunk=preloadSources.slice(i,i+chunkSize);
-          const results=await Promise.allSettled(chunk.map(key=>
-            fetchOneSource(key,{force:false,serverVersions,cacheRecords})
-          ));
-          const entries=[];
-          results.forEach((result,idx)=>{
-            if(result.status==="fulfilled"&&!result.value?.skipped&&result.value?.value){
-              entries.push([chunk[idx],result.value.value]);
-            }
-          });
-          applyEntries(entries);
-          await new Promise(resolve=>setTimeout(resolve,180));
+        // Una fuente por vez y con pausa: no actualiza UI, sólo deja la caché lista.
+        for(let i=0;i<preloadSources.length&&!cancelled;i++){
+          const key=preloadSources[i];
+          try{await fetchOneSource(key,{force:false,serverVersions,cacheRecords});}catch(_){}
+          await new Promise(resolve=>setTimeout(resolve,350));
         }
       }catch(_){
-        // Silencioso: si falla la precarga, no interrumpe la bienvenida ni muestra error.
+        // Silencioso: si falla la precarga, no interrumpe ni muestra errores.
       }
     };
 
     const id=typeof window.requestIdleCallback==="function"
-      ?window.requestIdleCallback(run,{timeout:1200})
-      :window.setTimeout(run,400);
+      ?window.requestIdleCallback(run,{timeout:1800})
+      :window.setTimeout(run,900);
 
     return()=>{
       cancelled=true;
+      window.removeEventListener("pointerdown",stopPreload);
+      window.removeEventListener("keydown",stopPreload);
       if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);
       else window.clearTimeout(id);
     };
@@ -16339,17 +16356,16 @@ export default function App(){
   };
   const SW=sidebarOpen?240:64;
   const openModuleFromWelcome=useCallback((module,targetView)=>{
-    startTransition(()=>{
-      setActiveModule(module||"oficina");
-      setSidebarOpen(true);
-      setView(targetView||"rop02");
-    });
+    // Navegación inmediata: el click cambia la pantalla en el mismo tick.
+    // La carga pesada queda en los effects en segundo plano.
+    setActiveModule(module||"oficina");
+    setSidebarOpen(true);
+    setView(targetView||"rop02");
   },[]);
   const navigateToView=useCallback((targetView)=>{
-    startTransition(()=>{
-      if(targetView==="bienvenida")setActiveModule("home");
-      setView(targetView);
-    });
+    // No envolver en startTransition: hacía que, si había precarga/cálculos, el click pareciera congelado.
+    if(targetView==="bienvenida")setActiveModule("home");
+    setView(targetView);
   },[]);
   const displayedNavStructure=useMemo(()=>{
     if(activeModule==="calidad"){
@@ -16492,7 +16508,9 @@ export default function App(){
             {fatalError&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
             {!fatalError&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
-                <img src="/loader.gif" alt="Cargando" style={{width:320,height:"auto"}}/>
+                <div style={{width:54,height:54,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(255,255,255,.04)",border:`1px solid ${C.border}`,boxShadow:"0 10px 30px rgba(0,0,0,.28)"}}>
+                  <div className="spin" style={{width:30,height:30,border:`3px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%"}} />
+                </div>
                 <div style={{color:C.text,fontSize:22,fontWeight:800}}>Cargando datos...</div>
                 <div style={{color:C.textMuted,fontSize:13}}>Sincronizando información</div>
               </div>
