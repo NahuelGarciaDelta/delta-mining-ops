@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import ReactDOM from "react-dom";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
@@ -478,8 +478,7 @@ function buildListaEquipoInfoIndex(listaEquipos){
   return{byAny,all};
 }
 function getListaEquipoInfoMatch(index,code){
-  const k=cleanMachine(code);
-  const keys=[k,k.replace(/[^A-Z0-9]/g,""),canonicalEquivalentMachineCode(k)].filter(Boolean);
+  const keys=machineLookupVariants(code);
   for(const key of keys){
     const arr=index?.byAny?.[key];
     if(arr&&arr.length){
@@ -528,25 +527,79 @@ function mainMachineCode(maquina){
   return s.slice(0,i).replace(/[-\s]+$/,"");
 }
 
+
+// Valores que aparecen en planillas pero NO son equipos. Se excluyen de
+// "Equipos sin información" para que la correlación tome solamente códigos reales.
+const EQUIPO_SIN_INFO_EXCLUDED_CODES = new Set([
+  "PREDIODELTA",
+  "REORGANIZACION",
+  "REPARACION",
+  "MANTENIMIENTO",
+  "BANDEJAMARTILLO",
+  "1088",
+  "TALLER",
+  "",
+]);
+function isValidEquipoCodigoParaCorrelacion(rawValue){
+  const raw=String(rawValue||"").trim().toUpperCase();
+  if(!raw)return false;
+  const compact=raw.replace(/[^A-Z0-9]/g,"");
+  if(EQUIPO_SIN_INFO_EXCLUDED_CODES.has(compact))return false;
+  // Si viene con paréntesis, se acepta sólo si alguna de las partes contiene
+  // un código real tipo CFN-0043, PCA-0093, CAV-0078, etc.
+  const candidates=[raw,mainMachineCode(raw),...([...raw.matchAll(/\(([^)]+)\)/g)].map(m=>m[1]))];
+  return candidates.some(v=>{
+    const c=cleanMachine(v);
+    const cc=String(c||"").replace(/[^A-Z0-9]/g,"");
+    if(EQUIPO_SIN_INFO_EXCLUDED_CODES.has(cc))return false;
+    return /^[A-Z]{2,4}-?\d{3,5}$/.test(c)||/^[A-Z]{2,4}\d{3,5}$/.test(cc);
+  });
+}
+
 // Claves equivalentes para cruzar Lista Maestra ↔ ROP02.
 // Sirve para máquinas, camiones y camionetas: prueba Código Drusila,
 // Código Nuevo y cualquier variante con/sin paréntesis, guiones o espacios.
 function machineLookupVariants(...values){
   const out=[];
+  const addKey=(k)=>{
+    const kk=String(k||"").trim().toUpperCase();
+    if(kk&&!out.includes(kk))out.push(kk);
+  };
+  const addCandidate=(x)=>{
+    const raw=String(x||"").trim();
+    if(!raw)return;
+    const a=cleanMachine(raw);
+    const b=normalizeMachineCode(raw);
+    const ca=canonicalEquivalentMachineCode(a);
+    const cb=canonicalEquivalentMachineCode(b);
+    [a,b,ca,cb,
+      String(a).replace(/[-_\s]/g,""),
+      String(b).replace(/[-_\s]/g,""),
+      String(ca).replace(/[-_\s]/g,""),
+      String(cb).replace(/[-_\s]/g,"")
+    ].forEach(addKey);
+  };
   const add=(v)=>{
     const raw=String(v||"").trim();
     if(!raw)return;
-    const variants=[raw,mainMachineCode(raw),raw.replace(/\((.*?)\)/g," $1 ")];
-    variants.forEach(x=>{
-      const a=cleanMachine(x);
-      const b=normalizeMachineCode(x);
-      const ca=canonicalEquivalentMachineCode(a);
-      const cb=canonicalEquivalentMachineCode(b);
-      [a,b,ca,cb,String(a).replace(/[-_\s]/g,""),String(b).replace(/[-_\s]/g,""),String(ca).replace(/[-_\s]/g,""),String(cb).replace(/[-_\s]/g,"")].forEach(k=>{
-        const kk=String(k||"").trim().toUpperCase();
-        if(kk&&!out.includes(kk))out.push(kk);
-      });
+
+    // Equipos cargados como "CFN-0043-(PCA-0093)":
+    // - afuera del paréntesis = Código Drusila / viejo
+    // - dentro del paréntesis = Código Nuevo
+    // La Lista Maestra puede tener cualquiera de los dos, por eso se indexan
+    // y se comparan ambas partes por separado.
+    addCandidate(raw);
+    addCandidate(mainMachineCode(raw));
+
+    const parens=[...raw.matchAll(/\(([^)]+)\)/g)].map(m=>m[1]).filter(Boolean);
+    parens.forEach(x=>{
+      addCandidate(x);
+      String(x).split(/[\/;,|]+/).forEach(addCandidate);
     });
+
+    // Variante con paréntesis reemplazado por espacio, como respaldo para
+    // nombres que traen ambos códigos sin separadores claros.
+    addCandidate(raw.replace(/\((.*?)\)/g," $1 "));
   };
   values.forEach(add);
   return out;
@@ -744,7 +797,12 @@ function proyColor(p){
   return C.purple;
 }
 function byDateFilter(rows,mode,fecha,fechaD,fechaH){
-  // Sin filtro de fecha activo: devolver todo sin iterar
+  // Sin filtro de fecha activo: devolver todo sin iterar.
+  // En modo acumulado el rango NO depende de Mes/Desde/Hasta,
+  // sino de Verano/Invierno + Año; ese filtro se aplica en cada vista.
+  // Si no se corta acá, al entrar a Acumulado quedaba limitado por el mes
+  // que venía seleccionado y no traía registros del período real.
+  if(mode==="acumulado")return rows;
   if(mode==="dia"&&!fecha)return rows;
   if(mode==="periodo"&&!fechaD&&!fechaH)return rows;
   return rows.filter(r=>{
@@ -820,6 +878,14 @@ function normSupervisorROP05(raw){
 function fmtARS(v){return v>0?"$"+fmtNum(v):"—";}
 function fmtUSD(v,rate){if(!v||v<=0||!rate)return"—";const usd=Math.round(v/rate);return"U$S "+fmtNum(usd);}
 
+function normalizeInsumoCode(value){
+  return String(value??"")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g,"")
+    .replace(/[–—]/g,"-");
+}
+
 function normalizeRMA15(r, insumosMap){
   const fecha=normDate(r["Fecha de OT"]||"");
   const maquina=cleanMachine(r["CODIGO N° INTERNO"]||"");
@@ -828,7 +894,7 @@ function normalizeRMA15(r, insumosMap){
   const insumos=[];
   for(let i=1;i<=10;i++){
     const cant=parseFloat(String(r["cantidad "+i]||"0").replace(/[^0-9.]/g,""))||0;
-    const cod=String(r["codigo "+i]||"").trim();
+    const cod=normalizeInsumoCode(r["codigo "+i]||"");
     const nombre=String(r["nombre "+i]||"").trim();
     if(cod||cant>0){
       const infoInsumo=insumosMap[cod]||{};
@@ -1101,7 +1167,7 @@ function StatCard({icon,value,label,sub,color=C.accent,valueColor,small}){
 function Card({children,style,title,action}){
   return(
     <div style={{background:"rgba(28,28,28,0.82)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",border:`1px solid ${C.border}55`,borderRadius:12,overflow:"hidden",...style}}>
-      {title&&<div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      {title&&<div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
         <span style={{fontFamily:"Inter",fontWeight:700,fontSize:13,color:C.text}}>{title}</span>
         {action}
       </div>}
@@ -1705,19 +1771,34 @@ function buildAppsScriptUrl_(baseUrl,action,params={}){
   return u.toString();
 }
 function sleep_(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
-async function fetchAction(url,action,{force=false,compact=true,retries=3}={}){
+async function runWithConcurrency_(items,limit,worker){
+  const results=new Array(items.length);
+  let cursor=0;
+  const runners=Array.from({length:Math.min(Math.max(1,limit),items.length)},async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=items.length)return;
+      try{results[index]={status:"fulfilled",value:await worker(items[index],index)};}
+      catch(reason){results[index]={status:"rejected",reason};}
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000}={}){
   const params={};
   if(force)params.force="1";
-  if(compact&&!['health','diag','clear_cache'].includes(action))params.compact="1";
-  // ROP05 es pesada, pero para Productividad/Discriminación necesitamos todas las filas.
-  // Se arma la URL con URL/searchParams para evitar errores de ?/& o /exec duplicados.
+  if(since&&!force)params.since=since;
+  if(compact&&!['health','diag','clear_cache','sync','versions'].includes(action))params.compact="1";
   if(action==="rop05")params.limit="all";
 
   let lastErr=null;
   for(let attempt=0;attempt<=retries;attempt++){
+    const controller=typeof AbortController!=="undefined"?new AbortController():null;
+    const timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
     try{
       const requestUrl=buildAppsScriptUrl_(url,action,params);
-      const res=await fetch(requestUrl,{cache:"no-store",redirect:"follow"});
+      const res=await fetch(requestUrl,{cache:"no-store",redirect:"follow",signal:controller?.signal});
       if(!res.ok)throw new Error(`HTTP ${res.status} desde el Apps Script`);
       const text=await res.text();
       let json;
@@ -1726,16 +1807,22 @@ async function fetchAction(url,action,{force=false,compact=true,retries=3}={}){
       if(!json.ok&&!json.sources)throw new Error(json.error?.message||"Respuesta inválida del Apps Script");
       return json;
     }catch(err){
-      lastErr=err;
-      // Apps Script a veces falla de forma intermitente cuando se hacen varias lecturas seguidas.
-      // Reintentamos antes de mostrar error al usuario.
+      lastErr=err?.name==="AbortError"
+        ?new Error(`La consulta ${action} superó ${Math.round(timeoutMs/1000)} segundos`)
+        :err;
       if(attempt<retries)await sleep_(700*(attempt+1));
+    }finally{
+      if(timer)clearTimeout(timer);
     }
   }
   throw lastErr;
 }
 async function fetchHealth(url){return fetchAction(url,"health",{compact:false});}
-async function fetchSource(url,source,{force=false}={}){return fetchAction(url,source,{force,compact:true});}
+async function fetchSource(url,source,{force=false,since=""}={}){return fetchAction(url,source,{force,compact:true,since});}
+async function fetchSyncVersions(url){
+  try{return await fetchAction(url,"sync",{compact:false,retries:2});}
+  catch(_){return null;}
+}
 
 const VIEW_SOURCES={
   dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
@@ -1921,7 +2008,7 @@ function generarReporteControl(periodoLabel,faltanEn05,faltanEn02){
   else iframe.onload=()=>setTimeout(lanzarPrint,150);
 }
 
-function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
+function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista}){
   const LISTA_MAESTRA_STORAGE_KEY="delta_lista_maestra_equipos_filters_v1";
   const readListaMaestraSaved=(key,def="")=>{
     try{return localStorage.getItem(`${LISTA_MAESTRA_STORAGE_KEY}_${key}`)??def;}
@@ -1942,6 +2029,7 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   const[editMsg,setEditMsg]=useState(null);
   const[syncingListaExcel,setSyncingListaExcel]=useState(false);
   const[syncMsg,setSyncMsg]=useState(null);
+  const[listaTab,setListaTab]=useState("maestra");
 
   useEffect(()=>{
     try{localStorage.setItem(`${LISTA_MAESTRA_STORAGE_KEY}_search`,search||"");}
@@ -2067,6 +2155,153 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
   },[cols]);
   const filterKeysOnly=useMemo(()=>filterFields.map(f=>f.key),[filterFields]);
   const{vals:fVals,set:fSet,opts:fOpts,filtered,reset:fReset,hayFiltros}=useSimpleFacetedFilters(searched,filterKeysOnly,`${LISTA_MAESTRA_STORAGE_KEY}_columnFilters`);
+
+  const propiedadKey=useMemo(()=>findColumnKey(searchableKeys,"Propiedad",["PROPIEDAD","Propiedad Equipo","Propiedad del equipo","Propiedad de equipo"]),[searchableKeys]);
+  const costoLocalKey=useMemo(()=>findColumnKey(searchableKeys,"Costo Local USD (s/IVA)",["Costo Local en Dolares sin IVA","Costo Local USD sin IVA","Costo Local Dolares","Costo Local USD","Costo Local"]),[searchableKeys]);
+  const tarifaAlquilerKey=useMemo(()=>findColumnKey(searchableKeys,"Tarifa Mensual Alquiler",["Tarifa Mensual de Alquiler","Tarifa de Alquiler Mensual","Tarifa Alquiler","Alquiler Mensual"]),[searchableKeys]);
+
+  const equiposSinInfo=useMemo(()=>{
+    const listaIndex=buildListaEquipoInfoIndex(data);
+    // Solo se controlan equipos con registros desde mayo de 2026 en adelante.
+    // Esto evita que equipos históricos anteriores a mayo entren en la correlación
+    // Código Drusila / Código Nuevo y ensucien la ventana de pendientes.
+    const FECHA_CORTE_EQUIPOS_SIN_INFO="2026-05-01";
+    const fechaComparable=(v)=>{
+      if(!v)return"";
+      const s=String(v).trim();
+      if(!s)return"";
+      const iso=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+      if(iso)return`${iso[1]}-${String(iso[2]).padStart(2,"0")}-${String(iso[3]).padStart(2,"0")}`;
+      const dmy=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+      if(dmy)return`${dmy[3]}-${String(dmy[2]).padStart(2,"0")}-${String(dmy[1]).padStart(2,"0")}`;
+      const d=new Date(s);
+      if(!Number.isNaN(d.getTime()))return d.toISOString().slice(0,10);
+      return"";
+    };
+    const esRegistroDesdeMayo=(fecha)=>{
+      const f=fechaComparable(fecha);
+      return !!f&&f>=FECHA_CORTE_EQUIPOS_SIN_INFO;
+    };
+    const toNumInfo=(v)=>{
+      if(v===null||v===undefined||v==="")return 0;
+      const s=String(v).trim();
+      if(!s||s==="-"||s==="—")return 0;
+      let clean=s.replace(/[^0-9,.-]/g,"");
+      const lastComma=clean.lastIndexOf(",");
+      const lastDot=clean.lastIndexOf(".");
+      if(lastComma>-1&&lastDot>-1){
+        clean=lastComma>lastDot?clean.replace(/\./g,"").replace(",","."):clean.replace(/,/g,"");
+      }else if(lastComma>-1){
+        clean=clean.replace(/\./g,"").replace(",",".");
+      }
+      const n=Number(clean);
+      return Number.isFinite(n)?n:0;
+    };
+    const esPropDelta=(v)=>{
+      const k=cleanKey(v);
+      return k.includes("delta")||k.includes("propia")||k.includes("propio");
+    };
+    const pending=new Map();
+    const registroProyectoLugar=(r)=>{
+      const v=getValue(r||{},[
+        "proyecto","Proyecto","PROYECTO",
+        "lugar","Lugar","LUGAR",
+        "proyectoLugar","Proyecto/Lugar","PROYECTO/LUGAR",
+        "ubicacion","Ubicación","UBICACION",
+        "sector","Sector","SECTOR"
+      ]);
+      const t=String(v||"").trim();
+      return t&&t!=="-"&&t!=="—"?t:"—";
+    };
+    const add=(rawCode,fuente,fecha,tipo,proyectoLugar)=>{
+      if(!esRegistroDesdeMayo(fecha))return;
+      if(!isValidEquipoCodigoParaCorrelacion(rawCode))return;
+      const code=cleanMachine(mainMachineCode(rawCode)||rawCode);
+      if(!code)return;
+      const fechaISO=fechaComparable(fecha);
+      const match=getListaEquipoInfoMatch(listaIndex,rawCode);
+      const key=match?`LM_${match._idx}`:`SIN_${machineLookupVariants(rawCode)[0]||code}`;
+      const prev=pending.get(key)||{
+        codigoDrusila:match?.codigoDrusila||"",
+        codigoNuevo:match?.codigoNuevo||"",
+        codigoRegistro:code,
+        tipoEquipo:tipo||match?.familia||"",
+        propiedad:match?(String((propiedadKey?match[propiedadKey]:match.propiedad)||match.propiedad||"").trim()):"",
+        fuenteSet:new Set(),
+        proyectoSet:new Set(),
+        registros:0,
+        ultimaFecha:"",
+        motivos:[],
+        _match:match,
+      };
+      prev.fuenteSet.add(fuente);
+      if(proyectoLugar&&proyectoLugar!=="—")prev.proyectoSet.add(proyectoLugar);
+      prev.registros+=1;
+      if(fechaISO&&(!prev.ultimaFecha||fechaISO>prev.ultimaFecha))prev.ultimaFecha=fechaISO;
+      if(!prev.tipoEquipo&&tipo)prev.tipoEquipo=tipo;
+      pending.set(key,prev);
+    };
+    (rop02All||[]).forEach(r=>add(r.maquina,"ROP02",r.fecha,r.equipo||r._tipo,registroProyectoLugar(r)));
+    (rop05||[]).forEach(r=>add(r.maquina,"ROP05",r.fecha,r.tipo_maquina||r._tipo,registroProyectoLugar(r)));
+    (rma15||[]).forEach(r=>add(r.maquina,"RMA15",r.fecha,r.tipoEquipo,registroProyectoLugar(r)));
+
+    const out=[];
+    pending.forEach(item=>{
+      const motivos=[];
+      const match=item._match;
+      if(!match){
+        motivos.push("No está en Lista Maestra");
+      }else{
+        const propRaw=String((propiedadKey?match[propiedadKey]:match.propiedad)||match.propiedad||"").trim();
+        const propValid=validPropiedadValue(propRaw);
+        if(!propValid)motivos.push("Sin propiedad");
+        else if(esPropDelta(propRaw)){
+          const costo=toNumInfo(costoLocalKey?match[costoLocalKey]:"");
+          if(!(costo>0))motivos.push("Sin costo local USD");
+        }else{
+          const tarifa=toNumInfo(tarifaAlquilerKey?match[tarifaAlquilerKey]:"");
+          if(!(tarifa>0))motivos.push("Sin tarifa mensual de alquiler");
+        }
+      }
+      if(!motivos.length)return;
+      out.push({
+        codigoRegistro:item.codigoRegistro,
+        codigoDrusila:item.codigoDrusila||"—",
+        codigoNuevo:item.codigoNuevo||"—",
+        tipoEquipo:item.tipoEquipo||"—",
+        propiedad:item.propiedad||"—",
+        fuentes:Array.from(item.fuenteSet).sort().join(" / "),
+        proyectoLugar:Array.from(item.proyectoSet||[]).sort().join(" / ")||"—",
+        registros:item.registros,
+        ultimaFecha:item.ultimaFecha,
+        motivo:motivos.join(" + "),
+      });
+    });
+    return out.sort((a,b)=>String(a.motivo).localeCompare(String(b.motivo))||String(a.codigoRegistro).localeCompare(String(b.codigoRegistro)));
+  },[data,rop02All,rop05,rma15,propiedadKey,costoLocalKey,tarifaAlquilerKey]);
+
+  const equiposSinInfoCols=useMemo(()=>[
+    {key:"codigoRegistro",label:"Código en planillas",render:v=><Badge color={C.purple}>{v}</Badge>},
+    {key:"codigoDrusila",label:"Código Drusila"},
+    {key:"codigoNuevo",label:"Código Nuevo"},
+    {key:"tipoEquipo",label:"Tipo / equipo"},
+    {key:"propiedad",label:"Propiedad"},
+    {key:"fuentes",label:"Planillas"},
+    {key:"proyectoLugar",label:"Proyecto / lugar",wrap:true},
+    {key:"registros",label:"Registros",align:"right",render:v=><b>{fmtNum(v)}</b>},
+    {key:"ultimaFecha",label:"Última fecha",render:v=>v?fmtFecha(v):"—"},
+    {key:"motivo",label:"Información faltante",wrap:true,render:v=><span style={{color:C.red,fontWeight:800}}>{v}</span>},
+  ],[]);
+
+  const descargarEquiposSinInfo=useCallback(()=>{
+    const wb=XLSX.utils.book_new();
+    const headers=["Código en planillas","Código Drusila","Código Nuevo","Tipo / equipo","Propiedad","Planillas","Proyecto / lugar","Registros","Última fecha","Información faltante"];
+    const body=equiposSinInfo.map(r=>[r.codigoRegistro,r.codigoDrusila,r.codigoNuevo,r.tipoEquipo,r.propiedad,r.fuentes,r.proyectoLugar,r.registros,r.ultimaFecha?fmtFecha(r.ultimaFecha):"",r.motivo]);
+    const ws=XLSX.utils.aoa_to_sheet([headers,...body]);
+    ws["!cols"]=[{wch:18},{wch:18},{wch:18},{wch:24},{wch:18},{wch:18},{wch:22},{wch:10},{wch:14},{wch:34}];
+    XLSX.utils.book_append_sheet(wb,ws,"Equipos sin info");
+    XLSX.writeFile(wb,`Equipos_sin_informacion_${new Date().toISOString().slice(0,10).replace(/-/g,"")}.xlsx`);
+  },[equiposSinInfo]);
 
   const formFields=useMemo(()=>LISTA_COLUMNS.map(col=>{
     const realKey=col.special==="horometro"
@@ -2262,32 +2497,42 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
         {soloActivos&&<span style={{color:C.green,fontWeight:700}}><Badge color={C.green}>✔</Badge> Filtro activo: mostrando solo equipos con registro ROP02 en los últimos 7 días</span>}
       </div>
       <Card title="Lista Maestra de Equipos" action={
-        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"nowrap",overflowX:"auto",maxWidth:"100%",whiteSpace:"nowrap",paddingBottom:2}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${fechaHorometro?C.accent+"55":C.border}`,borderRadius:8,padding:"5px 8px",flexShrink:0}}> 
-            <span style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>Horómetro día</span>
-            <input type="date" value={fechaHorometro} onChange={e=>setFechaHorometro(e.target.value)} style={{background:"transparent",border:"none",color:C.text,fontSize:12,outline:"none",fontFamily:"Inter"}}/>
-            {fechaHorometro&&<button onClick={()=>setFechaHorometro("")} title="Sin día: mostrar último horómetro" style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:6,color:C.red,padding:"3px 7px",fontSize:11,fontWeight:700,cursor:"pointer"}}>×</button>}
+        <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"stretch",width:"min(100%,1380px)",maxWidth:"100%"}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap",maxWidth:"100%"}}>
+            <button onClick={()=>setListaTab("maestra")} style={{background:listaTab==="maestra"?C.accentDim:C.surface,border:`1px solid ${listaTab==="maestra"?C.accent+"55":C.border}`,borderRadius:7,color:listaTab==="maestra"?C.accent:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              Lista maestra
+            </button>
+            <button onClick={()=>setListaTab("sinInfo")} style={{background:listaTab==="sinInfo"?C.redDim:C.surface,border:`1px solid ${listaTab==="sinInfo"?C.red+"55":C.border}`,borderRadius:7,color:listaTab==="sinInfo"?C.red:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:800,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              Equipos sin información {equiposSinInfo.length?`(${equiposSinInfo.length})`:""}
+            </button>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar equipo, tipo, marca, proyecto..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:230,width:320,outline:"none",flex:"1 1 260px",maxWidth:420}}/>
+            <button onClick={()=>setFiltersOpen(o=>!o)} style={{background:filtersOpen?C.accentDim:C.surface,border:`1px solid ${filtersOpen?C.accent+"55":C.border}`,borderRadius:7,color:filtersOpen?C.accent:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              <Icon name="filter" size={13} color={filtersOpen?C.accent:C.textSub}/>Filtros{hayFiltros?` (${filterKeysOnly.filter(k=>!multiIsAll(fVals[k])).length})`:""}
+            </button>
+            {hayFiltros&&<button onClick={fReset} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>Limpiar filtros</button>}
           </div>
-          <button onClick={()=>{setAddOpen(o=>!o);setAddMsg(null);if(editOpen)setEditOpen(false);}} style={{background:addOpen?C.accentDim:C.tealDim,border:`1px solid ${addOpen?C.accent+"55":C.teal+"44"}`,borderRadius:7,color:addOpen?C.accent:C.teal,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-            + Cargar nuevo equipo
-          </button>
-          <button onClick={()=>{setEditOpen(o=>!o);setEditMsg(null);if(addOpen)setAddOpen(false);}} style={{background:editOpen?C.accentDim:C.yellowDim,border:`1px solid ${editOpen?C.accent+"55":C.yellow+"44"}`,borderRadius:7,color:editOpen?C.accent:C.yellow,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-            ✎ Modificar equipos
-          </button>
-          <button onClick={actualizarListaEnExcel} disabled={syncingListaExcel} title="Actualiza en Excel los horómetros que la app toma desde ROP02 y que estén distintos a la Lista Maestra" style={{background:C.blueDim,border:`1px solid ${C.blue}55`,borderRadius:7,color:C.blue,padding:"7px 11px",fontSize:12,fontWeight:800,cursor:syncingListaExcel?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0,opacity:syncingListaExcel?0.65:1}}>
-            {syncingListaExcel?<Spinner size={13}/>:<Icon name="refresh" size={13} color={C.blue}/>} Actualizar en Excel
-          </button>
-          <button onClick={()=>generarExcelListaMaestra(filtered,cols,new Date().toISOString().slice(0,10).replace(/-/g,""))} style={{background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:7,color:C.green,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-            ⬇ Generar reporte
-          </button>
-          {hayFiltros&&<button onClick={fReset} style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:7,color:C.red,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",flexShrink:0}}>Limpiar filtros</button>}
-          <button onClick={()=>setSoloActivos(v=>!v)} title="Equipos con al menos 1 registro en ROP02 en los últimos 7 días" style={{background:soloActivos?C.greenDim:C.surface,border:`1px solid ${soloActivos?C.green+"66":C.border}`,borderRadius:7,color:soloActivos?C.green:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:soloActivos?800:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all .15s",flexShrink:0}}>
-            <span style={{fontSize:13}}>{soloActivos?"✔":"○"}</span> Activos (7 días)
-          </button>
-          <button onClick={()=>setFiltersOpen(o=>!o)} style={{background:filtersOpen?C.accentDim:C.surface,border:`1px solid ${filtersOpen?C.accent+"55":C.border}`,borderRadius:7,color:filtersOpen?C.accent:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-            <Icon name="filter" size={13} color={filtersOpen?C.accent:C.textSub}/>Filtros{hayFiltros?` (${filterKeysOnly.filter(k=>!multiIsAll(fVals[k])).length})`:""}
-          </button>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar equipo, tipo, marca, proyecto..." style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"8px 10px",fontSize:12,minWidth:210,width:260,outline:"none",flexShrink:0}}/>
+          <div style={{display:"flex",gap:8,alignItems:"center",justifyContent:"flex-end",flexWrap:"wrap",maxWidth:"100%"}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,background:C.surface,border:`1px solid ${fechaHorometro?C.accent+"55":C.border}`,borderRadius:8,padding:"5px 8px",flexShrink:0}}> 
+              <span style={{fontSize:10,color:C.textMuted,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em"}}>Horómetro día</span>
+              <input type="date" value={fechaHorometro} onChange={e=>setFechaHorometro(e.target.value)} style={{background:"transparent",border:"none",color:C.text,fontSize:12,outline:"none",fontFamily:"Inter"}}/>
+              {fechaHorometro&&<button onClick={()=>setFechaHorometro("")} title="Sin día: mostrar último horómetro" style={{background:C.redDim,border:`1px solid ${C.red}44`,borderRadius:6,color:C.red,padding:"3px 7px",fontSize:11,fontWeight:700,cursor:"pointer"}}>×</button>}
+            </div>
+            <button onClick={()=>setSoloActivos(v=>!v)} title="Equipos con al menos 1 registro en ROP02 en los últimos 7 días" style={{background:soloActivos?C.greenDim:C.surface,border:`1px solid ${soloActivos?C.green+"66":C.border}`,borderRadius:7,color:soloActivos?C.green:C.textSub,padding:"7px 11px",fontSize:12,fontWeight:soloActivos?800:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all .15s",flexShrink:0}}>
+              <span style={{fontSize:13}}>{soloActivos?"✔":"○"}</span> Activos (7 días)
+            </button>
+            <button onClick={()=>{setAddOpen(o=>!o);setAddMsg(null);if(editOpen)setEditOpen(false);}} style={{background:addOpen?C.accentDim:C.tealDim,border:`1px solid ${addOpen?C.accent+"55":C.teal+"44"}`,borderRadius:7,color:addOpen?C.accent:C.teal,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              + Cargar nuevo equipo
+            </button>
+            <button onClick={()=>{setEditOpen(o=>!o);setEditMsg(null);if(addOpen)setAddOpen(false);}} style={{background:editOpen?C.accentDim:C.yellowDim,border:`1px solid ${editOpen?C.accent+"55":C.yellow+"44"}`,borderRadius:7,color:editOpen?C.accent:C.yellow,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              ✎ Modificar equipos
+            </button>
+            <button onClick={actualizarListaEnExcel} disabled={syncingListaExcel} title="Actualiza en Excel los horómetros que la app toma desde ROP02 y que estén distintos a la Lista Maestra" style={{background:C.blueDim,border:`1px solid ${C.blue}55`,borderRadius:7,color:C.blue,padding:"7px 11px",fontSize:12,fontWeight:800,cursor:syncingListaExcel?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0,opacity:syncingListaExcel?0.65:1}}>
+              {syncingListaExcel?<Spinner size={13}/>:<Icon name="refresh" size={13} color={C.blue}/>} Actualizar en Excel
+            </button>
+            <button onClick={()=>generarExcelListaMaestra(filtered,cols,new Date().toISOString().slice(0,10).replace(/-/g,""))} style={{background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:7,color:C.green,padding:"7px 11px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+              ⬇ Generar reporte
+            </button>
+          </div>
         </div>
       }>
         {syncMsg&&(
@@ -2390,15 +2635,39 @@ function ViewListaMaestraEquipos({rows,rop02All,onReloadLista}){
             </div>
           </div>
         )}
-        {filtersOpen&&(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,padding:"4px 0 14px"}}>
-            {filterFields.map(f=>(
-              <MultiSel key={f.key} label={f.label} value={fVals[f.key]} onChange={v=>fSet(f.key,v)}
-                options={[{value:"todos",label:"Todos"},...(fOpts[f.key]||[]).map(v=>({value:v,label:v}))]}/>
-            ))}
+        {listaTab==="sinInfo"?(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,background:C.surface,border:`1px solid ${C.red}33`,borderRadius:10,padding:"12px 14px"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:900,color:C.text}}>Equipos sin información</div>
+                <div style={{fontSize:11,color:C.textMuted,marginTop:3,lineHeight:1.5}}>
+                  Se cruzan solamente códigos de equipos que aparecen desde mayo de 2026 en adelante en ROP02, ROP05 y RMA15 contra <b>Código Drusila</b> y <b>Código Nuevo</b> de la Lista Maestra. Se excluyen textos operativos como PREDIO-DELTA, REORGANIZACION, REPARACION, MANTENIMIENTO, BANDEJA-MARTILLO, TALLER y códigos numéricos sueltos. También se muestran equipos que existen en la lista pero tienen datos incompletos.
+                </div>
+              </div>
+              <button onClick={descargarEquiposSinInfo} disabled={!equiposSinInfo.length} style={{background:C.greenDim,border:`1px solid ${C.green}44`,borderRadius:7,color:C.green,padding:"8px 12px",fontSize:12,fontWeight:800,cursor:equiposSinInfo.length?"pointer":"not-allowed",opacity:equiposSinInfo.length?1:.55,flexShrink:0}}>
+                ⬇ Descargar Excel
+              </button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
+              <StatCard icon="warn" label="Pendientes" value={fmtNum(equiposSinInfo.length)} sub="Sin lista o datos incompletos" color={C.red} small/>
+              <StatCard icon="equip" label="No están en lista" value={fmtNum(equiposSinInfo.filter(r=>String(r.motivo).includes("No está")).length)} sub="Aparecen en planillas" color={C.yellow} small/>
+              <StatCard icon="filter" label="Con datos incompletos" value={fmtNum(equiposSinInfo.filter(r=>!String(r.motivo).includes("No está")).length)} sub="Propiedad / costo / tarifa" color={C.blue} small/>
+            </div>
+            <Table cols={equiposSinInfoCols} rows={equiposSinInfo} maxH={620} emptyMsg="No hay equipos sin información" stickyFirst disableTooltip/>
           </div>
+        ):(
+          <>
+            {filtersOpen&&(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,padding:"4px 0 14px"}}>
+                {filterFields.map(f=>(
+                  <MultiSel key={f.key} label={f.label} value={fVals[f.key]} onChange={v=>fSet(f.key,v)}
+                    options={[{value:"todos",label:"Todos"},...(fOpts[f.key]||[]).map(v=>({value:v,label:v}))]}/>
+                ))}
+              </div>
+            )}
+            <Table cols={cols} rows={filtered} maxH={620} emptyMsg="Sin equipos para mostrar" stickyFirst disableTooltip/>
+          </>
         )}
-        <Table cols={cols} rows={filtered} maxH={620} emptyMsg="Sin equipos para mostrar" stickyFirst disableTooltip/>
       </Card>
     </div>
   );
@@ -3419,7 +3688,17 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
             <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {mode==="dia"?(
+              <DateIn label="Fecha" value={fecha} onChange={setFecha}/>
+            ):mode==="acumulado"?(
+              <>
+                <Sel label="Período" value={periodoAcumulado} onChange={setPeriodoAcumulado} options={ROP05_PERIODOS_ACUMULADO}/>
+                <Sel label="Año" value={anioAcumulado} onChange={setAnioAcumulado} options={anioAcumuladoOpts}/>
+                <div style={{fontSize:11,color:C.textMuted,padding:"0 4px 8px",whiteSpace:"nowrap"}}>Rango: {fmtFecha(rangoAcumulado.desde)} → {fmtFecha(rangoAcumulado.hasta)}</div>
+              </>
+            ):(
+              <><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>
+            )}
             <MultiSel label="Tipo de Máquina" value={tipoMaquinaROP02} onChange={v=>{setTipoMaquinaROP02(v);set("maquina","todas");setEstado("todos");}} options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
             <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>{set("proyecto",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
             <MultiSel label="Máquina" value={vals.maquina} onChange={v=>{set("maquina",v);setEstado("todos");}} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>multiIsAll(tipoMaquinaROP02,"todas")||tipoMatchMachineROP05(tipoMaquinaROP02,m)).map(m=>({value:m,label:m}))]}/>
@@ -3583,46 +3862,57 @@ function estilosCelda(wb){
   };
 }
 
-function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia){
+function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia, opts={}){
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
-  // Período mensual = lo que el usuario tiene en los filtros
-  let fechaDesde, fechaHasta, mesNombre, y;
-  if(mode==="dia"&&fechaDia){
+  // Hoja 1 = período mensual seleccionado en "Por período".
+  // Hoja 2 = acumulado según Verano/Invierno + Año.
+  // En modo acumulado NO usamos el rango de temporada para la primera hoja,
+  // porque el Excel debe mantener el mismo formato que "Por período":
+  // una hoja mensual y otra hoja acumulada.
+  let fechaDesde, fechaHasta, mesNombre, y, temporada, tempDesde, tempHasta;
+  if(mode==="acumulado"){
+    const rango=rop05TemporadaRango(opts.periodoAcumulado||"verano",opts.anioAcumulado||new Date().getFullYear());
+    tempDesde=rango.desde;
+    tempHasta=rango.hasta;
+    temporada=rango.label.toUpperCase();
+
+    if(fechaD&&fechaH){
+      fechaDesde=fechaD;
+      fechaHasta=fechaH;
+    }else{
+      const hoy=new Date();
+      const yy=hoy.getFullYear();
+      const mm=hoy.getMonth()+1;
+      fechaDesde=`${yy}-${String(mm).padStart(2,"0")}-01`;
+      fechaHasta=`${yy}-${String(mm).padStart(2,"0")}-${String(new Date(yy,mm,0).getDate()).padStart(2,"0")}`;
+    }
+
+    const d=rop05ParseYMDLocal(fechaDesde);
+    mesNombre=MESES[d.getMonth()];
+    y=d.getFullYear();
+  } else if(mode==="dia"&&fechaDia){
     fechaDesde=fechaDia; fechaHasta=fechaDia;
-    const d=new Date(fechaDia);
+    const d=rop05ParseYMDLocal(fechaDia);
     mesNombre=MESES[d.getMonth()]; y=d.getFullYear();
+    const rango=rop05TemporadaDeFecha(fechaDesde);
+    temporada=rango.label.toUpperCase(); tempDesde=rango.desde; tempHasta=fechaHasta;
   } else if(fechaD&&fechaH){
     fechaDesde=fechaD; fechaHasta=fechaH;
-    const d=new Date(fechaD);
+    const d=rop05ParseYMDLocal(fechaD);
     mesNombre=MESES[d.getMonth()]; y=d.getFullYear();
+    const rango=rop05TemporadaDeFecha(fechaDesde);
+    temporada=rango.label.toUpperCase(); tempDesde=rango.desde; tempHasta=fechaHasta;
   } else {
-    // Sin filtro: usar mes actual
     const hoy=new Date();
     mesNombre=MESES[hoy.getMonth()]; y=hoy.getFullYear();
     const mesNum=hoy.getMonth()+1;
     fechaDesde=`${y}-${String(mesNum).padStart(2,"0")}-01`;
-    // Último día real del mes
     const lastDay=new Date(y,mesNum,0).getDate();
     fechaHasta=`${y}-${String(mesNum).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
+    const rango=rop05TemporadaDeFecha(fechaDesde);
+    temporada=rango.label.toUpperCase(); tempDesde=rango.desde; tempHasta=fechaHasta;
   }
-
-  // Temporada según mes de inicio del período
-  const mesInicio=new Date(fechaDesde).getMonth(); // 0=Ene
-  const esVerano=m=>[8,9,10,11,0,1,2,3].includes(m);
-  const temporada=esVerano(mesInicio)?"VERANO (Sep-Abr)":"INVIERNO (May-Ago)";
-
-  // Acumulado: desde inicio de temporada hasta fechaHasta
-  let tempDesde;
-  if(esVerano(mesInicio)){
-    // Verano empieza en Sep
-    const añoSep=mesInicio<=3?y-1:y;
-    tempDesde=`${añoSep}-09-01`;
-  } else {
-    // Invierno empieza en May
-    tempDesde=`${y}-05-01`;
-  }
-  const tempHasta=fechaHasta;
 
   // Filtrar ROP05 por período (excluir HS)
   const filtrarRows=(rows, desde, hasta)=>rows.filter(r=>{
@@ -3646,18 +3936,18 @@ function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia){
   ];
   const PROYECTOS=["JOSE MARIA","FILO DEL SOL"];
 
-  // Calcular rendimiento: cantidad/horas por tarea, convirtiendo KL→ML (*1000)
+  // Calcular rendimiento por tarea. Los kilómetros lineales se convierten a metros
+  // lineales (*1000) y se suman en la misma columna ML/Hs del Excel.
   const calcRendimiento=(rows)=>{
     const m={};
     rows.forEach(r=>{
       const k=r.tarea||"Sin tarea";
-      if(!m[k])m[k]={horas:0,horasML:0,horasKL:0,horasM2:0,horasM3:0,ml:0,kl:0,m2:0,m3:0};
+      if(!m[k])m[k]={horas:0,horasML:0,horasM2:0,horasM3:0,ml:0,m2:0,m3:0};
       m[k].horas+=r.horas;
-      const u=(r.unidad||"").trim().toUpperCase();
+      const u=nuROP05(r.unidad);
       const cant=r.cantidad||0;
-      // KL y ML separados — igual que los recuadros y la tabla en pantalla
       if(u==="METROS LINEALES"){m[k].ml+=cant;m[k].horasML+=r.horas;}
-      else if(u==="KILOMETROS LINEALES"||u==="KILÓMETROS LINEALES"){m[k].kl+=cant;m[k].horasKL+=r.horas;}
+      else if(u==="KILOMETROS LINEALES"){m[k].ml+=cant*1000;m[k].horasML+=r.horas;}
       else if(u==="M2"){m[k].m2+=cant;m[k].horasM2+=r.horas;}
       else if(u==="M3"){m[k].m3+=cant;m[k].horasM3+=r.horas;}
     });
@@ -3677,7 +3967,6 @@ function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia){
         tarea,
         horas:Math.round(v.horas*10)/10,
         mlHs:v.horasML>0&&v.ml>0?Math.round(v.ml/v.horasML*10)/10:0,
-        klHs:v.horasKL>0&&v.kl>0?Math.round(v.kl/v.horasKL*10)/10:0,
         m2Hs:v.horasM2>0&&v.m2>0?Math.round(v.m2/v.horasM2*10)/10:0,
         m3Hs:v.horasM3>0&&v.m3>0?Math.round(v.m3/v.horasM3*10)/10:0,
       });
@@ -3690,8 +3979,8 @@ function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia){
   const ST=estilosCelda(wb);
   const COLS=[{wch:32},{wch:7},{wch:7},{wch:7},{wch:7},{wch:2},{wch:32},{wch:7},{wch:7},{wch:7},{wch:7}];
 
-  // 10 columnas: A-E = JM, F-J = FDS (sin separador)
-  const COLS10=[{wch:32},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7},{wch:32},{wch:7},{wch:7},{wch:7},{wch:7},{wch:7}];
+  // 10 columnas: A-E = JM, F-J = FDS. KML se informa convertido dentro de ML/Hs.
+  const COLS10=[{wch:32},{wch:7},{wch:7},{wch:7},{wch:7},{wch:32},{wch:7},{wch:7},{wch:7},{wch:7}];
 
   const construirHoja=(rowsFiltradas, titulo, periodo)=>{
     const data=[];
@@ -3722,11 +4011,11 @@ function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia){
 
       // Proyectos — JM combinado A:E, FDS combinado F:J
       data.push(["JOSE MARIA","","","","","FILO DEL SOL","","","",""]);
-      merges.push({s:{r:baseRow+1,c:0},e:{r:baseRow+1,c:5}});
-      merges.push({s:{r:baseRow+1,c:6},e:{r:baseRow+1,c:11}});
+      merges.push({s:{r:baseRow+1,c:0},e:{r:baseRow+1,c:4}});
+      merges.push({s:{r:baseRow+1,c:5},e:{r:baseRow+1,c:9}});
 
       // Headers columnas
-      data.push(["Tarea JM","Hs","ML/Hs","KL/Hs","M2/Hs","M3/Hs","Tarea FDS","Hs","ML/Hs","KL/Hs","M2/Hs","M3/Hs"]);
+      data.push(["Tarea JM","Hs","ML/Hs","M2/Hs","M3/Hs","Tarea FDS","Hs","ML/Hs","M2/Hs","M3/Hs"]);
 
       // Datos
       const maxR=Math.max(tablaJM.length,tablaFDS.length,1);
@@ -3734,8 +4023,8 @@ function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia){
         const jm=tablaJM[i];
         const fds=tablaFDS[i];
         data.push([
-          jm?jm.tarea:"", jm?jm.horas||0:0, jm?jm.mlHs||0:0, jm?jm.klHs||0:0, jm?jm.m2Hs||0:0, jm?jm.m3Hs||0:0,
-          fds?fds.tarea:"",fds?fds.horas||0:0,fds?fds.mlHs||0:0,fds?fds.klHs||0:0,fds?fds.m2Hs||0:0,fds?fds.m3Hs||0:0,
+          jm?jm.tarea:"", jm?jm.horas||0:0, jm?jm.mlHs||0:0, jm?jm.m2Hs||0:0, jm?jm.m3Hs||0:0,
+          fds?fds.tarea:"",fds?fds.horas||0:0,fds?fds.mlHs||0:0,fds?fds.m2Hs||0:0,fds?fds.m3Hs||0:0,
         ]);
       }
       data.push([]); // espacio
@@ -3747,14 +4036,239 @@ function generarExcelProductividad(rop05, fechaD, fechaH, mode, fechaDia){
     return ws;
   };
 
-  const wsMes=construirHoja(rowsMes,`INFORME DE PRODUCTIVIDAD — ${mesNombre.toUpperCase()} ${y}`,`${fechaDesde} → ${fechaHasta}`);
-  XLSX.utils.book_append_sheet(wb,wsMes,`${mesNombre} ${y}`);
+  const tituloPrincipal=`INFORME DE PRODUCTIVIDAD — ${mesNombre.toUpperCase()} ${y}`;
+  const hojaPrincipal=`${mesNombre} ${y}`;
+
+  const wsMes=construirHoja(rowsMes,tituloPrincipal,`${fechaDesde} → ${fechaHasta}`);
+  XLSX.utils.book_append_sheet(wb,wsMes,String(hojaPrincipal).slice(0,31));
 
   const wsAcum=construirHoja(rowsTemp,`PRODUCTIVIDAD ACUMULADA — ${temporada}`,`${tempDesde} → ${tempHasta}`);
-  XLSX.utils.book_append_sheet(wb,wsAcum,`Acumulado ${temporada.split(" ")[0]}`);
+  XLSX.utils.book_append_sheet(wb,wsAcum,`Acumulado ${temporada.split(" ")[0]}`.slice(0,31));
 
   // ── Descargar con estilos ─────────────────────────────────────────────────
-  XLSX.writeFile(wb,`Productividad_${mesNombre}_${y}.xlsx`);
+  const nombreArchivo=mode==="acumulado"
+    ? `Productividad_${mesNombre}_${y}_${String(temporada).replace(/[^a-zA-Z0-9_-]+/g,"_")}`
+    : `Productividad_${mesNombre}_${y}`;
+  XLSX.writeFile(wb,`${nombreArchivo}.xlsx`);
+}
+
+function generarExcelDiscriminacionROP05(resumenTareas,discrRows,detalleRows,label="Reporte"){
+  const wb=XLSX.utils.book_new();
+  const resumen=(resumenTareas||[]).map(r=>({
+    Tarea:r.tarea,
+    Unidad:r.unidad,
+    Cantidad:Number((r.cantidad||0).toFixed(3)),
+    Horas:Number((r.horas||0).toFixed(2)),
+    "Prod/hs":Number((r.rendimiento||0).toFixed(3)),
+    "Largo prom.":Number((r.largoProm||0).toFixed(3)),
+    "Ancho prom.":Number((r.anchoProm||0).toFixed(3)),
+    "Prof. prom.":Number((r.profProm||0).toFixed(3)),
+    Registros:r.registros||0,
+    Equipos:r.equiposCount||0,
+    Alertas:r.errores||0,
+  }));
+  const discr=(discrRows||[]).map(r=>({
+    Tarea:r.tarea,
+    Unidad:r.unidad,
+    "Largo total":Number((r.largo||0).toFixed(3)),
+    "Ancho total":Number((r.ancho||0).toFixed(3)),
+    "Prof. total":Number((r.profundidad||0).toFixed(3)),
+    Cantidad:Number((r.cantidad||0).toFixed(3)),
+    Horas:Number((r.horas||0).toFixed(2)),
+    "Prod/hs":Number((r.rendimiento||0).toFixed(3)),
+    Registros:r.registros||0,
+    Equipos:r.equiposCount||0,
+    Proyecto:r.proyectosTxt||"",
+    Alertas:r.errores||0,
+  }));
+  const detalle=(detalleRows||[]).map(r=>({
+    Fecha:r.fecha||"", Proyecto:r.proyecto||"", Máquina:r.maquina||"", Supervisor:r.supervisor||"", Tarea:r.tarea||"", Unidad:r.unidad||"",
+    Horas:r.horas||0, Cantidad:r.cantidad||0, Largo:r.largo||0, Ancho:r.ancho||0, Profundidad:r.profundidad||0, Parte:r.parte||""
+  }));
+  const add=(name,rows)=>{
+    const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{}]);
+    ws["!cols"]=[{wch:28},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:18}];
+    XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31));
+  };
+  add("Resumen tarea",resumen);
+  add("Largo ancho prof",discr);
+  add("Detalle registros",detalle);
+  XLSX.writeFile(wb,`Discriminacion_por_tarea_${String(label||"Reporte").replace(/[^a-zA-Z0-9_-]+/g,"_")}.xlsx`);
+}
+
+
+// ─── Imprimir gráfico de incidencia horaria por tarea ───────────────────────
+function rop05PeriodoTextoGrafico({mode,fecha,fechaD,fechaH,rangoAcumulado}){
+  const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const fmt=d=>{
+    const x=rop05ParseYMDLocal(d);
+    return `${String(x.getDate()).padStart(2,"0")}/${String(x.getMonth()+1).padStart(2,"0")}/${x.getFullYear()}`;
+  };
+  if(mode==="acumulado"&&rangoAcumulado)return rangoAcumulado.label;
+  const base=mode==="dia"?fecha:fechaD;
+  if(base){
+    const d=rop05ParseYMDLocal(base);
+    if(mode==="dia")return `${fmt(fecha)} (${MESES[d.getMonth()]} de ${d.getFullYear()})`;
+    return `${MESES[d.getMonth()]} de ${d.getFullYear()}`;
+  }
+  if(fechaD||fechaH)return `${fechaD?fmt(fechaD):"inicio"} al ${fechaH?fmt(fechaH):"fin"}`;
+  const h=new Date();
+  return `${MESES[h.getMonth()]} de ${h.getFullYear()}`;
+}
+
+function rop05ProyectoTextoGrafico(rows){
+  const ps=Array.from(new Set((rows||[]).map(r=>String(r?.proyecto||"").trim()).filter(Boolean))).sort();
+  if(ps.length===1)return ps[0];
+  if(ps.length===2&&ps.includes("JOSE MARIA")&&ps.includes("FILO DEL SOL"))return "JOSE MARIA / FILO DEL SOL";
+  return ps.length?ps.join(" / "):"TODOS LOS PROYECTOS";
+}
+
+function rop05PrintEscape(v){
+  return String(v??"").replace(/[&<>\"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+}
+
+function rop05SvgPieChartTop20(items,projectTitle){
+  const total=items.reduce((s,it)=>s+(it.horas||0),0);
+  const colors=["#4285F4","#EA4335","#FBBC04","#34A853","#FF6D01","#46BDC6","#7BAAF7","#F07B72","#FDD663","#57BB8A","#B39DDB","#F6AEA9","#A8DAB5","#FDE293","#AECBFA","#C58AF9","#81C995","#FFAB91","#9AA0A6","#B7E1CD","#DADCE0"];
+  const W=1180,H=760;
+  const cx=W/2,cy=390,r=205;
+  let angle=-90;
+  const slices=[];
+  const labelsLeft=[];
+  const labelsRight=[];
+
+  const p2=(ang,rad=r)=>{
+    const a=(ang-90)*Math.PI/180;
+    return {x:cx+rad*Math.cos(a),y:cy+rad*Math.sin(a)};
+  };
+  const arc=(start,end)=>{
+    const a0=p2(start),a1=p2(end);
+    const large=end-start>180?1:0;
+    return `M ${cx} ${cy} L ${a0.x.toFixed(2)} ${a0.y.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${a1.x.toFixed(2)} ${a1.y.toFixed(2)} Z`;
+  };
+
+  items.forEach((it,i)=>{
+    const deg=total>0?(it.horas/total*360):0;
+    const start=angle,end=angle+deg;
+    const mid=start+deg/2;
+    const startPoint=p2(mid,r+5);
+    const side=startPoint.x>=cx?"right":"left";
+    const label={...it,i,mid,startPoint,side,pct:total>0?it.horas/total*100:0};
+    (side==="right"?labelsRight:labelsLeft).push(label);
+    slices.push(`<path d="${arc(start,end)}" fill="${colors[i%colors.length]}" stroke="#ffffff" stroke-width="1"/>`);
+
+    const txt=p2(mid,r*0.58);
+    if(it.horas>0&&it.horas/total>=0.025){
+      slices.push(`<text x="${txt.x.toFixed(1)}" y="${txt.y.toFixed(1)}" font-size="10" text-anchor="middle" dominant-baseline="middle" fill="#222">${Math.round(it.horas)}</text>`);
+    }
+    angle=end;
+  });
+
+  // Distribuye etiquetas por columna y evita que se pisen.
+  // Esto corrige las líneas cruzadas cuando hay muchas tareas chicas.
+  const distribute=(arr,side)=>{
+    if(!arr.length)return "";
+    arr.sort((a,b)=>a.startPoint.y-b.startPoint.y);
+    const minY=82,maxY=708;
+    const gap=Math.max(24,Math.min(34,(maxY-minY)/Math.max(1,arr.length-1)));
+
+    arr.forEach((l,idx)=>{
+      l.y=Math.max(minY,Math.min(maxY,l.startPoint.y));
+      if(idx&&l.y<arr[idx-1].y+gap)l.y=arr[idx-1].y+gap;
+    });
+    for(let i=arr.length-2;i>=0;i--){
+      if(arr[i].y>arr[i+1].y-gap)arr[i].y=arr[i+1].y-gap;
+    }
+    const overflowTop=minY-arr[0].y;
+    const overflowBottom=arr[arr.length-1].y-maxY;
+    if(overflowTop>0)arr.forEach(l=>l.y+=overflowTop);
+    if(overflowBottom>0)arr.forEach(l=>l.y-=overflowBottom);
+
+    const right=side==="right";
+    const labelX=right?1088:92;
+    const anchor=right?"end":"start";
+    const elbowX=right?cx+r+46:cx-r-46;
+    const lineTextX=right?labelX-12:labelX+12;
+
+    return arr.map(l=>{
+      const pct=l.pct.toFixed(1).replace(".",",");
+      const full=String(l.tarea||"");
+      const name=rop05PrintEscape(full.length>38?full.slice(0,36)+"…":full);
+      const p=l.startPoint;
+      // Línea en 3 tramos cortos: borde del gráfico → codo → etiqueta.
+      // Al ordenar por Y y mantener un codo fijo por lado, se minimizan cruces visuales.
+      return `<polyline points="${p.x.toFixed(1)},${p.y.toFixed(1)} ${elbowX},${l.y.toFixed(1)} ${lineTextX},${l.y.toFixed(1)}" fill="none" stroke="#9a9a9a" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="1.6" fill="#9a9a9a"/>
+        <text x="${labelX}" y="${(l.y-4).toFixed(1)}" font-size="10.5" font-weight="600" text-anchor="${anchor}" fill="#333">${name}</text>
+        <text x="${labelX}" y="${(l.y+10).toFixed(1)}" font-size="9.5" text-anchor="${anchor}" fill="#777">${pct}%</text>`;
+    }).join("\n");
+  };
+
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+    <rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>
+    <text x="${W/2}" y="34" text-anchor="middle" font-size="17" fill="#777" font-family="Arial">${rop05PrintEscape(projectTitle)}</text>
+    ${slices.join("\n")}
+    ${distribute(labelsLeft,"left")}
+    ${distribute(labelsRight,"right")}
+  </svg>`;
+}
+
+function imprimirGraficoIncidenciaROP05(rows,ctx={}){
+  const base=(rows||[]).filter(r=>Number(r?.horas||0)>0);
+  if(!base.length){
+    alert("No hay horas para imprimir con los filtros seleccionados.");
+    return;
+  }
+  const totalHoras=base.reduce((s,r)=>s+Number(r.horas||0),0);
+  const map=new Map();
+  base.forEach(r=>{
+    const tarea=String(r?.tarea||"").trim()||"No Se Describe Tarea";
+    map.set(tarea,(map.get(tarea)||0)+Number(r.horas||0));
+  });
+  const ordenadas=Array.from(map.entries()).map(([tarea,horas])=>({tarea,horas})).sort((a,b)=>b.horas-a.horas);
+  const top20=ordenadas.slice(0,20);
+  const otrosHs=ordenadas.slice(20).reduce((s,r)=>s+r.horas,0);
+  const chartItems=otrosHs>0?[...top20,{tarea:"Otros",horas:otrosHs}]:top20;
+  const periodoTxt=rop05PeriodoTextoGrafico(ctx);
+  const proyectoTxt=rop05ProyectoTextoGrafico(base);
+  const texto=`En la página siguiente se observa de forma gráfica la incidencia horaria correspondiente al ${ctx.mode==="acumulado"?"período acumulado":"mes de"} ${periodoTxt} de cada tarea y el porcentaje relativo del Proyecto.`;
+  const tabla=chartItems.map((it,i)=>`<tr><td>${i+1}</td><td>${rop05PrintEscape(it.tarea)}</td><td>${it.horas.toFixed(1).replace(".",",")}</td><td>${(it.horas/totalHoras*100).toFixed(1).replace(".",",")}%</td></tr>`).join("");
+  const svg=rop05SvgPieChartTop20(chartItems,proyectoTxt);
+  const w=window.open("","_blank","width=1200,height=800");
+  if(!w){alert("El navegador bloqueó la ventana de impresión.");return;}
+  w.document.open();
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Gráfico incidencia horaria</title>
+  <style>
+    @page{size:A4 landscape;margin:12mm;}
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#222;margin:0;background:white;}
+    .page{page-break-after:always;width:100%;min-height:185mm;padding:8mm 10mm;display:flex;flex-direction:column;justify-content:center;}
+    .page:last-child{page-break-after:auto;}
+    .intro{font-size:18px;line-height:1.55;max-width:900px;margin:0 auto;text-align:justify;}
+    .meta{margin:22px auto 0;max-width:900px;font-size:13px;color:#555;display:grid;grid-template-columns:170px 1fr;gap:7px 14px;}
+    .chartPage{padding:2mm 4mm;justify-content:flex-start;}
+    .chartWrap{width:100%;height:174mm;}
+    table{border-collapse:collapse;width:92%;margin:4mm auto 0;font-size:10px;}
+    th,td{border:1px solid #ddd;padding:4px 6px;text-align:left;} th{background:#f4f4f4;} td:nth-child(1),td:nth-child(3),td:nth-child(4){text-align:right;}
+    @media print{button{display:none}.page{break-after:page}.page:last-child{break-after:auto}}
+  </style></head><body>
+    <div class="page">
+      <p class="intro">${rop05PrintEscape(texto)}</p>
+      <div class="meta">
+        <strong>Proyecto:</strong><span>${rop05PrintEscape(proyectoTxt)}</span>
+        <strong>Período:</strong><span>${rop05PrintEscape(periodoTxt)}</span>
+        <strong>Horas totales:</strong><span>${totalHoras.toFixed(1).replace(".",",")} hs</span>
+        <strong>Criterio:</strong><span>Top 20 tareas por horas; el resto se agrupa como “Otros”.</span>
+      </div>
+    </div>
+    <div class="page chartPage">
+      <div class="chartWrap">${svg}</div>
+    </div>
+    <div class="page">
+      <table><thead><tr><th>#</th><th>Tarea</th><th>Horas</th><th>%</th></tr></thead><tbody>${tabla}</tbody></table>
+    </div>
+    <script>window.onload=function(){setTimeout(function(){window.print();},250);};</script>
+  </body></html>`);
+  w.document.close();
 }
 
 
@@ -3777,6 +4291,51 @@ const ROP05_UNIDADES_GRAFICO=[
   {label:"Metros Cúbicos",value:"M3"},
   {label:"Horas (HS)",value:"HS"},
 ];
+const ROP05_PERIODOS_ACUMULADO=[
+  {label:"Verano",value:"verano"},
+  {label:"Invierno",value:"invierno"},
+];
+function rop05TemporadaRango(periodo,anio){
+  const y=Number(anio)||new Date().getFullYear();
+  const p=String(periodo||"verano").toLowerCase();
+  if(p==="invierno"){
+    return{periodo:"invierno",anio:String(y),desde:`${y}-05-01`,hasta:`${y}-08-31`,label:`Invierno ${y}`};
+  }
+  return{periodo:"verano",anio:String(y),desde:`${y}-09-01`,hasta:`${y+1}-04-30`,label:`Verano ${y}/${y+1}`};
+}
+function rop05ParseYMDLocal(fecha){
+  if(fecha instanceof Date)return fecha;
+  const m=String(fecha||"").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m)return new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
+  return new Date(fecha||new Date());
+}
+function rop05TemporadaDeFecha(fecha){
+  const d=rop05ParseYMDLocal(fecha||new Date());
+  const m=d.getMonth();
+  const y=d.getFullYear();
+  if([4,5,6,7].includes(m))return rop05TemporadaRango("invierno",y);
+  return rop05TemporadaRango("verano",m<=3?y-1:y);
+}
+function rop05UltimaFecha(rows){
+  const fechas=(rows||[]).map(r=>String(r?.fecha||"")).filter(Boolean).sort();
+  return fechas.length?fechas[fechas.length-1]:"";
+}
+function rop05YearOptions(rows){
+  const years=new Set();
+  (rows||[]).forEach(r=>{
+    const f=String(r?.fecha||"");
+    const y=Number(f.slice(0,4));
+    if(Number.isFinite(y)&&y>2000){years.add(y);years.add(y-1);}
+  });
+  years.add(new Date().getFullYear());
+  return Array.from(years).sort((a,b)=>b-a).map(y=>({value:String(y),label:String(y)}));
+}
+function rop05Between(row,desde,hasta){
+  const f=row?.fecha||"";
+  if(desde&&f<desde)return false;
+  if(hasta&&f>hasta)return false;
+  return true;
+}
 // Normaliza string para comparación de unidades
 const nuROP05=s=>String(s||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
 const ROP05_UNIDADES_CONFIG=[
@@ -3787,6 +4346,16 @@ const ROP05_UNIDADES_CONFIG=[
   {titulo:"Trabajos por Hora",            key:"HS",match:(u)=>nuROP05(u)==="HS",                color:C.green},
 ];
 const ROP05_CHART_COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316","#84cc16","#6366f1"];
+function rop05Top20MasOtros(items,totalHoras){
+  const ordenados=[...(items||[])].sort((a,b)=>(b.value||0)-(a.value||0));
+  const top20=ordenados.slice(0,20);
+  const otros=ordenados.slice(20).reduce((s,r)=>s+Number(r.value||0),0);
+  const base=otros>0?[...top20,{name:"Otros",value:Math.round(otros*10)/10}]:top20;
+  return base.map(d=>({
+    ...d,
+    pct:totalHoras>0?Math.round((Number(d.value||0)/totalHoras)*1000)/10:0
+  }));
+}
 function tipoMatchMachineROP05(tipoValue,maquina){
   if(multiIsAll(tipoValue,"todas"))return true;
   const arr=Array.isArray(tipoValue)?tipoValue:[tipoValue];
@@ -3811,33 +4380,62 @@ function ViewROP05({rop05,extState,setExtState}){
   const[tarea,setTarea]=useState("todas");
   const[tipoMaquina,setTipoMaquina]=useState("todas");
   const[unidadGrafico,setUnidadGrafico]=useState("METROS LINEALES");
+  const temporadaInicialROP05=useMemo(()=>rop05TemporadaDeFecha(rop05UltimaFecha(rop05)||new Date()),[rop05]);
+  const[periodoAcumulado,setPeriodoAcumulado]=useState(()=>temporadaInicialROP05.periodo);
+  const[anioAcumulado,setAnioAcumulado]=useState(()=>temporadaInicialROP05.anio);
+  const anioAcumuladoOpts=useMemo(()=>rop05YearOptions(rop05),[rop05]);
+  const rangoAcumulado=useMemo(()=>rop05TemporadaRango(periodoAcumulado,anioAcumulado),[periodoAcumulado,anioAcumulado]);
 
-  // Opciones de tarea: filtra por tipo de máquina, máquina, proyecto y fecha
+  const fechaDentroModo=useCallback((r)=>{
+    const f=r.fecha||"";
+    if(mode==="dia"&&fecha)return f===fecha;
+    if(mode==="periodo"){
+      if(fechaD&&f<fechaD)return false;
+      if(fechaH&&f>fechaH)return false;
+      return true;
+    }
+    if(mode==="acumulado")return rop05Between(r,rangoAcumulado.desde,rangoAcumulado.hasta);
+    return true;
+  },[mode,fecha,fechaD,fechaH,rangoAcumulado]);
+
+  // Opciones de tarea: filtra por tipo de máquina, máquina, proyecto y fecha/acumulado
   const tareasOpts=useMemo(()=>{
     const base=rop05.filter(r=>{
-      const f=r.fecha||"";
-      if(mode==="dia"&&fecha&&f!==fecha)return false;
-      if(mode==="periodo"){if(fechaD&&f<fechaD)return false;if(fechaH&&f>fechaH)return false;}
+      if(!fechaDentroModo(r))return false;
       if(!matchMulti(r.maquina,vals.maquina,"todas"))return false;
       if(!matchMulti(r.proyecto,vals.proyecto,"todos"))return false;
       if(!multiIsAll(tipoMaquina,"todas")&&!tipoMatchMachineROP05(tipoMaquina,r.maquina))return false;
       return true;
     });
     return uniq(base.map(r=>r.tarea).filter(Boolean));
-  },[rop05,mode,fecha,fechaD,fechaH,vals.maquina,vals.proyecto,tipoMaquina]);
+  },[rop05,fechaDentroModo,vals.maquina,vals.proyecto,tipoMaquina]);
 
-  // Reset tarea cuando cambia máquina o fecha
-  useEffect(()=>{setTarea("todas");},[vals.maquina,mode,fecha,fechaD,fechaH,tipoMaquina]);
+  // Reset tarea cuando cambia máquina, fecha o temporada
+  useEffect(()=>{setTarea("todas");},[vals.maquina,mode,fecha,fechaD,fechaH,tipoMaquina,periodoAcumulado,anioAcumulado]);
 
-  // Aplicar filtro de tipo y tarea sobre filteredBase05
+  // Aplicar filtro de fecha acumulada, tipo y tarea sobre filteredBase05
   const deferredFilteredBase05=React.useDeferredValue(filteredBase05);
   const filtered=useMemo(()=>{
-    let rows=multiIsAll(tarea,"todas")?deferredFilteredBase05:deferredFilteredBase05.filter(r=>matchMulti(r.tarea,tarea,"todas"));
-    if(!multiIsAll(tipoMaquina,"todas")){
-      rows=rows.filter(r=>tipoMatchMachineROP05(tipoMaquina,r.maquina));
-    }
+    let rows=mode==="acumulado"?deferredFilteredBase05.filter(r=>rop05Between(r,rangoAcumulado.desde,rangoAcumulado.hasta)):deferredFilteredBase05;
+    if(!multiIsAll(tarea,"todas"))rows=rows.filter(r=>matchMulti(r.tarea,tarea,"todas"));
+    if(!multiIsAll(tipoMaquina,"todas"))rows=rows.filter(r=>tipoMatchMachineROP05(tipoMaquina,r.maquina));
     return rows;
-  },[deferredFilteredBase05,tarea,tipoMaquina]);
+  },[deferredFilteredBase05,mode,rangoAcumulado,tarea,tipoMaquina]);
+
+  // Base para Excel: mismos filtros operativos, pero sin limitar al rango de fecha del tablero.
+  // La función de Excel aplica luego Período/Acumulado para que la descarga coincida con lo seleccionado.
+  const excelBaseRows=useMemo(()=>{
+    let rows=rop05.filter(r=>{
+      if(!matchMulti(r.proyecto,vals.proyecto,"todos"))return false;
+      if(!matchMulti(r.maquina,vals.maquina,"todas"))return false;
+      if(!matchMulti(r.supervisor,vals.supervisor,"todos"))return false;
+      if(!matchMulti(r.unidad,vals.unidad,"todas"))return false;
+      return true;
+    });
+    if(!multiIsAll(tarea,"todas"))rows=rows.filter(r=>matchMulti(r.tarea,tarea,"todas"));
+    if(!multiIsAll(tipoMaquina,"todas"))rows=rows.filter(r=>tipoMatchMachineROP05(tipoMaquina,r.maquina));
+    return rows;
+  },[rop05,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina]);
 
   const prodCards=useMemo(()=>ROP05_UNIDADES_CONFIG.map(cfg=>{
     const rows=filtered.filter(r=>r.unidad&&cfg.match(r.unidad));
@@ -3851,8 +4449,8 @@ function ViewROP05({rop05,extState,setExtState}){
   }),[filtered]);
 
   const prodFecha=useMemo(()=>{
-    if(mode!=="periodo"&&!fecha)return[];
-    const base=mode==="dia"?filtered.filter(r=>r.fecha===fecha):filtered;
+    if(mode==="dia")return[];
+    const base=filtered;
     // Obtener todas las fechas del período filtrado (para mantener el eje X)
     const todasFechas=[...new Set(base.map(r=>r.fecha))].sort();
     if(!todasFechas.length)return[];
@@ -3871,7 +4469,7 @@ function ViewROP05({rop05,extState,setExtState}){
       m[r.fecha]=(m[r.fecha]||0)+val;
     });
     return Object.entries(m).sort().map(([fecha,cantidad])=>({fecha,cantidad}));
-  },[filtered,mode,fecha,unidadGrafico]);
+  },[filtered,mode,unidadGrafico]);
 
   const totalHoras05=useMemo(()=>filtered.reduce((s,r)=>s+r.horas,0),[filtered]);
   const totalEquipos05=useMemo(()=>new Set(filtered.map(r=>r.maquina)).size,[filtered]);
@@ -3879,40 +4477,42 @@ function ViewROP05({rop05,extState,setExtState}){
 
   // ── Datos para gráficos de PERÍODO (antes eran IIFEs en el JSX) ────────────
   const periodoChartData=useMemo(()=>{
-    if(mode!=="periodo"||!filtered.length)return null;
-    const filteredSinHS=filtered.filter(r=>(r.unidad||"").trim().toUpperCase()!=="HS");
+    if((mode!=="periodo"&&mode!=="acumulado")||!filtered.length)return null;
     const tareaMap={};
-    filteredSinHS.forEach(r=>{
-      if(!r.tarea)return;
-      const u=(r.unidad||"").trim().toUpperCase();
-      if(!tareaMap[r.tarea])tareaMap[r.tarea]={horas:0,horasML:0,horasKL:0,horasM2:0,horasM3:0,ml:0,kl:0,m2:0,m3:0};
-      tareaMap[r.tarea].horas+=r.horas;
-      const cant=r.cantidad||0;
-      if(u==="METROS LINEALES"){tareaMap[r.tarea].ml+=cant;tareaMap[r.tarea].horasML+=r.horas;}
-      else if(u==="KILOMETROS LINEALES"||u==="KILÓMETROS LINEALES"){tareaMap[r.tarea].kl+=cant;tareaMap[r.tarea].horasKL+=r.horas;}
-      else if(u==="M2"){tareaMap[r.tarea].m2+=cant;tareaMap[r.tarea].horasM2+=r.horas;}
-      else if(u==="M3"){tareaMap[r.tarea].m3+=cant;tareaMap[r.tarea].horasM3+=r.horas;}
+    filtered.forEach(r=>{
+      const tarea=String(r.tarea||"").trim()||"No Se Describe Tarea";
+      const u=nuROP05(r.unidad);
+      if(!tareaMap[tarea])tareaMap[tarea]={horas:0,horasML:0,horasKL:0,horasM2:0,horasM3:0,ml:0,kl:0,m2:0,m3:0};
+      tareaMap[tarea].horas+=Number(r.horas||0);
+      const cant=Number(r.cantidad||0);
+      if(u==="METROS LINEALES"){tareaMap[tarea].ml+=cant;tareaMap[tarea].horasML+=Number(r.horas||0);}
+      else if(u==="KILOMETROS LINEALES"){tareaMap[tarea].kl+=cant;tareaMap[tarea].horasKL+=Number(r.horas||0);}
+      else if(u==="M2"){tareaMap[tarea].m2+=cant;tareaMap[tarea].horasM2+=Number(r.horas||0);}
+      else if(u==="M3"){tareaMap[tarea].m3+=cant;tareaMap[tarea].horasM3+=Number(r.horas||0);}
+      // Las tareas con unidad HS/HORAS también quedan incluidas en horas de incidencia.
+      // No tienen rendimiento físico asociado, por eso sus ML/M2/M3 quedan en 0.
     });
     const totalHs=Object.values(tareaMap).reduce((s,v)=>s+v.horas,0);
-    const pieData=Object.entries(tareaMap).sort((a,b)=>b[1].horas-a[1].horas).map(([name,v])=>({
+    const pieDataCompleta=Object.entries(tareaMap).sort((a,b)=>b[1].horas-a[1].horas).map(([name,v])=>({
       name,
       value:Math.round(v.horas*10)/10,
-      pct:Math.round(v.horas/totalHs*1000)/10,
-      mlHs:v.horasML>0&&v.ml>0?Math.round(v.ml/v.horasML*10)/10:0,
-      klHs:v.horasKL>0&&v.kl>0?Math.round(v.kl/v.horasKL*10)/10:0,
+      pct:totalHs>0?Math.round(v.horas/totalHs*1000)/10:0,
+      mlHs:(v.horasML+v.horasKL)>0&&(v.ml+v.kl*1000)>0?Math.round(((v.ml+v.kl*1000)/(v.horasML+v.horasKL))*10)/10:0,
+      klHs:0,
       m2Hs:v.horasM2>0&&v.m2>0?Math.round(v.m2/v.horasM2*10)/10:0,
       m3Hs:v.horasM3>0&&v.m3>0?Math.round(v.m3/v.horasM3*10)/10:0,
     }));
+    const pieData=rop05Top20MasOtros(pieDataCompleta,totalHs);
     // % acumulado precalculado en una sola pasada (evita O(n²))
     let running=0;
     const pieDataCon80=[];
-    for(const d of pieData){
+    for(const d of pieDataCompleta){
       if(running>=80)break;
       running+=d.pct;
       pieDataCon80.push({...d,acumLocal:Math.min(running,100)});
     }
     const maqMap={};
-    filtered.forEach(r=>{if(r.maquina)maqMap[r.maquina]=(maqMap[r.maquina]||0)+r.horas;});
+    filtered.forEach(r=>{if(r.maquina)maqMap[r.maquina]=(maqMap[r.maquina]||0)+Number(r.horas||0);});
     const barData=Object.entries(maqMap).sort((a,b)=>b[1]-a[1]).map(([maquina,horas])=>({maquina,horas}));
     return{pieData,pieDataCon80,barData};
   },[filtered,mode]);
@@ -3921,11 +4521,15 @@ function ViewROP05({rop05,extState,setExtState}){
   const diaChartData=useMemo(()=>{
     if(mode!=="dia"||!fecha||!filtered.length)return null;
     const tareaMap={};
-    filtered.forEach(r=>{if(r.tarea)tareaMap[r.tarea]=(tareaMap[r.tarea]||0)+r.horas;});
+    filtered.forEach(r=>{
+      const tarea=String(r.tarea||"").trim()||"No Se Describe Tarea";
+      tareaMap[tarea]=(tareaMap[tarea]||0)+Number(r.horas||0);
+    });
     const totalHs=Object.values(tareaMap).reduce((s,v)=>s+v,0);
-    const pieData=Object.entries(tareaMap).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value,pct:Math.round(value/totalHs*1000)/10}));
+    const pieDataCompleta=Object.entries(tareaMap).sort((a,b)=>b[1]-a[1]).map(([name,value])=>({name,value:Math.round(value*10)/10,pct:totalHs>0?Math.round(value/totalHs*1000)/10:0}));
+    const pieData=rop05Top20MasOtros(pieDataCompleta,totalHs);
     const maqMap={};
-    filtered.forEach(r=>{if(r.maquina)maqMap[r.maquina]=(maqMap[r.maquina]||0)+r.horas;});
+    filtered.forEach(r=>{if(r.maquina)maqMap[r.maquina]=(maqMap[r.maquina]||0)+Number(r.horas||0);});
     const barData=Object.entries(maqMap).sort((a,b)=>b[1]-a[1]).map(([maquina,horas])=>({maquina,horas}));
     return{pieData,barData};
   },[filtered,mode,fecha]);
@@ -3961,7 +4565,7 @@ function ViewROP05({rop05,extState,setExtState}){
     setRop05TipRow(null);
     setRop05PinnedRow(null);
     setRop05VisibleLimit(ROP05_INITIAL_LIMIT);
-  },[mode,fecha,fechaD,fechaH,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina,ROP05_INITIAL_LIMIT]);
+  },[mode,fecha,fechaD,fechaH,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina,periodoAcumulado,anioAcumulado,ROP05_INITIAL_LIMIT]);
 
   useEffect(()=>{
     const onMove=e=>{
@@ -3982,12 +4586,31 @@ function ViewROP05({rop05,extState,setExtState}){
           <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
             <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
             <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
-            <button onClick={()=>generarExcelProductividad(rop05,fechaD,fechaH,mode,fecha)} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+            <TabBtn active={mode==="acumulado"} onClick={()=>setMode("acumulado")}>Acumulado</TabBtn>
+            <button onClick={()=>generarExcelProductividad(excelBaseRows,fechaD,fechaH,mode,fecha,{periodoAcumulado,anioAcumulado})} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
               📊 Generar Reporte
+            </button>
+            <button onClick={()=>imprimirGraficoIncidenciaROP05(filtered,{mode,fecha,fechaD,fechaH,rangoAcumulado})} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.yellow}66`,background:C.yellowDim,color:C.yellow,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+              🖨️ Imprimir gráfico
             </button>
           </div>
           <div style={{display:"flex",flexWrap:"nowrap",overflowX:"auto",gap:10,alignItems:"flex-end",paddingBottom:2}}>
-            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {mode==="dia"?(
+              <DateIn label="Fecha" value={fecha} onChange={setFecha}/>
+            ):mode==="acumulado"?(
+              <>
+                <Sel label="Período" value={periodoAcumulado} onChange={setPeriodoAcumulado} options={ROP05_PERIODOS_ACUMULADO}/>
+                <Sel label="Año" value={anioAcumulado} onChange={setAnioAcumulado} options={anioAcumuladoOpts}/>
+                <DateIn label="Desde" value={rangoAcumulado.desde} onChange={()=>{}} disabled/>
+                <DateIn label="Hasta" value={rangoAcumulado.hasta} onChange={()=>{}} disabled/>
+              </>
+            ):(
+              <>
+                <PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/>
+                <DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/>
+                <DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/>
+              </>
+            )}
             <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
             <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{setTipoMaquina(v);set("maquina","todas");}} options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
             <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>multiIsAll(tipoMaquina,"todas")||tipoMatchMachineROP05(tipoMaquina,m)).map(m=>({value:m,label:m}))]}/>
@@ -4030,7 +4653,7 @@ function ViewROP05({rop05,extState,setExtState}){
           </Card>
         ))}
       </div>
-      {(mode==="periodo")&&filtered.length>0&&(
+      {(mode==="periodo"||mode==="acumulado")&&filtered.length>0&&(
         <Card title="Producción por Fecha" action={<Sel label="" value={unidadGrafico} onChange={setUnidadGrafico} options={ROP05_UNIDADES_GRAFICO.map(u=>({value:u.value,label:u.label}))}/>}>
           <div style={{padding:"10px 6px"}}>
             <ResponsiveContainer width="100%" height={160}>
@@ -4111,7 +4734,7 @@ function ViewROP05({rop05,extState,setExtState}){
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
                 <thead>
                   <tr style={{background:C.surface}}>
-                    {["Tarea","Horas","%","% Acum.","ML/Hs","KL/Hs","M2/Hs","M3/Hs"].map((h,i)=>(
+                    {["Tarea","Horas","%","% Acum.","ML/Hs","M2/Hs","M3/Hs"].map((h,i)=>(
                       <th key={i} style={{padding:"10px 14px",textAlign:i===0?"left":"center",color:C.textSub,fontWeight:600,fontSize:12,letterSpacing:".05em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
                     ))}
                   </tr>
@@ -4126,7 +4749,6 @@ function ViewROP05({rop05,extState,setExtState}){
                         <span style={{display:"inline-block",padding:"4px 14px",borderRadius:20,fontSize:13,fontWeight:700,background:d.acumLocal>=80?C.green+"22":C.yellow+"22",color:d.acumLocal>=80?C.green:C.yellow,border:`1px solid ${d.acumLocal>=80?C.green:C.yellow}44`}}>{d.acumLocal.toFixed(1)}%</span>
                       </td>
                       <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.mlHs>0?C.blue:C.textMuted,fontWeight:d.mlHs>0?700:400,fontSize:14}}>{d.mlHs>0?fmtNum(d.mlHs):"—"}</td>
-                      <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.klHs>0?C.blue:C.textMuted,fontWeight:d.klHs>0?700:400,fontSize:14}}>{d.klHs>0?fmtNum(d.klHs):"—"}</td>
                       <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.m2Hs>0?C.teal:C.textMuted,fontWeight:d.m2Hs>0?700:400,fontSize:14}}>{d.m2Hs>0?fmtNum(d.m2Hs):"—"}</td>
                       <td style={{padding:"10px 14px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:d.m3Hs>0?C.purple:C.textMuted,fontWeight:d.m3Hs>0?700:400,fontSize:14}}>{d.m3Hs>0?fmtNum(d.m3Hs):"—"}</td>
                     </tr>
@@ -4303,10 +4925,15 @@ function ViewROP05({rop05,extState,setExtState}){
 
 
 function ViewROP05Discriminacion({rop05,extState,setExtState}){
-  const rop05DesdeJulio=useMemo(()=>rop05.filter(r=>(r.fecha||"")>="2026-07-01"),[rop05]);
+  const rop05DesdeJulio=useMemo(()=>rop05,[rop05]);
   const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase05,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop05DesdeJulio,ROP05_FK,extState,setExtState);
   const[tarea,setTarea]=useState("todas");
   const[tipoMaquina,setTipoMaquina]=useState("todas");
+  const temporadaInicialROP05=useMemo(()=>rop05TemporadaDeFecha(rop05UltimaFecha(rop05DesdeJulio)||new Date()),[rop05DesdeJulio]);
+  const[periodoAcumulado,setPeriodoAcumulado]=useState(()=>temporadaInicialROP05.periodo);
+  const[anioAcumulado,setAnioAcumulado]=useState(()=>temporadaInicialROP05.anio);
+  const anioAcumuladoOpts=useMemo(()=>rop05YearOptions(rop05DesdeJulio),[rop05DesdeJulio]);
+  const rangoAcumulado=useMemo(()=>rop05TemporadaRango(periodoAcumulado,anioAcumulado),[periodoAcumulado,anioAcumulado]);
   const[detalleKey,setDetalleKey]=useState(null);
 
   const n=v=>{const x=Number(String(v??"").replace(",","."));return Number.isFinite(x)?x:0;};
@@ -4337,26 +4964,37 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
     return "";
   };
 
+  const fechaDentroModo=useCallback((r)=>{
+    const f=r.fecha||"";
+    if(mode==="dia"&&fecha)return f===fecha;
+    if(mode==="periodo"){
+      if(fechaD&&f<fechaD)return false;
+      if(fechaH&&f>fechaH)return false;
+      return true;
+    }
+    if(mode==="acumulado")return rop05Between(r,rangoAcumulado.desde,rangoAcumulado.hasta);
+    return true;
+  },[mode,fecha,fechaD,fechaH,rangoAcumulado]);
+
   const tareasOpts=useMemo(()=>{
     const base=rop05DesdeJulio.filter(r=>{
-      const f=r.fecha||"";
-      if(mode==="dia"&&fecha&&f!==fecha)return false;
-      if(mode==="periodo"){if(fechaD&&f<fechaD)return false;if(fechaH&&f>fechaH)return false;}
+      if(!fechaDentroModo(r))return false;
       if(!matchMulti(r.maquina,vals.maquina,"todas"))return false;
       if(!matchMulti(r.proyecto,vals.proyecto,"todos"))return false;
       if(!multiIsAll(tipoMaquina,"todas")&&!tipoMatchMachineROP05(tipoMaquina,r.maquina))return false;
       return true;
     });
     return uniq(base.map(r=>r.tarea).filter(Boolean));
-  },[rop05DesdeJulio,mode,fecha,fechaD,fechaH,vals.maquina,vals.proyecto,tipoMaquina]);
+  },[rop05DesdeJulio,fechaDentroModo,vals.maquina,vals.proyecto,tipoMaquina]);
 
-  useEffect(()=>{setTarea("todas");setDetalleKey(null);},[vals.maquina,mode,fecha,fechaD,fechaH,tipoMaquina]);
+  useEffect(()=>{setTarea("todas");setDetalleKey(null);},[vals.maquina,mode,fecha,fechaD,fechaH,tipoMaquina,periodoAcumulado,anioAcumulado]);
 
   const filtered=useMemo(()=>{
-    let rows=multiIsAll(tarea,"todas")?filteredBase05:filteredBase05.filter(r=>matchMulti(r.tarea,tarea,"todas"));
+    let rows=mode==="acumulado"?filteredBase05.filter(r=>rop05Between(r,rangoAcumulado.desde,rangoAcumulado.hasta)):filteredBase05;
+    if(!multiIsAll(tarea,"todas"))rows=rows.filter(r=>matchMulti(r.tarea,tarea,"todas"));
     if(!multiIsAll(tipoMaquina,"todas"))rows=rows.filter(r=>tipoMatchMachineROP05(tipoMaquina,r.maquina));
     return rows;
-  },[filteredBase05,tarea,tipoMaquina]);
+  },[filteredBase05,mode,rangoAcumulado,tarea,tipoMaquina]);
 
   const discrRows=useMemo(()=>{
     const map=new Map();
@@ -4401,6 +5039,19 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
     })).sort((a,b)=>b.cantidad-a.cantidad);
   },[filtered]);
 
+  const excelBaseRows=useMemo(()=>{
+    let rows=rop05DesdeJulio.filter(r=>{
+      if(!matchMulti(r.proyecto,vals.proyecto,"todos"))return false;
+      if(!matchMulti(r.maquina,vals.maquina,"todas"))return false;
+      if(!matchMulti(r.supervisor,vals.supervisor,"todos"))return false;
+      if(!matchMulti(r.unidad,vals.unidad,"todas"))return false;
+      return true;
+    });
+    if(!multiIsAll(tarea,"todas"))rows=rows.filter(r=>matchMulti(r.tarea,tarea,"todas"));
+    if(!multiIsAll(tipoMaquina,"todas"))rows=rows.filter(r=>tipoMatchMachineROP05(tipoMaquina,r.maquina));
+    return rows;
+  },[rop05DesdeJulio,vals.proyecto,vals.maquina,vals.supervisor,vals.unidad,tarea,tipoMaquina]);
+
   const registrosConAlertas=useMemo(()=>filtered.map(r=>({...r,_error:dimError(r)})).filter(r=>r._error).slice(0,80),[filtered]);
   const detalleRows=useMemo(()=>{
     if(!detalleKey)return [];
@@ -4412,6 +5063,7 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
   const totalLargo=resumenTareas.reduce((s,r)=>s+r.largo,0);
   const totalErrores=registrosConAlertas.length;
   const chartData=resumenTareas.slice(0,10).map(r=>({tarea:r.tarea.length>26?r.tarea.slice(0,24)+"…":r.tarea,cantidad:Number(r.cantidad.toFixed(2)),horas:Number(r.horas.toFixed(2)),registros:r.registros,unidad:r.unidad}));
+  const periodoLabelDiscr=mode==="acumulado"?rangoAcumulado.label:(mode==="dia"?fmtFecha(fecha):`${fechaD||"inicio"}_${fechaH||"fin"}`);
 
   const th=(txt,left=false)=><th style={{padding:"9px 10px",textAlign:left?"left":"center",fontWeight:700,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",color:C.textSub,borderBottom:`2px solid ${C.border}`,position:"sticky",top:0,background:C.surface,zIndex:2}}>{txt}</th>;
   const td=(children,left=false,color=C.text,fw=600)=> <td style={{padding:"8px 10px",textAlign:left?"left":"center",borderBottom:`1px solid ${C.border}18`,color,fontWeight:fw}}>{children}</td>;
@@ -4423,10 +5075,31 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
           <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
             <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
             <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
-            <span style={{fontSize:11,color:C.textMuted,marginLeft:6}}>Análisis disponible desde 01/07/2026</span>
+            <TabBtn active={mode==="acumulado"} onClick={()=>setMode("acumulado")}>Acumulado</TabBtn>
+            <button onClick={()=>generarExcelProductividad(excelBaseRows,fechaD,fechaH,mode,fecha,{periodoAcumulado,anioAcumulado})} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+              📊 Generar Reporte
+            </button>
+            <button onClick={()=>imprimirGraficoIncidenciaROP05(filtered,{mode,fecha,fechaD,fechaH,rangoAcumulado})} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.yellow}66`,background:C.yellowDim,color:C.yellow,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+              🖨️ Imprimir gráfico
+            </button>
           </div>
           <div style={{display:"flex",flexWrap:"nowrap",overflowX:"auto",gap:10,alignItems:"flex-end",paddingBottom:2}}>
-            {mode==="dia"?<DateIn label="Fecha" value={fecha} onChange={setFecha} min="2026-07-01"/>:<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} min="2026-07-01" max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||"2026-07-01"} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
+            {mode==="dia"?(
+              <DateIn label="Fecha" value={fecha} onChange={setFecha}/>
+            ):mode==="acumulado"?(
+              <>
+                <Sel label="Período" value={periodoAcumulado} onChange={setPeriodoAcumulado} options={ROP05_PERIODOS_ACUMULADO}/>
+                <Sel label="Año" value={anioAcumulado} onChange={setAnioAcumulado} options={anioAcumuladoOpts}/>
+                <DateIn label="Desde" value={rangoAcumulado.desde} onChange={()=>{}} disabled/>
+                <DateIn label="Hasta" value={rangoAcumulado.hasta} onChange={()=>{}} disabled/>
+              </>
+            ):(
+              <>
+                <PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/>
+                <DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/>
+                <DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/>
+              </>
+            )}
             <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>set("proyecto",v)} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
             <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{setTipoMaquina(v);set("maquina","todas");}} options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
             <MultiSel label="Máquina" value={vals.maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>multiIsAll(tipoMaquina,"todas")||tipoMatchMachineROP05(tipoMaquina,m)).map(m=>({value:m,label:m}))]}/>
@@ -6923,23 +7596,30 @@ function ViewCostosUnitarios({insumos,rma15,usdRate}){
     const m={};
     const fechaMinima="2026-06-01";
 
-    // Solo códigos con formato de código real: sin espacios, con letras y números.
-    // Esto descarta textos cargados como código, códigos solo numéricos, S/C, etc.
+    // Acepta códigos alfanuméricos y también códigos totalmente numéricos (ej.: 154).
+    // Solo se excluyen valores vacíos o marcadores que no representan un artículo real.
     const esCodigoValido=(v)=>{
-      const c=String(v||"").trim().toUpperCase();
-      return /^[A-Z0-9._/-]+$/.test(c) && /[A-Z]/.test(c) && /\d/.test(c);
+      const c=normalizeInsumoCode(v);
+      if(!c||c.length>60)return false;
+      if(["0","-","--","S/C","SC","SINCODIGO","SIN-CODIGO","N/A","NA","NOAPLICA"].includes(c))return false;
+      return /^[A-Z0-9._/-]+$/.test(c) && /\d/.test(c);
     };
+
+    const insumosPorCodigo=new Map(
+      Object.entries(insumos||{}).map(([codigo,info])=>[normalizeInsumoCode(codigo),info])
+    );
 
     (rma15||[]).forEach(r=>{
       const fecha=normDate(r?.fecha);
       if(!fecha||fecha<fechaMinima)return;
 
       (r.insumos||[]).forEach(i=>{
-        const codigo=String(i.codigo||"").trim();
+        const codigo=normalizeInsumoCode(i.codigo);
         if(!codigo||!esCodigoValido(codigo))return;
 
-        const existe=Object.prototype.hasOwnProperty.call(insumos||{},codigo);
-        const precio=Number(i.costoUnitario||0);
+        const infoCosto=insumosPorCodigo.get(codigo);
+        const existe=!!infoCosto;
+        const precio=Number(infoCosto?.costoUnitario??i.costoUnitario??0);
         if(!existe||precio<=0){
           if(!m[codigo])m[codigo]={
             codigo,
@@ -8311,7 +8991,7 @@ function HealthDashboard({health,onLoadAll,loading}){
         <StatCard icon="parts" label="Filas detectadas" value={fmtNum(total)} color={C.blue}/>
         <StatCard icon="refresh" label="Modo" value="Lazy" sub="Carga por pestaña" color={C.accent}/>
       </div>
-      <Card title="Estado de fuentes" action={<button onClick={onLoadAll} disabled={loading} style={{background:C.accent,border:"none",borderRadius:7,color:"#fff",padding:"7px 12px",fontSize:12,fontWeight:700,cursor:loading?"not-allowed":"pointer"}}>{loading?"Cargando...":"Cargar dashboard completo"}</button>}>
+      <Card title="Estado de fuentes" action={<button onClick={onLoadAll} disabled={loading} style={{background:C.accent,border:"none",borderRadius:7,color:"#fff",padding:"7px 12px",fontSize:12,fontWeight:700,cursor:(loading||syncing)?"not-allowed":"pointer"}}>{loading?"Cargando...":"Cargar dashboard completo"}</button>}>
         <Table cols={[
           {key:"fuente",label:"Fuente"},
           {key:"filas",label:"Filas"},
@@ -9247,7 +9927,23 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const descargarExcel=(nombre,rows)=>{
     const wb=XLSX.utils.book_new();
-    const ws=XLSX.utils.json_to_sheet(rows||[]);
+    // Permite exportar tablas con encabezados repetidos, como Top 3 Insumos
+    // Correctivo / Preventivo. Para esos casos se envía un array de arrays.
+    const isAOA=Array.isArray(rows)&&Array.isArray(rows[0]);
+    const ws=isAOA?XLSX.utils.aoa_to_sheet(rows||[]):XLSX.utils.json_to_sheet(rows||[]);
+    if(isAOA){
+      const maxCols=(rows||[]).reduce((m,r)=>Math.max(m,Array.isArray(r)?r.length:0),0);
+      ws["!cols"]=Array.from({length:maxCols},(_,i)=>{
+        if(i===0)return {wch:18};
+        const header=String((rows?.[0]?.[i]||rows?.[1]?.[i]||"")).toLowerCase();
+        if(header.includes("descripcion")||header.includes("descripción"))return {wch:42};
+        if(header.includes("propiedad"))return {wch:16};
+        if(header.includes("total 2025"))return {wch:14};
+        if(header.includes("hs"))return {wch:13};
+        if(header.includes("usd"))return {wch:13};
+        return {wch:13};
+      });
+    }
     XLSX.utils.book_append_sheet(wb,ws,"Datos");
     XLSX.writeFile(wb,`${nombre}.xlsx`);
   };
@@ -10309,10 +11005,38 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   })),[rowsAmortizacionOrdenadasFiltradas]);
 
 
+  const resumenTipoOrden=React.useCallback((label)=>{
+    const t=String(label||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().trim();
+    if(!t||t==="S/D"||t==="SD")return 9999;
+
+    // Primero maquinaria vial / equipos principales.
+    if(t.includes("CARGADOR FRONTAL L120"))return 10;
+    if(t.includes("CARGADOR FRONTAL"))return 20;
+    if(t.includes("EXCAVADORA PC350"))return 30;
+    if(t.includes("EXCAVADORA"))return 40;
+    if(t.includes("MINICARGADORA"))return 50;
+    if(t.includes("MOTONIVELADORA"))return 60;
+    if(t.includes("RETROPALA"))return 70;
+    if(t.includes("RODILLO COMPACTADOR"))return 80;
+    if(t.includes("TOPADORA"))return 90;
+
+    // Después camionetas y equipos auxiliares.
+    if(t.includes("CAMIONETA")||t.includes("HILUX")||t.includes("PICK"))return 200;
+    if(t.includes("GRUPO ELECTROGENO")||t.includes("GENERADOR"))return 210;
+    if(t.includes("CAMION DE COMBUSTIBLE"))return 220;
+    if(t.includes("CAMION REGADOR"))return 230;
+    if(t.includes("CAMION VOLCADOR"))return 240;
+
+    return 500;
+  },[]);
+
   const resumenEquipoNombre=React.useCallback((tipo,modelo="")=>{
-    const t=String(tipo||"S/D").trim().toUpperCase();
-    const m=String(modelo||"").trim().toUpperCase();
+    const raw=String(tipo||"").trim();
+    const t=String(tipo||"S/D").trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+    const m=String(modelo||"").trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
     const compactModelo=m.replace(/[\s\-_/]+/g,"");
+
+    if(!raw||t==="S/D"||t==="SD")return "";
 
     // Mantener en Resumen por equipo la misma separación que se usa en Amortización:
     // - PC350 no se mezcla con el promedio de excavadoras PC200/PC210.
@@ -10332,7 +11056,15 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     if(t.includes("RETROPALA"))return "Retropala";
     if(t.includes("EXCAVADORA"))return "Excavadora";
     if(t.includes("TOPADORA"))return "Topadora";
-    return String(tipo||"S/D").toLowerCase().replace(/(^|\s)\S/g,m=>m.toUpperCase());
+
+    // Nombres operativos corregidos para equipos auxiliares.
+    if(t.includes("VOLCADOR"))return "Camión Volcador";
+    if(t.includes("REGADOR"))return "Camión Regador";
+    if(t.includes("COMBUSTIBLE")||t.includes("SISTERNA"))return "Camión de Combustible";
+    if(t.includes("GRUPO ELECTROGENO")||t.includes("GENERADOR"))return "Grupo Electrógeno";
+    if(t.includes("CAMIONETA")||t.includes("HILUX")||t.includes("PICK"))return "Camioneta";
+
+    return raw.toLowerCase().replace(/(^|\s)\S/g,m=>m.toUpperCase());
   },[]);
 
   const getModeloFromListaRow=React.useCallback((eq,modeloFallback="")=>{
@@ -10389,7 +11121,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     // volvía a buscar modelo/tipo contra toda la Lista Maestra y eso hacía que se tilde.
     return (rowsAmortizacionOrdenadas||[]).map(x=>{
       const modeloResumen=modeloListaEquipo(x?.equipo,x?.modelo)||x?.modelo||"";
-      const tipoLabel=getResumenTipoLabel({...x,_resumenModelo:modeloResumen})||"S/D";
+      const tipoLabel=getResumenTipoLabel({...x,_resumenModelo:modeloResumen})||"";
+      if(!tipoLabel)return null;
       const tipoValue=cleanKey(tipoLabel)||"sd";
       const equipoValue=String(x.equipo||"").trim();
       const propiedadValue=String(x.propiedad||"S/D").trim()||"S/D";
@@ -10401,18 +11134,22 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         _resumenEquipoValue:equipoValue,
         _resumenPropiedadValue:propiedadValue,
       };
-    });
+    }).filter(Boolean);
   },[rowsAmortizacionOrdenadas,modeloListaEquipo,getResumenTipoLabel]);
 
   const resumenTipoOptions=React.useMemo(()=>{
     const map=new Map();
     (resumenFiltroRows||[]).forEach(x=>{
-      const label=x._resumenTipoLabel||"S/D";
+      const label=x._resumenTipoLabel||"";
+      if(!label)return;
       const value=x._resumenTipoValue||cleanKey(label)||"sd";
+      if(!value||value==="sd")return;
       if(!map.has(value))map.set(value,label);
     });
-    return [{value:"todos",label:"Todos los tipos"},...Array.from(map.entries()).sort((a,b)=>String(a[1]).localeCompare(String(b[1]))).map(([value,label])=>({value,label}))];
-  },[resumenFiltroRows]);
+    return [{value:"todos",label:"Todos los tipos"},...Array.from(map.entries())
+      .sort((a,b)=>resumenTipoOrden(a[1])-resumenTipoOrden(b[1])||String(a[1]).localeCompare(String(b[1])))
+      .map(([value,label])=>({value,label}))];
+  },[resumenFiltroRows,resumenTipoOrden]);
 
   const resumenEquipoOptions=React.useMemo(()=>{
     const vals=Array.from(new Set((resumenFiltroRows||[]).map(x=>x._resumenEquipoValue).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
@@ -10485,7 +11222,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
 
     return Object.values(grupos)
-      .sort((a,b)=>a.orden-b.orden||a.ordenTipo-b.ordenTipo||a.tipoGrupo.localeCompare(b.tipoGrupo))
+      .sort((a,b)=>resumenTipoOrden(a.tipoGrupo)-resumenTipoOrden(b.tipoGrupo)||a.orden-b.orden||a.ordenTipo-b.ordenTipo||a.tipoGrupo.localeCompare(b.tipoGrupo))
       .map(g=>{
         // Promedio real según los equipos visibles después de aplicar filtros.
         // Ej.: si filtrás Propiedad = DELTA, Topadora calcula sólo con topadoras Delta.
@@ -10507,7 +11244,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           _detalleMaquinas:g.detalleMaquinas||[],
         };
       });
-  },[rowsResumenPorEquipoBase,resumenEquipoNombre,modeloListaEquipo]);
+  },[rowsResumenPorEquipoBase,resumenEquipoNombre,modeloListaEquipo,resumenTipoOrden]);
 
   const rowsResumenPorEquipoExcel=React.useMemo(()=>(rowsResumenPorEquipo||[]).map(x=>({
     "Maquina":x.maquina,
@@ -10608,27 +11345,88 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         return sum+Math.round(Number(p[kind])||0);
       },0);
     };
-    const rowsExcelCM=rowsCM.map(x=>{
-      const row={Proyecto:sectionProyectoCosto(x.section),Equipo:x.equipo};
-      mesesCM.forEach(m=>{
-        const d=x.months[m.key]||{};
-        row[`${m.label} Preventivo`]=Math.round(Number(d.prev)||0);
-        row[`${m.label} Correctivo`]=Math.round(Number(d.corr)||0);
-        row[`${m.label} Total`]=Math.round(Number(d.total)||0);
-      });
-      const p=promedioCM(x);
-      row["Total B"]=Math.round(x.total||0);
-      row["Promedio Preventivo"]=Math.round(p.prev||0);
-      row["Promedio Correctivo"]=Math.round(p.corr||0);
-      row["Promedio Total"]=Math.round(p.total||0);
-      row["Mano de Obra"]=Math.round(getManoObraCostoMensual(x)||0);
-      row["Hs efectivas"]=Math.round(getHsEfectivasCM(x)||0);
-      row["USD/hora"]=Math.round(getUsdHoraCM(x)||0);
-      return row;
-    });
     const sections=[{id:"FS",label:"FILO DEL SOL"},{id:"JM",label:"JOSE MARIA"}].filter(sec=>
       rowsCM.some(x=>x.section===sec.id)
     );
+
+    const rowsExcelCM=(()=>{
+      // Formato especial para el Excel de Costo mensual acumulado.
+      // No se exportan las columnas mensuales 2025: solo se conserva Total 2025.
+      // Total 2025 = suma de las columnas Total de todos los meses anteriores a Enero 2026.
+      const meses2025=(mesesCM||[]).filter(m=>String(m.key||"")<"2026-01");
+      const mesesDesdeEnero=(mesesCM||[]).filter(m=>String(m.key||"")>="2026-01");
+      const round=v=>Math.round(Number(v)||0);
+      const emptyRow=()=>[];
+      const rowLen=3+(mesesDesdeEnero.length*3)+1+3+3;
+
+      const head1=["Equipo","Propiedad","Total 2025"];
+      mesesDesdeEnero.forEach(m=>head1.push(m.label,"",""));
+      head1.push("Total B","Promedio","","","MO","Hs Efectivas","USD/Hs");
+
+      const head2=["","",""];
+      mesesDesdeEnero.forEach(()=>head2.push("Preventivo","Correctivo","Total"));
+      head2.push("","Preventivo","Correctivo","Total","","","");
+
+      const out=[head1,head2];
+
+      const pushSectionTitle=(label)=>{
+        const row=emptyRow();
+        row[0]=label;
+        out.push(row);
+      };
+
+      const total2025Equipo=(x)=>meses2025.reduce((s,m)=>s+round(x.months?.[m.key]?.total||0),0);
+      const pushEquipo=(x)=>{
+        const row=[x.equipo,propiedadEquipo(x.equipo)||"S/D",total2025Equipo(x)];
+        mesesDesdeEnero.forEach(m=>{
+          const d=x.months?.[m.key]||{};
+          row.push(round(d.prev),round(d.corr),round(d.total));
+        });
+        const p=promedioCM(x);
+        row.push(
+          round(x.total||0),
+          round(p.prev||0),
+          round(p.corr||0),
+          round(p.total||0),
+          round(getManoObraCostoMensual(x)||0),
+          round(getHsEfectivasCM(x)||0),
+          round(getUsdHoraCM(x)||0)
+        );
+        while(row.length<rowLen)row.push("");
+        out.push(row);
+      };
+
+      const pushSubtotal=(sectionId,label)=>{
+        const row=[label,"",0];
+        let total2025=0;
+        meses2025.forEach(m=>{
+          total2025+=round(sumCM(sectionId,"total",m.key));
+        });
+        row[2]=total2025;
+        mesesDesdeEnero.forEach(m=>{
+          row.push(round(sumCM(sectionId,"prev",m.key)),round(sumCM(sectionId,"corr",m.key)),round(sumCM(sectionId,"total",m.key)));
+        });
+        row.push(
+          round(sumCM(sectionId,"totalB")),
+          round(sumCM(sectionId,"prev")),
+          round(sumCM(sectionId,"corr")),
+          round(sumCM(sectionId,"total")),
+          round(sumCM(sectionId,"mo")),
+          round(sumCM(sectionId,"hsEf")),
+          round(sumCM(sectionId,"usdHs"))
+        );
+        while(row.length<rowLen)row.push("");
+        out.push(row);
+      };
+
+      sections.forEach(sec=>{
+        pushSectionTitle(sec.label);
+        rowsCM.filter(x=>x.section===sec.id).forEach(pushEquipo);
+        pushSubtotal(sec.id,`Subtotal ${sec.id}`);
+      });
+      pushSubtotal("TOTAL","TOTAL");
+      return out;
+    })();
 
     const costoMensualGetters={
       equipo:x=>x.equipo,
@@ -11051,28 +11849,28 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         const equipos=Object.values(byEquipo).sort((a,b)=>a.equipo.localeCompare(b.equipo));
         const top3=(bucket)=>Object.values(bucket).sort((a,b)=>b.costoTotal-a.costoTotal).slice(0,3);
         const rowsTop3InsumosExcel=()=>{
-          const rows=[];
+          // Formato solicitado:
+          // Equipo | Correctivo: Codigo, Costo_ARS, Descripcion, Cantidad | Preventivo: Codigo, Costo_ARS, Descripcion, Cantidad
+          // Siempre se dejan 3 filas por equipo, aunque no tenga los 3 insumos cargados.
+          const rows=[["Equipo","Codigo","Costo_ARS","Descripcion","Cantidad","Codigo","Costo_ARS","Descripcion","Cantidad"]];
           equipos.forEach(eq=>{
-            top3(eq.corr).forEach((ins,i)=>rows.push({
-              Equipo:eq.equipo,
-              Tipo:"Correctivo",
-              Ranking:i+1,
-              Codigo:ins.codigo,
-              Descripcion:ins.descripcion,
-              Cantidad:Number(ins.cantidad)||0,
-              Costo_ARS:Math.round(Number(ins.costoTotal)||0),
-              Costo_USD:Math.round(costoToUSD(ins.costoTotal||0)),
-            }));
-            top3(eq.prev).forEach((ins,i)=>rows.push({
-              Equipo:eq.equipo,
-              Tipo:"Preventivo",
-              Ranking:i+1,
-              Codigo:ins.codigo,
-              Descripcion:ins.descripcion,
-              Cantidad:Number(ins.cantidad)||0,
-              Costo_ARS:Math.round(Number(ins.costoTotal)||0),
-              Costo_USD:Math.round(costoToUSD(ins.costoTotal||0)),
-            }));
+            const corr=top3(eq.corr);
+            const prev=top3(eq.prev);
+            for(let i=0;i<3;i++){
+              const c=corr[i]||{};
+              const p=prev[i]||{};
+              rows.push([
+                i===0?eq.equipo:"",
+                c.codigo||"",
+                c.codigo?Math.round(Number(c.costoTotal)||0):"",
+                c.descripcion||"",
+                c.codigo?(Number(c.cantidad)||0):"",
+                p.codigo||"",
+                p.codigo?Math.round(Number(p.costoTotal)||0):"",
+                p.descripcion||"",
+                p.codigo?(Number(p.cantidad)||0):"",
+              ]);
+            }
           });
           return rows;
         };
@@ -11944,7 +12742,7 @@ function ViewTallerCentral({listaEquipos=[],rop02All=[],onReloadLista}){
         </div>
       </Card>
       {rows.length>0
-        ? <ViewListaMaestraEquipos rows={rows} rop02All={rop02All||[]} onReloadLista={onReloadLista}/>
+        ? <ViewListaMaestraEquipos rows={rows} rop02All={rop02All||[]} rop05={[]} rma15={[]} onReloadLista={onReloadLista}/>
         : <BlockingDataLoader label="Cargando Lista Maestra de Equipos..." />
       }
     </div>
@@ -11958,35 +12756,94 @@ function readSavedAppFilters(){
   catch(_){return{};}
 }
 
-const APP_DATA_CACHE_PREFIX="dm_app_data_source_v3_";
-const APP_DATA_CACHE_META_KEY="dm_app_data_meta_v3";
+const APP_IDB_NAME="delta_mining_cache";
+const APP_IDB_VERSION=1;
+const APP_IDB_STORE="datasets";
+const APP_CACHE_VERSION=1;
 
-function readSavedDataSources(){
-  try{
-    const meta=JSON.parse(window.localStorage.getItem(APP_DATA_CACHE_META_KEY)||"{}");
-    const keys=Array.isArray(meta.keys)?meta.keys:[];
-    const sources={};
-    keys.forEach(k=>{
-      try{
-        const raw=window.localStorage.getItem(APP_DATA_CACHE_PREFIX+k);
-        if(raw)sources[k]=JSON.parse(raw);
-      }catch(_){}
-    });
-    return{sources,updatedAt:meta.updatedAt||null};
-  }catch(_){
-    return{sources:{},updatedAt:null};
-  }
+let appCacheDBPromise_=null;
+function openAppCacheDB(){
+  if(appCacheDBPromise_)return appCacheDBPromise_;
+  appCacheDBPromise_=new Promise((resolve,reject)=>{
+    if(!window.indexedDB){reject(new Error("IndexedDB no está disponible"));return;}
+    const req=window.indexedDB.open(APP_IDB_NAME,APP_IDB_VERSION);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(APP_IDB_STORE))db.createObjectStore(APP_IDB_STORE,{keyPath:"key"});
+    };
+    req.onsuccess=()=>{
+      const db=req.result;
+      db.onversionchange=()=>{db.close();appCacheDBPromise_=null;};
+      resolve(db);
+    };
+    req.onerror=()=>{appCacheDBPromise_=null;reject(req.error||new Error("No se pudo abrir IndexedDB"));};
+    req.onblocked=()=>{appCacheDBPromise_=null;reject(new Error("IndexedDB está bloqueada por otra pestaña"));};
+  });
+  return appCacheDBPromise_;
 }
-
-function saveDataSourcesToStorage(sources){
-  try{
-    const keys=Object.keys(sources||{}).filter(k=>sources[k]);
-    keys.forEach(k=>{
-      try{window.localStorage.setItem(APP_DATA_CACHE_PREFIX+k,JSON.stringify(sources[k]));}
-      catch(_){}
-    });
-    window.localStorage.setItem(APP_DATA_CACHE_META_KEY,JSON.stringify({keys,updatedAt:new Date().toISOString()}));
-  }catch(_){}
+function idbRequest_(request){return new Promise((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
+function idbTransactionDone_(tx){return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error("Transacción IndexedDB cancelada"));});}
+async function readCachedSource(key){
+  const db=await openAppCacheDB();
+  const tx=db.transaction(APP_IDB_STORE,"readonly");
+  return idbRequest_(tx.objectStore(APP_IDB_STORE).get(key));
+}
+async function readCachedSourceRecords(keys){
+  const wanted=[...new Set((keys||[]).filter(Boolean))];
+  if(!wanted.length)return{};
+  const db=await openAppCacheDB();
+  const tx=db.transaction(APP_IDB_STORE,"readonly");
+  const store=tx.objectStore(APP_IDB_STORE);
+  const pairs=await Promise.all(wanted.map(async key=>[key,await idbRequest_(store.get(key)).catch(()=>null)]));
+  return Object.fromEntries(pairs);
+}
+async function readCachedSources(keys){
+  const records=await readCachedSourceRecords(keys);
+  const out={};
+  Object.entries(records).forEach(([key,rec])=>{if(rec?.value)out[key]=rec.value;});
+  return out;
+}
+async function writeCachedSource(key,value){
+  const db=await openAppCacheDB();
+  const tx=db.transaction(APP_IDB_STORE,"readwrite");
+  const count=Array.isArray(value?.data)?value.data.length:0;
+  tx.objectStore(APP_IDB_STORE).put({key,value,updatedAt:new Date().toISOString(),count,version:APP_CACHE_VERSION});
+  await idbTransactionDone_(tx);
+}
+async function writeCachedSources(sources){
+  const entries=Object.entries(sources||{});
+  if(!entries.length)return;
+  const db=await openAppCacheDB();
+  const tx=db.transaction(APP_IDB_STORE,"readwrite");
+  const store=tx.objectStore(APP_IDB_STORE);
+  const updatedAt=new Date().toISOString();
+  entries.forEach(([key,value])=>store.put({key,value,updatedAt,count:Array.isArray(value?.data)?value.data.length:0,version:APP_CACHE_VERSION}));
+  await idbTransactionDone_(tx);
+}
+async function clearCachedSource(key){
+  const db=await openAppCacheDB();
+  const tx=db.transaction(APP_IDB_STORE,"readwrite");
+  tx.objectStore(APP_IDB_STORE).delete(key);
+  await idbTransactionDone_(tx);
+}
+function readSavedDataSources(){return{sources:{},updatedAt:null};}
+function saveDataSourcesToStorage(sources){writeCachedSources(sources).catch(()=>{});}
+function getCachedSourceTimestamp(record){return record?.updatedAt||record?.value?.meta?.updatedAt||record?.value?.updatedAt||null;}
+function getRowIdentity_(row,index){
+  if(!row||typeof row!=="object")return `idx:${index}:${String(row)}`;
+  const keys=["id","ID","_id","rowId","rowIndex","fila","Fila","N° Parte","N Parte","Numero Parte","Código Nuevo","Codigo Nuevo","Código","Codigo","nSolicitud","N° de solicitud","Nº de solicitud","numeroRemito","N° Remito"];
+  for(const k of keys){const v=row[k];if(v!==undefined&&v!==null&&String(v)!=="")return `${k}:${String(v)}`;}
+  return JSON.stringify(row);
+}
+function mergeIncrementalSource(previous,next){
+  const incremental=next?.incremental===true||next?.meta?.incremental===true||next?.mode==="incremental";
+  if(!incremental||!Array.isArray(previous?.data)||!Array.isArray(next?.data))return next;
+  const map=new Map(previous.data.map((r,i)=>[getRowIdentity_(r,i),r]));
+  next.data.forEach((r,i)=>map.set(getRowIdentity_(r,i),r));
+  const deleted=new Set(next?.deletedKeys||next?.meta?.deletedKeys||[]);
+  deleted.forEach(k=>map.delete(String(k)));
+  const data=[...map.values()];
+  return {...previous,...next,data,meta:{...(previous.meta||{}),...(next.meta||{}),rows:data.length,returnedRows:data.length,hasMore:false,incremental:false}};
 }
 
 
@@ -14063,6 +14920,7 @@ export default function App(){
   const[view,setView]=useState("bienvenida");
   const[activeModule,setActiveModule]=useState("home");
   const[loading,setLoading]=useState(false);
+  const[syncing,setSyncing]=useState(false);
   const[rop02All,setRop02All]=useState([]);
   const[rop05,setRop05]=useState([]);
   const[lastUpdate,setLastUpdate]=useState(()=>savedAppData.updatedAt?new Date(savedAppData.updatedAt):null);
@@ -14130,15 +14988,6 @@ export default function App(){
       </div>
     </div>
   ),[]);
-
-  useEffect(()=>{
-    const t=setTimeout(()=>{
-      if(rawSources&&Object.keys(rawSources).length){
-        saveDataSourcesToStorage(rawSources);
-      }
-    },350);
-    return()=>clearTimeout(t);
-  },[rawSources]);
 
 
   const control=useMemo(()=>calcControl(rop02All,rop05),[rop02All,rop05]);
@@ -14224,7 +15073,7 @@ export default function App(){
     const insumosMap={};
     if(src.insumos?.ok&&src.insumos.data){
       src.insumos.data.forEach(r=>{
-        const cod=String(getValue(r,["CODIGO","Codigo","Código","codigo","código","Cod","cod"])||"").trim();
+        const cod=normalizeInsumoCode(getValue(r,["CODIGO","Codigo","Código","codigo","código","Cod","cod"])||"");
         if(cod){
           const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Insumo","Nombre"])||"").trim();
           insumosMap[cod]={
@@ -14269,95 +15118,182 @@ export default function App(){
     finally{setLoading(false);}
   },[]);
 
-  const loadSources=useCallback(async(sources,{force=false}={})=>{
-    const loadedNow=loadedSourcesRef.current||{};
-    const currentSources=rawSourcesRef.current||{};
-    const hasUsableSource=(k)=>{
-      const src=currentSources[k];
-      if(!(src&&src.ok&&Array.isArray(src.data)&&src.data.length>0))return false;
-      // Si ROP05 quedó guardado parcial en localStorage, forzamos recarga completa.
-      // Esto corrige casos donde solo se ve enero y no aparecen registros del 26/06 en adelante.
-      if(k==="rop05"){
-        const totalRows=Number(src.meta?.rows ?? src.rows ?? 0);
-        const returnedRows=Number(src.meta?.returnedRows ?? src.returnedRows ?? src.data.length);
-        const hasMore=Boolean(src.meta?.hasMore ?? src.hasMore);
-        if(hasMore)return false;
-        if(totalRows>0&&returnedRows>0&&returnedRows<totalRows)return false;
-        if(totalRows>0&&src.data.length<totalRows)return false;
-      }
-      return true;
-    };
-    const needed=(sources||[]).filter(Boolean).filter(k=>force||!loadedNow[k]||!hasUsableSource(k));
-    if(!needed.length)return;
-    setLoading(true);setFatalError(null);
-    try{
-      const entries=[];
-      const softErrors=[];
+  const hydratedCacheKeysRef=useRef(new Set());
+  const sourceRequestsRef=useRef(new Map());
+  const lastCheckedBySourceRef=useRef({});
+  const activeSyncCountRef=useRef(0);
+  const SYNC_FRESH_MS=5*60*1000;
 
-      // Lectura secuencial: evita saturar Apps Script con varias llamadas simultáneas.
-      for(const key of needed){
-        try{
-          const val=await fetchSource(APPS_SCRIPT_URL,key,{force});
-          entries.push([key,val]);
-        }catch(err){
-          const previous=currentSources[key];
-          if(previous&&previous.ok&&Array.isArray(previous.data)&&previous.data.length>0){
-            // Si ya había datos buenos, no rompemos la pantalla por un 404 intermitente.
-            softErrors.push({source:key.toUpperCase(),message:`No se pudo actualizar (${err.message}). Se conservan los datos ya cargados.`});
-          }else{
-            throw err;
-          }
-        }
-      }
+  const beginBackgroundSync=useCallback(()=>{
+    activeSyncCountRef.current+=1;
+    if(activeSyncCountRef.current===1)setSyncing(true);
+  },[]);
+  const endBackgroundSync=useCallback(()=>{
+    activeSyncCountRef.current=Math.max(0,activeSyncCountRef.current-1);
+    if(activeSyncCountRef.current===0)setSyncing(false);
+  },[]);
 
+  const hydrateSourcesFromCache=useCallback(async requested=>{
+    const keys=(requested||[]).filter(key=>
+      !hydratedCacheKeysRef.current.has(key)&&
+      !(rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data))
+    );
+    if(!keys.length)return {};
+
+    keys.forEach(key=>hydratedCacheKeysRef.current.add(key));
+    const recordMap=await readCachedSourceRecords(keys).catch(()=>({}));
+    const records=keys.map(key=>[key,recordMap[key]||null]);
+    const valid=records.filter(([,rec])=>rec?.value?.ok&&Array.isArray(rec.value.data));
+    if(!valid.length)return recordMap;
+
+    startTransition(()=>{
       setRawSources(prev=>{
+        let changed=false;
         const next={...prev};
-        entries.forEach(([key,val])=>{
-          if(val&&val.ok&&Array.isArray(val.data)){
-            next[key]=val;
-          }else if(!next[key]){
-            next[key]=val;
-          }
+        valid.forEach(([key,rec])=>{
+          if(!(next[key]?.ok&&Array.isArray(next[key].data))){next[key]=rec.value;changed=true;}
         });
+        if(!changed)return prev;
+        rawSourcesRef.current=next;
         return next;
       });
       setLoadedSources(prev=>{
+        let changed=false;
         const next={...prev};
-        entries.forEach(([key])=>{next[key]=true;});
-        softErrors.forEach(e=>{next[String(e.source||"").toLowerCase()]=true;});
+        valid.forEach(([key])=>{if(!next[key]){next[key]=true;changed=true;}});
+        if(!changed)return prev;
         loadedSourcesRef.current=next;
         return next;
       });
-      if(softErrors.length){
-        setErrors(prev=>[...softErrors,...(prev||[]).filter(e=>!softErrors.some(se=>se.source===e.source))]);
-      }
-      setLastUpdate(new Date());
-    }catch(err){
-      const hasAnyData=Object.values(currentSources||{}).some(src=>src&&src.ok&&Array.isArray(src.data)&&src.data.length>0);
-      if(hasAnyData){
-        setErrors(prev=>[{source:"Apps Script",message:`No se pudo actualizar (${err.message}). Se conservan los datos ya cargados.`},...(prev||[])]);
-      }else{
-        setFatalError(err.message);
-      }
-    }
-    finally{setLoading(false);}
+    });
+
+    const times=valid.map(([,rec])=>new Date(rec.updatedAt||0).getTime()).filter(Number.isFinite);
+    if(times.length)setLastUpdate(new Date(Math.max(...times)));
+    return recordMap;
   },[]);
+
+  const fetchOneSource=useCallback(async(key,{force=false,serverVersions={},cacheRecords={}}={})=>{
+    const existingRequest=sourceRequestsRef.current.get(key);
+    if(existingRequest&&!force)return existingRequest;
+
+    const task=(async()=>{
+      const cacheRecord=cacheRecords[key]||await readCachedSource(key).catch(()=>null);
+      const localSource=rawSourcesRef.current?.[key]||cacheRecord?.value||null;
+      const localVersion=Number(localSource?.meta?.serverVersion||cacheRecord?.value?.meta?.serverVersion||0);
+      const serverVersion=Number(serverVersions[key]||0);
+
+      if(!force&&localSource?.ok&&Array.isArray(localSource.data)&&serverVersion>0&&localVersion===serverVersion){
+        lastCheckedBySourceRef.current[key]=Date.now();
+        return {key,value:localSource,skipped:true};
+      }
+
+      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord)});
+      if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
+      const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
+      const value=mergeIncrementalSource(previous,fetched);
+      const confirmsEmpty=Number(fetched?.meta?.rows)===0||fetched?.empty===true;
+      if(previous?.data?.length>0&&value?.data?.length===0&&!confirmsEmpty)throw new Error('El servidor devolvió una respuesta vacía no confirmada');
+      await writeCachedSource(key,value);
+      lastCheckedBySourceRef.current[key]=Date.now();
+      return {key,value,skipped:false};
+    })();
+
+    sourceRequestsRef.current.set(key,task);
+    try{return await task;}
+    finally{if(sourceRequestsRef.current.get(key)===task)sourceRequestsRef.current.delete(key);}
+  },[]);
+
+  const loadSources=useCallback(async(sources,{force=false,background=true}={})=>{
+    const requested=[...new Set((sources||[]).filter(Boolean))];
+    if(!requested.length)return;
+
+    setFatalError(null);
+    const cacheRecords=await hydrateSourcesFromCache(requested);
+    const now=Date.now();
+    const toCheck=force?requested:requested.filter(key=>{
+      const hasData=rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data);
+      const fresh=now-Number(lastCheckedBySourceRef.current[key]||0)<SYNC_FRESH_MS;
+      return !hasData||!fresh;
+    });
+    if(!toCheck.length)return;
+
+    const hasVisible=toCheck.some(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data));
+    if(background||hasVisible)beginBackgroundSync();else setLoading(true);
+
+    try{
+      const syncInfo=force?null:await fetchSyncVersions(APPS_SCRIPT_URL);
+      const serverVersions=syncInfo?.versions||{};
+      const results=await Promise.allSettled(toCheck.map(key=>fetchOneSource(key,{force,serverVersions,cacheRecords})));
+      const entries=[];
+      const softErrors=[];
+      results.forEach((result,index)=>{
+        const key=toCheck[index];
+        if(result.status==='fulfilled'){
+          if(!result.value.skipped)entries.push([key,result.value.value]);
+        }else{
+          const previous=rawSourcesRef.current?.[key];
+          softErrors.push({source:key.toUpperCase(),message:previous?.ok&&Array.isArray(previous.data)
+            ?`No se pudo actualizar (${result.reason?.message||'error desconocido'}). Se conservan los datos guardados.`
+            :(result.reason?.message||'No se pudo cargar la fuente.')});
+        }
+      });
+
+      if(entries.length){
+        startTransition(()=>{
+          setRawSources(prev=>{
+            let changed=false;
+            const next={...prev};
+            entries.forEach(([key,val])=>{if(next[key]!==val){next[key]=val;changed=true;}});
+            if(!changed)return prev;
+            rawSourcesRef.current=next;
+            return next;
+          });
+          setLoadedSources(prev=>{
+            let changed=false;
+            const next={...prev};
+            entries.forEach(([key])=>{if(!next[key]){next[key]=true;changed=true;}});
+            if(!changed)return prev;
+            loadedSourcesRef.current=next;
+            return next;
+          });
+        });
+        setLastUpdate(new Date());
+      }
+
+      if(softErrors.length)setErrors(prev=>[...softErrors,...(prev||[]).filter(e=>!softErrors.some(se=>se.source===e.source))]);
+      else setErrors(prev=>(prev||[]).filter(e=>!toCheck.some(k=>e.source===k.toUpperCase())));
+
+      const hasAnyUsable=requested.some(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data))||entries.length>0;
+      if(!hasAnyUsable&&softErrors.length===toCheck.length)setFatalError('No se pudieron cargar los datos y no existe una copia local disponible.');
+    }catch(err){
+      const hasAnyData=requested.some(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data));
+      if(hasAnyData)setErrors(prev=>[{source:'Apps Script',message:`No se pudo actualizar (${err.message}). Se conservan los datos guardados.`},...(prev||[])]);
+      else setFatalError(err.message);
+    }finally{
+      setLoading(false);
+      if(background||hasVisible)endBackgroundSync();
+    }
+  },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
 
   const loadData=useCallback(async()=>{
     const sources=VIEW_SOURCES[view]||[];
-    if(sources.length) await loadSources(sources,{force:true});
+    if(sources.length) await loadSources(sources,{force:true,background:false});
     else await loadInitial();
   },[view,loadSources,loadInitial]);
 
   useEffect(()=>{
-    // Al abrir la app no se cargan datos: primero se muestra Bienvenida.
-    // La carga desde Google Sheets empieza recién cuando el usuario entra a un módulo.
-    if(view==="bienvenida") return;
-    if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){
-      loadInitial();
-      return;
-    }
-    loadSources(VIEW_SOURCES[view]||[]);
+    if(view==="bienvenida")return;
+    if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){loadInitial();return;}
+    let cancelled=false;
+    const run=()=>{if(!cancelled)loadSources(VIEW_SOURCES[view]||[],{background:true});};
+    const id=typeof window.requestIdleCallback==="function"
+      ?window.requestIdleCallback(run,{timeout:250})
+      :window.setTimeout(run,60);
+    return()=>{
+      cancelled=true;
+      if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
   },[view,loadSources,loadInitial]);
 
   // ─── Auto-refresh: recarga los datos del sheet cada 15 minutos ──────────────
@@ -14368,11 +15304,11 @@ export default function App(){
   const lastAutoRefreshRef=useRef(Date.now());
   useEffect(()=>{
     if(view==="bienvenida")return;
-    const AUTO_REFRESH_MS=15*60*1000; // 15 minutos
+    const AUTO_REFRESH_MS=5*60*1000; // 5 minutos
 
     const doRefresh=()=>{
       lastAutoRefreshRef.current=Date.now();
-      loadData();
+      loadSources(VIEW_SOURCES[view]||[]);
     };
 
     const id=setInterval(()=>{
@@ -14385,29 +15321,38 @@ export default function App(){
       // Si el usuario vuelve a la pestaña y los datos quedaron viejos, refrescamos.
       if(Date.now()-lastAutoRefreshRef.current>=AUTO_REFRESH_MS)doRefresh();
     };
+    const onOnline=()=>{if(!document.hidden)doRefresh();};
     document.addEventListener("visibilitychange",onVisible);
+    window.addEventListener("online",onOnline);
 
     return ()=>{
       clearInterval(id);
       document.removeEventListener("visibilitychange",onVisible);
+      window.removeEventListener("online",onOnline);
     };
-  },[view,loadData]);
+  },[view,loadSources]);
 
   const costosUnitariosBadge=useMemo(()=>{
     const m={};
     const fechaMinima="2026-06-01";
     const esCodigoValido=(v)=>{
-      const c=String(v||"").trim().toUpperCase();
-      return /^[A-Z0-9._/-]+$/.test(c) && /[A-Z]/.test(c) && /\d/.test(c);
+      const c=normalizeInsumoCode(v);
+      if(!c||c.length>60)return false;
+      if(["0","-","--","S/C","SC","SINCODIGO","SIN-CODIGO","N/A","NA","NOAPLICA"].includes(c))return false;
+      return /^[A-Z0-9._/-]+$/.test(c) && /\d/.test(c);
     };
+    const insumosPorCodigo=new Map(
+      Object.entries(insumos||{}).map(([codigo,info])=>[normalizeInsumoCode(codigo),info])
+    );
     (rma15||[]).forEach(r=>{
       const fecha=normDate(r?.fecha);
       if(!fecha||fecha<fechaMinima)return;
       (r.insumos||[]).forEach(i=>{
-        const codigo=String(i.codigo||"").trim();
+        const codigo=normalizeInsumoCode(i.codigo);
         if(!codigo||!esCodigoValido(codigo))return;
-        const existe=Object.prototype.hasOwnProperty.call(insumos||{},codigo);
-        const precio=Number(i.costoUnitario||0);
+        const infoCosto=insumosPorCodigo.get(codigo);
+        const existe=!!infoCosto;
+        const precio=Number(infoCosto?.costoUnitario??i.costoUnitario??0);
         if(!existe||precio<=0)m[codigo]=true;
       });
     });
@@ -14466,13 +15411,17 @@ export default function App(){
   };
   const SW=sidebarOpen?240:64;
   const openModuleFromWelcome=useCallback((module,targetView)=>{
-    setActiveModule(module||"oficina");
-    setSidebarOpen(true);
-    setView(targetView||"rop02");
+    startTransition(()=>{
+      setActiveModule(module||"oficina");
+      setSidebarOpen(true);
+      setView(targetView||"rop02");
+    });
   },[]);
   const navigateToView=useCallback((targetView)=>{
-    if(targetView==="bienvenida")setActiveModule("home");
-    setView(targetView);
+    startTransition(()=>{
+      if(targetView==="bienvenida")setActiveModule("home");
+      setView(targetView);
+    });
   },[]);
   const displayedNavStructure=useMemo(()=>{
     if(activeModule==="calidad"){
@@ -14592,8 +15541,9 @@ export default function App(){
               {titleHelp[view]&&<HelpTip text={titleHelp[view]}/>}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
+              {syncing&&<span style={{fontSize:11,color:C.textSub,fontWeight:600}}>Actualizando datos...</span>}
               {lastUpdate&&<span style={{fontSize:10,color:C.textMuted}}>Actualizado: {lastUpdate.toLocaleTimeString("es-AR")}</span>}
-              <button onClick={loadData} disabled={loading} style={{display:"flex",alignItems:"center",gap:5,background:C.accentDim,border:`1px solid ${C.accent}44`,borderRadius:7,padding:"6px 12px",cursor:loading?"not-allowed":"pointer",color:C.accent,fontSize:12,fontWeight:600,fontFamily:"Inter"}}>
+              <button onClick={loadData} disabled={loading||syncing} style={{display:"flex",alignItems:"center",gap:5,background:C.accentDim,border:`1px solid ${C.accent}44`,borderRadius:7,padding:"6px 12px",cursor:loading?"not-allowed":"pointer",color:C.accent,fontSize:12,fontWeight:600,fontFamily:"Inter"}}>
                 {loading?<Spinner size={12}/>:<Icon name="refresh" size={13} color={C.accent}/>}
                 {loading?"Cargando...":"Actualizar"}
               </button>
@@ -14622,7 +15572,7 @@ export default function App(){
               <>
                 {view==="bienvenida"&&<ViewBienvenida onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>}
                 {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
-                {view==="listaEquipos"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Lista de Equipos..." />)}
+                {view==="listaEquipos"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Lista de Equipos..." />)}
                 {view==="tallerCentral"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Taller Central..." />)}
                 {view==="rop02"&&(dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
                 {view==="horometros"&&(dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<BlockingDataLoader label="Cargando Horómetros..." />)}
