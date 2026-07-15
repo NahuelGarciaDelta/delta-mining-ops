@@ -1935,6 +1935,7 @@ const VIEW_SOURCES={
   ranking:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
   control:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
   mant:["insumos","rma15_fs","rma15_jm"],
+  distMant:["rma15_fs","rma15_jm"],
   rma15CtrlEquipo:["insumos","rma15_fs","rma15_jm"],
   costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos"],
   costosUnitarios:["insumos","rma15_fs","rma15_jm"],
@@ -7828,6 +7829,346 @@ function ViewCostosUnitarios({insumos,rma15,usdRate}){
 }
 
 // ─── ViewMantenimiento ────────────────────────────────────────────────────────
+
+// ─── ViewDistribucionMantenimientos ──────────────────────────────────────────
+function ViewDistribucionMantenimientos({rma15}){
+  const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const hoy=new Date();
+  const [anio,setAnio]=useState(String(hoy.getFullYear()));
+  const [mesIdx,setMesIdx]=useState(hoy.getMonth());
+  const [maquina,setMaquina]=useState("todas");
+  const [tipoMant,setTipoMant]=useState("todos");
+  const [proyecto,setProyecto]=useState("todos");
+  const [subVista,setSubVista]=useState("calendario");
+
+  const normTipoLocal=v=>{
+    const t=String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
+    if(t.includes("PREV"))return "Preventivo";
+    if(t.includes("CORR"))return "Correctivo";
+    return String(v||"").trim()||"Sin tipo";
+  };
+  const fechaISO=(y,m,d)=>`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const fmtFechaLocal=iso=>{
+    const f=normDate(iso);
+    if(!f)return "—";
+    const [y,m,d]=f.split("-");
+    return `${d}/${m}/${y}`;
+  };
+  const periodo=useMemo(()=>{
+    const y=Number(anio)||hoy.getFullYear();
+    const m=Number(mesIdx)||0;
+    const last=new Date(y,m+1,0).getDate();
+    return{desde:fechaISO(y,m,1),hasta:fechaISO(y,m,last),ultimo:last,label:`${MESES[m]} ${y}`};
+  },[anio,mesIdx]);
+
+  const anios=useMemo(()=>{
+    const ys=new Set([String(hoy.getFullYear())]);
+    (rma15||[]).forEach(r=>{const f=normDate(r?.fecha);if(f)ys.add(f.slice(0,4));});
+    return [...ys].sort();
+  },[rma15]);
+
+  const baseMes=useMemo(()=>(rma15||[]).filter(r=>{
+    const f=normDate(r?.fecha);
+    return f&&f>=periodo.desde&&f<=periodo.hasta;
+  }).map(r=>({...r,fecha:normDate(r.fecha),_tipo:normTipoLocal(r.tipoMant)})),[rma15,periodo]);
+
+  const proyectos=useMemo(()=>uniq(baseMes.map(r=>r.proyecto||r.lugar).filter(Boolean)).sort((a,b)=>String(a).localeCompare(String(b),"es-AR",{numeric:true,sensitivity:"base"})),[baseMes]);
+  const baseProyecto=useMemo(()=>baseMes.filter(r=>matchMulti(r.proyecto||r.lugar,proyecto,"todos")),[baseMes,proyecto]);
+  const tipos=useMemo(()=>uniq(baseProyecto.map(r=>r._tipo).filter(Boolean)).sort(),[baseProyecto]);
+  const maquinas=useMemo(()=>uniq(baseProyecto.filter(r=>matchMulti(r._tipo,tipoMant,"todos")).map(r=>r.maquina).filter(Boolean)).sort((a,b)=>String(a).localeCompare(String(b),"es-AR",{numeric:true,sensitivity:"base"})),[baseProyecto,tipoMant]);
+
+  const filtered=useMemo(()=>baseProyecto.filter(r=>{
+    if(!matchMulti(r._tipo,tipoMant,"todos"))return false;
+    if(!matchMulti(r.maquina,maquina,"todas"))return false;
+    return true;
+  }),[baseProyecto,tipoMant,maquina]);
+
+  const byDay=useMemo(()=>{
+    const m={};
+    filtered.forEach(r=>{
+      const k=r.fecha;
+      if(!m[k])m[k]=[];
+      m[k].push(r);
+    });
+    Object.values(m).forEach(arr=>arr.sort((a,b)=>String(a.maquina||"").localeCompare(String(b.maquina||""),"es-AR",{numeric:true,sensitivity:"base"})));
+    return m;
+  },[filtered]);
+
+  const y=Number(anio)||hoy.getFullYear();
+  const m=Number(mesIdx)||0;
+  const firstOffset=(new Date(y,m,1).getDay()+6)%7; // lunes=0
+  const cells=[];
+  for(let i=0;i<firstOffset;i++)cells.push(null);
+  for(let d=1;d<=periodo.ultimo;d++)cells.push(fechaISO(y,m,d));
+
+  const preventivos=filtered.filter(r=>r._tipo==="Preventivo").length;
+  const correctivos=filtered.filter(r=>r._tipo==="Correctivo").length;
+  const equiposAfectados=uniq(filtered.map(r=>r.maquina).filter(Boolean)).length;
+
+  const alertaPostPreventivo=useMemo(()=>{
+    const porEquipo={};
+    baseProyecto.filter(r=>matchMulti(r.maquina,maquina,"todas")).forEach(r=>{
+      const eq=String(r.maquina||"").trim();
+      if(!eq)return;
+      if(!porEquipo[eq])porEquipo[eq]=[];
+      porEquipo[eq].push(r);
+    });
+    const alertas=[];
+    Object.entries(porEquipo).forEach(([eq,items])=>{
+      const orden=items.slice().sort((a,b)=>String(a.fecha).localeCompare(String(b.fecha)));
+      orden.forEach((r,idx)=>{
+        if(r._tipo!=="Preventivo")return;
+        const baseDate=new Date(`${r.fecha}T00:00:00`);
+        const nextCorr=orden.slice(idx+1).find(x=>x._tipo==="Correctivo");
+        if(!nextCorr)return;
+        const dias=Math.round((new Date(`${nextCorr.fecha}T00:00:00`)-baseDate)/(24*60*60*1000));
+        if(dias>=0&&dias<=7){
+          alertas.push({equipo:eq,preventivo:r.fecha,correctivo:nextCorr.fecha,dias,proyecto:nextCorr.proyecto||r.proyecto||"—",intervencion:nextCorr.intervencion||nextCorr.reparacion||"—"});
+        }
+      });
+    });
+    return alertas.sort((a,b)=>a.dias-b.dias||String(a.equipo).localeCompare(String(b.equipo),"es-AR",{numeric:true,sensitivity:"base"}));
+  },[baseProyecto,maquina]);
+
+  const preventivosConCorrectivo=alertaPostPreventivo.length;
+  const kpiRiesgo=preventivos>0?Math.round((preventivosConCorrectivo/preventivos)*100):0;
+  const diasProm=alertaPostPreventivo.length?alertaPostPreventivo.reduce((s,x)=>s+x.dias,0)/alertaPostPreventivo.length:0;
+
+  const dashboardMant=useMemo(()=>{
+    const porEquipo={};
+    filtered.forEach(r=>{
+      const eq=String(r.maquina||"—").trim()||"—";
+      if(!porEquipo[eq])porEquipo[eq]={equipo:eq,preventivos:0,correctivos:0,total:0,fechas:[]};
+      porEquipo[eq].total+=1;
+      if(r._tipo==="Preventivo")porEquipo[eq].preventivos+=1;
+      if(r._tipo==="Correctivo")porEquipo[eq].correctivos+=1;
+      if(r.fecha)porEquipo[eq].fechas.push(r.fecha);
+    });
+    const equipos=Object.values(porEquipo).map(x=>({
+      ...x,
+      ratioCP:x.preventivos>0?x.correctivos/x.preventivos:(x.correctivos>0?null:0),
+    })).sort((a,b)=>(b.total-a.total)||String(a.equipo).localeCompare(String(b.equipo),"es-AR",{numeric:true,sensitivity:"base"}));
+
+    const equiposReincidentes=equipos.filter(x=>x.correctivos>=2).sort((a,b)=>b.correctivos-a.correctivos||b.total-a.total);
+
+    const intervalos=[];
+    equipos.forEach(eq=>{
+      const fechas=uniq(eq.fechas).sort();
+      for(let i=1;i<fechas.length;i++){
+        const d=Math.round((new Date(`${fechas[i]}T00:00:00`)-new Date(`${fechas[i-1]}T00:00:00`))/(24*60*60*1000));
+        if(Number.isFinite(d)&&d>=0)intervalos.push(d);
+      }
+    });
+    const diasPromEntre=intervalos.length?intervalos.reduce((a,b)=>a+b,0)/intervalos.length:0;
+    const ratioGeneral=preventivos>0?correctivos/preventivos:(correctivos>0?null:0);
+    const participacionPrev=filtered.length?Math.round((preventivos/filtered.length)*100):0;
+    const participacionCorr=filtered.length?Math.round((correctivos/filtered.length)*100):0;
+    return{
+      equipos,
+      equiposReincidentes,
+      diasPromEntre,
+      ratioGeneral,
+      participacionPrev,
+      participacionCorr,
+      topEquipos:equipos.slice(0,10),
+      tipoData:[
+        {name:"Preventivo",value:preventivos},
+        {name:"Correctivo",value:correctivos},
+      ].filter(x=>x.value>0),
+    };
+  },[filtered,preventivos,correctivos]);
+
+  const ratioLabel=dashboardMant.ratioGeneral===null?"Sin preventivos":dashboardMant.ratioGeneral.toFixed(2);
+  const ratioInterpretacion=dashboardMant.ratioGeneral===null
+    ?"Hay correctivos registrados sin preventivos en el período filtrado."
+    :dashboardMant.ratioGeneral<=0.35
+      ?"Buen comportamiento: predominan los preventivos sobre los correctivos."
+      :dashboardMant.ratioGeneral<=0.75
+        ?"Nivel medio: conviene revisar equipos con correctivos repetidos."
+        :"Alerta: hay demasiados correctivos respecto de los preventivos.";
+
+  const reset=()=>{setMaquina("todas");setTipoMant("todos");setProyecto("todos");setAnio(String(hoy.getFullYear()));setMesIdx(hoy.getMonth());};
+  const badgeTipo=(tipo)=><Badge color={tipo==="Preventivo"?C.green:(tipo==="Correctivo"?C.red:C.blue)}>{tipo}</Badge>;
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14,width:"100%"}}>
+      <Card
+        title="Distribución de mantenimientos"
+        action={<button onClick={reset} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 13px",borderRadius:9,border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:12,fontWeight:850,fontFamily:"Inter",whiteSpace:"nowrap"}}><Icon name="close" size={12} color={C.red}/>Limpiar filtros</button>}
+      >
+        <div style={{padding:"14px 16px 16px"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+            <div style={{fontSize:12,color:C.textMuted,lineHeight:1.45}}>Calendario mensual de mantenimientos preventivos y correctivos por equipo.</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {[{id:"dashboard",label:"Dashboard"},{id:"calendario",label:"Calendario"}].map(t=><button key={t.id} onClick={()=>setSubVista(t.id)} style={{padding:"8px 13px",borderRadius:9,border:`1px solid ${subVista===t.id?C.red:C.border}`,background:subVista===t.id?C.red:C.surface,color:subVista===t.id?"#fff":C.textSub,fontSize:12,fontWeight:900,fontFamily:"Inter",cursor:"pointer"}}>{t.label}</button>)}
+            </div>
+          </div>
+          <div style={{padding:14,border:`1px solid ${C.border}66`,borderRadius:14,background:"rgba(0,0,0,.18)",boxShadow:"inset 0 1px 0 rgba(255,255,255,.03)"}}>
+            <div style={{display:"grid",gridTemplateColumns:"150px 150px minmax(190px,.85fr) minmax(230px,1fr) minmax(230px,1fr) 280px",gap:12,alignItems:"end"}}>
+              <div><label style={{display:"block",fontSize:10,color:C.textMuted,fontWeight:850,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Mes</label><select value={mesIdx} onChange={e=>setMesIdx(Number(e.target.value))} style={{width:"100%",height:38,background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,color:C.text,padding:"9px 10px",fontSize:12,fontWeight:750,fontFamily:"Inter",outline:"none"}}>{MESES.map((x,i)=><option key={x} value={i}>{x}</option>)}</select></div>
+              <div><label style={{display:"block",fontSize:10,color:C.textMuted,fontWeight:850,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Año</label><select value={anio} onChange={e=>setAnio(e.target.value)} style={{width:"100%",height:38,background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,color:C.text,padding:"9px 10px",fontSize:12,fontWeight:750,fontFamily:"Inter",outline:"none"}}>{anios.map(y=><option key={y} value={y}>{y}</option>)}</select></div>
+              <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(x=>({value:x,label:x}))]}/>
+              <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:"todas",label:"Todas"},...maquinas.map(x=>({value:x,label:x}))]}/>
+              <MultiSel label="Tipo mantenimiento" value={tipoMant} onChange={setTipoMant} options={[{value:"todos",label:"Todos"},...tipos.map(x=>({value:x,label:x}))]}/>
+              <div>
+                <label style={{display:"block",fontSize:10,color:C.textMuted,fontWeight:850,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Período</label>
+                <div style={{height:38,display:"flex",alignItems:"center",padding:"0 12px",border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.textSub,fontSize:12,fontWeight:850,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fmtFechaLocal(periodo.desde)} → {fmtFechaLocal(periodo.hasta)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {subVista==="dashboard"?(
+        <>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
+            <StatCard icon="parts" label="Mantenimientos" value={filtered.length} color={C.blue} small/>
+            <StatCard icon="check" label="Preventivos" value={preventivos} sub={`${dashboardMant.participacionPrev}% del total`} color={C.green} small/>
+            <StatCard icon="warn" label="Correctivos" value={correctivos} sub={`${dashboardMant.participacionCorr}% del total`} color={C.red} small/>
+            <StatCard icon="alert" label="Ratio C/P" value={ratioLabel} sub={dashboardMant.ratioGeneral===null?"Correctivos sin preventivos":"Correctivos por preventivo"} color={dashboardMant.ratioGeneral===null||dashboardMant.ratioGeneral>0.75?C.red:(dashboardMant.ratioGeneral>0.35?C.yellow:C.green)} small/>
+            <StatCard icon="equip" label="Equipos reincidentes" value={dashboardMant.equiposReincidentes.length} sub="2 o más correctivos" color={dashboardMant.equiposReincidentes.length?C.red:C.green} small/>
+            <StatCard icon="time" label="Días entre mantenimientos" value={dashboardMant.diasPromEntre?dashboardMant.diasPromEntre.toFixed(1):"—"} sub="Promedio por equipo" color={C.purple} small/>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"minmax(280px,.9fr) minmax(360px,1.25fr)",gap:14,alignItems:"stretch"}}>
+            <Card title="Distribución preventivo / correctivo">
+              <div style={{display:"grid",gridTemplateColumns:"220px 1fr",gap:14,alignItems:"center",padding:12}}>
+                <div style={{display:"flex",justifyContent:"center"}}>
+                  {dashboardMant.tipoData.length?
+                    <PieChart width={210} height={210}>
+                      <Pie data={dashboardMant.tipoData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={92} innerRadius={48}>
+                        {dashboardMant.tipoData.map(d=><Cell key={d.name} fill={d.name==="Preventivo"?C.green:C.red}/> )}
+                      </Pie>
+                      <Tooltip content={({active,payload})=>{
+                        if(!active||!payload?.length)return null;
+                        const d=payload[0].payload;
+                        return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",fontSize:12}}><div style={{fontWeight:900,color:C.text}}>{d.name}</div><div style={{color:C.textSub}}>{d.value} mantenimientos</div></div>;
+                      }}/>
+                    </PieChart>
+                    :<div style={{height:210,display:"flex",alignItems:"center",justifyContent:"center",color:C.textMuted,fontSize:12}}>Sin datos</div>
+                  }
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <div style={{padding:12,border:`1px solid ${C.border}66`,borderRadius:12,background:"rgba(255,255,255,.035)"}}>
+                    <div style={{fontSize:10,color:C.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Cómo se calcula el ratio C/P</div>
+                    <div style={{fontSize:12,color:C.textSub,lineHeight:1.5}}>Correctivos ÷ Preventivos. Indica cuántos mantenimientos correctivos se realizan por cada preventivo dentro del período filtrado.</div>
+                  </div>
+                  <div style={{padding:12,border:`1px solid ${(dashboardMant.ratioGeneral===null||dashboardMant.ratioGeneral>0.75?C.red:(dashboardMant.ratioGeneral>0.35?C.yellow:C.green))}55`,borderRadius:12,background:dashboardMant.ratioGeneral===null||dashboardMant.ratioGeneral>0.75?C.redDim:(dashboardMant.ratioGeneral>0.35?C.yellowDim:C.greenDim)}}>
+                    <div style={{fontSize:10,color:C.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Interpretación</div>
+                    <div style={{fontSize:12,color:C.textSub,lineHeight:1.5}}>{ratioInterpretacion}</div>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Top equipos con más mantenimientos">
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr style={{background:C.surface}}>{["Equipo","Preventivos","Correctivos","Total","Ratio C/P"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:h==="Equipo"?"left":"center",color:C.textMuted,fontSize:10,textTransform:"uppercase",letterSpacing:".06em",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {dashboardMant.topEquipos.length===0?<tr><td colSpan={5} style={{padding:24,textAlign:"center",color:C.textMuted}}>Sin datos para los filtros seleccionados.</td></tr>:dashboardMant.topEquipos.map((x,i)=><tr key={x.equipo} style={{background:i%2?C.surface+"44":"transparent"}}>
+                      <td style={{padding:"8px 10px",fontWeight:900,color:C.purple}}>{x.equipo}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",color:C.green,fontWeight:850}}>{x.preventivos}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",color:C.red,fontWeight:850}}>{x.correctivos}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",color:C.text,fontWeight:900}}>{x.total}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center",fontWeight:900,color:x.ratioCP===null?C.red:(x.ratioCP>0.75?C.red:(x.ratioCP>0.35?C.yellow:C.green))}}>{x.ratioCP===null?"Sin prev.":x.ratioCP.toFixed(2)}</td>
+                    </tr>)}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+
+          <Card title="Equipos reincidentes en correctivos" action={<span style={{fontSize:11,color:C.textMuted,fontWeight:800}}>Criterio: 2 o más correctivos en el período</span>}>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{background:C.surface}}>{["Equipo","Correctivos","Preventivos","Total","Lectura"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:h==="Equipo"||h==="Lectura"?"left":"center",color:C.textMuted,fontSize:10,textTransform:"uppercase",letterSpacing:".06em",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {dashboardMant.equiposReincidentes.length===0?<tr><td colSpan={5} style={{padding:24,textAlign:"center",color:C.green,fontWeight:850}}>No hay equipos con reincidencia correctiva para los filtros seleccionados.</td></tr>:dashboardMant.equiposReincidentes.slice(0,25).map((x,i)=><tr key={x.equipo} style={{background:i%2?C.surface+"44":"transparent"}}>
+                    <td style={{padding:"8px 10px",fontWeight:900,color:C.purple}}>{x.equipo}</td>
+                    <td style={{padding:"8px 10px",textAlign:"center",color:C.red,fontWeight:900}}>{x.correctivos}</td>
+                    <td style={{padding:"8px 10px",textAlign:"center",color:C.green,fontWeight:850}}>{x.preventivos}</td>
+                    <td style={{padding:"8px 10px",textAlign:"center",color:C.text,fontWeight:850}}>{x.total}</td>
+                    <td style={{padding:"8px 10px",color:C.textSub,lineHeight:1.35}}>Equipo con correctivos repetidos; conviene revisar causa raíz, calidad de reparación y stock de repuestos críticos.</td>
+                  </tr>)}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      ):(
+        <>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
+        <StatCard icon="parts" label="Mantenimientos" value={filtered.length} color={C.blue} small/>
+        <StatCard icon="check" label="Preventivos" value={preventivos} color={C.green} small/>
+        <StatCard icon="warn" label="Correctivos" value={correctivos} color={C.red} small/>
+        <StatCard icon="equip" label="Equipos afectados" value={equiposAfectados} color={C.purple} small/>
+        <StatCard icon="alert" label="Correctivo ≤ 7 días post-preventivo" value={`${preventivosConCorrectivo}`} sub={`${kpiRiesgo}% de preventivos · ${diasProm?diasProm.toFixed(1):"—"} días prom.`} color={preventivosConCorrectivo?C.red:C.green} small/>
+      </div>
+
+      <Card title={`Calendario — ${periodo.label}`}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8}}>
+          {["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"].map(d=><div key={d} style={{padding:"8px 10px",textAlign:"center",fontSize:11,fontWeight:900,color:C.textMuted,textTransform:"uppercase",letterSpacing:".08em",background:C.surface,borderRadius:8}}>{d}</div>)}
+          {cells.map((iso,i)=>{
+            if(!iso)return <div key={`blank-${i}`} style={{minHeight:110}}/>;
+            const items=byDay[iso]||[];
+            const prev=items.filter(x=>x._tipo==="Preventivo").length;
+            const corr=items.filter(x=>x._tipo==="Correctivo").length;
+            return(
+              <div key={iso} style={{minHeight:130,background:items.length?"rgba(255,255,255,.055)":"rgba(255,255,255,.025)",border:`1px solid ${items.length?C.borderLight:C.border}55`,borderRadius:12,padding:9,overflow:"hidden"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,marginBottom:7}}>
+                  <span style={{fontSize:14,fontWeight:900,color:C.text}}>{Number(iso.slice(-2))}</span>
+                  {items.length>0&&<span style={{fontSize:10,color:C.textMuted,fontWeight:800}}>{items.length} OT</span>}
+                </div>
+                {(prev>0||corr>0)&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>{prev>0&&<Badge color={C.green}>P {prev}</Badge>}{corr>0&&<Badge color={C.red}>C {corr}</Badge>}</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:78,overflow:"hidden"}}>
+                  {items.slice(0,4).map((r,idx)=><div key={`${iso}-${idx}-${r.maquina}`} title={`${r._tipo} · ${r.maquina} · ${r.proyecto||""}`} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:C.textSub,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}><span style={{width:7,height:7,borderRadius:"50%",background:r._tipo==="Preventivo"?C.green:(r._tipo==="Correctivo"?C.red:C.blue),flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{r.maquina||"—"}</span></div>)}
+                  {items.length>4&&<div style={{fontSize:10,color:C.textMuted,fontWeight:800}}>+{items.length-4} más</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <Card title="KPI — Correctivos dentro de 7 días posteriores a preventivos">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:10,marginBottom:12}}>
+          <div style={{padding:12,border:`1px solid ${C.border}66`,borderRadius:12,background:"rgba(255,255,255,.035)"}}>
+            <div style={{fontSize:10,color:C.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Cómo se calcula</div>
+            <div style={{fontSize:12,color:C.textSub,lineHeight:1.5}}>Preventivos con correctivo en el mismo equipo dentro de los 7 días posteriores ÷ preventivos realizados × 100.</div>
+          </div>
+          <div style={{padding:12,border:`1px solid ${C.border}66`,borderRadius:12,background:"rgba(255,255,255,.035)"}}>
+            <div style={{fontSize:10,color:C.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Cómo se interpreta</div>
+            <div style={{fontSize:12,color:C.textSub,lineHeight:1.5}}>Un valor bajo indica que el preventivo está siendo efectivo. Un valor alto indica posible falla recurrente, diagnóstico incompleto o preventivos que no están resolviendo la causa raíz.</div>
+          </div>
+          <div style={{padding:12,border:`1px solid ${preventivosConCorrectivo?C.red:C.green}55`,borderRadius:12,background:preventivosConCorrectivo?C.redDim:C.greenDim}}>
+            <div style={{fontSize:10,color:C.textMuted,fontWeight:900,textTransform:"uppercase",letterSpacing:".08em",marginBottom:6}}>Resultado del filtro</div>
+            <div style={{fontSize:22,fontWeight:950,color:preventivosConCorrectivo?C.red:C.green}}>{kpiRiesgo}%</div>
+            <div style={{fontSize:11,color:C.textSub,marginTop:3}}>{preventivosConCorrectivo} casos sobre {preventivos||0} preventivos</div>
+          </div>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead><tr style={{background:C.surface}}>{["Equipo","Preventivo","Correctivo","Días","Proyecto","Intervención correctiva"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:h==="Intervención correctiva"?"left":"center",color:C.textMuted,fontSize:10,textTransform:"uppercase",letterSpacing:".06em",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
+            <tbody>
+              {alertaPostPreventivo.length===0?<tr><td colSpan={6} style={{padding:22,textAlign:"center",color:C.textMuted}}>Sin correctivos dentro de los 7 días posteriores a un preventivo para el filtro seleccionado.</td></tr>:alertaPostPreventivo.slice(0,80).map((x,i)=><tr key={`${x.equipo}-${x.preventivo}-${x.correctivo}-${i}`} style={{background:i%2?C.surface+"44":"transparent"}}>
+                <td style={{padding:"8px 10px",fontWeight:900,color:C.purple}}>{x.equipo}</td>
+                <td style={{padding:"8px 10px",textAlign:"center",color:C.green,fontWeight:800}}>{fmtFechaLocal(x.preventivo)}</td>
+                <td style={{padding:"8px 10px",textAlign:"center",color:C.red,fontWeight:800}}>{fmtFechaLocal(x.correctivo)}</td>
+                <td style={{padding:"8px 10px",textAlign:"center",fontWeight:900,color:x.dias<=3?C.red:C.yellow}}>{x.dias}</td>
+                <td style={{padding:"8px 10px",textAlign:"center"}}><Badge color={proyColor(x.proyecto)}>{x.proyecto}</Badge></td>
+                <td style={{padding:"8px 10px",color:C.textSub,lineHeight:1.35}}>{x.intervencion}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+        </>
+      )}    </div>
+  );
+}
+
 function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const{modo,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,filtroCosto,insumoFiltro,verGastosExcesivos=false,codigoGastoFiltro="todos"}=extState;
   const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
@@ -13246,12 +13587,60 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     return [...tokens].sort((a,b)=>a.localeCompare(b,"es")).join(" ");
   },[]);
   const normalizeCentroCosto=useCallback((v)=>{
-    const t=norm(v);
+    const raw=String(v||"").trim();
+    const t=norm(raw);
     if(!t)return "";
-    if(t.includes("jose maria")||t.includes("josemaria")||t.includes("jm"))return "JOSE MARIA";
-    if(t.includes("filo del sol")||t.includes("filo")||t.includes("fds")||t.includes("fs"))return "FILO DEL SOL";
+
+    const compact=t.replace(/\s+/g,"");
+    const tokens=t.split(/\s+/).filter(Boolean);
+    const editDistance=(a,b)=>{
+      a=String(a||""); b=String(b||"");
+      if(!a)return b.length;
+      if(!b)return a.length;
+      const dp=Array.from({length:a.length+1},()=>Array(b.length+1).fill(0));
+      for(let i=0;i<=a.length;i++)dp[i][0]=i;
+      for(let j=0;j<=b.length;j++)dp[0][j]=j;
+      for(let i=1;i<=a.length;i++){
+        for(let j=1;j<=b.length;j++){
+          const cost=a[i-1]===b[j-1]?0:1;
+          dp[i][j]=Math.min(dp[i-1][j]+1,dp[i][j-1]+1,dp[i-1][j-1]+cost);
+        }
+      }
+      return dp[a.length][b.length];
+    };
+    const closeTo=(candidate,target,maxDiff=3)=>{
+      const c=norm(candidate).replace(/\s+/g,"");
+      const tg=norm(target).replace(/\s+/g,"");
+      if(!c||!tg)return false;
+      if(c.includes(tg)||tg.includes(c))return true;
+      return editDistance(c,tg)<=maxDiff;
+    };
+    const hasFuzzyPhrase=(target,maxDiff=3)=>{
+      const targetWords=norm(target).split(/\s+/).filter(Boolean);
+      const n=targetWords.length;
+      const candidates=[t,compact];
+      for(let i=0;i<=tokens.length-n;i++)candidates.push(tokens.slice(i,i+n).join(" "));
+      for(let i=0;i<tokens.length;i++){
+        for(let len=Math.max(1,n-1);len<=Math.min(tokens.length-i,n+1);len++){
+          candidates.push(tokens.slice(i,i+len).join(" "));
+        }
+      }
+      return candidates.some(c=>closeTo(c,target,maxDiff));
+    };
+
+    if(
+      t.includes("jose maria")||compact.includes("josemaria")||
+      /\bjm\b/.test(t)||hasFuzzyPhrase("jose maria",3)
+    )return "JOSE MARIA";
+
+    if(
+      t.includes("filo del sol")||compact.includes("filodelsol")||
+      /\bfs\b/.test(t)||/\bfds\b/.test(t)||
+      hasFuzzyPhrase("filo del sol",3)
+    )return "FILO DEL SOL";
+
     if(t.includes("oficina")||t.includes("deposito")||t.includes("depósito")||t.includes("admin"))return "OFICINA";
-    return String(v||"").trim().toUpperCase();
+    return raw.toUpperCase();
   },[norm]);
 
   const normalizeEmpresa=useCallback((v)=>{
@@ -15683,6 +16072,7 @@ export default function App(){
     ]},
     {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
       {id:"mant",icon:"wrench",label:"Mantenimiento"},
+      {id:"distMant",icon:"consist",label:"Distribución de mantenimientos"},
       {id:"rma15CtrlEquipo",icon:"hardHat",label:"Control por Equipo"},
       {id:"costosMant",icon:"fileBarChart",label:"Informe de Costos"},
       {id:"costosUnitarios",icon:"badgeDollarSign",label:"Costos Unitarios",badge:costosUnitariosBadge>0?costosUnitariosBadge:null},
@@ -15691,7 +16081,7 @@ export default function App(){
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -15706,6 +16096,7 @@ export default function App(){
     ranking:"Ranking de operarios según horas trabajadas, días activos y equipos operados.",
     chc:"ICHC = Indicador de Control de Horas Contratadas: compara las horas efectivamente trabajadas contra las horas pactadas por contrato (180 hs/mes por equipo).",
     mant:"RMA15 = Registro de Mantenimiento: órdenes de trabajo (OT), insumos y costos de mantenimiento de cada equipo.",
+    distMant:"Calendario mensual de mantenimientos preventivos y correctivos por equipo. Incluye KPI de correctivos realizados pocos días después de un preventivo.",
     rma15CtrlEquipo:"Ficha por equipo de RMA15: muestra día por turno el tipo de mantenimiento, km/hs, reparación, estado operativo, observaciones e insumos utilizados.",
     costosMant:"Resume los costos de mantenimiento, mano de obra y amortización. Permite analizar costos mensuales acumulados y obtener costos por hora en USD por equipo.",
     costosUnitarios:"Listado de artículos de la Base de datos costos: código, artículo y precio unitario usado para valorizar insumos de mantenimiento.",
@@ -15737,6 +16128,7 @@ export default function App(){
         {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
         {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
           {id:"mant",icon:"wrench",label:"Mantenimiento"},
+          {id:"distMant",icon:"consist",label:"Distribución de mantenimientos"},
           {id:"rma15CtrlEquipo",icon:"hardHat",label:"Control por Equipo"},
           {id:"costosMant",icon:"fileBarChart",label:"Informe de Costos"},
           {id:"costosUnitarios",icon:"badgeDollarSign",label:"Costos Unitarios",badge:costosUnitariosBadge>0?costosUnitariosBadge:null},
@@ -15889,6 +16281,7 @@ export default function App(){
                 {view==="rop05Discriminacion"&&(dataHydrated&&rop05.length>0?<ViewROP05Discriminacion rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Discriminación por tarea..." />)}
                 {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>:<BlockingDataLoader label="Cargando Ranking..." />)}
                 {view==="mant"&&(viewDataReady?<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
+                {view==="distMant"&&(dataHydrated&&rma15.length>0?<ViewDistribucionMantenimientos rma15={rma15}/>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
                 {view==="rma15CtrlEquipo"&&(dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
