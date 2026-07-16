@@ -13702,7 +13702,8 @@ function mergeIncrementalSource(previous,next){
 
 
 const RABA03_COLUMNS = [
-  {key:"nSolicitud", label:"N° de solicitud", width:110},
+  {key:"numeroSolicitud", label:"N° de solicitud", width:120},
+  {key:"nSolicitud", label:"N° de pedido", width:110},
   {key:"empresa", label:"Empresa", width:120},
   {key:"fechaSolicitud", label:"Fecha de solicitud", width:135},
   {key:"fechaRequerida", label:"Fecha requerida", width:135},
@@ -14228,7 +14229,29 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     return map;
   },[remitos,normCode,toNumber,normalizeCentroCosto,formatDateLocal]);
 
+  const numeroSolicitudHistorica=useCallback((fecha)=>{
+    const txt=formatDateLocal(fecha);
+    const m=String(txt||"").match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if(!m)return "";
+    const dm=`${Number(m[1])}/${Number(m[2])}`;
+    if(dm==="6/7")return "226";
+    if(dm==="7/7")return "137";
+    if(dm==="14/7")return "138";
+    return "";
+  },[formatDateLocal]);
+
   const normalizeRow=useCallback((r,idx)=>{
+    // Para N° de solicitud / N° de pedido se exige coincidencia EXACTA de encabezado.
+    // Así nunca se confunde "N° de pedido" con la columna "Pedido por".
+    const pickExact=(obj,names)=>{
+      const keys=Object.keys(obj||{});
+      for(const name of names){
+        const wanted=norm(name);
+        const exact=keys.find(k=>norm(k)===wanted);
+        if(exact!==undefined)return obj[exact];
+      }
+      return "";
+    };
     const codigo=String(pick(r,["Código de articulo","Código de artículo","Codigo de articulo","Codigo de artículo","Código artículo","Codigo articulo","Código","Codigo"])||"").trim();
     const solicitada=toNumber(pick(r,["Cant. Solicitada","Cantidad solicitada","Cant Solicitada","Cantidad"]));
     const centroCostoRaw=String(pick(r,["Centro de Costo","Centro de costo","Proyecto","CC"])||"").trim();
@@ -14236,9 +14259,16 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     const codeNorm=normCode(codigo);
     const enviada=(sentByCode[`${codeNorm}__${centroCostoNorm}`]||0)+(sentByCode[`${codeNorm}__*`]||0);
     const restante=Math.max(0,solicitada-enviada);
+    const pedidoRaw=pickExact(r,["N° de pedido","Nº de pedido","N de pedido","Numero de pedido","Número de pedido"]);
+    const solicitudLegacy=pickExact(r,["N° de solicitud","Nº de solicitud","N de solicitud","Numero de solicitud","Número de solicitud","Solicitud"]);
+    const fechaSolicitudRaw=pick(r,["Fecha de solicitud","Fecha solicitud","F. Sol."]);
+    // Con el esquema nuevo, N° de solicitud y N° de pedido vienen en columnas separadas.
+    // En una hoja antigua, la vieja columna N° de solicitud era en realidad el N° de pedido.
+    const solicitudRaw=pedidoRaw!=="" ? solicitudLegacy : numeroSolicitudHistorica(fechaSolicitudRaw);
     return {
       id:`raba03-${idx}`,
-      nSolicitud:String(pick(r,["N° de solicitud","Nº de solicitud","N de solicitud","Numero de solicitud","Número de solicitud","Solicitud"])||idx+1).trim(),
+      numeroSolicitud:String(solicitudRaw||"").trim(),
+      nSolicitud:String(pedidoRaw||solicitudLegacy||idx+1).trim(),
       empresa:normalizeEmpresa(pick(r,["Empresa"])),
       fechaSolicitud:formatDateLocal(pick(r,["Fecha de solicitud","Fecha solicitud","F. Sol."])),
       fechaRequerida:formatDateLocal(pick(r,["Fecha requerida del producto","Fecha requerida","F. Req."])),
@@ -14250,7 +14280,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       cantidadEnviada:enviada,
       cantidadRestante:restante
     };
-  },[formatDateLocal,pick,sentByCode,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa]);
+  },[formatDateLocal,pick,sentByCode,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa,numeroSolicitudHistorica]);
 
   const buildSolicitudKey=useCallback((row)=>{
     return buildSolicitudStableKeyFromParts({
@@ -14416,6 +14446,9 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       const wb=XLSX.read(buffer,{type:"array",cellDates:true});
       const sheetName=wb.SheetNames[0];
       const ws=wb.Sheets[sheetName];
+      const solicitudC3=String(ws?.["C3"]?.v??ws?.["C3"]?.w??"").trim();
+      const solicitudMatch=solicitudC3.match(/(?:N[°º]?|NUMERO|NRO\.?)[^0-9]*(\d+)/i)||solicitudC3.match(/(\d+)/);
+      const numeroSolicitudArchivo=solicitudMatch?String(solicitudMatch[1]):"";
       const rawRows=XLSX.utils.sheet_to_json(ws,{defval:"",raw:true,range:5});
 
       const pickExcel=(row,names)=>{
@@ -14486,6 +14519,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       };
 
       const prepared=rawRows.map(row=>({
+        numeroSolicitud:numeroSolicitudArchivo,
         empresa:normalizeEmpresa(pickExcel(row,["Empresa"] )),
         fechaSolicitud:formatImportedExcelDate(pickExcel(row,["Fecha de solicitud"] )),
         fechaRequerida:formatImportedExcelDate(pickExcel(row,["Fecha requerida del producto","Fecha requerida"] )),
@@ -14495,7 +14529,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
         descripcion:String(pickExcel(row,["Descripción de lo que se pidio","Descripción de lo que se pidió","Descripcion de lo que se pidio","Descripcion de lo que se pidió","Descripción","Descripcion"] )||"").trim(),
         cantidadSolicitada:toNumber(pickExcel(row,["Cant.Solicitada","Cant. Solicitada","Cantidad solicitada","Cant Solicitada","Cantidad"] ))
       })).filter(row=>[
-        row.empresa,row.fechaSolicitud,row.fechaRequerida,row.pedidoPor,row.centroCosto,row.codigoArticulo,row.descripcion,row.cantidadSolicitada
+        row.numeroSolicitud,row.empresa,row.fechaSolicitud,row.fechaRequerida,row.pedidoPor,row.centroCosto,row.codigoArticulo,row.descripcion,row.cantidadSolicitada
       ].some(v=>String(v||"").trim()));
 
       if(!prepared.length){
@@ -14517,7 +14551,8 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       const repetidasArchivo=previewRows.filter(r=>r.estado==="Repetida").length;
       const yaExistentes=previewRows.filter(r=>r.estado==="Ya existe").length;
       const aviso=[];
-      aviso.push(`Se detectaron ${previewRows.length} solicitudes. Se agregarán TODAS como filas nuevas.`);
+      aviso.push(`Se detectaron ${previewRows.length} pedidos${numeroSolicitudArchivo?` de la solicitud N° ${numeroSolicitudArchivo}`:""}. Se agregarán TODOS como filas nuevas.`);
+      if(!numeroSolicitudArchivo)aviso.push("No se pudo leer el número de solicitud desde la celda C3.");
       if(repetidasArchivo)aviso.push(`${repetidasArchivo} filas están repetidas dentro del archivo.`);
       if(yaExistentes)aviso.push(`${yaExistentes} filas parecen existir en la base actual.`);
 
@@ -15702,7 +15737,8 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
             const manualClosed=Boolean(closedSolicitudes?.[key]);
             return (
             <tr key={r.id}>
-              <td style={tdStyle}>{r.nSolicitud}</td>
+              <td style={tdStyle}>{r.numeroSolicitud||"—"}</td>
+              <td style={tdStyle}>{r.nSolicitud||"—"}</td>
               <td style={tdStyle}>{r.empresa||"—"}</td>
               <td style={tdStyle}>{formatDateLocal(r.fechaSolicitud)||"—"}</td>
               <td style={tdStyle}>{formatDateLocal(r.fechaRequerida)||"—"}</td>
