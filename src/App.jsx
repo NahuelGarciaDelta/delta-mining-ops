@@ -13785,6 +13785,9 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   const [successAlert,setSuccessAlert]=useState(null);
   const raba03TopScrollRef=useRef(null);
   const raba03TableScrollRef=useRef(null);
+  const raba03InitialLoadDoneRef=useRef(false);
+  const rawRaba03RowsRef=useRef([]);
+  const remitosSharedSignatureRef=useRef("");
 
   useEffect(()=>{
     try{window.localStorage.setItem(RABA08_STORAGE_KEY,JSON.stringify(remitos));}
@@ -14001,26 +14004,50 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     return Array.from(grouped.values()).sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
   },[norm,toNumber,normalizeCentroCosto]);
 
-  const loadRemitosCompartidos=useCallback(async()=>{
+  const loadRemitosCompartidos=useCallback(async({silent=true}={})=>{
     try{
-      const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&_=${Date.now()}`;
-      const res=await fetch(url);
+      const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&force=1&_=${Date.now()}`;
+      const res=await fetch(url,{method:"GET",cache:"no-store",redirect:"follow"});
+      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los remitos cargados.");
       const shared=buildRemitosCompartidos(json.data||[]);
-      const sharedIds=new Set(shared.map(r=>r.id));
-      setRemitos(prev=>{
-        const localOnly=(prev||[]).filter(r=>r&&r.id&&!sharedIds.has(r.id)&&!r.shared);
-        return [...shared,...localOnly];
-      });
+      // Sincronización realmente silenciosa: solo actualizar React si cambió el contenido.
+      // Así el refresco automático no repinta Abastecimiento ni vuelve a cargar RABA03.
+      const signature=JSON.stringify(shared);
+      if(remitosSharedSignatureRef.current!==signature){
+        remitosSharedSignatureRef.current=signature;
+        setRemitos(shared);
+        try{window.localStorage.setItem(RABA08_STORAGE_KEY,signature);}catch(_){}
+      }
+      return shared;
     }catch(err){
       console.warn("No se pudieron sincronizar remitos cargados:",err);
+      if(!silent)setError(err?.message||String(err));
+      throw err;
     }
   },[buildRemitosCompartidos]);
 
   useEffect(()=>{
-    loadRemitosCompartidos();
+    loadRemitosCompartidos({silent:true}).catch(()=>{});
+    const timer=window.setInterval(()=>{
+      if(document.visibilityState==="visible")loadRemitosCompartidos({silent:true}).catch(()=>{});
+    },30000);
+    const onVisible=()=>{
+      if(document.visibilityState==="visible")loadRemitosCompartidos({silent:true}).catch(()=>{});
+    };
+    window.addEventListener("focus",onVisible);
+    document.addEventListener("visibilitychange",onVisible);
+    return ()=>{
+      window.clearInterval(timer);
+      window.removeEventListener("focus",onVisible);
+      document.removeEventListener("visibilitychange",onVisible);
+    };
   },[loadRemitosCompartidos]);
+
+  useEffect(()=>{
+    if(tab==="remito")loadRemitosCompartidos({silent:true}).catch(()=>{});
+  },[tab,loadRemitosCompartidos]);
 
   const saveRemitoCompartido=useCallback(async(remito)=>{
     const payload={
@@ -14029,8 +14056,12 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     };
     const res=await fetch(APPS_SCRIPT_URL,{
       method:"POST",
-      body:new URLSearchParams({payload:JSON.stringify({action:"save_remito_cargado",remito:payload})})
+      cache:"no-store",
+      redirect:"follow",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({payload:JSON.stringify({action:"save_remito_cargado",remito:payload})}).toString()
     });
+    if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
     const json=await res.json();
     if(!json.ok)throw new Error(json?.error?.message||"No se pudo guardar el remito en la hoja compartida.");
     return json;
@@ -14177,31 +14208,58 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     });
   },[buildSolicitudKey]);
 
-  const loadRaba03=useCallback(async()=>{
-    setLoading(true);
-    setError(null);
+  const mapRaba03Rows=useCallback((raw=[])=>raw.map(normalizeRow).filter(r=>
+    [r.empresa,r.fechaSolicitud,r.fechaRequerida,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada]
+      .some(v=>String(v||"").trim()) &&
+    !String(r.empresa||"").toLowerCase().includes("aprobado") &&
+    !String(r.empresa||"").toLowerCase().includes("empresa")
+  ),[normalizeRow]);
+
+  const loadRaba03=useCallback(async({silent=false}={})=>{
+    if(!silent){
+      setLoading(true);
+      setError(null);
+    }
     try{
       const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;
       const res=await fetch(url,{cache:"no-store"});
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudo leer RABA03");
       const raw=Array.isArray(json.data)?json.data:(Array.isArray(json?.sources?.raba03?.data)?json.sources.raba03.data:[]);
-      const mapped=raw.map(normalizeRow).filter(r=>
-        [r.empresa,r.fechaSolicitud,r.fechaRequerida,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada]
-          .some(v=>String(v||"").trim()) &&
-        !String(r.empresa||"").toLowerCase().includes("aprobado") &&
-        !String(r.empresa||"").toLowerCase().includes("empresa")
-      );
-      setRows(mapped);
+      rawRaba03RowsRef.current=raw;
+      setRows(mapRaba03Rows(raw));
     }catch(err){
-      setError(err.message||String(err));
-      setRows([]);
+      if(!silent){
+        setError(err.message||String(err));
+        setRows([]);
+      }else{
+        console.warn("No se pudo actualizar RABA03 silenciosamente:",err);
+      }
     }finally{
-      setLoading(false);
+      if(!silent)setLoading(false);
     }
-  },[normalizeRow]);
+  },[mapRaba03Rows]);
 
-  useEffect(()=>{loadRaba03();},[loadRaba03]);
+  // Cargar RABA03 una sola vez al montar el módulo. Los cambios periódicos de remitos
+  // ya no vuelven a disparar el cartel visible "Cargando RABA03...".
+  useEffect(()=>{
+    if(raba03InitialLoadDoneRef.current)return;
+    raba03InitialLoadDoneRef.current=true;
+    loadRaba03();
+  },[loadRaba03]);
+
+  // Cuando cambian los remitos compartidos, recalcular cantidades/estados usando la
+  // copia de RABA03 ya cargada, sin nueva consulta y sin mostrar ningún loader.
+  useEffect(()=>{
+    if(!raba03InitialLoadDoneRef.current||!rawRaba03RowsRef.current.length)return;
+    const refresh=()=>setRows(mapRaba03Rows(rawRaba03RowsRef.current));
+    if(typeof window!=="undefined"&&window.requestIdleCallback){
+      const id=window.requestIdleCallback(refresh,{timeout:500});
+      return()=>window.cancelIdleCallback&&window.cancelIdleCallback(id);
+    }
+    const id=window.setTimeout(refresh,0);
+    return()=>window.clearTimeout(id);
+  },[remitos,mapRaba03Rows]);
 
 
   const handleSolicitudesExcelUpload=useCallback(async(file)=>{
@@ -14922,15 +14980,13 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       shared:false
     };
 
-    setRemitos(prev=>[nuevo,...prev.filter(r=>r.id!==nuevo.id)]);
-
     try{
       setLoading(true);
       setError(null);
+      // No mostrarlo como guardado hasta que Google Sheets confirme la escritura.
       await saveRemitoCompartido(nuevo);
-      setRemitos(prev=>prev.map(r=>r.id===nuevo.id?{...r,shared:true}:r));
-      setSuccessAlert({message:"Remito guardado en hoja compartida"});
-      await loadRemitosCompartidos();
+      await loadRemitosCompartidos({silent:false});
+      setSuccessAlert({message:"Remito guardado y sincronizado para todos los usuarios"});
       setRemitoForm({
         comprobante:"",
         fecha:new Date().toISOString().slice(0,10),
@@ -14943,7 +14999,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     }catch(err){
       const msg=err?.message||String(err);
       setError(msg);
-      window.alert("El remito quedó guardado en esta PC, pero no se pudo guardar en la hoja compartida: "+msg);
+      window.alert("No se pudo guardar el remito en la hoja compartida. No se registró como guardado: "+msg);
     }finally{
       setLoading(false);
     }
@@ -14953,11 +15009,16 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     if(!window.confirm("¿Eliminar este remito cargado?"))return;
     setRemitos(prev=>prev.filter(r=>r.id!==id));
     try{
-      await fetch(APPS_SCRIPT_URL,{
+      const res=await fetch(APPS_SCRIPT_URL,{
         method:"POST",
-        body:new URLSearchParams({payload:JSON.stringify({action:"delete_remito_cargado",idRemito:id})})
+        cache:"no-store",
+        redirect:"follow",
+        headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+        body:new URLSearchParams({payload:JSON.stringify({action:"delete_remito_cargado",idRemito:id})}).toString()
       });
-      await loadRemitosCompartidos();
+      const json=await res.json();
+      if(!json.ok)throw new Error(json?.error?.message||"No se pudo eliminar el remito compartido.");
+      await loadRemitosCompartidos({silent:false});
     }catch(err){
       console.warn("No se pudo eliminar el remito en la hoja compartida:",err);
     }
@@ -15826,7 +15887,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
         <div style={{padding:14,borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
           <div>
             <div style={{fontWeight:900,color:C.text}}>Remitos cargados</div>
-            <div style={{fontSize:11,color:C.textSub,fontWeight:700}}>Quedan guardados en este navegador aunque cierres la app.</div>
+            <div style={{fontSize:11,color:C.textSub,fontWeight:700}}>Se sincronizan desde Google Sheets y se muestran a todos los usuarios.</div>
           </div>
           <input value={remitoSearch} onChange={e=>setRemitoSearch(e.target.value)} placeholder="Buscar por N° de remito" style={{...inputStyle,minWidth:240}}/>
         </div>
