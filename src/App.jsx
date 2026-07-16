@@ -1237,7 +1237,7 @@ function Icon({name,size=18,color="currentColor",style}){
   const p=PATHS[name];if(!p)return null;
   return<svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={style}><path d={p}/></svg>;
 }
-function LoadingMotoniveladora({size=72,label=""}){return <div style={{display:"inline-flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}><img src="/loader.gif" alt="Cargando" style={{width:size,height:"auto",maxHeight:size,objectFit:"contain",display:"block"}}/>{label?<div style={{color:C.text,fontSize:13,fontWeight:900,textAlign:"center"}}>{label}</div>:null}</div>;}
+function LoadingMotoniveladora({size=72,label=""}){return <div style={{display:"inline-flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}><img src="/loader.gif" alt="Cargando" style={{width:size,height:"auto",maxWidth:"82vw",maxHeight:"58vh",objectFit:"contain",display:"block"}}/>{label?<div style={{color:C.text,fontSize:13,fontWeight:900,textAlign:"center"}}>{label}</div>:null}</div>;}
 function Spinner({size=24}){return <LoadingMotoniveladora size={Math.max(28,size)}/>;}
 function Badge({children,color=C.accent}){return<span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:600,color,background:color+"22",border:`1px solid ${color}33`}}>{children}</span>;}
 function StatCard({icon,value,label,sub,color=C.accent,valueColor,small}){
@@ -9190,13 +9190,14 @@ function Login({onLogin}){
           email:normalizarMail(u.email||u.Email||u.mail||u.Mail||u.correo||u.Correo),
           rol:String(u.rol||u.Rol||u.role||u.Role||"USUARIO").trim().toUpperCase(),
           proyecto:String(u.proyecto||u.Proyecto||"TODOS").trim().toUpperCase(),
+          nombre:String(u.nombre||u.Nombre||u.name||u.Name||"").trim(),
           activo:u.activo??u.Activo??"SI"
         }))
         .filter(u=>u.email&&usuarioActivo(u));
       return usuarios;
     }catch(err){
       console.warn("No se pudo leer la hoja de usuarios. Se usa fallback local.",err);
-      return USUARIOS_FALLBACK.map(email=>({email,rol:email.includes("nahuel")||email.includes("mahuel")?"ADMIN":"USUARIO",proyecto:"TODOS",activo:"SI"}));
+      return USUARIOS_FALLBACK.map(email=>({email,rol:email.includes("nahuel")||email.includes("mahuel")?"ADMIN":"USUARIO",proyecto:"TODOS",nombre:(email.split("@")[0].split(/[._-]+/)[0]||"Usuario").replace(/^./,c=>c.toUpperCase()),activo:"SI"}));
     }
   };
 
@@ -9224,6 +9225,7 @@ function Login({onLogin}){
       sessionStorage.setItem("dm_user",mail);
       sessionStorage.setItem("dm_role",autorizado.rol||"USUARIO");
       sessionStorage.setItem("dm_project",autorizado.proyecto||"TODOS");
+      sessionStorage.setItem("dm_name",autorizado.nombre||mail.split("@")[0].split(/[._-]+/)[0]||"Usuario");
       onLogin();
     }finally{
       setValidando(false);
@@ -13150,7 +13152,7 @@ function ViewCambiosTurno({rop02All=[]}){
   );
 }
 
-function ViewBienvenida({onOpenModule,listaEquipos=[],rop02All=[],onReloadLista}){
+function ViewBienvenida({onOpenModule,listaEquipos=[],rop02All=[],onReloadLista,nombreUsuario="Usuario",onCambiarUsuario}){
   const tallerRows=Array.isArray(listaEquipos)?listaEquipos:[];
   const tallerGet=(row,cands)=>{
     const keys=Object.keys(row||{});
@@ -13221,6 +13223,23 @@ function ViewBienvenida({onOpenModule,listaEquipos=[],rop02All=[],onReloadLista}
         minHeight:"calc(100vh - 140px)",
         gap:12,
       }}>
+        <div style={{
+          marginBottom:10,
+          padding:0,
+          background:"transparent",
+          border:"none",
+          boxShadow:"none",
+          fontFamily:"Inter",
+          fontSize:"clamp(32px, 5vw, 72px)",
+          fontWeight:900,
+          letterSpacing:".08em",
+          textTransform:"uppercase",
+          textAlign:"center",
+          color:"#fff",
+          textShadow:"0 0 6px rgba(255,255,255,.95), 0 0 14px rgba(255,255,255,.7), 0 0 24px rgba(255,0,35,.38), 0 3px 10px rgba(0,0,0,.9)",
+        }}>
+          BIENVENIDO <span style={{color:"#fff", textShadow:"inherit"}}>{String(nombreUsuario||"Usuario").trim()}</span>
+        </div>
         {/* Logo Delta Mining vectorial: no se pixela y no tiene fondo blanco */}
         <div style={{
           display:"flex",
@@ -13344,6 +13363,35 @@ function ViewBienvenida({onOpenModule,listaEquipos=[],rop02All=[],onReloadLista}
         </div>
 
       </div>
+
+      <button
+        type="button"
+        onClick={onCambiarUsuario}
+        style={{
+          position:"fixed",
+          right:22,
+          bottom:20,
+          zIndex:40,
+          padding:"11px 18px",
+          borderRadius:10,
+          border:"1px solid rgba(255,255,255,.35)",
+          background:"rgba(18,18,18,.58)",
+          color:"#fff",
+          fontFamily:"Inter",
+          fontSize:13,
+          fontWeight:800,
+          letterSpacing:".04em",
+          cursor:"pointer",
+          backdropFilter:"blur(10px)",
+          WebkitBackdropFilter:"blur(10px)",
+          boxShadow:"0 8px 24px rgba(0,0,0,.38)",
+          transition:"transform .15s ease, background .15s ease, border-color .15s ease"
+        }}
+        onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.background="rgba(232,0,29,.22)";e.currentTarget.style.borderColor="rgba(232,0,29,.75)";}}
+        onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.background="rgba(18,18,18,.58)";e.currentTarget.style.borderColor="rgba(255,255,255,.35)";}}
+      >
+        Cambiar usuario
+      </button>
     </div>
   );
 }
@@ -13752,9 +13800,11 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   const [rejectModal,setRejectModal]=useState({open:false,row:null,observacion:""});
   const [loading,setLoading]=useState(false);
   const [actionLoading,setActionLoading]=useState("");
+  const [selectedCloseKeys,setSelectedCloseKeys]=useState(()=>new Set());
+  const [selectedReopenKeys,setSelectedReopenKeys]=useState(()=>new Set());
   const [error,setError]=useState(null);
   const [tab,setTab]=useState(initialTab);
-  useEffect(()=>{setTab(initialTab);},[initialTab]);
+  useEffect(()=>{setTab(initialTab);setSelectedCloseKeys(new Set());},[initialTab]);
   const [query,setQuery]=useState("");
   const [project,setProject]=useState("todos");
   const [company,setCompany]=useState("todos");
@@ -14350,6 +14400,57 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     }
   },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
+  const toggleSolicitudParaCerrar=useCallback((row)=>{
+    if(!row)return;
+    const key=buildSolicitudKey(row);
+    setSelectedCloseKeys(prev=>{
+      const next=new Set(prev);
+      if(next.has(key))next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  },[buildSolicitudKey]);
+
+  const closeSelectedSolicitudes=useCallback(async()=>{
+    const selectedRows=(rows||[]).filter(r=>selectedCloseKeys.has(buildSolicitudKey(r)));
+    if(!selectedRows.length){
+      await appAlert("Seleccioná al menos una solicitud para cerrar.");
+      return;
+    }
+    const ok=await appConfirm(`¿Cerrar manualmente ${selectedRows.length} solicitud${selectedRows.length===1?"":"es"}?`);
+    if(!ok)return;
+    const usuario=sessionStorage.getItem("dm_user")||"APP";
+    const estados=selectedRows.map(row=>({
+      clave:buildSolicitudKey(row),
+      estado:"CERRADA_MANUAL",
+      observacion:"Cierre manual desde Parciales",
+      nSolicitud:row.nSolicitud||"",
+      codigoArticulo:row.codigoArticulo||"",
+      descripcion:row.descripcion||"",
+      fechaSolicitud:row.fechaSolicitud||"",
+      usuario
+    }));
+    setActionLoading(`Cerrando ${selectedRows.length} solicitud${selectedRows.length===1?"":"es"}...`);
+    try{
+      await postEstadoSolicitud("save_estados_solicitudes_bulk",{estados});
+      setClosedSolicitudes(prev=>{
+        const next={...(prev||{})};
+        estados.forEach(e=>{next[e.clave]={
+          observacion:e.observacion,nSolicitud:e.nSolicitud,codigoArticulo:e.codigoArticulo,
+          descripcion:e.descripcion,fecha:e.fechaSolicitud,usuario:e.usuario
+        };});
+        try{window.localStorage.setItem(RABA03_CLOSED_STORAGE_KEY,JSON.stringify(next));}catch(_){}
+        return next;
+      });
+      setSelectedCloseKeys(new Set());
+      loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
+    }catch(err){
+      await appAlert("No se pudieron cerrar las solicitudes: "+(err?.message||err));
+    }finally{
+      setActionLoading("");
+    }
+  },[rows,selectedCloseKeys,buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
+
   const restoreRejectedSolicitud=useCallback(async(row)=>{
     if(!row)return;
     const key=buildSolicitudKey(row);
@@ -14380,6 +14481,47 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       setActionLoading("");
     }
   },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
+
+  const toggleSolicitudParaReabrir=useCallback((row)=>{
+    if(!row)return;
+    const key=buildSolicitudKey(row);
+    setSelectedReopenKeys(prev=>{
+      const next=new Set(prev);
+      if(next.has(key))next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  },[buildSolicitudKey]);
+
+  const reopenSelectedSolicitudes=useCallback(async()=>{
+    const selectedRows=(rows||[]).filter(r=>{
+      const key=buildSolicitudKey(r);
+      return selectedReopenKeys.has(key)&&Boolean(closedSolicitudes?.[key]);
+    });
+    if(!selectedRows.length){
+      await appAlert("Seleccioná al menos una solicitud cerrada manualmente para reabrir.");
+      return;
+    }
+    const ok=await appConfirm(`¿Reabrir ${selectedRows.length} solicitud${selectedRows.length===1?"":"es"}?`);
+    if(!ok)return;
+    const claves=selectedRows.map(r=>buildSolicitudKey(r));
+    setActionLoading(`Reabriendo ${selectedRows.length} solicitud${selectedRows.length===1?"":"es"}...`);
+    try{
+      await postEstadoSolicitud("delete_estados_solicitudes_bulk",{claves});
+      setClosedSolicitudes(prev=>{
+        const next={...(prev||{})};
+        claves.forEach(key=>{delete next[key];});
+        try{window.localStorage.setItem(RABA03_CLOSED_STORAGE_KEY,JSON.stringify(next));}catch(_){}
+        return next;
+      });
+      setSelectedReopenKeys(new Set());
+      loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
+    }catch(err){
+      await appAlert("No se pudieron reabrir las solicitudes: "+(err?.message||err));
+    }finally{
+      setActionLoading("");
+    }
+  },[rows,selectedReopenKeys,closedSolicitudes,buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const mapRaba03Rows=useCallback((raw=[])=>raw.map(normalizeRow).filter(r=>
     [r.empresa,r.fechaSolicitud,r.fechaRequerida,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada]
@@ -15718,7 +15860,16 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     const extraWidth=showActions||showRejectedObs?210:0;
     const colSpan=RABA03_COLUMNS.length+(showActions||showRejectedObs?1:0);
     return (
-    <div style={{overflowX:"auto",background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.18)",backdropFilter:"blur(6px)"}}>
+    <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 20px 60px rgba(0,0,0,.18)",backdropFilter:"blur(6px)",overflow:"hidden"}}>
+      {tab==="parciales"&&<div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:10,padding:"10px 12px",borderBottom:`1px solid ${C.border}33`,background:"rgba(0,0,0,.20)"}}>
+        <span style={{fontSize:11,fontWeight:800,color:C.textSub}}>{selectedCloseKeys.size} seleccionada{selectedCloseKeys.size===1?"":"s"}</span>
+        <button onClick={closeSelectedSolicitudes} disabled={!selectedCloseKeys.size||Boolean(actionLoading)} style={{border:`1px solid ${C.green}88`,background:selectedCloseKeys.size?`${C.green}25`:"rgba(255,255,255,.04)",color:selectedCloseKeys.size?C.green:C.textSub,borderRadius:9,padding:"7px 12px",fontSize:11,fontWeight:900,cursor:selectedCloseKeys.size&&!actionLoading?"pointer":"not-allowed",opacity:selectedCloseKeys.size?1:.55,fontFamily:"Inter"}}>Cerrar todas</button>
+      </div>}
+      {tab==="cerradas"&&<div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:10,padding:"10px 12px",borderBottom:`1px solid ${C.border}33`,background:"rgba(0,0,0,.20)"}}>
+        <span style={{fontSize:11,fontWeight:800,color:C.textSub}}>{selectedReopenKeys.size} seleccionada{selectedReopenKeys.size===1?"":"s"}</span>
+        <button onClick={reopenSelectedSolicitudes} disabled={!selectedReopenKeys.size||Boolean(actionLoading)} style={{border:`1px solid ${C.blue}88`,background:selectedReopenKeys.size?`${C.blue}25`:"rgba(255,255,255,.04)",color:selectedReopenKeys.size?C.blue:C.textSub,borderRadius:9,padding:"7px 12px",fontSize:11,fontWeight:900,cursor:selectedReopenKeys.size&&!actionLoading?"pointer":"not-allowed",opacity:selectedReopenKeys.size?1:.55,fontFamily:"Inter"}}>Reabrir todas</button>
+      </div>}
+      <div style={{overflowX:"auto"}}>
       <table style={{width:"100%",minWidth:1420+extraWidth,borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",tableLayout:"fixed"}}>
         <thead style={{background:"rgba(0,0,0,.35)"}}>
           <tr>
@@ -15753,8 +15904,8 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
                 <td style={{...tdStyle,whiteSpace:"nowrap"}}>
                   <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
                     <button onClick={()=>openRejectSolicitud(r)} style={{border:`1px solid ${C.red}66`,background:`${C.red}18`,color:C.red,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>Rechazar</button>
-                    {tab==="parciales"&&<button onClick={()=>closeSolicitudManual(r)} style={{border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>Cerrar</button>}
-                    {tab==="cerradas"&&manualClosed&&<button onClick={()=>reopenManualClosedSolicitud(r)} style={{border:`1px solid ${C.blue}66`,background:`${C.blue}18`,color:C.blue,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>Reabrir</button>}
+                    {tab==="parciales"&&<button onClick={()=>toggleSolicitudParaCerrar(r)} style={{border:`1px solid ${selectedCloseKeys.has(key)?C.green:C.green+"66"}`,background:selectedCloseKeys.has(key)?`${C.green}42`:`${C.green}18`,color:C.green,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>{selectedCloseKeys.has(key)?"Seleccionada":"Cerrar"}</button>}
+                    {tab==="cerradas"&&manualClosed&&<button onClick={()=>toggleSolicitudParaReabrir(r)} style={{border:`1px solid ${selectedReopenKeys.has(key)?C.blue:C.blue+"66"}`,background:selectedReopenKeys.has(key)?`${C.blue}42`:`${C.blue}18`,color:C.blue,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>{selectedReopenKeys.has(key)?"Seleccionada":"Reabrir"}</button>}
                   </div>
                 </td>
               )}
@@ -15772,6 +15923,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
           )}
         </tbody>
       </table>
+      </div>
       <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(sortedRows.length)} ítems mostrados</div>
     </div>
     );
@@ -16109,8 +16261,8 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     <div style={{display:"grid",gap:14,fontFamily:"Inter, system-ui, sans-serif"}}>
       {actionLoading&&ReactDOM.createPortal(
         <div style={{position:"fixed",inset:0,zIndex:999999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.68)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)"}}>
-          <div style={{minWidth:310,background:"rgba(20,20,20,.97)",border:`1px solid ${C.border}`,borderRadius:18,padding:"22px 30px",boxShadow:"0 22px 70px rgba(0,0,0,.62)",textAlign:"center"}}>
-            <LoadingMotoniveladora size={120} label={actionLoading}/>
+          <div style={{minWidth:390,background:"rgba(20,20,20,.97)",border:`1px solid ${C.border}`,borderRadius:18,padding:"22px 30px",boxShadow:"0 22px 70px rgba(0,0,0,.62)",textAlign:"center"}}>
+            <LoadingMotoniveladora size={440} label={actionLoading}/>
           </div>
         </div>,document.body
       )}
@@ -16159,7 +16311,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       {loading&&ReactDOM.createPortal(
         <div style={{position:"fixed",inset:0,zIndex:999990,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.62)",backdropFilter:"blur(5px)",WebkitBackdropFilter:"blur(5px)"}}>
           <div style={{background:"rgba(20,20,20,.96)",border:`1px solid ${C.border}`,borderRadius:16,padding:"20px 28px",boxShadow:"0 18px 60px rgba(0,0,0,.55)"}}>
-            <LoadingMotoniveladora size={110} label="Cargando RABA03..."/>
+            <LoadingMotoniveladora size={380} label="Cargando RABA03..."/>
           </div>
         </div>,document.body
       )}
@@ -16194,6 +16346,13 @@ export default function App(){
   };
   const savedOr=(key,def)=>normalizeSavedState(savedAppFilters&&savedAppFilters[key],def);
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
+  const nombreUsuario=useMemo(()=>{
+    const guardado=String(sessionStorage.getItem("dm_name")||"").trim();
+    if(guardado)return guardado;
+    const mail=String(sessionStorage.getItem("dm_user")||"").trim();
+    const base=(mail.split("@")[0]||"Usuario").split(/[._-]+/)[0]||"Usuario";
+    return base.replace(/^./,c=>c.toUpperCase());
+  },[auth]);
   const[view,setView]=useState("bienvenida");
   const[activeModule,setActiveModule]=useState("home");
   const[loading,setLoading]=useState(false);
@@ -16298,7 +16457,7 @@ export default function App(){
       WebkitBackdropFilter:"blur(8px)"
     }}>
       <div style={{textAlign:"center"}}>
-        <LoadingMotoniveladora size={96} label={label}/>
+        <LoadingMotoniveladora size={340} label={label}/>
       </div>
     </div>
   ),[]);
@@ -16850,6 +17009,13 @@ export default function App(){
   },[activeModule,navStructure,costosUnitariosBadge,control.problemasPost31]);
   const showSidebar=view!=="bienvenida";
 
+  const cambiarUsuario=useCallback(()=>{
+    ["dm_auth","dm_user","dm_role","dm_project","dm_name"].forEach(k=>sessionStorage.removeItem(k));
+    setAuth(false);
+    setView("bienvenida");
+    setActiveModule("home");
+  },[]);
+
   if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
   return(
     <>
@@ -16954,8 +17120,8 @@ export default function App(){
             {fatalError&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
             {!fatalError&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
-                <div style={{width:54,height:54,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(255,255,255,.04)",border:`1px solid ${C.border}`,boxShadow:"0 10px 30px rgba(0,0,0,.28)"}}>
-                  <LoadingMotoniveladora size={70}/>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <LoadingMotoniveladora size={340}/>
                 </div>
                 <div style={{color:C.text,fontSize:22,fontWeight:800}}>Cargando datos...</div>
                 <div style={{color:C.textMuted,fontSize:13}}>Sincronizando información</div>
@@ -16963,7 +17129,7 @@ export default function App(){
             )}
             {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>}
+                {view==="bienvenida"&&<ViewBienvenida nombreUsuario={nombreUsuario} onCambiarUsuario={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>}
                 {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
                 {view==="listaEquipos"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Lista de Equipos..." />)}
                 {view==="tallerCentral"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Taller Central..." />)}
