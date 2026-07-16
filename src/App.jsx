@@ -13802,6 +13802,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   const raba03InitialLoadDoneRef=useRef(false);
   const rawRaba03RowsRef=useRef([]);
   const remitosSharedSignatureRef=useRef("");
+  const estadosSharedSignatureRef=useRef("");
 
   useEffect(()=>{
     try{window.localStorage.setItem(RABA08_STORAGE_KEY,JSON.stringify(remitos));}
@@ -14018,6 +14019,60 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     return Array.from(grouped.values()).sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
   },[norm,toNumber,normalizeCentroCosto]);
 
+
+  const postEstadoSolicitud=useCallback(async(action,payload={})=>{
+    const res=await fetch(APPS_SCRIPT_URL,{
+      method:"POST",cache:"no-store",redirect:"follow",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({payload:JSON.stringify({action,...payload})}).toString()
+    });
+    if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
+    const json=await res.json();
+    if(!json.ok)throw new Error(json?.error?.message||"No se pudo sincronizar el estado de la solicitud.");
+    return json;
+  },[]);
+
+  const loadEstadosSolicitudesCompartidos=useCallback(async({silent=true}={})=>{
+    try{
+      const res=await fetch(`${APPS_SCRIPT_URL}?action=estados_solicitudes&force=1&_=${Date.now()}`,{cache:"no-store",redirect:"follow"});
+      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
+      const json=await res.json();
+      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los estados compartidos.");
+      const closed={};
+      const rejected={};
+      (json.data||[]).forEach(r=>{
+        const key=String(r.CLAVE_SOLICITUD||r.clave||"").trim();
+        const estado=String(r.ESTADO||r.estado||"").trim().toUpperCase();
+        if(!key)return;
+        const info={
+          observacion:String(r.OBSERVACION||r.observacion||"").trim(),
+          nSolicitud:String(r.N_SOLICITUD||r.nSolicitud||"").trim(),
+          codigoArticulo:String(r.CODIGO_ARTICULO||r.codigoArticulo||"").trim(),
+          descripcion:String(r.DESCRIPCION||r.descripcion||"").trim(),
+          fecha:String(r.FECHA||r.fecha||"").trim(),
+          usuario:String(r.USUARIO||r.usuario||"").trim()
+        };
+        if(estado==="CERRADA_MANUAL")closed[key]=info;
+        else if(estado==="RECHAZADA")rejected[key]=info;
+      });
+      const signature=JSON.stringify({closed,rejected});
+      if(estadosSharedSignatureRef.current!==signature){
+        estadosSharedSignatureRef.current=signature;
+        setClosedSolicitudes(closed);
+        setRejectedSolicitudes(rejected);
+        try{
+          window.localStorage.setItem(RABA03_CLOSED_STORAGE_KEY,JSON.stringify(closed));
+          window.localStorage.setItem(RABA03_REJECTED_STORAGE_KEY,JSON.stringify(rejected));
+        }catch(_){}
+      }
+      return {closed,rejected};
+    }catch(err){
+      console.warn("No se pudieron sincronizar los estados de solicitudes:",err);
+      if(!silent)setError(err?.message||String(err));
+      throw err;
+    }
+  },[]);
+
   const loadRemitosCompartidos=useCallback(async({silent=true}={})=>{
     try{
       const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&force=1&_=${Date.now()}`;
@@ -14044,11 +14099,18 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
 
   useEffect(()=>{
     loadRemitosCompartidos({silent:true}).catch(()=>{});
+    loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
     const timer=window.setInterval(()=>{
-      if(document.visibilityState==="visible")loadRemitosCompartidos({silent:true}).catch(()=>{});
+      if(document.visibilityState==="visible"){
+        loadRemitosCompartidos({silent:true}).catch(()=>{});
+        loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
+      }
     },30000);
     const onVisible=()=>{
-      if(document.visibilityState==="visible")loadRemitosCompartidos({silent:true}).catch(()=>{});
+      if(document.visibilityState==="visible"){
+        loadRemitosCompartidos({silent:true}).catch(()=>{});
+        loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
+      }
     };
     window.addEventListener("focus",onVisible);
     document.addEventListener("visibilitychange",onVisible);
@@ -14057,11 +14119,14 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       window.removeEventListener("focus",onVisible);
       document.removeEventListener("visibilitychange",onVisible);
     };
-  },[loadRemitosCompartidos]);
+  },[loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
 
   useEffect(()=>{
     if(tab==="remito")loadRemitosCompartidos({silent:true}).catch(()=>{});
-  },[tab,loadRemitosCompartidos]);
+    if(["solicitudes","pendientes","parciales","cerradas","rechazadas"].includes(tab)){
+      loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
+    }
+  },[tab,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
 
   const saveRemitoCompartido=useCallback(async(remito)=>{
     const payload={
@@ -14172,7 +14237,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     setRejectModal({open:true,row,observacion:""});
   },[]);
 
-  const confirmRejectSolicitud=useCallback(()=>{
+  const confirmRejectSolicitud=useCallback(async()=>{
     const row=rejectModal.row;
     if(!row)return;
     const observacion=String(rejectModal.observacion||"").trim();
@@ -14181,46 +14246,40 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       return;
     }
     const key=buildSolicitudKey(row);
-    setRejectedSolicitudes(prev=>({
-      ...(prev||{}),
-      [key]:{
-        observacion,
-        nSolicitud:row.nSolicitud||"",
-        codigoArticulo:row.codigoArticulo||"",
-        descripcion:row.descripcion||"",
-        fecha:new Date().toISOString(),
-        usuario:"APP"
-      }
-    }));
-    setRejectModal({open:false,row:null,observacion:""});
-  },[rejectModal,buildSolicitudKey]);
+    try{
+      await postEstadoSolicitud("save_estado_solicitud",{estado:{
+        clave:key,estado:"RECHAZADA",observacion,
+        nSolicitud:row.nSolicitud||"",codigoArticulo:row.codigoArticulo||"",
+        descripcion:row.descripcion||"",usuario:sessionStorage.getItem("dm_user")||"APP"
+      }});
+      await loadEstadosSolicitudesCompartidos({silent:true});
+      setRejectModal({open:false,row:null,observacion:""});
+    }catch(err){appAlert("No se pudo guardar el rechazo para todos: "+(err?.message||err));}
+  },[rejectModal,buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const closeSolicitudManual=useCallback(async(row)=>{
     if(!row)return;
     const ok=await appConfirm("¿Cerrar esta solicitud parcial aunque no se hayan enviado todos los artículos?");
     if(!ok)return;
     const key=buildSolicitudKey(row);
-    setClosedSolicitudes(prev=>({
-      ...(prev||{}),
-      [key]:{
-        nSolicitud:row.nSolicitud||"",
-        codigoArticulo:row.codigoArticulo||"",
-        descripcion:row.descripcion||"",
-        fecha:new Date().toISOString(),
-        motivo:"Cierre manual desde Parciales"
-      }
-    }));
-  },[buildSolicitudKey]);
+    try{
+      await postEstadoSolicitud("save_estado_solicitud",{estado:{
+        clave:key,estado:"CERRADA_MANUAL",observacion:"Cierre manual desde Parciales",
+        nSolicitud:row.nSolicitud||"",codigoArticulo:row.codigoArticulo||"",
+        descripcion:row.descripcion||"",usuario:sessionStorage.getItem("dm_user")||"APP"
+      }});
+      await loadEstadosSolicitudesCompartidos({silent:true});
+    }catch(err){appAlert("No se pudo cerrar la solicitud para todos: "+(err?.message||err));}
+  },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
-  const restoreRejectedSolicitud=useCallback((row)=>{
+  const restoreRejectedSolicitud=useCallback(async(row)=>{
     if(!row)return;
     const key=buildSolicitudKey(row);
-    setRejectedSolicitudes(prev=>{
-      const next={...(prev||{})};
-      delete next[key];
-      return next;
-    });
-  },[buildSolicitudKey]);
+    try{
+      await postEstadoSolicitud("delete_estado_solicitud",{clave:key});
+      await loadEstadosSolicitudesCompartidos({silent:true});
+    }catch(err){appAlert("No se pudo restaurar la solicitud para todos: "+(err?.message||err));}
+  },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const mapRaba03Rows=useCallback((raw=[])=>raw.map(normalizeRow).filter(r=>
     [r.empresa,r.fechaSolicitud,r.fechaRequerida,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada]
