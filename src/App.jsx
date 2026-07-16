@@ -13334,9 +13334,12 @@ function ViewBienvenida({onOpenModule,listaEquipos=[],rop02All=[],onReloadLista}
 }
 
 
-function ViewTallerCentral({listaEquipos=[],rop02All=[],onReloadLista}){
-  const rows=Array.isArray(listaEquipos)?listaEquipos:[];
-  const getVal=(row,cands)=>{
+function TallerCentralSummary({rows=[]}){
+  const [boxTooltip,setBoxTooltip]=useState(null);
+  const [boxTooltipPinned,setBoxTooltipPinned]=useState(false);
+  const hideTimerRef=useRef(null);
+
+  const getVal=useCallback((row,cands)=>{
     const keys=Object.keys(row||{});
     for(const cand of cands){
       const wanted=String(cand||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
@@ -13346,38 +13349,164 @@ function ViewTallerCentral({listaEquipos=[],rop02All=[],onReloadLista}){
       }
     }
     return "";
-  };
-  const countBy=(cands)=>{
+  },[]);
+
+  const countBy=useCallback((cands)=>{
     const m=new Map();
     rows.forEach(r=>{
       const raw=String(getVal(r,cands)||"Sin dato").trim()||"Sin dato";
-      m.set(raw,(m.get(raw)||0)+1);
+      if(!m.has(raw))m.set(raw,[]);
+      m.get(raw).push(r);
     });
-    return [...m.entries()].sort((a,b)=>b[1]-a[1]||String(a[0]).localeCompare(String(b[0])));
-  };
-  const tipos=countBy(["Familia","Tipo de equipo","Tipo","Equipo"]);
-  const propiedades=countBy(["Propiedad"]);
-  const marcas=countBy(["Marca"]);
-  const combustibles=countBy(["Tipo de Combustible","Tipo Combustible","Combustible"]);
-  const modelos=countBy(["Modelo","Modelo Equipo","Modelo de Equipo"]);
-  const anios=rows.map(r=>Number(String(getVal(r,["Año de Fabricacion","Año Fabricacion","Anio Fabricacion","Año Fabricación"])||"").replace(/[^0-9]/g,""))).filter(n=>n>1900&&n<2200);
+    return [...m.entries()]
+      .map(([name,matchedRows])=>[name,matchedRows.length,matchedRows])
+      .sort((a,b)=>b[1]-a[1]||String(a[0]).localeCompare(String(b[0])));
+  },[rows,getVal]);
+
+  const tipos=useMemo(()=>countBy(["Familia","Tipo de equipo","Tipo","Equipo"]),[countBy]);
+  const propiedades=useMemo(()=>countBy(["Propiedad"]),[countBy]);
+  const marcas=useMemo(()=>countBy(["Marca"]),[countBy]);
+  const combustibles=useMemo(()=>countBy(["Tipo de Combustible","Tipo Combustible","Combustible"]),[countBy]);
+  const modelos=useMemo(()=>countBy(["Modelo","Modelo Equipo","Modelo de Equipo"]),[countBy]);
+  const anios=useMemo(()=>rows.map(r=>Number(String(getVal(r,["Año de Fabricacion","Año Fabricacion","Anio Fabricacion","Año Fabricación"])||"").replace(/[^0-9]/g,""))).filter(n=>n>1900&&n<2200),[rows,getVal]);
   const antigProm=anios.length?((new Date().getFullYear()-anios.reduce((a,b)=>a+b,0)/anios.length).toFixed(1)):"—";
-  const BoxList=({title,items,color})=>(
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:12,minHeight:170}}>
+
+  const equipmentLabel=useCallback((r)=>{
+    const nuevo=String(getVal(r,["Código Nuevo","Codigo Nuevo","Código nuevo","Codigo nuevo"])||"").trim();
+    const drusila=String(getVal(r,["Código Drusila","Codigo Drusila","Código de Drusila","Codigo de Drusila"])||"").trim();
+    const familia=String(getVal(r,["Familia","Tipo de equipo","Tipo"])||"").trim();
+    const modelo=String(getVal(r,["Modelo","Modelo Equipo","Modelo de Equipo"])||"").trim();
+    const codigo=nuevo||drusila||"Sin código";
+    const extra=[familia,modelo].filter(Boolean).join(" · ");
+    return extra?`${codigo} — ${extra}`:codigo;
+  },[getVal]);
+
+  const clearHideTimer=useCallback(()=>{
+    if(hideTimerRef.current){clearTimeout(hideTimerRef.current);hideTimerRef.current=null;}
+  },[]);
+
+  useEffect(()=>()=>clearHideTimer(),[clearHideTimer]);
+
+  const buildTooltip=useCallback((title,name,matchedRows,e)=>{
+    const rect=e.currentTarget.getBoundingClientRect();
+    return{
+      key:`${title}::${name}`,
+      title,
+      name,
+      equipos:(matchedRows||[]).map(equipmentLabel).sort((a,b)=>a.localeCompare(b)),
+      x:rect.right,
+      y:rect.top
+    };
+  },[equipmentLabel]);
+
+  const showRowTooltip=useCallback((title,name,matchedRows,e)=>{
+    clearHideTimer();
+    const next=buildTooltip(title,name,matchedRows,e);
+    setBoxTooltip(prev=>prev?.key===next.key?prev:next);
+  },[buildTooltip,clearHideTimer]);
+
+  const scheduleHide=useCallback(()=>{
+    clearHideTimer();
+    if(boxTooltipPinned)return;
+    hideTimerRef.current=setTimeout(()=>setBoxTooltip(null),110);
+  },[boxTooltipPinned,clearHideTimer]);
+
+  const togglePinned=useCallback((title,name,matchedRows,e)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    clearHideTimer();
+    const next=buildTooltip(title,name,matchedRows,e);
+    if(boxTooltipPinned&&boxTooltip?.key===next.key){
+      setBoxTooltipPinned(false);
+      setBoxTooltip(null);
+      return;
+    }
+    setBoxTooltip(next);
+    setBoxTooltipPinned(true);
+  },[boxTooltipPinned,boxTooltip,buildTooltip,clearHideTimer]);
+
+  useEffect(()=>{
+    if(!boxTooltipPinned)return;
+    const close=e=>{
+      if(e.target?.closest?.('[data-taller-tooltip="true"], [data-taller-box-row="true"]'))return;
+      setBoxTooltipPinned(false);
+      setBoxTooltip(null);
+    };
+    document.addEventListener("pointerdown",close,true);
+    return()=>document.removeEventListener("pointerdown",close,true);
+  },[boxTooltipPinned]);
+
+  // Se devuelve JSX directamente en vez de crear un componente nuevo en cada hover.
+  // Así React conserva el mismo nodo scrolleable y no vuelve arriba al mostrar/ocultar el tooltip.
+  const renderBoxList=useCallback((title,items,color)=>(
+    <div key={title} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:12,minHeight:170,position:"relative"}}>
       <div style={{fontSize:12,fontWeight:900,color,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>{title}</div>
-      <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:132,overflow:"auto",paddingRight:4}}>
-        {items.slice(0,10).map(([name,count])=>(
-          <div key={name} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,fontSize:12,color:C.text}}>
-            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={name}>{name}</span>
-            <Badge color={color}>{fmtNum(count)}</Badge>
-          </div>
-        ))}
+      <div
+        data-taller-scroll-list="true"
+        style={{display:"flex",flexDirection:"column",gap:3,maxHeight:132,overflowY:"auto",overflowX:"hidden",overscrollBehavior:"contain",paddingRight:4}}
+        onWheel={e=>e.stopPropagation()}
+      >
+        {items.map(([name,count,matchedRows])=>{
+          const active=boxTooltip?.key===`${title}::${name}`;
+          return(
+            <div
+              key={name}
+              data-taller-box-row="true"
+              onMouseEnter={e=>showRowTooltip(title,name,matchedRows,e)}
+              onMouseLeave={scheduleHide}
+              onClick={e=>togglePinned(title,name,matchedRows,e)}
+              style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,fontSize:12,color:C.text,padding:"4px 3px",borderRadius:7,cursor:"pointer",background:active?`${color}18`:"transparent",flex:"0 0 auto"}}
+            >
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</span>
+              <Badge color={color}>{fmtNum(count)}</Badge>
+            </div>
+          );
+        })}
         {!items.length&&<div style={{fontSize:12,color:C.textMuted}}>Sin datos cargados.</div>}
       </div>
     </div>
-  );
+  ),[boxTooltip?.key,showRowTooltip,scheduleHide,togglePinned]);
+
+  const tooltipNode=boxTooltip&&typeof document!=="undefined"?ReactDOM.createPortal((()=>{
+    const width=390;
+    const viewportW=window.innerWidth||1200;
+    const viewportH=window.innerHeight||800;
+    const rightSpace=viewportW-boxTooltip.x;
+    const left=rightSpace>=width+24?boxTooltip.x+12:Math.max(10,boxTooltip.x-width-12);
+    const estimatedHeight=Math.min(410,96+boxTooltip.equipos.length*25);
+    const top=Math.max(10,Math.min(boxTooltip.y,viewportH-estimatedHeight-12));
+    return(
+      <div
+        data-taller-tooltip="true"
+        onMouseEnter={clearHideTimer}
+        onMouseLeave={scheduleHide}
+        onClick={e=>e.stopPropagation()}
+        style={{position:"fixed",left,top,width,maxWidth:"calc(100vw - 20px)",zIndex:2147483646,background:"rgba(17,17,17,.98)",border:`1px solid ${boxTooltipPinned?C.blue:C.border}`,borderRadius:11,boxShadow:"0 18px 52px rgba(0,0,0,.82)",overflow:"hidden",pointerEvents:"auto",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",contain:"layout paint"}}
+      >
+        <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:900,color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em"}}>{boxTooltip.title}</div>
+            <div style={{fontSize:14,fontWeight:900,color:C.text,marginTop:3}}>{boxTooltip.name}</div>
+            <div style={{fontSize:11,color:C.textSub,marginTop:2}}>{fmtNum(boxTooltip.equipos.length)} equipos considerados</div>
+          </div>
+          <div style={{fontSize:10,color:boxTooltipPinned?C.blue:C.textMuted,textAlign:"right",lineHeight:1.35,fontWeight:800}}>
+            {boxTooltipPinned?"FIJADO · click en la fila para soltar":"Click en la fila para fijar"}
+          </div>
+        </div>
+        <div style={{maxHeight:300,overflowY:"auto",overscrollBehavior:"contain",padding:"7px 10px"}}>
+          {boxTooltip.equipos.map((label,index)=>(
+            <div key={`${label}-${index}`} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 3px",borderBottom:index<boxTooltip.equipos.length-1?`1px solid ${C.border}66`:"none",fontSize:12,color:C.text}}>
+              <span style={{minWidth:24,color:C.textMuted,fontVariantNumeric:"tabular-nums"}}>{index+1}.</span>
+              <span style={{overflowWrap:"anywhere"}}>{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  })(),document.body):null;
+
   return(
-    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+    <>
       <Card title="Taller Central">
         <div style={{padding:14,display:"flex",flexDirection:"column",gap:14}}>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:12}}>
@@ -13390,13 +13519,23 @@ function ViewTallerCentral({listaEquipos=[],rop02All=[],onReloadLista}){
             <StatCard icon="hours" label="Antigüedad prom." value={antigProm} sub="Años aproximados" color={C.textSub} small/>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
-            <BoxList title="Equipos por tipo" items={tipos} color={C.blue}/>
-            <BoxList title="Equipos por propiedad" items={propiedades} color={C.green}/>
-            <BoxList title="Equipos por marca" items={marcas} color={C.yellow}/>
-            <BoxList title="Tipo de combustible" items={combustibles} color={C.red}/>
+            {renderBoxList("Equipos por tipo",tipos,C.blue)}
+            {renderBoxList("Equipos por propiedad",propiedades,C.green)}
+            {renderBoxList("Equipos por marca",marcas,C.yellow)}
+            {renderBoxList("Tipo de combustible",combustibles,C.red)}
           </div>
         </div>
       </Card>
+      {tooltipNode}
+    </>
+  );
+}
+
+function ViewTallerCentral({listaEquipos=[],rop02All=[],onReloadLista}){
+  const rows=Array.isArray(listaEquipos)?listaEquipos:[];
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      <TallerCentralSummary rows={rows}/>
       {rows.length>0
         ? <ViewListaMaestraEquipos rows={rows} rop02All={rop02All||[]} rop05={[]} rma15={[]} onReloadLista={onReloadLista}/>
         : <BlockingDataLoader label="Cargando Lista Maestra de Equipos..." />
