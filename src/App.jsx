@@ -14020,6 +14020,22 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   },[norm,toNumber,normalizeCentroCosto]);
 
 
+  const fechaSolicitudISO=useCallback((v)=>{
+    const txt=String(v||"").trim();
+    if(!txt)return "";
+    const dm=txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if(dm){
+      let y=Number(dm[3]);
+      if(y<100)y+=2000;
+      return `${String(y).padStart(4,"0")}-${String(dm[2]).padStart(2,"0")}-${String(dm[1]).padStart(2,"0")}`;
+    }
+    const iso=txt.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(iso)return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const d=new Date(txt);
+    if(!isNaN(d.getTime()))return d.toISOString().slice(0,10);
+    return "";
+  },[]);
+
   const buildSolicitudStableKeyFromParts=useCallback((parts={})=>{
     const nSolicitud=String(parts.nSolicitud||parts.N_SOLICITUD||"").trim();
     const codigo=normCode(parts.codigoArticulo||parts.CODIGO_ARTICULO||"");
@@ -14590,22 +14606,6 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   const projects=useMemo(()=>Array.from(new Set(rows.map(r=>r.centroCosto).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows]);
   const companies=useMemo(()=>Array.from(new Set(rows.map(r=>r.empresa).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows]);
   const supervisors=useMemo(()=>Array.from(new Set(rows.map(r=>canonicalSupervisor(r.pedidoPor)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[rows,canonicalSupervisor]);
-
-  const fechaSolicitudISO=useCallback((v)=>{
-    const txt=String(v||"").trim();
-    if(!txt)return "";
-    const dm=txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-    if(dm){
-      let y=Number(dm[3]);
-      if(y<100)y+=2000;
-      return `${String(y).padStart(4,"0")}-${String(dm[2]).padStart(2,"0")}-${String(dm[1]).padStart(2,"0")}`;
-    }
-    const iso=txt.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if(iso)return `${iso[1]}-${iso[2]}-${iso[3]}`;
-    const d=new Date(txt);
-    if(!isNaN(d.getTime()))return d.toISOString().slice(0,10);
-    return "";
-  },[]);
 
   const filteredRows=useMemo(()=>{
     const q=norm(query);
