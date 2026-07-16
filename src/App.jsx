@@ -1237,7 +1237,8 @@ function Icon({name,size=18,color="currentColor",style}){
   const p=PATHS[name];if(!p)return null;
   return<svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={style}><path d={p}/></svg>;
 }
-function Spinner({size=24}){return<div className="spin" style={{width:size,height:size,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.accent}`,borderRadius:"50%"}}/>;}
+function LoadingMotoniveladora({size=72,label=""}){return <div style={{display:"inline-flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}><img src="/loader.gif" alt="Cargando" style={{width:size,height:"auto",maxHeight:size,objectFit:"contain",display:"block"}}/>{label?<div style={{color:C.text,fontSize:13,fontWeight:900,textAlign:"center"}}>{label}</div>:null}</div>;}
+function Spinner({size=24}){return <LoadingMotoniveladora size={Math.max(28,size)}/>;}
 function Badge({children,color=C.accent}){return<span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:600,color,background:color+"22",border:`1px solid ${color}33`}}>{children}</span>;}
 function StatCard({icon,value,label,sub,color=C.accent,valueColor,small}){
   const valCol=valueColor||color;
@@ -13749,6 +13750,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   });
   const [rejectModal,setRejectModal]=useState({open:false,row:null,observacion:""});
   const [loading,setLoading]=useState(false);
+  const [actionLoading,setActionLoading]=useState("");
   const [error,setError]=useState(null);
   const [tab,setTab]=useState(initialTab);
   useEffect(()=>{setTab(initialTab);},[initialTab]);
@@ -14289,14 +14291,33 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
     const ok=await appConfirm("¿Cerrar esta solicitud parcial aunque no se hayan enviado todos los artículos?");
     if(!ok)return;
     const key=buildSolicitudKey(row);
+    const info={
+      observacion:"Cierre manual desde Parciales",
+      nSolicitud:row.nSolicitud||"",
+      codigoArticulo:row.codigoArticulo||"",
+      descripcion:row.descripcion||"",
+      fecha:row.fechaSolicitud||"",
+      usuario:sessionStorage.getItem("dm_user")||"APP"
+    };
+    setActionLoading("Cerrando solicitud...");
     try{
       await postEstadoSolicitud("save_estado_solicitud",{estado:{
-        clave:key,estado:"CERRADA_MANUAL",observacion:"Cierre manual desde Parciales",
-        nSolicitud:row.nSolicitud||"",codigoArticulo:row.codigoArticulo||"",
-        descripcion:row.descripcion||"",fechaSolicitud:row.fechaSolicitud||"",usuario:sessionStorage.getItem("dm_user")||"APP"
+        clave:key,estado:"CERRADA_MANUAL",observacion:info.observacion,
+        nSolicitud:info.nSolicitud,codigoArticulo:info.codigoArticulo,
+        descripcion:info.descripcion,fechaSolicitud:row.fechaSolicitud||"",usuario:info.usuario
       }});
-      await loadEstadosSolicitudesCompartidos({silent:true});
-    }catch(err){appAlert("No se pudo cerrar la solicitud para todos: "+(err?.message||err));}
+      // Reflejo inmediato en esta PC; la verificación compartida queda en segundo plano.
+      setClosedSolicitudes(prev=>{
+        const next={...(prev||{}),[key]:info};
+        try{window.localStorage.setItem(RABA03_CLOSED_STORAGE_KEY,JSON.stringify(next));}catch(_){}
+        return next;
+      });
+      loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
+    }catch(err){
+      await appAlert("No se pudo cerrar la solicitud para todos: "+(err?.message||err));
+    }finally{
+      setActionLoading("");
+    }
   },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const restoreRejectedSolicitud=useCallback(async(row)=>{
@@ -14306,6 +14327,28 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       await postEstadoSolicitud("delete_estado_solicitud",{clave:key});
       await loadEstadosSolicitudesCompartidos({silent:true});
     }catch(err){appAlert("No se pudo restaurar la solicitud para todos: "+(err?.message||err));}
+  },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
+
+  const reopenManualClosedSolicitud=useCallback(async(row)=>{
+    if(!row)return;
+    const ok=await appConfirm("¿Reabrir esta solicitud cerrada manualmente?");
+    if(!ok)return;
+    const key=buildSolicitudKey(row);
+    setActionLoading("Reabriendo solicitud...");
+    try{
+      await postEstadoSolicitud("delete_estado_solicitud",{clave:key});
+      setClosedSolicitudes(prev=>{
+        const next={...(prev||{})};
+        delete next[key];
+        try{window.localStorage.setItem(RABA03_CLOSED_STORAGE_KEY,JSON.stringify(next));}catch(_){}
+        return next;
+      });
+      loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
+    }catch(err){
+      await appAlert("No se pudo reabrir la solicitud: "+(err?.message||err));
+    }finally{
+      setActionLoading("");
+    }
   },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const mapRaba03Rows=useCallback((raw=[])=>raw.map(normalizeRow).filter(r=>
@@ -15675,6 +15718,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
                   <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
                     <button onClick={()=>openRejectSolicitud(r)} style={{border:`1px solid ${C.red}66`,background:`${C.red}18`,color:C.red,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>Rechazar</button>
                     {tab==="parciales"&&<button onClick={()=>closeSolicitudManual(r)} style={{border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>Cerrar</button>}
+                    {tab==="cerradas"&&manualClosed&&<button onClick={()=>reopenManualClosedSolicitud(r)} style={{border:`1px solid ${C.blue}66`,background:`${C.blue}18`,color:C.blue,borderRadius:8,padding:"5px 9px",fontSize:10,fontWeight:900,cursor:"pointer",fontFamily:"Inter"}}>Reabrir</button>}
                   </div>
                 </td>
               )}
@@ -16027,6 +16071,13 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
 
   return (
     <div style={{display:"grid",gap:14,fontFamily:"Inter, system-ui, sans-serif"}}>
+      {actionLoading&&ReactDOM.createPortal(
+        <div style={{position:"fixed",inset:0,zIndex:999999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.68)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)"}}>
+          <div style={{minWidth:310,background:"rgba(20,20,20,.97)",border:`1px solid ${C.border}`,borderRadius:18,padding:"22px 30px",boxShadow:"0 22px 70px rgba(0,0,0,.62)",textAlign:"center"}}>
+            <LoadingMotoniveladora size={120} label={actionLoading}/>
+          </div>
+        </div>,document.body
+      )}
       {renderImportModal()}
       {renderRejectModal()}
       {renderSuccessAlert()}
@@ -16069,7 +16120,13 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       )}
 
       {error&&<div style={{border:`1px solid ${C.red}66`,background:`${C.red}14`,color:C.red,borderRadius:14,padding:14,fontWeight:800}}>Error leyendo RABA03: {error}</div>}
-      {loading&&<div style={{color:C.textSub,fontWeight:800,padding:8}}>Cargando RABA03...</div>}
+      {loading&&ReactDOM.createPortal(
+        <div style={{position:"fixed",inset:0,zIndex:999990,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.62)",backdropFilter:"blur(5px)",WebkitBackdropFilter:"blur(5px)"}}>
+          <div style={{background:"rgba(20,20,20,.96)",border:`1px solid ${C.border}`,borderRadius:16,padding:"20px 28px",boxShadow:"0 18px 60px rgba(0,0,0,.55)"}}>
+            <LoadingMotoniveladora size={110} label="Cargando RABA03..."/>
+          </div>
+        </div>,document.body
+      )}
 
       {tab==="dashboard"?renderAbastecimientoDashboard():(tab==="stock"?renderStockControl():(tab==="stockDashboard"?renderStockDashboard():(tab==="remito"?renderRemito():(tab==="raba03"?renderRABA03Descarga():(tab==="editarCodigos"?renderEditarCodigos():renderMainTable())))))}
     </div>
@@ -16205,8 +16262,7 @@ export default function App(){
       WebkitBackdropFilter:"blur(8px)"
     }}>
       <div style={{textAlign:"center"}}>
-        <div className="spin" style={{width:34,height:34,border:`3px solid ${C.border}`,borderTopColor:C.red,borderRadius:"50%",margin:"0 auto"}} />
-        <div style={{marginTop:12,fontSize:14,fontWeight:800,color:C.text}}>{label}</div>
+        <LoadingMotoniveladora size={96} label={label}/>
       </div>
     </div>
   ),[]);
@@ -16863,7 +16919,7 @@ export default function App(){
             {!fatalError&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
                 <div style={{width:54,height:54,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(255,255,255,.04)",border:`1px solid ${C.border}`,boxShadow:"0 10px 30px rgba(0,0,0,.28)"}}>
-                  <div className="spin" style={{width:30,height:30,border:`3px solid ${C.border}`,borderTopColor:C.accent,borderRadius:"50%"}} />
+                  <LoadingMotoniveladora size={70}/>
                 </div>
                 <div style={{color:C.text,fontSize:22,fontWeight:800}}>Cargando datos...</div>
                 <div style={{color:C.textMuted,fontSize:13}}>Sincronizando información</div>
