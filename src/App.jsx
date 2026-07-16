@@ -14020,6 +14020,15 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   },[norm,toNumber,normalizeCentroCosto]);
 
 
+  const buildSolicitudStableKeyFromParts=useCallback((parts={})=>{
+    const nSolicitud=String(parts.nSolicitud||parts.N_SOLICITUD||"").trim();
+    const codigo=normCode(parts.codigoArticulo||parts.CODIGO_ARTICULO||"");
+    const fechaISO=fechaSolicitudISO(parts.fechaSolicitud||parts.FECHA_SOLICITUD||parts.fecha||parts.FECHA||"");
+    // Clave estable compartida entre PCs: número de solicitud + código + fecha de solicitud.
+    // No depende de descripción, espacios, acentos, cantidad ni formato visual de fechas.
+    return [normCode(nSolicitud),codigo,fechaISO].join("|");
+  },[normCode,fechaSolicitudISO]);
+
   const postEstadoSolicitud=useCallback(async(action,payload={})=>{
     const res=await fetch(APPS_SCRIPT_URL,{
       method:"POST",cache:"no-store",redirect:"follow",
@@ -14041,9 +14050,8 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       const closed={};
       const rejected={};
       (json.data||[]).forEach(r=>{
-        const key=String(r.CLAVE_SOLICITUD||r.clave||"").trim();
+        const storedKey=String(r.CLAVE_SOLICITUD||r.clave||"").trim();
         const estado=String(r.ESTADO||r.estado||"").trim().toUpperCase();
-        if(!key)return;
         const info={
           observacion:String(r.OBSERVACION||r.observacion||"").trim(),
           nSolicitud:String(r.N_SOLICITUD||r.nSolicitud||"").trim(),
@@ -14052,8 +14060,18 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
           fecha:String(r.FECHA||r.fecha||"").trim(),
           usuario:String(r.USUARIO||r.usuario||"").trim()
         };
-        if(estado==="CERRADA_MANUAL")closed[key]=info;
-        else if(estado==="RECHAZADA")rejected[key]=info;
+        // Compatibilidad: toma la clave guardada y además genera la clave estable
+        // a partir de los campos descriptivos para reconocer cierres antiguos.
+        const stableKey=buildSolicitudStableKeyFromParts({
+          nSolicitud:info.nSolicitud,
+          codigoArticulo:info.codigoArticulo,
+          fechaSolicitud:r.FECHA_SOLICITUD||r.fechaSolicitud||""
+        });
+        const keys=[storedKey,stableKey].filter(Boolean);
+        keys.forEach(key=>{
+          if(estado==="CERRADA_MANUAL")closed[key]=info;
+          else if(estado==="RECHAZADA")rejected[key]=info;
+        });
       });
       const signature=JSON.stringify({closed,rejected});
       if(estadosSharedSignatureRef.current!==signature){
@@ -14071,7 +14089,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       if(!silent)setError(err?.message||String(err));
       throw err;
     }
-  },[]);
+  },[buildSolicitudStableKeyFromParts]);
 
   const loadRemitosCompartidos=useCallback(async({silent=true}={})=>{
     try{
@@ -14217,19 +14235,12 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
   },[formatDateLocal,pick,sentByCode,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa]);
 
   const buildSolicitudKey=useCallback((row)=>{
-    const fechaSol=formatDateLocal(row.fechaSolicitud||row["Fecha de solicitud"]||"");
-    const fechaReq=formatDateLocal(row.fechaRequerida||row["Fecha requerida del producto"]||"");
-    return [
-      norm(row.empresa||row.Empresa),
-      norm(fechaSol),
-      norm(fechaReq),
-      norm(row.pedidoPor||row["Autorizado por:"]||row["Autorizado por"]||row["Pedido por"]),
-      norm(normalizeCentroCosto(row.centroCosto||row["Centro de Costo"]||row["Centro de costo"])),
-      normCode(row.codigoArticulo||row["Código de articulo"]||row["Codigo de articulo"]||row["Código de artículo"]),
-      norm(row.descripcion||row["Descripción de lo que se pidio"]||row["Descripcion de lo que se pidio"]),
-      String(toNumber(row.cantidadSolicitada||row["Cant. Solicitada"]||row["Cantidad solicitada"]||row["Cantidad"]||0))
-    ].join("|");
-  },[formatDateLocal,norm,normCode,normalizeCentroCosto,toNumber]);
+    return buildSolicitudStableKeyFromParts({
+      nSolicitud:row.nSolicitud||row["N° de solicitud"]||row["Nº de solicitud"]||row["Solicitud"]||"",
+      codigoArticulo:row.codigoArticulo||row["Código de articulo"]||row["Codigo de articulo"]||row["Código de artículo"]||"",
+      fechaSolicitud:row.fechaSolicitud||row["Fecha de solicitud"]||""
+    });
+  },[buildSolicitudStableKeyFromParts]);
 
   const existingSolicitudKeys=useMemo(()=>new Set(rows.map(buildSolicitudKey)),[rows,buildSolicitudKey]);
 
@@ -14250,7 +14261,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       await postEstadoSolicitud("save_estado_solicitud",{estado:{
         clave:key,estado:"RECHAZADA",observacion,
         nSolicitud:row.nSolicitud||"",codigoArticulo:row.codigoArticulo||"",
-        descripcion:row.descripcion||"",usuario:sessionStorage.getItem("dm_user")||"APP"
+        descripcion:row.descripcion||"",fechaSolicitud:row.fechaSolicitud||"",usuario:sessionStorage.getItem("dm_user")||"APP"
       }});
       await loadEstadosSolicitudesCompartidos({silent:true});
       setRejectModal({open:false,row:null,observacion:""});
@@ -14266,7 +14277,7 @@ function AbastecimientoModule({initialTab="solicitudes"}={}){
       await postEstadoSolicitud("save_estado_solicitud",{estado:{
         clave:key,estado:"CERRADA_MANUAL",observacion:"Cierre manual desde Parciales",
         nSolicitud:row.nSolicitud||"",codigoArticulo:row.codigoArticulo||"",
-        descripcion:row.descripcion||"",usuario:sessionStorage.getItem("dm_user")||"APP"
+        descripcion:row.descripcion||"",fechaSolicitud:row.fechaSolicitud||"",usuario:sessionStorage.getItem("dm_user")||"APP"
       }});
       await loadEstadosSolicitudesCompartidos({silent:true});
     }catch(err){appAlert("No se pudo cerrar la solicitud para todos: "+(err?.message||err));}
