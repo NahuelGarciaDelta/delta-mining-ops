@@ -9605,7 +9605,33 @@ function ViewRankingOperarios({rop02All,rop05,extState,setExtState}){
 }
 
 
+function dmNormalizeArea(value){
+  return String(value||"")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .trim()
+    .toUpperCase();
+}
+
+function dmCanEditArea(requiredArea){
+  if(!requiredArea)return true;
+  return dmNormalizeArea(sessionStorage.getItem("dm_area"))===dmNormalizeArea(requiredArea);
+}
+
+const DM_ACTION_REQUIRED_AREA={
+  add_lista_equipo:"TALLER CENTRAL",
+  update_lista_equipo:"TALLER CENTRAL",
+  bulk_update_lista_equipos_from_app:"TALLER CENTRAL",
+  update_rop02_row:"OFICINA TÉCNICA"
+};
+
 async function postToAppsScript(payloadObj){
+  const requiredArea=DM_ACTION_REQUIRED_AREA[String(payloadObj?.action||"")];
+  if(requiredArea&&!dmCanEditArea(requiredArea)){
+    const msg=`Modo solo lectura: únicamente el área ${requiredArea} puede guardar cambios en esta sección.`;
+    await appAlert(msg,"Sin permiso de edición");
+    throw new Error(msg);
+  }
   const payloadStr=JSON.stringify(payloadObj);
 
   // IMPORTANTE:
@@ -16411,7 +16437,19 @@ function UserSettingsModal({open,forced=false,onClose,onSaved}){
     }
   },[open]);
   if(!open)return null;
-  const areas=["","OFICINA TÉCNICA","MANTENIMIENTO","CALIDAD","ABASTECIMIENTO","TALLER CENTRAL","ADMINISTRATIVO","SUPERVISOR"];
+  const areas=[
+    "",
+    "OFICINA TÉCNICA",
+    "MANTENIMIENTO",
+    "CALIDAD",
+    "ABASTECIMIENTO",
+    "TALLER CENTRAL",
+    "FINANZAS",
+    "RECURSOS HUMANOS",
+    "HIGIENE Y SEGURIDAD",
+    "ADMINISTRATIVO",
+    "SUPERVISOR"
+  ];
   const guardar=async()=>{
     setError("");
     if(!nombre.trim()){setError("Ingresá un nombre.");return;}
@@ -16508,10 +16546,50 @@ export default function App(){
   const rolUsuario=useMemo(()=>String(sessionStorage.getItem("dm_role")||"USUARIO").trim().toUpperCase(),[auth]);
   const proyectoUsuario=useMemo(()=>dmNormalizeAssignedProject(sessionStorage.getItem("dm_project")||"TODO"),[auth]);
   const areaUsuario=useMemo(()=>String(sessionStorage.getItem("dm_area")||"").trim(),[auth,profileRevision]);
+  const areaNormalizada=useMemo(()=>dmNormalizeArea(areaUsuario),[areaUsuario]);
   const proyectoRestringido=proyectoUsuario!=="TODO";
   const esAdministrativo=rolUsuario==="ADMINISTRATIVO";
   const[view,setView]=useState("bienvenida");
   const[activeModule,setActiveModule]=useState("home");
+  const areaRequeridaVista=useMemo(()=>{
+    const map={
+      dashboard:"OFICINA TÉCNICA",
+      rop02:"OFICINA TÉCNICA",
+      horometros:"OFICINA TÉCNICA",
+      vehiculos:"OFICINA TÉCNICA",
+      combustible:"OFICINA TÉCNICA",
+      cambiosTurno:"OFICINA TÉCNICA",
+      controlROP02:"OFICINA TÉCNICA",
+      controlErrores:"OFICINA TÉCNICA",
+      ctrlEquipo:"OFICINA TÉCNICA",
+      atrasoROP02:"OFICINA TÉCNICA",
+      rop05:"OFICINA TÉCNICA",
+      rop05Discriminacion:"OFICINA TÉCNICA",
+      ranking:"OFICINA TÉCNICA",
+      chc:"OFICINA TÉCNICA",
+      control:"OFICINA TÉCNICA",
+      mant:"MANTENIMIENTO",
+      distMant:"MANTENIMIENTO",
+      rma15CtrlEquipo:"MANTENIMIENTO",
+      costosMant:"MANTENIMIENTO",
+      costosUnitarios:"MANTENIMIENTO",
+      listaEquipos:"TALLER CENTRAL",
+      tallerCentral:"TALLER CENTRAL",
+      abastecimiento:"ABASTECIMIENTO",
+      abastecimientoDashboard:"ABASTECIMIENTO",
+      abastecimientoPendientes:"ABASTECIMIENTO",
+      abastecimientoParciales:"ABASTECIMIENTO",
+      abastecimientoCerradas:"ABASTECIMIENTO",
+      abastecimientoRechazadas:"ABASTECIMIENTO",
+      abastecimientoRemito:"ABASTECIMIENTO",
+      abastecimientoStock:"ABASTECIMIENTO",
+      abastecimientoStockDashboard:"ABASTECIMIENTO",
+      abastecimientoRABA03:"ABASTECIMIENTO",
+      abastecimientoEditarCodigos:"ABASTECIMIENTO"
+    };
+    return map[view]||"";
+  },[view]);
+  const puedeEditarVista=!areaRequeridaVista||areaNormalizada===dmNormalizeArea(areaRequeridaVista);
   const[loading,setLoading]=useState(false);
   const[syncing,setSyncing]=useState(false);
   const[rop02All,setRop02All]=useState([]);
@@ -17325,6 +17403,8 @@ export default function App(){
                 <span style={{fontSize:10,color:C.textSub,overflow:"hidden",textOverflow:"ellipsis"}}>
                   <strong style={{color:C.text}}>{nombreUsuario}</strong>
                   <span style={{color:C.textMuted}}> · {rolUsuario} · </span>
+                  <strong style={{color:C.yellow}}>{areaUsuario||"SIN ÁREA"}</strong>
+                  <span style={{color:C.textMuted}}> · </span>
                   <strong style={{color:proyectoRestringido?C.blue:C.green}}>{proyectoUsuario}</strong>
                 </span>
               </div>
@@ -17337,6 +17417,12 @@ export default function App(){
             </div>
           </div>)}
           <div style={{flex:1,overflow:"auto",padding:showSidebar?16:0,background:"transparent"}}>
+            {areaRequeridaVista&&!puedeEditarVista&&view!=="bienvenida"&&(
+              <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:12,padding:"10px 13px",background:`${C.blue}12`,border:`1px solid ${C.blue}55`,borderRadius:9,color:C.textSub,fontSize:12,fontWeight:700}}>
+                <Icon name="eye" size={14} color={C.blue}/>
+                Modo solo lectura. El usuario pertenece a <strong style={{color:C.text}}>{areaUsuario||"SIN ÁREA"}</strong>; únicamente <strong style={{color:C.blue}}>{areaRequeridaVista}</strong> puede realizar modificaciones en esta sección.
+              </div>
+            )}
             {errors.length>0&&!fatalError&&(
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                 {errors.map((e,i)=>(
@@ -17381,7 +17467,7 @@ export default function App(){
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
-                {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<AbastecimientoModule readOnly={esAdministrativo} assignedProject={proyectoUsuario} initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/>) }
+                {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<AbastecimientoModule readOnly={!dmCanEditArea("ABASTECIMIENTO")} assignedProject={proyectoUsuario} initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/>) }
                 {view==="control"&&(dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<BlockingDataLoader label="Cargando Control ROP05 vs ROP02..." />)}
               </>
             )}
