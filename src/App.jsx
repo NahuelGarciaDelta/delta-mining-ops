@@ -367,9 +367,10 @@ function toMoneyNumber(v){
     const parts=s.split(",");
     if(commaCount===1){
       const left=parts[0], right=parts[1]||"";
-      // 15,296 puede ser miles; 15296,77 o 3941,6 es decimal.
-      if(right.length===3&&left.length<=3)s=left+right;
-      else s=left+"."+right;
+      // En la base argentina la coma siempre es separador decimal,
+      // incluso cuando el precio con IVA tiene 3 decimales: 979,374 = 979.374.
+      // Antes se interpretaba erróneamente como 979374.
+      s=left+"."+right;
     }else{
       const last=parts[parts.length-1]||"";
       if(last.length<=2)s=parts.slice(0,-1).join("")+"."+last;
@@ -379,10 +380,11 @@ function toMoneyNumber(v){
     const parts=s.split(".");
     if(dotCount===1){
       const left=parts[0], right=parts[1]||"";
-      // CRÍTICO: valores numéricos de Sheets a veces llegan como string con
-      // muchos decimales binarios: "57.09999999999999". Eso es 57.10, NO miles.
-      if(right.length===3&&left.length<=3)s=left+right;
-      else s=left+"."+right;
+      // Un único punto en precios unitarios se conserva como separador decimal.
+      // Ejemplo real de la base: 979.374 significa 979,374 y NO 979.374 pesos.
+      // Los importes con miles y decimales (134.360,40) ya se resuelven arriba
+      // en la rama que contiene punto y coma simultáneamente.
+      s=left+"."+right;
     }else{
       const last=parts[parts.length-1]||"";
       if(last.length<=2)s=parts.slice(0,-1).join("")+"."+last;
@@ -1303,7 +1305,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
   },[useVirtual]);
 
   // Ordenamiento global para TODAS las tablas:
-  // números/fechas: primer clic = mayor a menor (desc); texto: primer clic = A→Z (asc).
+  // Primer clic = menor a mayor para números/fechas y A→Z para textos.
   const colSortId=useCallback((c,i)=>c.sortKey||c.key||`__col_${i}` ,[]);
 
   // IMPORTANTE: esta función debe declararse ANTES de detectInitialDir.
@@ -1353,8 +1355,8 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
     };
     const first=rows.find(r=>{const v=getSV(r);return v!==null&&v!==undefined&&v!==""});
     if(!first)return"asc";
-    const n=normalizeSortValue(getSV(first));
-    return(n.type==="number"||n.type==="date")?"desc":"asc";
+    normalizeSortValue(getSV(first));
+    return "asc";
   },[cols,rows,colSortId,normalizeSortValue]);
   const handleSort=useCallback((key)=>{
     if(sortKey===key){
@@ -1409,7 +1411,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
           const sticky=stickyFirst&&i===0;
           const sKey=colSortId(c,i);
           return(
-          <th key={i} onClick={()=>handleSort(sKey)}
+          <th key={i} data-dm-managed-sort="true" onClick={()=>handleSort(sKey)}
             style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?4:3,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===sKey?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:c.width||c.maxWidth||(c.wrap?140:undefined),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),lineHeight:1.3,cursor:"pointer",userSelect:"none",boxShadow:sticky?`1px 0 0 ${C.border}`:undefined}}>
             {c.label}{sortKey===sKey?(sortDir==="asc"?" ↑":" ↓"):""}
           </th>
@@ -5181,15 +5183,47 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
     return rows;
   },[filteredBase05,mode,rangoAcumulado,tarea,tipoMaquina]);
 
+  // Cuando una misma tarea aparece cargada en ML y KML, se consolida en una sola fila KML.
+  // La conversión usada es 1 KML = 1.000 ML. Las tareas que solo existen en ML conservan su unidad original.
+  const tareasMixtasLineales=useMemo(()=>{
+    const unidadesPorTarea=new Map();
+    filtered.forEach(r=>{
+      const tarea=r.tarea||"—";
+      const unidad=unidadShort(r.unidad);
+      if(unidad!=="ML"&&unidad!=="KML")return;
+      if(!unidadesPorTarea.has(tarea))unidadesPorTarea.set(tarea,new Set());
+      unidadesPorTarea.get(tarea).add(unidad);
+    });
+    return new Set(Array.from(unidadesPorTarea.entries())
+      .filter(([,unidades])=>unidades.has("ML")&&unidades.has("KML"))
+      .map(([tarea])=>tarea));
+  },[filtered]);
+
+  const normalizarLineaParaAgrupacion=useCallback(r=>{
+    const tarea=r.tarea||"—";
+    const unidadOriginal=unidadShort(r.unidad);
+    const consolidar=tareasMixtasLineales.has(tarea)&&(unidadOriginal==="ML"||unidadOriginal==="KML");
+    const factor=consolidar&&unidadOriginal==="ML"?1/1000:1;
+    return {
+      tarea,
+      unidad:consolidar?"KML":unidadOriginal,
+      cantidad:n(r.cantidad)*factor,
+      largo:n(r.largo)*factor,
+      ancho:n(r.ancho),
+      profundidad:n(r.profundidad),
+      horas:n(r.horas),
+    };
+  },[tareasMixtasLineales]);
+
   const discrRows=useMemo(()=>{
     const map=new Map();
     filtered.forEach(r=>{
-      const unidad=unidadShort(r.unidad);
-      const tarea=r.tarea||"—";
+      const nr=normalizarLineaParaAgrupacion(r);
+      const {unidad,tarea}=nr;
       const key=[tarea,unidad].join("__");
       if(!map.has(key))map.set(key,{key,tarea,unidad,cantidad:0,horas:0,largo:0,ancho:0,profundidad:0,registros:0,equipos:new Set(),proyectos:new Set(),errores:0});
       const acc=map.get(key);
-      acc.cantidad+=n(r.cantidad); acc.horas+=n(r.horas); acc.largo+=n(r.largo); acc.ancho+=n(r.ancho); acc.profundidad+=n(r.profundidad); acc.registros+=1;
+      acc.cantidad+=nr.cantidad; acc.horas+=nr.horas; acc.largo+=nr.largo; acc.ancho+=nr.ancho; acc.profundidad+=nr.profundidad; acc.registros+=1;
       if(dimError(r))acc.errores+=1;
       if(r.maquina)acc.equipos.add(r.maquina);
       if(r.proyecto)acc.proyectos.add(r.proyecto);
@@ -5200,17 +5234,17 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
       proyectosTxt:Array.from(r.proyectos).sort().join(" / ")||"—",
       rendimiento:r.horas>0?r.cantidad/r.horas:0,
     })).sort((a,b)=>a.tarea.localeCompare(b.tarea)||a.unidad.localeCompare(b.unidad));
-  },[filtered]);
+  },[filtered,normalizarLineaParaAgrupacion]);
 
   const resumenTareas=useMemo(()=>{
     const map=new Map();
     filtered.forEach(r=>{
-      const unidad=unidadShort(r.unidad);
-      const tarea=r.tarea||"—";
+      const nr=normalizarLineaParaAgrupacion(r);
+      const {unidad,tarea}=nr;
       const key=[tarea,unidad].join("__");
       if(!map.has(key))map.set(key,{key,tarea,unidad,cantidad:0,horas:0,largo:0,anchoTotal:0,profTotal:0,registros:0,equipos:new Set(),largoVals:[],anchoVals:[],profVals:[],errores:0});
-      const acc=map.get(key), l=n(r.largo), a=n(r.ancho), p=n(r.profundidad), c=n(r.cantidad);
-      acc.cantidad+=c; acc.horas+=n(r.horas); acc.registros+=1; acc.largo+=l; acc.anchoTotal+=a; acc.profTotal+=p;
+      const acc=map.get(key), l=nr.largo, a=nr.ancho, p=nr.profundidad, c=nr.cantidad;
+      acc.cantidad+=c; acc.horas+=nr.horas; acc.registros+=1; acc.largo+=l; acc.anchoTotal+=a; acc.profTotal+=p;
       if(l>0)acc.largoVals.push(l); if(a>0)acc.anchoVals.push(a); if(p>0)acc.profVals.push(p);
       if(r.maquina)acc.equipos.add(r.maquina);
       if(dimError(r))acc.errores+=1;
@@ -5222,7 +5256,7 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
       largoProm:avg(r.largoVals), anchoProm:avg(r.anchoVals), profProm:avg(r.profVals),
       rendimiento:r.horas>0?r.cantidad/r.horas:0,
     })).sort((a,b)=>b.cantidad-a.cantidad);
-  },[filtered]);
+  },[filtered,normalizarLineaParaAgrupacion]);
 
   const excelBaseRows=useMemo(()=>{
     let rows=rop05DesdeJulio.filter(r=>{
@@ -5241,14 +5275,149 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
   const detalleRows=useMemo(()=>{
     if(!detalleKey)return [];
     const [dt,du]=detalleKey.split("__");
-    return filtered.filter(r=>(r.tarea||"—")===dt&&unidadShort(r.unidad)===du).slice(0,150);
-  },[filtered,detalleKey]);
+    return filtered.filter(r=>{
+      const nr=normalizarLineaParaAgrupacion(r);
+      return nr.tarea===dt&&nr.unidad===du;
+    }).slice(0,150);
+  },[filtered,detalleKey,normalizarLineaParaAgrupacion]);
   const totalCantidad=discrRows.reduce((s,r)=>s+r.cantidad,0);
   const totalHoras=discrRows.reduce((s,r)=>s+r.horas,0);
   const totalLargo=resumenTareas.reduce((s,r)=>s+r.largo,0);
   const totalErrores=registrosConAlertas.length;
   const chartData=resumenTareas.slice(0,10).map(r=>({tarea:r.tarea.length>26?r.tarea.slice(0,24)+"…":r.tarea,cantidad:Number(r.cantidad.toFixed(2)),horas:Number(r.horas.toFixed(2)),registros:r.registros,unidad:r.unidad}));
   const periodoLabelDiscr=mode==="acumulado"?rangoAcumulado.label:(mode==="dia"?fmtFecha(fecha):`${fechaD||"inicio"}_${fechaH||"fin"}`);
+
+  const generarPDFDiscriminacionPorProyecto=useCallback(()=>{
+    const escapeHtml=value=>String(value??"")
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/\"/g,"&quot;")
+      .replace(/'/g,"&#039;");
+    const esTrabajoPorHora=tarea=>textoNorm(tarea).includes("TRABAJO POR HORA");
+    const agrupado=new Map();
+
+    filtered.forEach(r=>{
+      if(esTrabajoPorHora(r.tarea))return;
+      const proyecto=String(r.proyecto||"SIN PROYECTO").trim()||"SIN PROYECTO";
+      const nr=normalizarLineaParaAgrupacion(r);
+      const {unidad,tarea}=nr;
+      if(!agrupado.has(proyecto))agrupado.set(proyecto,new Map());
+      const porTarea=agrupado.get(proyecto);
+      const key=`${tarea}__${unidad}`;
+      if(!porTarea.has(key))porTarea.set(key,{tarea,unidad,largo:0,ancho:0,profundidad:0,cantidad:0,horas:0,registros:0,equipos:new Set()});
+      const acc=porTarea.get(key);
+      acc.largo+=nr.largo;
+      acc.ancho+=nr.ancho;
+      acc.profundidad+=nr.profundidad;
+      acc.cantidad+=nr.cantidad;
+      acc.horas+=nr.horas;
+      acc.registros+=1;
+      if(r.maquina)acc.equipos.add(r.maquina);
+    });
+
+    if(!agrupado.size){
+      appAlert("No hay registros para generar el PDF con los filtros actuales.");
+      return;
+    }
+
+    const periodoTexto=mode==="acumulado"
+      ?rangoAcumulado.label
+      :mode==="dia"
+        ?fmtFecha(fecha)
+        :`${fechaD?fmtFecha(fechaD):"Inicio"} a ${fechaH?fmtFecha(fechaH):"Fin"}`;
+    const proyectos=Array.from(agrupado.entries()).sort(([a],[b])=>a.localeCompare(b,"es",{sensitivity:"base"}));
+    const secciones=proyectos.map(([proyecto,map],index)=>{
+      const filas=Array.from(map.values())
+        .map(r=>({...r,equiposCount:r.equipos.size,rendimiento:r.horas>0?r.cantidad/r.horas:0}))
+        .sort((a,b)=>(b.horas-a.horas)||a.tarea.localeCompare(b.tarea,"es",{sensitivity:"base"})||a.unidad.localeCompare(b.unidad,"es",{sensitivity:"base"}));
+      const body=filas.map(r=>`
+        <tr>
+          <td class="left">${escapeHtml(r.tarea)}</td>
+          <td class="hours-cell">${escapeHtml(fmtNum(r.horas))}</td>
+          <td>${escapeHtml(r.unidad)}</td>
+          <td>${r.largo?escapeHtml(fmtNum(r.largo)):"—"}</td>
+          <td>${r.ancho?escapeHtml(fmtNum(r.ancho)):"—"}</td>
+          <td>${r.profundidad?escapeHtml(fmtNum(r.profundidad)):"—"}</td>
+          <td>${escapeHtml(formatCantidad(r.cantidad,r.unidad))}</td>
+          <td>${escapeHtml(formatRend(r.rendimiento,r.unidad))}</td>
+          <td>${r.registros}</td>
+          <td>${r.equiposCount}</td>
+        </tr>`).join("");
+      return `
+        <section class="project ${index<proyectos.length-1?"page-break":""}">
+          <div class="project-title">PROYECTO: ${escapeHtml(proyecto)}</div>
+          <table>
+            <thead><tr>
+              <th class="left">Tarea</th><th>Horas</th><th>Unidad</th><th>Largo total</th><th>Ancho total</th><th>Prof. total</th><th>Cantidad</th><th>Prod/hs</th><th>Registros</th><th>Equipos</th>
+            </tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </section>`;
+    }).join("");
+
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>Discriminación por proyecto</title>
+      <style>
+        @page{size:A4 landscape;margin:10mm}
+        *{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#171717;margin:0;font-size:9px}
+        .report-title{text-align:center;font-size:16px;font-weight:800;margin:0 0 3px}
+        .period{text-align:center;color:#555;font-size:10px;margin-bottom:12px}
+        .project{width:100%;margin-bottom:12px}.page-break{page-break-after:always}
+        .project-title{font-size:13px;font-weight:800;background:#202020;color:#fff;padding:7px 9px;border-radius:4px 4px 0 0}
+        table{width:100%;border-collapse:collapse;table-layout:fixed}
+        th,td{border:1px solid #bdbdbd;padding:5px 4px;text-align:center;vertical-align:middle;overflow-wrap:anywhere}
+        th{background:#e7e7e7;font-size:8px;text-transform:uppercase;letter-spacing:.03em}
+        th:first-child,td:first-child{width:25%}.left{text-align:left}
+        tbody tr:nth-child(even){background:#f5f5f5}
+        .hours-cell{font-weight:800}
+        .footer{margin-top:8px;font-size:8px;color:#666;text-align:right}
+      </style></head><body>
+      <h1 class="report-title">DISCRIMINACIÓN POR LARGO, ANCHO Y PROFUNDIDAD</h1>
+      <div class="period">Período: ${escapeHtml(periodoTexto)}</div>
+      ${secciones}
+      <div class="footer">Generado desde Delta Mining App</div>
+      <script>window.onload=function(){setTimeout(function(){window.print();},250)};<\/script>
+      </body></html>`;
+    // Imprime directamente desde la pestaña actual, sin abrir ventanas emergentes.
+    const printFrame=document.createElement("iframe");
+    printFrame.setAttribute("aria-hidden","true");
+    printFrame.style.position="fixed";
+    printFrame.style.right="0";
+    printFrame.style.bottom="0";
+    printFrame.style.width="0";
+    printFrame.style.height="0";
+    printFrame.style.border="0";
+    printFrame.style.opacity="0";
+    printFrame.style.pointerEvents="none";
+
+    const limpiarFrame=()=>{
+      try{printFrame.remove();}catch(_err){}
+    };
+
+    printFrame.onload=()=>{
+      try{
+        const printWindow=printFrame.contentWindow;
+        if(!printWindow)throw new Error("No se pudo preparar la vista de impresión.");
+        printWindow.focus();
+        const despuesDeImprimir=()=>{
+          printWindow.removeEventListener?.("afterprint",despuesDeImprimir);
+          setTimeout(limpiarFrame,100);
+        };
+        printWindow.addEventListener?.("afterprint",despuesDeImprimir);
+        setTimeout(()=>{
+          printWindow.print();
+          // Respaldo para navegadores que no disparan afterprint.
+          setTimeout(limpiarFrame,60000);
+        },250);
+      }catch(err){
+        limpiarFrame();
+        appAlert(`No se pudo abrir el cuadro de impresión: ${err?.message||err}`);
+      }
+    };
+
+    document.body.appendChild(printFrame);
+    printFrame.srcdoc=html.replace(/<script>[\s\S]*?<\/script>/i,"");
+  },[filtered,mode,rangoAcumulado,fecha,fechaD,fechaH,normalizarLineaParaAgrupacion]);
 
   const th=(txt,left=false)=><th style={{padding:"9px 10px",textAlign:left?"left":"center",fontWeight:700,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",color:C.textSub,borderBottom:`2px solid ${C.border}`,position:"sticky",top:0,background:C.surface,zIndex:2}}>{txt}</th>;
   const td=(children,left=false,color=C.text,fw=600)=> <td style={{padding:"8px 10px",textAlign:left?"left":"center",borderBottom:`1px solid ${C.border}18`,color,fontWeight:fw}}>{children}</td>;
@@ -5378,7 +5547,15 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
         </div>
       </Card>
 
-      <Card title={`Discriminación por largo, ancho y profundidad (${discrRows.length})`}>
+      <Card
+        title={`Discriminación por largo, ancho y profundidad (${discrRows.length})`}
+        action={<button
+          onClick={generarPDFDiscriminacionPorProyecto}
+          disabled={!filtered.some(r=>!textoNorm(r.tarea).includes("TRABAJO POR HORA"))}
+          title="Generar PDF separado por proyecto"
+          style={{height:30,border:`1px solid ${C.red}77`,background:C.redDim,color:C.red,borderRadius:8,padding:"0 12px",fontSize:11,fontWeight:900,cursor:"pointer",opacity:filtered.some(r=>!textoNorm(r.tarea).includes("TRABAJO POR HORA"))?1:.4}}
+        >📄 PDF</button>}
+      >
         <div style={{overflowX:"auto",overflowY:"auto",maxHeight:520}}>
           {discrRows.length===0?(
             <div style={{padding:28,textAlign:"center",color:C.textMuted,fontSize:12}}>Sin registros con los filtros seleccionados</div>
@@ -7761,7 +7938,7 @@ function ViewCostosUnitarios({insumos,rma15,usdRate}){
 
   const rows=useMemo(()=>{
     return Object.entries(insumos||{}).map(([codigo,info])=>{
-      const precioARS=toMoneyNumber(info?.costoUnitario ?? getValue(info||{},["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"]));
+      const precioARS=toMoneyNumber(info?.costoUnitario ?? getValue(info||{},["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario con IVA","PRECIO UNITARIO CON IVA","precio unitario con IVA","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"]));
       const articulo=String(info?.descripcion||getValue(info||{},["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Insumo","Nombre"])||"").trim()||codigo;
       const extra=String(info?.descripcionAdicional||"").trim()||getInsumoExtra(info||{},articulo);
       return{
@@ -8078,6 +8255,111 @@ function ViewDistribucionMantenimientos({rma15}){
         ?"Nivel medio: conviene revisar equipos con correctivos repetidos."
         :"Alerta: hay demasiados correctivos respecto de los preventivos.";
 
+  const generarInformeMantenimientosPDF=useCallback(()=>{
+    if(!filtered.length){
+      appAlert("No hay mantenimientos para generar el informe con los filtros seleccionados.");
+      return;
+    }
+    const escapeHtml=v=>String(v??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[ch]));
+    const fmtDec=(v,d=1)=>Number.isFinite(Number(v))?Number(v).toLocaleString("es-AR",{minimumFractionDigits:d,maximumFractionDigits:d}):"—";
+    const proyectosInforme=uniq(filtered.map(r=>String(r.proyecto||r.lugar||"SIN PROYECTO").trim()||"SIN PROYECTO"))
+      .sort((a,b)=>String(a).localeCompare(String(b),"es-AR",{numeric:true,sensitivity:"base"}));
+    const yPrint=Number(anio)||hoy.getFullYear();
+    const mPrint=Number(mesIdx)||0;
+    const firstOffsetPrint=(new Date(yPrint,mPrint,1).getDay()+6)%7;
+    const diasMes=new Date(yPrint,mPrint+1,0).getDate();
+    const celdasMes=[];
+    for(let i=0;i<firstOffsetPrint;i++)celdasMes.push(null);
+    for(let d=1;d<=diasMes;d++)celdasMes.push(fechaISO(yPrint,mPrint,d));
+    while(celdasMes.length%7)celdasMes.push(null);
+
+    const secciones=proyectosInforme.map((nombreProyecto,idxProyecto)=>{
+      const rows=filtered.filter(r=>(String(r.proyecto||r.lugar||"SIN PROYECTO").trim()||"SIN PROYECTO")===nombreProyecto);
+      const prev=rows.filter(r=>r._tipo==="Preventivo").length;
+      const corr=rows.filter(r=>r._tipo==="Correctivo").length;
+      const total=rows.length;
+      const equiposMap={};
+      rows.forEach(r=>{
+        const eq=String(r.maquina||"—").trim()||"—";
+        if(!equiposMap[eq])equiposMap[eq]={equipo:eq,preventivos:0,correctivos:0,total:0,fechas:[]};
+        equiposMap[eq].total++;
+        if(r._tipo==="Preventivo")equiposMap[eq].preventivos++;
+        if(r._tipo==="Correctivo")equiposMap[eq].correctivos++;
+        if(r.fecha)equiposMap[eq].fechas.push(r.fecha);
+      });
+      const equipos=Object.values(equiposMap).map(x=>({...x,ratio:x.preventivos>0?x.correctivos/x.preventivos:(x.correctivos>0?null:0)}))
+        .sort((a,b)=>b.total-a.total||String(a.equipo).localeCompare(String(b.equipo),"es-AR",{numeric:true,sensitivity:"base"}));
+      const reincidentes=equipos.filter(x=>x.correctivos>=2).sort((a,b)=>b.correctivos-a.correctivos||b.total-a.total);
+      const intervalos=[];
+      equipos.forEach(eq=>{const fs=uniq(eq.fechas).sort();for(let i=1;i<fs.length;i++){const d=Math.round((new Date(`${fs[i]}T00:00:00`)-new Date(`${fs[i-1]}T00:00:00`))/86400000);if(Number.isFinite(d)&&d>=0)intervalos.push(d);}});
+      const diasEntre=intervalos.length?intervalos.reduce((a,b)=>a+b,0)/intervalos.length:0;
+      const ratio=prev>0?corr/prev:(corr>0?null:0);
+      const pctPrev=total?Math.round(prev/total*100):0;
+      const pctCorr=total?Math.round(corr/total*100):0;
+      const equipoMasCorr=[...equipos].sort((a,b)=>b.correctivos-a.correctivos||b.total-a.total)[0];
+      const equipoMayorRatio=[...equipos].filter(x=>x.ratio!==null).sort((a,b)=>(b.ratio||0)-(a.ratio||0)||b.total-a.total)[0];
+      const porDia={}; rows.forEach(r=>{if(!porDia[r.fecha])porDia[r.fecha]=[];porDia[r.fecha].push(r);});
+      const topRows=equipos.slice(0,15).map(x=>`<tr><td>${escapeHtml(x.equipo)}</td><td class="num prev">${x.preventivos}</td><td class="num corr">${x.correctivos}</td><td class="num strong">${x.total}</td><td class="num ${x.ratio===null||x.ratio>0.75?'bad':(x.ratio>0.35?'warn':'good')}">${x.ratio===null?'Sin prev.':x.ratio.toFixed(2)}</td></tr>`).join("");
+      const reincRows=reincidentes.length?reincidentes.slice(0,25).map(x=>`<tr><td>${escapeHtml(x.equipo)}</td><td class="num corr strong">${x.correctivos}</td><td class="num prev">${x.preventivos}</td><td class="num">${x.total}</td><td>Correctivos repetidos: revisar causa raíz, calidad de reparación y stock de repuestos críticos.</td></tr>`).join(""):`<tr><td colspan="5" class="empty good">No hay equipos con reincidencia correctiva.</td></tr>`;
+      const calendario=celdasMes.map(iso=>{
+        if(!iso)return `<div class="day blank"></div>`;
+        const items=(porDia[iso]||[]).sort((a,b)=>String(a.maquina||"").localeCompare(String(b.maquina||""),"es-AR",{numeric:true,sensitivity:"base"}));
+        const p=items.filter(x=>x._tipo==="Preventivo").length;
+        const c=items.filter(x=>x._tipo==="Correctivo").length;
+        const detalle=items.slice(0,5).map(r=>`<div class="event"><span class="dot ${r._tipo==='Preventivo'?'p':'c'}"></span>${escapeHtml(r.maquina||'—')}</div>`).join("");
+        return `<div class="day ${items.length?'active':''}"><div class="day-head"><b>${Number(iso.slice(-2))}</b>${items.length?`<span>${items.length} OT</span>`:''}</div>${(p||c)?`<div class="badges">${p?`<span class="badge p">P ${p}</span>`:''}${c?`<span class="badge c">C ${c}</span>`:''}</div>`:''}<div class="events">${detalle}${items.length>5?`<div class="more">+${items.length-5} más</div>`:''}</div></div>`;
+      }).join("");
+      const ratioTexto=ratio===null?"Sin preventivos":ratio.toFixed(2);
+      const donutStyle=`background:conic-gradient(#20c96b 0 ${pctPrev}%,#ff1538 ${pctPrev}% 100%)`;
+      return `<section class="project ${idxProyecto?"page-break":""}">
+        <header><div><div class="brand">DELTA MINING</div><h1>INFORME DE DISTRIBUCIÓN DE MANTENIMIENTOS</h1><div class="period">${escapeHtml(periodo.label)} · ${escapeHtml(fmtFechaLocal(periodo.desde))} al ${escapeHtml(fmtFechaLocal(periodo.hasta))}</div></div><div class="project-name">PROYECTO<br><strong>${escapeHtml(nombreProyecto)}</strong></div></header>
+        <div class="kpis">
+          <div class="kpi blue"><span>Mantenimientos</span><b>${total}</b></div><div class="kpi green"><span>Preventivos</span><b>${prev}</b><small>${pctPrev}% del total</small></div><div class="kpi red"><span>Correctivos</span><b>${corr}</b><small>${pctCorr}% del total</small></div><div class="kpi amber"><span>Ratio C/P</span><b>${ratioTexto}</b></div><div class="kpi purple"><span>Reincidentes</span><b>${reincidentes.length}</b></div><div class="kpi violet"><span>Días entre mant.</span><b>${diasEntre?fmtDec(diasEntre,1):'—'}</b></div>
+        </div>
+        <div class="grid2">
+          <div class="panel"><h2>Distribución preventivo / correctivo</h2><div class="chart-wrap"><div class="donut" style="${donutStyle}"><div><b>${total}</b><span>Total</span></div></div><div class="legend"><div><i class="lg p"></i><b>Preventivos</b><span>${prev} (${pctPrev}%)</span></div><div><i class="lg c"></i><b>Correctivos</b><span>${corr} (${pctCorr}%)</span></div><div class="reading">${ratio===null||ratio>0.75?'Alerta: demasiados correctivos respecto de los preventivos.':ratio>0.35?'Nivel medio: revisar equipos con correctivos repetidos.':'Buen comportamiento: predominan los preventivos.'}</div></div></div></div>
+          <div class="panel"><h2>Resumen ejecutivo</h2><div class="summary"><div><span>Equipos intervenidos</span><b>${equipos.length}</b></div><div><span>Equipo con más correctivos</span><b>${escapeHtml(equipoMasCorr?.equipo||'—')}</b><small>${equipoMasCorr?equipoMasCorr.correctivos+' correctivos':''}</small></div><div><span>Mayor ratio C/P</span><b>${escapeHtml(equipoMayorRatio?.equipo||'—')}</b><small>${equipoMayorRatio&&equipoMayorRatio.ratio!==null?equipoMayorRatio.ratio.toFixed(2):'—'}</small></div><div><span>Ratio general C/P</span><b>${ratioTexto}</b></div></div></div>
+        </div>
+        <div class="panel"><h2>Top equipos con más mantenimientos</h2><table><thead><tr><th>Equipo</th><th>Preventivos</th><th>Correctivos</th><th>Total</th><th>Ratio C/P</th></tr></thead><tbody>${topRows||'<tr><td colspan="5" class="empty">Sin datos</td></tr>'}</tbody></table></div>
+        <div class="panel"><h2>Equipos reincidentes en correctivos</h2><table><thead><tr><th>Equipo</th><th>Correctivos</th><th>Preventivos</th><th>Total</th><th>Lectura</th></tr></thead><tbody>${reincRows}</tbody></table></div>
+        <div class="panel calendar-panel"><h2>Calendario de mantenimientos — ${escapeHtml(periodo.label)}</h2><div class="calendar-head">${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d=>`<div>${d}</div>`).join('')}</div><div class="calendar">${calendario}</div><div class="calendar-legend"><span><i class="lg p"></i>Preventivo</span><span><i class="lg c"></i>Correctivo</span><span><i class="lg both"></i>Ambos en el día</span></div></div>
+
+        <div class="methodology-page">
+          <div class="panel methodology">
+            <h2>Metodología e interpretación de los indicadores</h2>
+            <div class="conclusion">
+              <h3>Conclusión automática del período</h3>
+              <p>Durante el período analizado se registraron <strong>${total} mantenimientos</strong> en el proyecto <strong>${escapeHtml(nombreProyecto)}</strong>, de los cuales <strong>${prev} (${pctPrev}%) fueron preventivos</strong> y <strong>${corr} (${pctCorr}%) correctivos</strong>. El Ratio C/P resultante fue <strong>${ratioTexto}</strong>. ${ratio===null?'No puede calcularse una relación comparable porque no se registraron mantenimientos preventivos.':ratio<=0.35?'El resultado indica un claro predominio del mantenimiento preventivo.':ratio<=0.75?'El resultado corresponde a un nivel intermedio; conviene revisar los equipos con correctivos repetidos.':'El resultado evidencia una proporción elevada de correctivos respecto de los preventivos y requiere revisión prioritaria.'} Se identificaron <strong>${reincidentes.length} equipos reincidentes</strong> y el promedio entre intervenciones consecutivas fue de <strong>${diasEntre?fmtDec(diasEntre,1):'—'} días</strong>.</p>
+            </div>
+            <div class="method-grid">
+              <article><h3>Total de mantenimientos</h3><p>Cantidad total de intervenciones incluidas en el período y en los filtros aplicados. Es la suma de mantenimientos preventivos y correctivos.</p></article>
+              <article><h3>Mantenimientos preventivos</h3><p>Intervenciones planificadas destinadas a conservar la disponibilidad y confiabilidad del equipo, prevenir fallas y cumplir frecuencias de servicio o inspección.</p></article>
+              <article><h3>Mantenimientos correctivos</h3><p>Intervenciones ejecutadas para reparar una falla existente y restablecer la condición operativa del equipo.</p></article>
+              <article><h3>Ratio C/P</h3><p>Se calcula como <strong>Correctivos ÷ Preventivos</strong>. Un valor menor indica mayor predominio preventivo. Si no existen preventivos, el indicador se muestra como “Sin preventivos”.</p><div class="scale"><span class="s-good">0,00–0,35: favorable</span><span class="s-warn">0,36–0,75: intermedio</span><span class="s-bad">&gt; 0,75: atención</span></div></article>
+              <article><h3>Equipos reincidentes</h3><p>Cantidad de equipos con <strong>dos o más mantenimientos correctivos</strong> en el período. Permite priorizar análisis de causa raíz, calidad de reparación y disponibilidad de repuestos.</p></article>
+              <article><h3>Días entre mantenimientos</h3><p>Promedio de días calendario entre fechas consecutivas de intervención de cada equipo. Se calculan los intervalos por equipo y luego se obtiene el promedio general.</p></article>
+              <article><h3>Top equipos con más mantenimientos</h3><p>Clasificación por cantidad total de intervenciones. Ante igualdad, se utiliza el nombre o código del equipo para mantener un orden estable.</p></article>
+              <article><h3>Calendario</h3><p>Distribuye las órdenes por fecha. Verde identifica preventivos, rojo correctivos y la combinación de ambos colores indica que coexistieron ambos tipos en el mismo día.</p></article>
+            </div>
+            <div class="note"><strong>Alcance:</strong> todos los valores se calculan únicamente con los registros comprendidos por el mes, año, proyecto, equipo y tipo de mantenimiento seleccionados al momento de generar el informe.</div>
+          </div>
+        </div>
+      </section>`;
+    }).join("");
+    const generado=new Date().toLocaleString("es-AR");
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>Informe de mantenimientos</title><style>
+      @page{size:A4 landscape;margin:9mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#15171b;margin:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}.project{padding:0 2mm}.page-break{break-before:page;page-break-before:always}header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #ed0b2f;padding:0 0 8px;margin-bottom:10px}.brand{font-weight:900;color:#ed0b2f;letter-spacing:.12em;font-size:12px}h1{font-size:19px;margin:3px 0}.period{font-size:10px;color:#68707d}.project-name{text-align:right;font-size:9px;color:#68707d;line-height:1.5}.project-name strong{font-size:16px;color:#15171b}.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-bottom:9px}.kpi{border:1px solid #d9dde4;border-top:4px solid currentColor;border-radius:7px;padding:7px 9px;min-height:62px;background:#fff}.kpi span{display:block;font-size:9px;color:#68707d;text-transform:uppercase;font-weight:800}.kpi b{display:block;font-size:21px;line-height:1.1;margin-top:3px}.kpi small{font-size:8px;color:#68707d}.blue{color:#246bce}.green,.prev,.good{color:#159a55}.red,.corr,.bad{color:#df1534}.amber,.warn{color:#d58b00}.purple{color:#844dcc}.violet{color:#9c47cf}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.panel{border:1px solid #d9dde4;border-radius:7px;margin-bottom:8px;overflow:hidden;break-inside:avoid}.panel h2{font-size:11px;margin:0;padding:7px 9px;background:#20242b;color:#fff;text-transform:uppercase;letter-spacing:.04em}.chart-wrap{display:flex;align-items:center;justify-content:center;gap:28px;padding:12px}.donut{width:140px;height:140px;border-radius:50%;display:grid;place-items:center;position:relative}.donut:after{content:'';position:absolute;width:82px;height:82px;border-radius:50%;background:#fff}.donut div{position:relative;z-index:1;text-align:center}.donut b{font-size:24px;display:block}.donut span{font-size:9px;color:#68707d}.legend{min-width:190px}.legend>div{display:grid;grid-template-columns:12px 1fr auto;gap:6px;align-items:center;margin:8px 0;font-size:10px}.legend .reading{display:block;background:#f3f5f8;border-radius:6px;padding:8px;line-height:1.35;margin-top:12px}.lg{width:9px;height:9px;border-radius:50%;display:inline-block}.lg.p,.dot.p{background:#20c96b}.lg.c,.dot.c{background:#ff1538}.lg.both{background:linear-gradient(90deg,#20c96b 50%,#ff1538 50%)}.summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px}.summary div{border:1px solid #e1e4e9;border-radius:6px;padding:9px}.summary span{font-size:8px;color:#68707d;text-transform:uppercase;font-weight:800;display:block}.summary b{font-size:14px;display:block;margin-top:3px}.summary small{font-size:8px;color:#68707d}table{width:100%;border-collapse:collapse;font-size:8.5px}th,td{border:1px solid #dfe2e7;padding:4px 5px}th{background:#f0f2f5;text-align:left;text-transform:uppercase;font-size:7.5px}.num{text-align:center}.strong{font-weight:900}.empty{text-align:center;padding:10px}.calendar-panel{break-before:auto}.calendar-head,.calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;padding:0 6px}.calendar-head{padding-top:7px}.calendar-head div{background:#20242b;color:#fff;text-align:center;padding:4px;font-size:8px;font-weight:900}.day{border:1px solid #dfe2e7;min-height:67px;padding:4px;background:#fafbfc;overflow:hidden}.day.active{background:#f2f4f7}.day.blank{border:none;background:transparent}.day-head{display:flex;justify-content:space-between;font-size:8px}.day-head span{color:#68707d;font-size:7px}.badges{display:flex;gap:3px;margin:3px 0}.badge{font-size:6.5px;padding:1px 4px;border-radius:999px;color:#fff}.badge.p{background:#20c96b}.badge.c{background:#ff1538}.event{font-size:6.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:2px 0}.dot{display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:3px}.more{font-size:6px;color:#68707d}.calendar-legend{display:flex;gap:15px;padding:7px;font-size:8px;justify-content:flex-end}.calendar-legend span{display:flex;align-items:center;gap:4px}.methodology-page{break-before:page;page-break-before:always}.methodology{margin-top:0}.methodology h2{font-size:13px;padding:9px 11px}.conclusion{margin:11px;border:1px solid #ccd3dd;border-left:5px solid #ed0b2f;border-radius:7px;padding:10px 12px;background:#f7f8fa}.conclusion h3,.method-grid h3{font-size:10px;margin:0 0 5px;color:#20242b;text-transform:uppercase}.conclusion p,.method-grid p,.note{font-size:9px;line-height:1.5;margin:0}.method-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 11px 10px}.method-grid article{border:1px solid #dfe2e7;border-radius:7px;padding:9px;background:#fff;break-inside:avoid}.scale{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.scale span{font-size:7.5px;font-weight:800;border-radius:999px;padding:3px 6px}.s-good{color:#087b42;background:#dff7e9}.s-warn{color:#956000;background:#fff2cf}.s-bad{color:#b10e29;background:#ffe0e5}.note{margin:0 11px 11px;padding:8px 10px;border-radius:6px;background:#eef1f5;color:#4d5562}.footer{position:fixed;bottom:2mm;left:9mm;right:9mm;font-size:7px;color:#7b818b;display:flex;justify-content:space-between}
+      @media print{.project{page-break-inside:auto}}
+    </style></head><body>${secciones}<div class="footer"><span>Delta Mining · Informe de distribución de mantenimientos</span><span>Generado: ${escapeHtml(generado)}</span></div></body></html>`;
+    const iframe=document.createElement("iframe");
+    iframe.style.position="fixed";iframe.style.right="0";iframe.style.bottom="0";iframe.style.width="0";iframe.style.height="0";iframe.style.border="0";iframe.setAttribute("aria-hidden","true");
+    document.body.appendChild(iframe);
+    const doc=iframe.contentWindow?.document;
+    if(!doc){try{document.body.removeChild(iframe);}catch(_){}appAlert("No se pudo preparar el informe para impresión.");return;}
+    doc.open();doc.write(html);doc.close();
+    setTimeout(()=>{try{iframe.contentWindow?.focus();iframe.contentWindow?.print();}finally{setTimeout(()=>{try{document.body.removeChild(iframe);}catch(_){}},1500);}},450);
+  },[filtered,anio,mesIdx,periodo,hoy]);
+
   const reset=()=>{setMaquina("todas");setTipoMant("todos");setProyecto("todos");setAnio(String(hoy.getFullYear()));setMesIdx(hoy.getMonth());};
   const badgeTipo=(tipo)=><Badge color={tipo==="Preventivo"?C.green:(tipo==="Correctivo"?C.red:C.blue)}>{tipo}</Badge>;
 
@@ -8085,7 +8367,7 @@ function ViewDistribucionMantenimientos({rma15}){
     <div style={{display:"flex",flexDirection:"column",gap:14,width:"100%"}}>
       <Card
         title="Distribución de mantenimientos"
-        action={<button onClick={reset} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 13px",borderRadius:9,border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:12,fontWeight:850,fontFamily:"Inter",whiteSpace:"nowrap"}}><Icon name="close" size={12} color={C.red}/>Limpiar filtros</button>}
+        action={<div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><button onClick={generarInformeMantenimientosPDF} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 13px",borderRadius:9,border:`1px solid ${C.red}`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:12,fontWeight:900,fontFamily:"Inter",whiteSpace:"nowrap"}}>📄 PDF</button><button onClick={reset} style={{display:"flex",alignItems:"center",gap:6,padding:"9px 13px",borderRadius:9,border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:12,fontWeight:850,fontFamily:"Inter",whiteSpace:"nowrap"}}><Icon name="close" size={12} color={C.red}/>Limpiar filtros</button></div>}
       >
         <div style={{padding:"14px 16px 16px"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:14,flexWrap:"wrap"}}>
@@ -16508,7 +16790,134 @@ function UserSettingsModal({open,forced=false,onClose,onSaved}){
   );
 }
 
+
+// Ordenamiento universal para las tablas HTML que no usan SmartTable.
+// Ciclo por encabezado: ascendente -> descendente -> orden original.
+function useGlobalThreeStateTableSort(){
+  useEffect(()=>{
+    if(typeof document==="undefined")return undefined;
+
+    const styleId="dm-global-table-sort-style";
+    if(!document.getElementById(styleId)){
+      const style=document.createElement("style");
+      style.id=styleId;
+      style.textContent=`
+        table thead th:not([data-dm-no-sort="true"]){cursor:pointer;user-select:none}
+        table thead th[data-dm-sort-dir="asc"]::after{content:" ↑";color:#e8001d;font-weight:900}
+        table thead th[data-dm-sort-dir="desc"]::after{content:" ↓";color:#e8001d;font-weight:900}
+      `;
+      document.head.appendChild(style);
+    }
+
+    const originalOrder=new WeakMap();
+    const tableState=new WeakMap();
+
+    const normalizeValue=(raw)=>{
+      const text=String(raw??"").replace(/\s+/g," ").trim();
+      if(!text)return{kind:"empty",value:""};
+
+      const dmy=text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})(?:\s|$)/);
+      if(dmy){
+        const year=Number(dmy[3].length===2?`20${dmy[3]}`:dmy[3]);
+        const value=new Date(year,Number(dmy[2])-1,Number(dmy[1])).getTime();
+        if(Number.isFinite(value))return{kind:"number",value};
+      }
+      const iso=text.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s|$)/);
+      if(iso){
+        const value=new Date(Number(iso[1]),Number(iso[2])-1,Number(iso[3])).getTime();
+        if(Number.isFinite(value))return{kind:"number",value};
+      }
+
+      let numeric=text
+        .replace(/^(?:ARS|USD|U\$S)\s*/i,"")
+        .replace(/[a-zA-ZáéíóúÁÉÍÓÚ²³\/]+.*$/g,"")
+        .replace(/[$%\s]/g,"")
+        .trim();
+      if(/^-?[\d.,]+$/.test(numeric)){
+        if(numeric.includes(","))numeric=numeric.replace(/\./g,"").replace(",",".");
+        else numeric=numeric.replace(/,/g,"");
+        const value=Number(numeric);
+        if(Number.isFinite(value))return{kind:"number",value};
+      }
+      return{kind:"text",value:text.toLocaleLowerCase("es-AR")};
+    };
+
+    const getGroups=(tbody)=>{
+      const rows=Array.from(tbody.children).filter(el=>el.tagName==="TR");
+      const groups=[];
+      for(let i=0;i<rows.length;i++){
+        const row=rows[i];
+        const group=[row];
+        while(i+1<rows.length){
+          const next=rows[i+1];
+          const first=next.cells&&next.cells[0];
+          const isDetail=next.cells?.length===1&&Number(first?.colSpan||1)>1;
+          if(!isDetail)break;
+          group.push(next);i++;
+        }
+        groups.push(group);
+      }
+      return groups;
+    };
+
+    const clearIndicators=(table)=>{
+      table.querySelectorAll("thead th[data-dm-sort-dir]").forEach(th=>{
+        th.removeAttribute("data-dm-sort-dir");
+      });
+    };
+
+    const onClick=(event)=>{
+      const th=event.target.closest?.("th");
+      if(!th||th.dataset.dmManagedSort==="true"||th.dataset.dmNoSort==="true")return;
+      const table=th.closest("table");
+      if(!table||!table.tHead||!table.tBodies.length)return;
+      const headerRow=th.parentElement;
+      if(!headerRow||headerRow.parentElement?.tagName!=="THEAD")return;
+      const colIndex=Array.from(headerRow.cells).indexOf(th);
+      if(colIndex<0)return;
+
+      const previous=tableState.get(table)||{col:-1,dir:"original"};
+      let dir="asc";
+      if(previous.col===colIndex&&previous.dir==="asc")dir="desc";
+      else if(previous.col===colIndex&&previous.dir==="desc")dir="original";
+
+      clearIndicators(table);
+      if(dir!=="original")th.dataset.dmSortDir=dir;
+      tableState.set(table,{col:colIndex,dir});
+
+      Array.from(table.tBodies).forEach(tbody=>{
+        const groups=getGroups(tbody);
+        groups.forEach((group,index)=>{
+          const anchor=group[0];
+          if(!originalOrder.has(anchor))originalOrder.set(anchor,index);
+        });
+
+        const ordered=[...groups];
+        if(dir==="original"){
+          ordered.sort((a,b)=>(originalOrder.get(a[0])??0)-(originalOrder.get(b[0])??0));
+        }else{
+          ordered.sort((a,b)=>{
+            const av=normalizeValue(a[0].cells?.[colIndex]?.innerText||"");
+            const bv=normalizeValue(b[0].cells?.[colIndex]?.innerText||"");
+            if(av.kind==="empty"&&bv.kind!=="empty")return 1;
+            if(bv.kind==="empty"&&av.kind!=="empty")return -1;
+            let cmp=0;
+            if(av.kind==="number"&&bv.kind==="number")cmp=av.value-bv.value;
+            else cmp=String(av.value).localeCompare(String(bv.value),"es-AR",{numeric:true,sensitivity:"base"});
+            return dir==="asc"?cmp:-cmp;
+          });
+        }
+        ordered.forEach(group=>group.forEach(row=>tbody.appendChild(row)));
+      });
+    };
+
+    document.addEventListener("click",onClick);
+    return()=>document.removeEventListener("click",onClick);
+  },[]);
+}
+
 export default function App(){
+  useGlobalThreeStateTableSort();
   const [appDialog,setAppDialog]=useState(null);
   useEffect(()=>{
     dmOpenAppDialog=(payload)=>new Promise(resolve=>{
@@ -16810,7 +17219,7 @@ export default function App(){
           insumosMap[cod]={
             descripcion,
             descripcionAdicional:getInsumoExtra(r,descripcion),
-            costoUnitario:toMoneyNumber(getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"])),
+            costoUnitario:toMoneyNumber(getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario con IVA","PRECIO UNITARIO CON IVA","precio unitario con IVA","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"])),
           };
         }
       });
