@@ -148,6 +148,24 @@ const STYLES=`
   .insumo-tr{cursor:pointer;transition:background .12s;will-change:background-color;}
   .insumo-tr:hover{background:rgba(232,0,29,0.13) !important;}
   .insumo-tr.pinned{background:rgba(232,0,29,0.22) !important;}
+
+/* Tablas: encabezado visible y desplazamiento horizontal accesible. */
+.dm-table-scroll{
+  position:relative;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable both-edges;
+}
+.dm-table-scroll table{
+  border-collapse:separate;
+  border-spacing:0;
+}
+.dm-table-scroll thead th{
+  position:sticky;
+  top:0;
+  z-index:5;
+  background:#1c1c1c;
+  box-shadow:0 1px 0 rgba(255,255,255,.08);
+}
 `;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1385,7 +1403,7 @@ function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disabl
   },0);
 
   return(
-    <div onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH,scrollbarGutter:"stable",overscrollBehavior:"contain",contain:"layout paint",transform:"translateZ(0)"}}>
+    <div className="dm-table-scroll" onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH,scrollbarGutter:"stable",overscrollBehavior:"contain",contain:"layout paint",transform:"translateZ(0)"}}>
       <table style={{width:"100%",minWidth:tableMinWidth,borderCollapse:"separate",borderSpacing:0,fontSize:12,tableLayout:"fixed"}}>
         <thead><tr>{cols.map((c,i)=>{
           const sticky=stickyFirst&&i===0;
@@ -4883,7 +4901,7 @@ function ViewROP05({rop05,extState,setExtState}){
             </Card>
           </div>
           <Card title="Tareas principales — 80% de las horas">
-            <div style={{overflowX:"auto"}}>
+            <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
                 <thead>
                   <tr style={{background:C.surface}}>
@@ -5102,9 +5120,23 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
   };
   const formatCantidad=(v,u)=>`${fmtNum(v)} ${unidadShort(u)}`;
   const formatRend=(v,u)=>v?`${fmtNum(v)} ${unidadShort(u)}/h`:"—";
+  const textoNorm=v=>String(v||"")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^A-Z0-9]+/gi," ")
+    .replace(/\s+/g," ")
+    .trim()
+    .toUpperCase();
+  const esCargaDescargaCamion=r=>{
+    const t=textoNorm(r?.tarea);
+    return t.includes("CARGA")&&t.includes("DESCARGA")&&t.includes("CAMION");
+  };
   const dimError=r=>{
     const u=unidadNorm(r.unidad), l=n(r.largo), a=n(r.ancho), p=n(r.profundidad);
     if(u.includes("M3")||u.includes("M³")){
+      // Excepción operativa: esta tarea informa directamente la cantidad en m³.
+      // No corresponde exigir largo, ancho ni profundidad.
+      if(esCargaDescargaCamion(r))return "";
       if(l<=0||a<=0||p<=0)return "M³ sin largo, ancho o profundidad";
     }
     if(u.includes("M2")||u.includes("M²")){
@@ -5595,7 +5627,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
             <Card title="Equipos con más errores"><div style={{padding:14,display:"flex",flexDirection:"column",gap:8}}>{porMaquina.map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:12}}><span style={{color:C.textSub,fontWeight:800}}>{k}</span><Badge color={C.yellow}>{v}</Badge></div>)}</div></Card>
           </div>
           <Card title={`Detalle de errores (${erroresTabla.length})`} action={<BtnExcel onClick={descargar}/>}>
-            <div style={{overflowX:"auto"}}>
+            <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
               <table style={{width:"100%",borderCollapse:"collapse",minWidth:980}}>
                 <thead><tr style={{background:C.surface}}>{["Tipo","Proyecto","Máquina","Fecha","Turno","Supervisor","Dato informado","Dato esperado","Diferencia","Referencia anterior","Detalle"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
                 <tbody>{erroresTabla.map((e,i)=>{
@@ -5844,7 +5876,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     };
     return(
       <Card title={`⚠️ Control de horómetros (${errores.length})`} action={<BtnExcel onClick={descargarHoro}/>}>
-        <div style={{overflowX:"auto"}}>
+        <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
           <table style={{width:"100%",borderCollapse:"collapse",minWidth:860}}>
             <thead><tr style={{background:C.surface}}>{cols.map(h=><th key={h} style={{padding:"8px 12px",fontSize:11,fontWeight:700,color:C.textMuted,textAlign:"left",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
             <tbody>
@@ -5923,7 +5955,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
             const inpStyle={width:"100%",background:"rgba(255,255,255,0.06)",border:`1px solid ${C.accent}66`,borderRadius:6,color:C.text,fontSize:14,padding:"5px 8px",fontFamily:"Inter",outline:"none",boxSizing:"border-box"};
             const FIELD_CFG={parte:{type:"text"},hi:{type:"number"},hf:{type:"number"},tarea:{type:"text"},obs:{type:"text"},desgaste:{type:"text"},combustible:{type:"number"},aceite:{type:"text"},horas:{type:"text"}};
             return(
-              <div style={{overflowX:"auto"}}>
+              <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:480,tableLayout:"fixed"}}>
                   <colgroup><col style={{width:190}}/><col style={{width:"50%"}}/><col style={{width:"50%"}}/></colgroup>
                   <thead><tr><th style={{padding:"7px 14px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`}}/>{["TD","TN"].map(t=><th key={t} style={{padding:"10px 16px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`,textAlign:"center",fontSize:16,fontWeight:900,color:C.textSub,letterSpacing:".06em"}}>{t}</th>)}</tr></thead>
@@ -6118,7 +6150,7 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
             <select value={fichaMaquina||""} onChange={e=>{setMaquina([e.target.value]);}} style={selectStyle}>{maquinas.map(m=><option key={m} value={m}>{m}</option>)}</select>
             <select value={fichaActual.fecha} onChange={e=>{setFechaSel(e.target.value);}} style={{...selectStyle,fontSize:13,fontWeight:700,color:C.accent,minWidth:140}}>{fechasDisp.map(f=><option key={f} value={f}>{fmtFecha(f)}</option>)}</select>
           </div>
-          <div style={{overflowX:"auto"}}>
+          <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:620,tableLayout:"fixed"}}>
               <colgroup><col style={{width:230}}/><col style={{width:"50%"}}/><col style={{width:"50%"}}/></colgroup>
               <thead><tr><th style={{padding:"7px 14px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`}}/>{["TD","TN"].map(t=><th key={t} style={{padding:"10px 16px",background:C.surface+"cc",borderBottom:`1px solid ${C.border}`,textAlign:"center",fontSize:16,fontWeight:900,color:C.textSub,letterSpacing:".06em"}}>{t}</th>)}</tr></thead>
@@ -7009,7 +7041,7 @@ function ViewCombustible({rop02All,extState,setExtState}){
 
       {/* Tabla de ranking detallado */}
       <Card title="Detalle por Equipo">
-        <div style={{overflowX:"auto"}}>
+        <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
           <table style={{width:"100%",borderCollapse:"collapse"}}>
             <thead>
               <tr style={{background:C.surface}}>
@@ -7243,7 +7275,7 @@ function ViewCHC({rop02All,extState,setExtState}){
       <Card title={`Control de Horas Contratadas (${rows.length} equipos)`} action={
         <button onClick={()=>{const label=`${MESES[mesIdx]}_${añoSelec}`;generarExcelICHC(rows,totales,label);}} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:7,border:`1px solid ${C.teal}44`,background:C.tealDim,color:C.teal,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter"}}>⬇ Excel</button>
       }>
-        <div style={{overflowX:"auto"}}>
+        <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
             <thead>
               <tr style={{background:C.surface}}>
@@ -8121,7 +8153,7 @@ function ViewDistribucionMantenimientos({rma15}){
             </Card>
 
             <Card title="Top equipos con más mantenimientos">
-              <div style={{overflowX:"auto"}}>
+              <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:C.surface}}>{["Equipo","Preventivos","Correctivos","Total","Ratio C/P"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:h==="Equipo"?"left":"center",color:C.textMuted,fontSize:10,textTransform:"uppercase",letterSpacing:".06em",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
                   <tbody>
@@ -8139,7 +8171,7 @@ function ViewDistribucionMantenimientos({rma15}){
           </div>
 
           <Card title="Equipos reincidentes en correctivos" action={<span style={{fontSize:11,color:C.textMuted,fontWeight:800}}>Criterio: 2 o más correctivos en el período</span>}>
-            <div style={{overflowX:"auto"}}>
+            <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:C.surface}}>{["Equipo","Correctivos","Preventivos","Total","Lectura"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:h==="Equipo"||h==="Lectura"?"left":"center",color:C.textMuted,fontSize:10,textTransform:"uppercase",letterSpacing:".06em",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
                 <tbody>
@@ -8206,7 +8238,7 @@ function ViewDistribucionMantenimientos({rma15}){
             <div style={{fontSize:11,color:C.textSub,marginTop:3}}>{preventivosConCorrectivo} casos sobre {preventivos||0} preventivos</div>
           </div>
         </div>
-        <div style={{overflowX:"auto"}}>
+        <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead><tr style={{background:C.surface}}>{["Equipo","Preventivo","Correctivo","Días","Proyecto","Intervención correctiva"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:h==="Intervención correctiva"?"left":"center",color:C.textMuted,fontSize:10,textTransform:"uppercase",letterSpacing:".06em",borderBottom:`1px solid ${C.border}`}}>{h}</th>)}</tr></thead>
             <tbody>
@@ -8563,7 +8595,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
           </div>
         }>
           <div data-gastos-wrap="true" style={{position:"relative"}}>
-            <div style={{flex:1,overflowX:"auto"}}>
+            <div className="dm-table-scroll" style={{flex:1,overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead>
                   <tr style={{background:C.surface}}>
@@ -8751,7 +8783,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
         return(
         <Card title="Insumos más utilizados (Top 10)">
           <div style={{position:"relative"}}>
-            <div style={{width:"100%",overflowX:"auto"}}>
+            <div className="dm-table-scroll" style={{width:"100%",overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
                 <thead>
                   <tr style={{background:C.surface}}>
@@ -9227,26 +9259,34 @@ function Login({onLogin}){
       showError("Ingresá tu usuario");
       return;
     }
-    if(pass!=="DELTA.MINING.APP"){
-      showError("Contraseña incorrecta");
+    if(!pass){
+      showError("Ingresá tu contraseña");
       return;
     }
 
     setValidando(true);
     try{
-      const usuarios=await cargarUsuariosAutorizados();
-      const autorizado=usuarios.find(u=>u.email===mail);
-      if(!autorizado){
-        showError("Usuario no autorizado");
+      const response=await fetch(APPS_SCRIPT_URL,{
+        method:"POST",
+        headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+        body:new URLSearchParams({payload:JSON.stringify({action:"authenticate_user",email:mail,password:pass})})
+      });
+      const json=await response.json();
+      if(!json?.ok){
+        showError(json?.error?.message||"Usuario o contraseña incorrectos");
         return;
       }
-
+      const autorizado=json.user||{};
       sessionStorage.setItem("dm_auth","1");
       sessionStorage.setItem("dm_user",mail);
-      sessionStorage.setItem("dm_role",autorizado.rol||"USUARIO");
+      sessionStorage.setItem("dm_role",String(autorizado.rol||"USUARIO").toUpperCase());
       sessionStorage.setItem("dm_project",dmNormalizeAssignedProject(autorizado.proyecto||"TODO"));
       sessionStorage.setItem("dm_name",autorizado.nombre||mail.split("@")[0].split(/[._-]+/)[0]||"Usuario");
+      sessionStorage.setItem("dm_area",autorizado.area||"");
+      sessionStorage.setItem("dm_must_change_password",json.mustChangePassword?"1":"0");
       onLogin();
+    }catch(err){
+      showError("No se pudo validar el acceso. Revisá la conexión.");
     }finally{
       setValidando(false);
     }
@@ -12302,7 +12342,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return(
     <Card title={titulo} action={<BotonDescargar onClick={()=>descargarExcel(filename,rowsTablaCostosExcel(datos,tot))}/>}>
       {renderCostosQuickFilters("t1",true)}
-      <div style={{overflowX:"auto"}}> 
+      <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}> 
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead><tr>
             {sortableCostHead("tablaCostos","equipo","Equipo",thL)}
@@ -12474,7 +12514,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             </label>
             <span style={{fontSize:11,color:C.textMuted}}>Las filas CTA usan el promedio de mantenimiento y de costo de adquisición de las camionetas del proyecto.</span>
           </div>
-          <div style={{overflowX:"auto"}}>
+          <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr>
                 {sortableCostHead("manoObra","equipo","Equipo",thL)}
@@ -12667,7 +12707,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
               Cargá la <b>Lista Maestra de Equipos</b> desde el menú lateral para ver esta tabla.
             </div>
           ):(
-            <div style={{overflowX:"auto"}}>
+            <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
                 <thead><tr>
                   {sortableCostHead("amortizacion","equipo","Equipo",thL)}
@@ -12750,7 +12790,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
               Sin datos para mostrar. Revisá los filtros o cargá la Lista Maestra de Equipos.
             </div>
           ):(
-            <div style={{overflowX:"auto"}}>
+            <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
                 <thead>
                   <tr>
@@ -15898,7 +15938,7 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
         <span style={{fontSize:11,fontWeight:800,color:C.textSub}}>{selectedReopenKeys.size} seleccionada{selectedReopenKeys.size===1?"":"s"}</span>
         <button onClick={reopenSelectedSolicitudes} disabled={!selectedReopenKeys.size||Boolean(actionLoading)} style={{border:`1px solid ${C.blue}88`,background:selectedReopenKeys.size?`${C.blue}25`:"rgba(255,255,255,.04)",color:selectedReopenKeys.size?C.blue:C.textSub,borderRadius:9,padding:"7px 12px",fontSize:11,fontWeight:900,cursor:selectedReopenKeys.size&&!actionLoading?"pointer":"not-allowed",opacity:selectedReopenKeys.size?1:.55,fontFamily:"Inter"}}>Reabrir todas</button>
       </div>}
-      <div style={{overflowX:"auto"}}>
+      <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
       <table style={{width:"100%",minWidth:1420+extraWidth,borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif",tableLayout:"fixed"}}>
         <thead style={{background:"rgba(0,0,0,.35)"}}>
           <tr>
@@ -16258,7 +16298,7 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
                   <div><span style={{fontSize:10,color:C.textSub,fontWeight:900,textTransform:"uppercase"}}>Lugar</span><div style={{color:C.text,fontWeight:900}}>{rem.destino||rem.origen||rem.observaciones||"-"}</div></div>
                   <div><span style={{fontSize:10,color:C.textSub,fontWeight:900,textTransform:"uppercase"}}>Origen</span><div style={{color:C.text,fontWeight:900}}>{rem.origen||"-"}</div></div>
                 </div>
-                <div style={{overflowX:"auto"}}>
+                <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontFamily:"Inter, system-ui, sans-serif"}}>
                     <thead style={{background:"rgba(0,0,0,.28)"}}>
                       <tr>
@@ -16354,6 +16394,82 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
   );
 }
 
+
+function UserSettingsModal({open,forced=false,onClose,onSaved}){
+  const [nombre,setNombre]=useState(()=>String(sessionStorage.getItem("dm_name")||""));
+  const [area,setArea]=useState(()=>String(sessionStorage.getItem("dm_area")||""));
+  const [actual,setActual]=useState("");
+  const [nueva,setNueva]=useState("");
+  const [repetir,setRepetir]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState("");
+  useEffect(()=>{
+    if(open){
+      setNombre(String(sessionStorage.getItem("dm_name")||""));
+      setArea(String(sessionStorage.getItem("dm_area")||""));
+      setActual("");setNueva("");setRepetir("");setError("");
+    }
+  },[open]);
+  if(!open)return null;
+  const areas=["","OFICINA TÉCNICA","MANTENIMIENTO","CALIDAD","ABASTECIMIENTO","TALLER CENTRAL","ADMINISTRATIVO","SUPERVISOR"];
+  const guardar=async()=>{
+    setError("");
+    if(!nombre.trim()){setError("Ingresá un nombre.");return;}
+    if(forced&&!actual){setError("Ingresá la contraseña actual DELTA.MINING.APP.");return;}
+    if(forced&&!nueva){setError("Elegí una nueva contraseña.");return;}
+    if(nueva&&nueva.length<4){setError("La nueva contraseña debe tener al menos 4 caracteres.");return;}
+    if(nueva!==repetir){setError("Las nuevas contraseñas no coinciden.");return;}
+    if(nueva&&!actual){setError("Ingresá la contraseña actual.");return;}
+    setSaving(true);
+    try{
+      const payload={action:"update_user_profile",email:sessionStorage.getItem("dm_user")||"",currentPassword:actual,newPassword:nueva,nombre:nombre.trim(),area};
+      const res=await fetch(APPS_SCRIPT_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:new URLSearchParams({payload:JSON.stringify(payload)})});
+      const json=await res.json();
+      if(!json?.ok)throw new Error(json?.error?.message||"No se pudo guardar la configuración.");
+      sessionStorage.setItem("dm_name",json.user?.nombre||nombre.trim());
+      sessionStorage.setItem("dm_area",json.user?.area||area);
+      sessionStorage.setItem("dm_must_change_password","0");
+      onSaved?.(json.user||{});
+    }catch(err){setError(err.message||"No se pudo guardar la configuración.");}
+    finally{setSaving(false);}
+  };
+  return ReactDOM.createPortal(
+    <div style={{position:"fixed",inset:0,zIndex:2147483646,background:"rgba(0,0,0,.74)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{width:"min(520px,calc(100vw - 32px))",background:"rgba(22,22,22,.98)",border:`1px solid ${forced?C.accent:C.border}`,borderRadius:16,boxShadow:"0 24px 80px rgba(0,0,0,.65)",overflow:"hidden"}}>
+        <div style={{padding:"17px 20px",borderBottom:`1px solid ${C.border}66`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div><div style={{fontSize:16,fontWeight:900,color:C.text}}>{forced?"Crear contraseña personal":"Configuración de usuario"}</div><div style={{fontSize:11,color:C.textMuted,marginTop:3}}>{forced?"Por seguridad, debe cambiar la contraseña inicial para continuar.":sessionStorage.getItem("dm_user")}</div></div>
+          {!forced&&<button onClick={onClose} style={{background:"none",border:"none",color:C.textMuted,fontSize:22,cursor:"pointer"}}>×</button>}
+        </div>
+        <div style={{padding:20,display:"grid",gap:14}}>
+          <label style={{display:"grid",gap:6,fontSize:11,color:C.textSub,fontWeight:700}}>NOMBRE
+            <input value={nombre} onChange={e=>setNombre(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none"}}/>
+          </label>
+          <label style={{display:"grid",gap:6,fontSize:11,color:C.textSub,fontWeight:700}}>ÁREA
+            <select value={area} onChange={e=>setArea(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none"}}>
+              {areas.map(x=><option key={x} value={x}>{x||"SIN DEFINIR"}</option>)}
+            </select>
+          </label>
+          <div style={{height:1,background:`${C.border}66`,margin:"2px 0"}}/>
+          <label style={{display:"grid",gap:6,fontSize:11,color:C.textSub,fontWeight:700}}>CONTRASEÑA ACTUAL
+            <input type="password" value={actual} onChange={e=>setActual(e.target.value)} placeholder={forced?"DELTA.MINING.APP":"Solo es necesaria para cambiar la contraseña"} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none"}}/>
+          </label>
+          <label style={{display:"grid",gap:6,fontSize:11,color:C.textSub,fontWeight:700}}>NUEVA CONTRASEÑA
+            <input type="password" value={nueva} onChange={e=>setNueva(e.target.value)} placeholder={forced?"Elegí tu nueva contraseña":"Dejar vacío para mantener la actual"} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none"}}/>
+          </label>
+          <label style={{display:"grid",gap:6,fontSize:11,color:C.textSub,fontWeight:700}}>REPETIR NUEVA CONTRASEÑA
+            <input type="password" value={repetir} onChange={e=>setRepetir(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none"}}/>
+          </label>
+          {error&&<div style={{padding:"10px 12px",borderRadius:9,background:`${C.red}18`,border:`1px solid ${C.red}55`,color:C.red,fontSize:12,fontWeight:700}}>{error}</div>}
+        </div>
+        <div style={{padding:"0 20px 20px",display:"flex",justifyContent:"flex-end",gap:10}}>
+          {!forced&&<button onClick={onClose} disabled={saving} style={{padding:"10px 16px",borderRadius:9,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,fontWeight:800,cursor:"pointer"}}>Cancelar</button>}
+          <button onClick={guardar} disabled={saving} style={{padding:"10px 18px",borderRadius:9,border:`1px solid ${C.accent}88`,background:C.accentDim,color:C.accent,fontWeight:900,cursor:saving?"wait":"pointer",display:"flex",alignItems:"center",gap:7}}>{saving?<Spinner size={13}/>:<Icon name="check" size={14} color={C.accent}/>} {saving?"Guardando...":"Guardar cambios"}</button>
+        </div>
+      </div>
+    </div>,document.body
+  );
+}
+
 export default function App(){
   const [appDialog,setAppDialog]=useState(null);
   useEffect(()=>{
@@ -16379,15 +16495,19 @@ export default function App(){
   };
   const savedOr=(key,def)=>normalizeSavedState(savedAppFilters&&savedAppFilters[key],def);
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
+  const[profileRevision,setProfileRevision]=useState(0);
+  const[settingsOpen,setSettingsOpen]=useState(false);
+  const[forcePasswordChange,setForcePasswordChange]=useState(()=>sessionStorage.getItem("dm_must_change_password")==="1");
   const nombreUsuario=useMemo(()=>{
     const guardado=String(sessionStorage.getItem("dm_name")||"").trim();
     if(guardado)return guardado;
     const mail=String(sessionStorage.getItem("dm_user")||"").trim();
     const base=(mail.split("@")[0]||"Usuario").split(/[._-]+/)[0]||"Usuario";
     return base.replace(/^./,c=>c.toUpperCase());
-  },[auth]);
+  },[auth,profileRevision]);
   const rolUsuario=useMemo(()=>String(sessionStorage.getItem("dm_role")||"USUARIO").trim().toUpperCase(),[auth]);
   const proyectoUsuario=useMemo(()=>dmNormalizeAssignedProject(sessionStorage.getItem("dm_project")||"TODO"),[auth]);
+  const areaUsuario=useMemo(()=>String(sessionStorage.getItem("dm_area")||"").trim(),[auth,profileRevision]);
   const proyectoRestringido=proyectoUsuario!=="TODO";
   const esAdministrativo=rolUsuario==="ADMINISTRATIVO";
   const[view,setView]=useState("bienvenida");
@@ -17030,6 +17150,7 @@ export default function App(){
             {id:"abastecimientoPendientes",icon:"warn",label:"Pendientes"},
             {id:"abastecimientoParciales",icon:"report",label:"Parciales"},
             {id:"abastecimientoCerradas",icon:"check",label:"Cerradas"},
+            {id:"abastecimientoRechazadas",icon:"close",label:"Solicitudes rechazadas"},
           ]},
         ];
       }
@@ -17089,7 +17210,7 @@ export default function App(){
     }
     return navStructure.filter(item=>!["dashboard","chc"].includes(item.id));
   },[activeModule,navStructure,costosUnitariosBadge,control.problemasPost31,esAdministrativo]);
-  const vistasAdministrativo=new Set(["bienvenida","controlErrores","ctrlEquipo","atrasoROP02","control","abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas"]);
+  const vistasAdministrativo=new Set(["bienvenida","controlErrores","ctrlEquipo","atrasoROP02","control","abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas"]);
   useEffect(()=>{
     if(esAdministrativo&&!vistasAdministrativo.has(view)){
       setView("bienvenida");
@@ -17099,16 +17220,22 @@ export default function App(){
   const showSidebar=view!=="bienvenida";
 
   const cambiarUsuario=useCallback(()=>{
-    ["dm_auth","dm_user","dm_role","dm_project","dm_name"].forEach(k=>sessionStorage.removeItem(k));
+    ["dm_auth","dm_user","dm_role","dm_project","dm_name","dm_area","dm_must_change_password"].forEach(k=>sessionStorage.removeItem(k));
     setAuth(false);
     setView("bienvenida");
     setActiveModule("home");
   },[]);
 
-  if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setAuth(true);}}/>;
+  if(!auth)return<Login onLogin={()=>{sessionStorage.setItem("dm_auth","1");setForcePasswordChange(sessionStorage.getItem("dm_must_change_password")==="1");setAuth(true);}}/>;
   return(
     <>
       <style>{STYLES}</style>
+      <UserSettingsModal
+        open={settingsOpen||forcePasswordChange}
+        forced={forcePasswordChange}
+        onClose={()=>setSettingsOpen(false)}
+        onSaved={()=>{setSettingsOpen(false);setForcePasswordChange(false);setProfileRevision(v=>v+1);}}
+      />
       {appDialog&&ReactDOM.createPortal(
         <div role="dialog" aria-modal="true" style={{position:"fixed",inset:0,zIndex:2147483647,background:"rgba(0,0,0,.62)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onMouseDown={e=>{if(e.target===e.currentTarget&&appDialog.type!=="confirm")closeAppDialog(true);}}>
           <div style={{width:"min(440px,calc(100vw - 32px))",background:"rgba(25,25,25,.98)",border:`1px solid ${appDialog.type==="confirm"?C.yellow:C.red}66`,borderRadius:16,boxShadow:"0 24px 70px rgba(0,0,0,.55)",overflow:"hidden",fontFamily:"Inter,Arial,sans-serif"}}>
@@ -17177,6 +17304,12 @@ export default function App(){
               );
             })}
           </nav>
+          <div style={{padding:sidebarOpen?"10px 12px 14px":"10px 0 14px",borderTop:`1px solid ${C.border}44`}}>
+            <button type="button" onClick={()=>setSettingsOpen(true)} {...navTooltipProps("Configuración")} title={!sidebarOpen?"Configuración":undefined} style={{width:"100%",background:"rgba(255,255,255,.035)",border:`1px solid ${C.border}55`,borderRadius:9,padding:sidebarOpen?"10px 12px":"10px 0",display:"flex",alignItems:"center",justifyContent:sidebarOpen?"flex-start":"center",gap:9,color:C.textSub,cursor:"pointer"}}>
+              <Icon name="gear" size={18} color={C.textSub}/>
+              {sidebarOpen&&<span style={{fontSize:12,fontWeight:700}}>Configuración</span>}
+            </button>
+          </div>
         </div>
         )}
         {showSidebar&&sidebarTooltip&&!sidebarOpen&&(<div style={{position:"fixed",left:sidebarTooltip.x,top:sidebarTooltip.y,transform:"translateY(-50%)",background:"rgba(18,18,18,.96)",border:`1px solid ${C.border}`,boxShadow:"0 10px 24px rgba(0,0,0,.35)",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none"}}>{sidebarTooltip.label}</div>)}
