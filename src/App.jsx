@@ -9914,7 +9914,13 @@ function dmNormalizeArea(value){
 
 function dmCanEditArea(requiredArea){
   if(!requiredArea)return true;
-  return dmNormalizeArea(sessionStorage.getItem("dm_area"))===dmNormalizeArea(requiredArea);
+  const userArea=dmNormalizeArea(sessionStorage.getItem("dm_area"));
+  const targetArea=dmNormalizeArea(requiredArea);
+
+  // OFICINA TÉCNICA es la única área con permiso de edición global.
+  // El resto de las áreas solamente puede editar su propia sección.
+  if(userArea===dmNormalizeArea("OFICINA TÉCNICA"))return true;
+  return userArea===targetArea;
 }
 
 const DM_ACTION_REQUIRED_AREA={
@@ -14214,6 +14220,7 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
     observaciones:"",
     items:[{codigo:"",descripcion:"",cantidad:""}]
   });
+  const [remitosPendientes,setRemitosPendientes]=useState([]);
   const [remitoSearch,setRemitoSearch]=useState("");
   const [remitoDetalleId,setRemitoDetalleId]=useState(null);
   const [stockRows,setStockRows]=useState(()=>{
@@ -14526,7 +14533,7 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
         });
         const keys=[storedKey,stableKey].filter(Boolean);
         keys.forEach(key=>{
-          if(estado==="CERRADA_MANUAL")closed[key]=info;
+          if(estado==="CERRADA_MANUAL"||estado==="CERRADA_REMITO")closed[key]={...info,tipoCierre:estado};
           else if(estado==="RECHAZADA")rejected[key]=info;
         });
       });
@@ -15619,8 +15626,8 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
     document.body.appendChild(script);
   }),[]);
 
-  const handleRemitoPdfUpload=useCallback(async(file)=>{
-    if(!file)return;
+  const handleRemitoPdfUpload=useCallback(async(file,{agregarAlLote=false}={})=>{
+    if(!file)return null;
     try{
       const pdfjs=await loadPdfJs();
       if(pdfjs.GlobalWorkerOptions){
@@ -15647,57 +15654,118 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
           });
       }
       const parsed=parseRaba08Text(text);
+      if(agregarAlLote){
+        const cleanItems=(parsed.items||[])
+          .map(it=>({codigo:String(it.codigo||"").trim(),descripcion:String(it.descripcion||"").trim(),cantidad:toNumber(it.cantidad)}))
+          .filter(it=>it.codigo&&it.cantidad>0);
+        if(!cleanItems.length){
+          appAlert(`No pude detectar artículos en ${file.name||"el PDF"}. Ese remito no fue agregado al lote.`);
+          return null;
+        }
+        const loteItem={...parsed,items:cleanItems,_loteId:`lote-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,_archivo:file.name||"PDF"};
+        setRemitosPendientes(prev=>[...prev,loteItem]);
+        return loteItem;
+      }
       setRemitoForm(prev=>({...prev,...parsed}));
       if(!parsed.items.some(it=>it.codigo&&toNumber(it.cantidad)>0)){
         appAlert("No pude detectar artículos del PDF. Revisá si el remito tiene el mismo formato y cargalos manualmente.");
       }
+      return parsed;
     }catch(err){
       appAlert(`No pude leer el PDF automáticamente: ${err.message||err}`);
+      return null;
     }
   },[loadPdfJs,parseRaba08Text,toNumber]);
 
-  const registerRemito=async()=>{
-    const cleanItems=remitoForm.items
+  const handleMultipleRemitoPdfUpload=useCallback(async(files)=>{
+    const list=Array.from(files||[]);
+    if(!list.length)return;
+    setLoading(true);
+    try{
+      for(const file of list){
+        await handleRemitoPdfUpload(file,{agregarAlLote:true});
+      }
+    }finally{
+      setLoading(false);
+    }
+  },[handleRemitoPdfUpload]);
+
+  const buildRemitoDesdeFormulario=useCallback((form)=>{
+    const cleanItems=(form.items||[])
       .map(it=>({codigo:String(it.codigo||"").trim(),descripcion:String(it.descripcion||"").trim(),cantidad:toNumber(it.cantidad)}))
       .filter(it=>it.codigo&&it.cantidad>0);
-    if(!cleanItems.length){
-      appAlert("Cargá al menos un artículo con código y cantidad.");
-      return;
-    }
-    const proyectoDetectado=normalizeCentroCosto([remitoForm.observaciones,remitoForm.destino,remitoForm.origen].filter(Boolean).join(" "));
-    const nuevo={
-      id:`raba08-${Date.now()}`,
-      comprobante:remitoForm.comprobante||"S/N",
-      fecha:remitoForm.fecha,
-      origen:remitoForm.origen,
-      destino:remitoForm.destino,
+    if(!cleanItems.length)return null;
+    const proyectoDetectado=normalizeCentroCosto([form.observaciones,form.destino,form.origen].filter(Boolean).join(" "));
+    return {
+      id:`raba08-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+      comprobante:form.comprobante||"S/N",
+      fecha:form.fecha,
+      origen:form.origen,
+      destino:form.destino,
       proyecto:proyectoDetectado,
-      observaciones:remitoForm.observaciones,
+      observaciones:form.observaciones,
       items:cleanItems,
       createdAt:new Date().toISOString(),
       shared:false
     };
+  },[toNumber,normalizeCentroCosto]);
+
+  const limpiarRemitoForm=useCallback(()=>setRemitoForm({
+    comprobante:"",
+    fecha:new Date().toISOString().slice(0,10),
+    origen:"01 DEPOSITO CENTRAL",
+    destino:"",
+    observaciones:"",
+    items:[{codigo:"",descripcion:"",cantidad:""}]
+  }),[]);
+
+  const agregarRemitoActualAlLote=useCallback(()=>{
+    const nuevo=buildRemitoDesdeFormulario(remitoForm);
+    if(!nuevo){
+      appAlert("Cargá al menos un artículo con código y cantidad antes de agregar el remito al lote.");
+      return;
+    }
+    setRemitosPendientes(prev=>[...prev,{...remitoForm,items:nuevo.items,_loteId:`lote-${Date.now()}-${Math.random().toString(36).slice(2,8)}`}]);
+    limpiarRemitoForm();
+  },[remitoForm,buildRemitoDesdeFormulario,limpiarRemitoForm]);
+
+  const quitarRemitoDelLote=useCallback((id)=>{
+    setRemitosPendientes(prev=>prev.filter(r=>r._loteId!==id));
+  },[]);
+
+  const registerRemito=async()=>{
+    const actual=buildRemitoDesdeFormulario(remitoForm);
+    const formularios=[...remitosPendientes];
+    if(actual)formularios.push(remitoForm);
+    if(!formularios.length){
+      appAlert("Cargá al menos un remito con artículos antes de guardar.");
+      return;
+    }
+
+    const remitosAEnviar=formularios.map(buildRemitoDesdeFormulario).filter(Boolean);
+    if(!remitosAEnviar.length){
+      appAlert("No hay remitos válidos para guardar.");
+      return;
+    }
 
     try{
       setLoading(true);
       setError(null);
-      // No mostrarlo como guardado hasta que Google Sheets confirme la escritura.
-      await saveRemitoCompartido(nuevo);
+      let guardados=0;
+      for(const nuevo of remitosAEnviar){
+        await saveRemitoCompartido(nuevo);
+        guardados++;
+      }
       await loadRemitosCompartidos({silent:false});
-      setSuccessAlert({message:"Remito guardado y sincronizado para todos los usuarios"});
-      setRemitoForm({
-        comprobante:"",
-        fecha:new Date().toISOString().slice(0,10),
-        origen:"01 DEPOSITO CENTRAL",
-        destino:"",
-        observaciones:"",
-        items:[{codigo:"",descripcion:"",cantidad:""}]
-      });
+      setSuccessAlert({message:`${guardados} ${guardados===1?"remito guardado":"remitos guardados"} y sincronizados para todos los usuarios`});
+      setRemitosPendientes([]);
+      limpiarRemitoForm();
       setRemitoSearch("");
     }catch(err){
       const msg=err?.message||String(err);
       setError(msg);
-      appAlert("No se pudo guardar el remito en la hoja compartida. No se registró como guardado: "+msg);
+      appAlert("No se pudieron guardar todos los remitos. Los que Google Sheets confirmó antes del error sí quedaron registrados: "+msg);
+      await loadRemitosCompartidos({silent:true}).catch(()=>{});
     }finally{
       setLoading(false);
     }
@@ -16556,10 +16624,16 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
           <div style={{fontSize:15,fontWeight:900,color:C.text}}>Cargar Remito RABA08</div>
           <div style={{fontSize:11,color:C.textSub}}>Subí el PDF del RABA08 y la app completa comprobante, fecha, origen, destino, observaciones y artículos automáticamente. También podés corregir los datos antes de guardar.</div>
         </div>
-        <label style={{border:`1px dashed ${C.blue}88`,background:`${C.blue}12`,color:C.blue,borderRadius:14,padding:"12px 14px",fontSize:12,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-          <span>📄 Cargar PDF de remito RABA08</span>
-          <input type="file" accept="application/pdf,.pdf" onChange={e=>handleRemitoPdfUpload(e.target.files?.[0])} style={{display:"none"}}/>
-        </label>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(240px,1fr))",gap:10}}>
+          <label style={{border:`1px dashed ${C.blue}88`,background:`${C.blue}12`,color:C.blue,borderRadius:14,padding:"12px 14px",fontSize:12,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+            <span>📄 Cargar un PDF para revisar</span>
+            <input type="file" accept="application/pdf,.pdf" onChange={e=>{handleRemitoPdfUpload(e.target.files?.[0]);e.target.value="";}} style={{display:"none"}}/>
+          </label>
+          <label style={{border:`1px dashed ${C.green}88`,background:`${C.green}12`,color:C.green,borderRadius:14,padding:"12px 14px",fontSize:12,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+            <span>📚 Seleccionar varios PDF y agregarlos al lote</span>
+            <input type="file" multiple accept="application/pdf,.pdf" onChange={e=>{handleMultipleRemitoPdfUpload(e.target.files);e.target.value="";}} style={{display:"none"}}/>
+          </label>
+        </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(150px,1fr))",gap:10}}>
           <input value={remitoForm.comprobante} onChange={e=>updateRemitoField("comprobante",e.target.value)} placeholder="Comprobante / N° remito" style={inputStyle}/>
           <input value={remitoForm.fecha} onChange={e=>updateRemitoField("fecha",e.target.value)} type="date" style={inputStyle}/>
@@ -16591,8 +16665,28 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
         </div>
         <div style={{display:"flex",gap:10,justifyContent:"space-between",flexWrap:"wrap"}}>
           <button onClick={addRemitoItem} style={{border:`1px solid ${C.blue}66`,background:`${C.blue}16`,color:C.blue,borderRadius:10,padding:"9px 12px",fontWeight:900,cursor:"pointer"}}>+ Agregar artículo</button>
-          <button onClick={registerRemito} style={{border:`1px solid ${C.green}66`,background:`${C.green}16`,color:C.green,borderRadius:10,padding:"9px 12px",fontWeight:900,cursor:"pointer"}}>Guardar remito</button>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <button onClick={agregarRemitoActualAlLote} disabled={loading} style={{border:`1px solid ${C.blue}66`,background:`${C.blue}16`,color:C.blue,borderRadius:10,padding:"9px 12px",fontWeight:900,cursor:"pointer",opacity:loading?0.65:1}}>+ Agregar remito al lote</button>
+            <button onClick={registerRemito} disabled={loading} style={{border:`1px solid ${C.green}66`,background:`${C.green}16`,color:C.green,borderRadius:10,padding:"9px 12px",fontWeight:900,cursor:"pointer",opacity:loading?0.65:1}}>{loading?"Guardando...":`Guardar ${remitosPendientes.length+((remitoForm.items||[]).some(it=>String(it.codigo||"").trim()&&toNumber(it.cantidad)>0)?1:0)} remito(s)`}</button>
+          </div>
         </div>
+        {remitosPendientes.length>0&&(
+          <div style={{border:`1px solid ${C.green}55`,background:`${C.green}0d`,borderRadius:14,padding:12,display:"grid",gap:9}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <div style={{fontWeight:900,color:C.green}}>Lote pendiente: {remitosPendientes.length} remito(s)</div>
+              <button onClick={()=>setRemitosPendientes([])} style={{border:`1px solid ${C.red}55`,background:`${C.red}12`,color:C.red,borderRadius:9,padding:"6px 9px",fontWeight:900,cursor:"pointer"}}>Vaciar lote</button>
+            </div>
+            {remitosPendientes.map((r,idx)=>(
+              <div key={r._loteId||idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"9px 10px",border:`1px solid ${C.border}44`,borderRadius:10,background:"rgba(0,0,0,.16)"}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontWeight:900,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{idx+1}. {r.comprobante||"S/N"} · {r.fecha||"sin fecha"}</div>
+                  <div style={{fontSize:11,color:C.textSub}}>{(r.items||[]).length} artículo(s){r._archivo?` · ${r._archivo}`:""}</div>
+                </div>
+                <button onClick={()=>quitarRemitoDelLote(r._loteId)} style={{border:`1px solid ${C.red}55`,background:`${C.red}12`,color:C.red,borderRadius:9,padding:"6px 9px",fontWeight:900,cursor:"pointer"}}>Quitar</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{background:"rgba(20,20,20,.72)",border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden",backdropFilter:"blur(6px)"}}>
@@ -17015,7 +17109,7 @@ export default function App(){
     };
     return map[view]||"";
   },[view]);
-  const puedeEditarVista=!areaRequeridaVista||areaNormalizada===dmNormalizeArea(areaRequeridaVista);
+  const puedeEditarVista=!areaRequeridaVista||dmCanEditArea(areaRequeridaVista);
   const[loading,setLoading]=useState(false);
   const[syncing,setSyncing]=useState(false);
   const[rop02All,setRop02All]=useState([]);
@@ -17846,7 +17940,7 @@ export default function App(){
             {areaRequeridaVista&&!puedeEditarVista&&view!=="bienvenida"&&(
               <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:12,padding:"10px 13px",background:`${C.blue}12`,border:`1px solid ${C.blue}55`,borderRadius:9,color:C.textSub,fontSize:12,fontWeight:700}}>
                 <Icon name="eye" size={14} color={C.blue}/>
-                Modo solo lectura. El usuario pertenece a <strong style={{color:C.text}}>{areaUsuario||"SIN ÁREA"}</strong>; únicamente <strong style={{color:C.blue}}>{areaRequeridaVista}</strong> puede realizar modificaciones en esta sección.
+                Modo solo lectura. El usuario pertenece a <strong style={{color:C.text}}>{areaUsuario||"SIN ÁREA"}</strong>. Solo <strong style={{color:C.blue}}>{areaRequeridaVista}</strong> y <strong style={{color:C.accent}}>OFICINA TÉCNICA</strong> pueden realizar modificaciones en esta sección.
               </div>
             )}
             {errors.length>0&&!fatalError&&(
