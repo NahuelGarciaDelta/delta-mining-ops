@@ -192,7 +192,8 @@ const DM_ALIAS_MAPS={
   proyecto:{
     "JM":"JOSE MARIA","J M":"JOSE MARIA","JOSE MARIA":"JOSE MARIA","JOSÉ MARÍA":"JOSE MARIA","PROYECTO JOSE MARIA":"JOSE MARIA",
     "FS":"FILO DEL SOL","FDS":"FILO DEL SOL","FILO":"FILO DEL SOL","FILO DEL SOL":"FILO DEL SOL","FILO DE SOL":"FILO DEL SOL","VICUNA":"FILO DEL SOL","VICUÑA":"FILO DEL SOL",
-    "FILO SUR":"FILO SUR","FILOSUR":"FILO SUR","F SUR":"FILO SUR","FSUR":"FILO SUR"
+    "FILO SUR":"FILO SUR","FILOSUR":"FILO SUR","F SUR":"FILO SUR","FSUR":"FILO SUR",
+    "EL ZORRO":"EL ZORRO","ZORRO":"EL ZORRO","PROYECTO EL ZORRO":"EL ZORRO"
   },
   tipoEquipo:{
     "CARGADOR FRONTAL":"CARGADORA FRONTAL","CARGADORA":"CARGADORA FRONTAL","CARGADORA FRONTAL":"CARGADORA FRONTAL","PALA CARGADORA":"CARGADORA FRONTAL",
@@ -238,6 +239,7 @@ function dmNormalizeProject(v){
   const key=dmNormKey(v);
   if(!key)return "S/D";
   if(key.includes("FILO SUR")||key==="FSUR"||key==="F SUR")return "FILO SUR";
+  if(key.includes("EL ZORRO")||key==="ZORRO")return "EL ZORRO";
   if(key.includes("JOSE")||key.includes("MARIA")||key==="JM"||key==="J M")return "JOSE MARIA";
   if(key.includes("FILO")||key.includes("VICU")||key==="FS"||key==="FDS")return "FILO DEL SOL";
   return dmApplyAlias("proyecto",v,"S/D");
@@ -902,6 +904,7 @@ function proyColor(p){
   const s=String(p||"").toUpperCase();
   if(s==="FILO DEL SOL")return C.accent;
   if(s==="FILO SUR")return C.yellow;
+  if(s==="EL ZORRO")return C.teal;
   if(s==="JOSE MARIA")return C.teal;
   return C.purple;
 }
@@ -1169,7 +1172,7 @@ function normalizeROP05(rows){
 
 function esNoProductivo(e){const s=String(e||"").toUpperCase();return s==="FS"||s==="OD"||s==="EM"||s.includes("FUERA")||s.includes("OTRO")||s.includes("MANTENIMIENTO");}
 function calcControl(rop02All,rop05){
-  const productivos=(rop02All||[]).filter(r=>!esNoProductivo(r.estado)&&!r._excluded);
+  const productivos=(rop02All||[]).filter(r=>r.proyecto!=="EL ZORRO"&&!esNoProductivo(r.estado)&&!r._excluded);
   const prod05=(rop05||[]).filter(r=>!r._excluded);
   const key=r=>`${r.fecha}__${r.maquina}`;
   const set05=new Set(prod05.map(key));const set02=new Set(productivos.map(key));
@@ -1991,16 +1994,16 @@ async function fetchSyncVersions(url){
 }
 
 const VIEW_SOURCES={
-  dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
-  rop02:["rop02_fs","rop02_jm","rop02_filosur"],
-  horometros:["rop02_fs","rop02_jm","rop02_filosur"],
-  vehiculos:["rop02_fs","rop02_jm","rop02_filosur","lista_equipos"],
-  controlErrores:["rop02_fs","rop02_jm","rop02_filosur"],
-  ctrlEquipo:["rop02_fs","rop02_jm","rop02_filosur"],
-  controlROP02:["rop02_fs","rop02_jm","rop02_filosur"],
-  combustible:["rop02_fs","rop02_jm","rop02_filosur"],
-  cambiosTurno:["rop02_fs","rop02_jm","rop02_filosur"],
-  chc:["rop02_fs","rop02_jm","rop02_filosur"],
+  dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
+  rop02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  horometros:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  vehiculos:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],
+  controlErrores:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  ctrlEquipo:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  controlROP02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  combustible:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  cambiosTurno:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  chc:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   rop05:["rop05"],
   ranking:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
   control:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
@@ -5949,7 +5952,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     setEditDraft({TD:mk(fichaActual.TD),TN:mk(fichaActual.TN)});
     setEditError(null);setEditSuccess(false);
   },[fichaActual,editMode]);// eslint-disable-line
-  const getTarget=(r)=>{const p=String(r?.proyecto||"").toUpperCase();if(p.includes("FILO SUR")||p.includes("FILOSUR"))return"rop02_filosur";if(p.includes("FILO DEL SOL")||p.includes("FDS")||p.includes("FILO"))return"rop02_fs";if(p.includes("JOSE MARIA")||p.includes("JM"))return"rop02_jm";const proj=Array.isArray(proyecto)?proyecto[0]:proyecto;const ps=String(proj||"").toUpperCase();if(ps.includes("FILO SUR")||ps.includes("FILOSUR"))return"rop02_filosur";if(ps.includes("FILO DEL SOL")||ps.includes("FDS")||ps.includes("FILO"))return"rop02_fs";return"rop02_jm";};
+  const getTarget=(r)=>{const p=String(r?.proyecto||"").toUpperCase();if(p.includes("EL ZORRO")||p==="ZORRO")return"rop02_zorro";if(p.includes("FILO SUR")||p.includes("FILOSUR"))return"rop02_filosur";if(p.includes("FILO DEL SOL")||p.includes("FDS")||p.includes("FILO"))return"rop02_fs";if(p.includes("JOSE MARIA")||p.includes("JM"))return"rop02_jm";const proj=Array.isArray(proyecto)?proyecto[0]:proyecto;const ps=String(proj||"").toUpperCase();if(ps.includes("EL ZORRO")||ps==="ZORRO")return"rop02_zorro";if(ps.includes("FILO SUR")||ps.includes("FILOSUR"))return"rop02_filosur";if(ps.includes("FILO DEL SOL")||ps.includes("FDS")||ps.includes("FILO"))return"rop02_fs";return"rop02_jm";};
   const handleSaveEdit=async()=>{
     if(!fichaActual||editSaving)return;
     setEditSaving(true);setEditError(null);setEditSuccess(false);
@@ -7277,7 +7280,7 @@ function ViewCHC({rop02All,extState,setExtState}){
   const mesIdx=extState?.mesIdx??new Date().getMonth(); // 0=Enero
   const setMesIdx=v=>setExtState(s=>({...s,mesIdx:v}));
 
-  const proyectos=useMemo(()=>uniq(rop02All.filter(r=>!r._excluded&&r.proyecto!=="FILO SUR").map(r=>r.proyecto)),[rop02All]);
+  const proyectos=useMemo(()=>uniq(rop02All.filter(r=>!r._excluded&&!(["FILO SUR","EL ZORRO"].includes(r.proyecto))).map(r=>r.proyecto)),[rop02All]);
 
   // Sub-pestaña: período "26-25" (José María / Filo del Sol) vs período de
   // mes calendario (Filo Sur, donde el mes coincide con el período 1-fin de mes)
@@ -7291,7 +7294,7 @@ function ViewCHC({rop02All,extState,setExtState}){
   const{fechaD,fechaH,diasPeriodo}=useMemo(()=>{
     const y=parseFloat(añoSelec);
     const m=mesIdx; // 0=Enero
-    if(chcTab==="filosur"){
+    if(chcTab==="filosur"||chcTab==="zorro"){
       const dD=`${y}-${String(m+1).padStart(2,"0")}-01`;
       const lastDay=new Date(y,m+1,0).getDate();
       const dH=`${y}-${String(m+1).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
@@ -7313,8 +7316,10 @@ function ViewCHC({rop02All,extState,setExtState}){
     if(r._excluded)return false;
     if(chcTab==="filosur"){
       if(r.proyecto!=="FILO SUR")return false;
+    }else if(chcTab==="zorro"){
+      if(r.proyecto!=="EL ZORRO")return false;
     }else{
-      if(r.proyecto==="FILO SUR")return false;
+      if(r.proyecto==="FILO SUR"||r.proyecto==="EL ZORRO")return false;
       if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
     }
     if(r.fecha<fechaD||r.fecha>fechaH)return false;
@@ -7404,10 +7409,11 @@ function ViewCHC({rop02All,extState,setExtState}){
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
-      {/* Sub-pestañas: período 26-25 vs Filo Sur (mes calendario) */}
+      {/* Sub-pestañas de Calidad: principal 26-25 y proyectos especiales por mes calendario */}
       <div style={{borderBottom:`1px solid ${C.border}`,paddingBottom:2}}>
         <SubTab active={chcTab==="principal"} onClick={()=>setChcTab("principal")}>José María / Filo del Sol</SubTab>
         <SubTab active={chcTab==="filosur"} onClick={()=>setChcTab("filosur")}>Filo Sur</SubTab>
+        <SubTab active={chcTab==="zorro"} onClick={()=>setChcTab("zorro")}>El Zorro</SubTab>
       </div>
       {/* Filtros */}
       <Card>
@@ -7430,7 +7436,7 @@ function ViewCHC({rop02All,extState,setExtState}){
             <div style={{display:"flex",flexDirection:"column",gap:3}}>
               <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Proyecto</label>
               <div style={{fontSize:12,padding:"7px 10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7}}>
-                <Badge color={proyColor("FILO SUR")}>FILO SUR</Badge>
+                <Badge color={proyColor(chcTab==="zorro"?"EL ZORRO":"FILO SUR")}>{chcTab==="zorro"?"EL ZORRO":"FILO SUR"}</Badge>
               </div>
             </div>
           )}
@@ -17190,11 +17196,11 @@ export default function App(){
 
   const viewDataReady=useMemo(()=>{
     if(view==="rop05"||view==="rop05Discriminacion")return sourceHasData("rop05");
-    if(view==="rop02")return sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur");
+    if(view==="rop02")return sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur")||sourceHasData("rop02_zorro");
     if(view==="rma15")return sourceHasData("rma15_jm")||sourceHasData("rma15_fs");
     if(view==="insumos")return sourceHasData("insumos")||sourceHasData("rma15_jm")||sourceHasData("rma15_fs");
     if(view==="listaEquipos")return sourceHasData("lista_equipos");
-    if(view==="control")return sourceHasData("rop05")&&(sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur"));
+    if(view==="control")return sourceHasData("rop05")&&(sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur")||sourceHasData("rop02_zorro"));
     return Object.keys(rawSources||{}).some(sourceHasData);
   },[view,sourceHasData,rawSources]);
 
@@ -17310,12 +17316,14 @@ export default function App(){
     const rFS=src.rop02_fs?.ok&&src.rop02_fs.data?normalizeROP02(src.rop02_fs.data,"FILO DEL SOL"):[];
     const rJM=src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
     const rFSur=src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
+    const rZorro=src.rop02_zorro?.ok&&src.rop02_zorro.data?normalizeROP02(src.rop02_zorro.data,"EL ZORRO"):[];
     if(src.rop02_fs&&!src.rop02_fs.ok)errs.push({source:"ROP02 — Filo del Sol",...src.rop02_fs.error});
     if(src.rop02_jm&&!src.rop02_jm.ok)errs.push({source:"ROP02 — José María",...src.rop02_jm.error});
     if(src.rop02_filosur&&!src.rop02_filosur.ok)errs.push({source:"ROP02 — Filo Sur",...src.rop02_filosur.error});
+    if(src.rop02_zorro&&!src.rop02_zorro.ok)errs.push({source:"ROP02 — El Zorro",...src.rop02_zorro.error});
 
-    const allRop02=[...rFS,...rJM,...rFSur];
-    if(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur){
+    const allRop02=[...rFS,...rJM,...rFSur,...rZorro];
+    if(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur || src.rop02_zorro){
       const allNames=[...allRop02.map(r=>r.supervisor),...allRop02.map(r=>r.operario),...rop05Raw.map(r=>r.supervisor)].filter(Boolean);
       buildCanonicalMap(allNames);
       setRop02All(allRop02.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,supervisor:normName(r.supervisor),operario:normName(r.operario)})));
@@ -17555,6 +17563,7 @@ export default function App(){
       "rop02_fs",
       "rop02_jm",
       "rop02_filosur",
+      "rop02_zorro",
       "rop05",
       "raba03",
       "remitos_cargados"
@@ -17966,7 +17975,7 @@ export default function App(){
             {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
                 {view==="bienvenida"&&<ViewBienvenida nombreUsuario={nombreUsuario} esAdministrativo={esAdministrativo} onCambiarUsuario={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>}
-                {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
+                {view==="dashboard"&&(Object.keys(rawSources).length===0?<HealthDashboard health={health} loading={loading} onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"])} />:<ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>)}
                 {view==="listaEquipos"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Lista de Equipos..." />)}
                 {view==="tallerCentral"&&(dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}/>:<BlockingDataLoader label="Cargando Taller Central..." />)}
                 {view==="rop02"&&(dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02}/>:<BlockingDataLoader label="Cargando ROP02..." />)}
