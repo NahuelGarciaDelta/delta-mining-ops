@@ -12352,7 +12352,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         // Costo horario: promedio de la columna Mant. (USD/hs) de Amortización
         // para los equipos visibles del mismo tipo, respetando los filtros aplicados.
         const costoHorario=g.mantVals.length?g.mantVals.reduce((s,v)=>s+v,0)/g.mantVals.length:0;
-        const costoTotal=costoHorario>0?costoHorario:costoAmort*(1+pctMant);
+        const costoTotal=costoAmort>0?costoAmort*(1+pctMant):0;
         const modelos=Object.values(g.modelos||{});
         const modeloPredominante=modelos.length
           ? modelos.sort((a,b)=>b.count-a.count||a.orden-b.orden||String(a.modelo).localeCompare(String(b.modelo)))[0].modelo
