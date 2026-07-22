@@ -10467,18 +10467,50 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return out;
   },[listaEquiposIndex,machineLookupKeysCosto]);
 
-  const equipoCostoDisplay=React.useCallback((maquina)=>{
+  // Identidad canónica única para toda la app: todas las variantes de una fila
+  // de Lista Maestra apuntan al Código Nuevo. Si no existe, se usa Código Drusila
+  // y, como último respaldo, Código Viejo.
+  const identidadCanonicaEquipos=React.useMemo(()=>{
+    const map=new Map();
+    const getListaVal=(e,mainLabel,aliases=[])=>{
+      const keys=Object.keys(e||{});
+      const k=findColumnKey(keys,mainLabel,aliases);
+      return k?String(e[k]||"").trim():"";
+    };
+    (listaEquipos||[]).forEach(e=>{
+      const codNuevo=getListaVal(e,"Código Nuevo",["Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual","Código Interno","Codigo Interno","CODIGO N° INTERNO","Interno"]);
+      const codDrusila=getListaVal(e,"Código Drusila",["Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila"]);
+      const codViejo=getListaVal(e,"Código Viejo",["Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo","Código Antiguo","Codigo Antiguo","Código Alternativo","Codigo Alternativo"]);
+      const canon=cleanMachine(codNuevo||codDrusila||codViejo);
+      if(!canon||isInvalidEquipoCodeCosto(canon))return;
+      [codNuevo,codDrusila,codViejo].forEach(code=>{
+        codeLookupVariantsCosto(code).forEach(k=>map.set(k,canon));
+      });
+      codeLookupVariantsCosto(canon).forEach(k=>map.set(k,canon));
+    });
+    return map;
+  },[listaEquipos,codeLookupVariantsCosto,isInvalidEquipoCodeCosto]);
+
+  const codigoCanonicoEquipo=React.useCallback((maquina)=>{
+    const keys=machineLookupKeysCosto(maquina);
+    for(const k of keys){
+      const canon=identidadCanonicaEquipos.get(k);
+      if(canon)return canon;
+    }
     const eq=getEquipoListaMaestra(maquina);
-    // La Lista Maestra define la identidad canónica del equipo.
-    // Se prioriza Código Nuevo para unificar registros históricos cargados con
-    // Código Drusila (por ejemplo TOP-0014) con el código vigente (TOP-0032).
-    const codNuevo=getValue(eq||{},["Código Nuevo","Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual","Código Interno","Codigo Interno"]);
-    if(codNuevo)return cleanMachine(codNuevo);
-    const codDrusila=getValue(eq||{},["Código Drusila","Codigo Drusila","Código drusila","Codigo drusila"]);
-    if(codDrusila)return cleanMachine(codDrusila);
+    if(eq){
+      const keysEq=Object.keys(eq||{});
+      const read=(label,aliases=[])=>{const k=findColumnKey(keysEq,label,aliases);return k?String(eq[k]||"").trim():"";};
+      const canon=read("Código Nuevo",["Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual","Código Interno","Codigo Interno","CODIGO N° INTERNO","Interno"])||
+        read("Código Drusila",["Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila"])||
+        read("Código Viejo",["Codigo Viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"]);
+      if(canon)return cleanMachine(canon);
+    }
     const {main,sinParentesis}=extraerCodigosCosto(maquina);
     return cleanMachine(main||sinParentesis||maquina)||"—";
-  },[getEquipoListaMaestra,extraerCodigosCosto]);
+  },[identidadCanonicaEquipos,machineLookupKeysCosto,getEquipoListaMaestra,extraerCodigosCosto]);
+
+  const equipoCostoDisplay=React.useCallback((maquina)=>codigoCanonicoEquipo(maquina),[codigoCanonicoEquipo]);
 
   const getPropiedadFromListaRow=React.useCallback((eq)=>{
     const keys=Object.keys(eq||{});
@@ -11757,7 +11789,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     {tipo:"CARGADORA", equipos:["CFN-0041","CFN-0044","CFN-0101","PCA-0017","PCA-0021","PCA-0051","PCA-0070","PCA-0074","PCA-0101"], prefixes:["CFN","PCA"]},
     {tipo:"COMPACTACIÓN", equipos:["ROD-0001","RCP-0016","RPC-0016","RCP-0036","RPC-0036","RPC-0039"], prefixes:["ROD","RCP","RPC"]},
     {tipo:"RETROPALA", equipos:["RTP-0010","RTP-0011","RTP-0012","RTP-0018","RTP-0030"], prefixes:["RTP"]},
-    {tipo:"TOPADORA", equipos:["TOP-0014","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0059"], prefixes:["TOP"]},
+    {tipo:"TOPADORA", equipos:["TOP-0032","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0059"], prefixes:["TOP"]},
   ],[]);
 
   const amortizacionGrupoInfo=React.useCallback((equipo)=>{
@@ -11790,13 +11822,15 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const byEquipo={};
     (costoMensualAcumulado||[]).forEach(x=>{
       if(!x.equipo)return;
-      if(!byEquipo[x.equipo]){
-        byEquipo[x.equipo]={equipo:x.equipo,mantUSDhsTotal:0,proyectos:[],sections:[],_fromLista:false};
+      const equipoCanonico=codigoCanonicoEquipo(x.equipo);
+      if(!equipoCanonico||isInvalidEquipoCodeCosto(equipoCanonico))return;
+      if(!byEquipo[equipoCanonico]){
+        byEquipo[equipoCanonico]={equipo:equipoCanonico,mantUSDhsTotal:0,proyectos:[],sections:[],_fromLista:false};
       }
-      byEquipo[x.equipo].mantUSDhsTotal+=getUsdHoraCostoMensual(x);
+      byEquipo[equipoCanonico].mantUSDhsTotal+=getUsdHoraCostoMensual(x);
       const p=sectionProyectoCosto(x.section);
-      if(p&&!byEquipo[x.equipo].proyectos.includes(p))byEquipo[x.equipo].proyectos.push(p);
-      if(x.section&&!byEquipo[x.equipo].sections.includes(x.section))byEquipo[x.equipo].sections.push(x.section);
+      if(p&&!byEquipo[equipoCanonico].proyectos.includes(p))byEquipo[equipoCanonico].proyectos.push(p);
+      if(x.section&&!byEquipo[equipoCanonico].sections.includes(x.section))byEquipo[equipoCanonico].sections.push(x.section);
     });
 
     // Agregar también los equipos que existen en Lista Maestra aunque todavía no
@@ -11805,11 +11839,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     // esta tabla por su tipo/prefijo y no hay que tocar el código.
     const yaCargadosCanon=new Set(Object.keys(byEquipo).map(eq=>canonicalEquivalentMachineCode(cleanMachine(mainMachineCode(eq)))));
     const codigoListaEquipoCosto=(eq)=>{
-      return getValue(eq||{},[
-        "Código Drusila","Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila",
-        "Código Nuevo","Codigo Nuevo","Código nuevo","Codigo nuevo","Codigo Interno","Código Interno","CODIGO N° INTERNO","Interno","Código Actual","Codigo Actual",
-        "Código Viejo","Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"
-      ]);
+      const keys=Object.keys(eq||{});
+      const read=(label,aliases=[])=>{const k=findColumnKey(keys,label,aliases);return k?String(eq[k]||"").trim():"";};
+      return read("Código Nuevo",["Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual","Código Interno","Codigo Interno","CODIGO N° INTERNO","Interno"])||
+        read("Código Drusila",["Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila"])||
+        read("Código Viejo",["Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"]);
     };
     const prefijosAmortizacion=new Set((AMORTIZACION_GRUPOS||[]).flatMap(g=>[...(g.prefixes||[]),...(g.equipos||[]).map(e=>String(e||"").split("-")[0])]).filter(Boolean));
 
@@ -11821,7 +11855,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     ].map(canonicalEquivalentMachineCode));
 
     (listaEquipos||[]).forEach(eq=>{
-      const code=cleanMachine(mainMachineCode(codigoListaEquipoCosto(eq)));
+      const code=codigoCanonicoEquipo(codigoListaEquipoCosto(eq));
       if(!code||isInvalidEquipoCodeCosto(code))return;
       if(equiposSinMantenimientoExcluirAmortizacion.has(canonicalEquivalentMachineCode(code)))return;
       const canon=canonicalEquivalentMachineCode(code);
@@ -11888,7 +11922,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     );
     rowsAmortizacionCacheRef.current=out;
     return out;
-  },[isCostosTabAmortizacion,amortizacionCalcEnabled,costoMensualAcumulado,listaEquipos,AMORTIZACION_GRUPOS,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto,isInvalidEquipoCodeCosto]);
+  },[isCostosTabAmortizacion,amortizacionCalcEnabled,costoMensualAcumulado,listaEquipos,AMORTIZACION_GRUPOS,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto,isInvalidEquipoCodeCosto,codigoCanonicoEquipo]);
 
   // Enriquecer con HH Hombre Vestido y lógica no-Delta (depende de estado hombreVestido, hsEf)
   // vidaBase = vida de lista maestra (sin override), para mostrarlo en la celda cuando override=false
