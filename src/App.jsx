@@ -11793,8 +11793,23 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   ],[]);
 
   const amortizacionGrupoInfo=React.useCallback((equipo)=>{
-    const code=cleanMachine(mainMachineCode(equipo));
+    const code=codigoCanonicoEquipo(cleanMachine(mainMachineCode(equipo)));
     const prefix=String(code||"").split("-")[0];
+
+    // Los equipos de mayor porte se separan por MODELO, independientemente de
+    // que hayan cambiado de código interno. De este modo, una equivalencia
+    // Código Drusila -> Código Nuevo no puede mezclarlos con el grupo general.
+    const eqLista=getEquipoListaMaestra(code)||{};
+    const modeloEspecial=String(getValue(eqLista,["Modelo","MODELO","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[\s\-_/]+/g,"");
+    if(modeloEspecial.includes("PC350")){
+      const gi=AMORTIZACION_GRUPOS.findIndex(g=>g.tipo==="EXCAVADORA 1");
+      return {grupo:"EXCAVADORA 1",grupoIndex:gi>=0?gi:2,orden:0};
+    }
+    if(modeloEspecial.includes("L120")){
+      const gi=AMORTIZACION_GRUPOS.findIndex(g=>g.tipo==="CARGADORA 1");
+      return {grupo:"CARGADORA 1",grupoIndex:gi>=0?gi:4,orden:0};
+    }
 
     // 1) Coincidencia exacta: respeta equipos aislados y orden fijo.
     for(let gi=0;gi<AMORTIZACION_GRUPOS.length;gi++){
@@ -11812,7 +11827,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
     const fallback=tipoEquipoListaMaestra(equipo)||getMachineType(equipo)||"S/D";
     return {grupo:fallback,grupoIndex:999,orden:9999};
-  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra]);
+  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra,getEquipoListaMaestra,codigoCanonicoEquipo]);
 
   const rowsAmortizacion=React.useMemo(()=>{
     if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionCacheRef.current||[];
