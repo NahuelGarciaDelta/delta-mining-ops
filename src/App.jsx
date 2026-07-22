@@ -1557,14 +1557,16 @@ function normalizeMultiValue(value, options){
   if(Array.isArray(value)){
     const arr=value.filter(v=>v!==def&&valid.has(v));
     const realOpts=(options||[]).filter(o=>o.value!==def);
-    if(arr.length===0||arr.length>=realOpts.length)return def;
+    // Un arreglo vacío representa "ninguna opción seleccionada".
+    // Si están seleccionadas todas las opciones reales, se normaliza a "Todos".
+    if(arr.length>=realOpts.length&&realOpts.length>0)return def;
     return arr;
   }
   if(!value||value===def||!valid.has(value))return def;
   return [value];
 }
 function multiIsAll(value, def="todos"){
-  return !Array.isArray(value)||value.length===0||value.includes(def);
+  return !Array.isArray(value)||value.includes(def);
 }
 function multiIncludes(value, item, def="todos"){
   if(multiIsAll(value,def))return true;
@@ -1578,6 +1580,7 @@ function multiSummary(value, options){
   const normalized=normalizeMultiValue(value,options);
   if(!Array.isArray(normalized))return (options.find(o=>o.value===def)?.label)||"Todos";
   const labels=normalized.map(v=>(options.find(o=>o.value===v)?.label)||v);
+  if(labels.length===0)return "0 seleccionados";
   if(labels.length===1)return labels[0];
   const joined=labels.join(", ");
   return joined.length<=34?joined:`${labels.length} seleccionados`;
@@ -1639,10 +1642,12 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
   const def=multiDefault(options);
   const displayValue=open?draftValue:value;
   const selected=normalizeMultiValue(displayValue,options);
-  const selectedArr=Array.isArray(selected)?selected:[];
   const selectedLabels=multiSelectedLabels(displayValue,options);
   const isActive=Array.isArray(selected)&&selected.length>0;
   const realOptions=useMemo(()=>(options||[]).filter(o=>o.value!==def),[options,def]);
+  // Cuando el filtro está en “Todos”, todas las opciones se muestran tildadas.
+  // Al destildar una opción desde ese estado, quedan seleccionadas todas las demás.
+  const selectedArr=Array.isArray(selected)?selected:realOptions.map(o=>o.value);
   const searchNorm=String(search||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
   const filteredOptions=useMemo(()=>{
     if(!searchNorm)return realOptions;
@@ -1725,7 +1730,7 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
 
   const emit=(arr)=>{
     const clean=arr.filter(Boolean).filter(v=>v!==def);
-    if(clean.length===0||clean.length>=realOptions.length)commitValue(def);
+    if(clean.length>=realOptions.length&&realOptions.length>0)commitValue(def);
     else commitValue(clean);
   };
   const toggle=(v)=>{
@@ -1734,12 +1739,12 @@ function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=
     if(set.has(v))set.delete(v);else set.add(v);
     emit([...set]);
   };
-  const allChecked=!isActive;
+  const allChecked=!Array.isArray(selected);
 
   const menu=open&&menuPos?ReactDOM.createPortal((
     <div data-multisel-menu="true" onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} style={{position:"fixed",top:menuPos.top,left:menuPos.left,zIndex:2147483000,width:menuPos.width,maxWidth:360,maxHeight:menuPos.maxHeight,overflow:"auto",overscrollBehavior:"contain",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.82)",padding:6,contain:"layout paint",willChange:"transform",isolation:"isolate"}}>
       <label style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:allChecked?C.accent:C.textSub,fontWeight:allChecked?700:500}}>
-        <input type="checkbox" checked={allChecked} onChange={()=>commitValue(def)} style={{accentColor:C.accent}}/>
+        <input type="checkbox" checked={allChecked} onChange={()=>commitValue(allChecked?[]:def)} style={{accentColor:C.accent}}/>
         Todos
       </label>
       <div style={{height:1,background:C.border,margin:"4px 0"}}/>
@@ -8565,7 +8570,7 @@ function ViewDistribucionMantenimientos({rma15}){
   );
 }
 
-function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
+function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
   const{modo,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,filtroCosto,insumoFiltro,verGastosExcesivos=false,codigoGastoFiltro="todos"}=extState;
   const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
   const setModo=v=>set("modo",v);
@@ -8593,7 +8598,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
       if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
       if(!matchMulti(normTipo(r.tipoMant), Array.isArray(tipoMant)?tipoMant.map(normTipo):tipoMant,"todos"))return false;
       if(!matchMulti(r.maquina,maquina,"todas"))return false;
-      if(insumoFiltro&&!r.insumos?.some(i=>i.codigo===insumoFiltro))return false;
+      if(!multiIsAll(insumoFiltro,"todos")&&!r.insumos?.some(i=>matchMulti(String(i.codigo||""),insumoFiltro,"todos")))return false;
       return !!r.fecha;
     }).map(r=>r.fecha).sort();
     return fechas[fechas.length-1]||"";
@@ -8624,7 +8629,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
     if(modo==="dia"){if(fechaDiaActiva&&r.fecha!==fechaDiaActiva)return false;}
     else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
     // Si hay filtro por insumo, solo incluir OTs que usen ese insumo
-    if(insumoFiltro&&!r.insumos.some(i=>i.codigo===insumoFiltro))return false;
+    if(!multiIsAll(insumoFiltro,"todos")&&!r.insumos.some(i=>matchMulti(String(i.codigo||""),insumoFiltro,"todos")))return false;
     return true;
   }),[rma15,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDiaActiva,modo,insumoFiltro]);
 
@@ -8757,7 +8762,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
   const pieDataTipo=Object.entries(otsPorTipo).map(([name,value])=>({name,value}));
   const COLORS=["#e8001d","#3b82f6","#10b981","#f59e0b","#8b5cf6","#ec4899"];
 
-  const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(tipoMant,"todos")||!multiIsAll(maquina,"todas")||fechaD||fechaH||fechaDia||insumoFiltro||!multiIsAll(codigoGastoFiltro,"todos");
+  const hayFiltros=!multiIsAll(proyecto,"todos")||!multiIsAll(tipoMant,"todos")||!multiIsAll(maquina,"todas")||fechaD||fechaH||fechaDia||!multiIsAll(insumoFiltro,"todos")||!multiIsAll(codigoGastoFiltro,"todos");
   const [pinnedInsumo,setPinnedInsumo]=React.useState(null);
   const [hoveredInsumo,setHoveredInsumo]=React.useState(null);
   const [pinnedGasto,setPinnedGasto]=React.useState(null);
@@ -8816,11 +8821,30 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
       else{if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
       return true;
     });
+    const catalogoPorCodigo=new Map(
+      Object.entries(insumos||{}).map(([codigo,info])=>{
+        const cod=normalizeInsumoCode(codigo);
+        const descripcion=String(
+          info?.descripcion||
+          getValue(info||{},["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Insumo","Nombre"])||
+          ""
+        ).trim();
+        return [cod,descripcion];
+      })
+    );
     const m={};
-    base.forEach(r=>r.insumos.forEach(i=>{if(i.codigo&&!m[i.codigo])m[i.codigo]=i.nombre||i.codigo;}));
-    return Object.entries(m).sort((a,b)=>(a[1]||a[0]).localeCompare(b[1]||b[0]));
-  },[rma15,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,modo]);
-  const reset=()=>{setProyecto("todos");setTipoMant("todos");setMaquina("todas");setFechaD("");setFechaH("");setFechaDia("");setInsumoFiltro("");setCodigoGastoFiltro("todos");};
+    base.forEach(r=>r.insumos.forEach(i=>{
+      const codigo=String(i.codigo||"").trim();
+      if(!codigo||m[codigo])return;
+      const descripcionCatalogo=catalogoPorCodigo.get(normalizeInsumoCode(codigo))||"";
+      const descripcionRma=String(i.nombre||"").trim();
+      m[codigo]=(descripcionCatalogo&&normalizeInsumoCode(descripcionCatalogo)!==normalizeInsumoCode(codigo))
+        ? descripcionCatalogo
+        : ((descripcionRma&&normalizeInsumoCode(descripcionRma)!==normalizeInsumoCode(codigo))?descripcionRma:"Sin descripción");
+    }));
+    return Object.entries(m).sort((a,b)=>(a[1]||a[0]).localeCompare(b[1]||b[0],"es-AR",{numeric:true,sensitivity:"base"}));
+  },[rma15,insumos,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,modo]);
+  const reset=()=>{setProyecto("todos");setTipoMant("todos");setMaquina("todas");setFechaD("");setFechaH("");setFechaDia("");setInsumoFiltro("todos");setCodigoGastoFiltro("todos");};
 
   const colsPeriodo=useMemo(()=>[
     {key:"fecha",label:"Fecha",render:v=>fmtFecha(v)},
@@ -8860,7 +8884,7 @@ function ViewMantenimiento({rma15,usdRate,extState,setExtState}){
             <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
             <MultiSel label="Tipo" value={tipoMant} onChange={setTipoMant} options={[{value:"todos",label:"Todos"},...tiposMant.map(t=>({value:t,label:t}))]}/>
             <MultiSel label="Máquina" value={maquina} onChange={setMaquina} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
-            <InsumoSearch value={insumoFiltro} onChange={setInsumoFiltro} opciones={insumosDisponibles}/>
+            <MultiSel label="Insumo" value={insumoFiltro} onChange={setInsumoFiltro} options={[{value:"todos",label:"Todos"},...insumosDisponibles.map(([cod,nom])=>({value:String(cod),label:`${cod} — ${nom}`}))]}/>
             <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
           </div>
         </div>
@@ -17291,7 +17315,7 @@ export default function App(){
   // Estados persistentes de filtros por pestaña
   const[dashSt,setDashSt]=useState(()=>savedOr("dashSt",{proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""}));
   const[rma15,setRma15]=useState([]);
-  const[stMant,setStMant]=useState(()=>savedOr("stMant",{modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:"",verGastosExcesivos:false}));
+  const[stMant,setStMant]=useState(()=>savedOr("stMant",{modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:"todos",verGastosExcesivos:false}));
   const[stRma15CtrlEquipo,setStRma15CtrlEquipo]=useState(()=>savedOr("stRma15CtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:""}));
   const[stCHC,setStCHC]=useState(()=>savedOr("stCHC",{proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()}));
   const[stRanking,setStRanking]=useState(()=>savedOr("stRanking",{proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""}));
@@ -18053,7 +18077,7 @@ export default function App(){
                 {view==="rop05"&&(dataHydrated&&rop05.length>0?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Productividad..." />)}
                 {view==="rop05Discriminacion"&&(dataHydrated&&rop05.length>0?<ViewROP05Discriminacion rop05={rop05} extState={st05} setExtState={setSt05}/>:<BlockingDataLoader label="Cargando Discriminación por tarea..." />)}
                 {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ViewRankingOperarios rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>:<BlockingDataLoader label="Cargando Ranking..." />)}
-                {view==="mant"&&(viewDataReady?<ViewMantenimiento rma15={rma15} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
+                {view==="mant"&&(viewDataReady?<ViewMantenimiento rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
                 {view==="distMant"&&(dataHydrated&&rma15.length>0?<ViewDistribucionMantenimientos rma15={rma15}/>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
                 {view==="rma15CtrlEquipo"&&(dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
