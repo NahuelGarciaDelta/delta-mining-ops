@@ -12349,7 +12349,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         // Ej.: si filtrás Propiedad = DELTA, Topadora calcula sólo con topadoras Delta.
         const costoAmort=g.amorts.length?g.amorts.reduce((s,v)=>s+v,0)/g.amorts.length:0;
         const pctMant=g.pctMantVals.length?g.pctMantVals.reduce((s,v)=>s+v,0)/g.pctMantVals.length:0;
-        const costoTotal=g.totalVals.length?g.totalVals.reduce((s,v)=>s+v,0)/g.totalVals.length:costoAmort*(1+pctMant);
+        // Costo horario: promedio de la columna Total (USD/hs) de Amortización
+        // para los equipos visibles del mismo tipo, respetando los filtros aplicados.
+        const costoHorario=g.totalVals.length?g.totalVals.reduce((s,v)=>s+v,0)/g.totalVals.length:0;
+        const costoTotal=costoHorario>0?costoHorario:costoAmort*(1+pctMant);
         const modelos=Object.values(g.modelos||{});
         const modeloPredominante=modelos.length
           ? modelos.sort((a,b)=>b.count-a.count||a.orden-b.orden||String(a.modelo).localeCompare(String(b.modelo)))[0].modelo
@@ -12360,6 +12363,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           modelo:modeloFinal,
           costoAmort,
           pctMant,
+          costoHorario,
           costoTotal,
           _tipoGrupo:g.tipoGrupo,
           _detalleMaquinas:g.detalleMaquinas||[],
@@ -12372,6 +12376,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     "Modelo Tipo":x.modelo,
     "Costo Horario de Amortización":x.costoAmort>0?"USD "+Math.round(x.costoAmort):"—",
     "% Mantenimiento":x.pctMant>0?(x.pctMant*100).toFixed(0)+"%":"—",
+    "Costo Horario":x.costoHorario>0?"USD "+Math.round(x.costoHorario):"—",
     "Costo Total Horario":x.costoTotal>0?"USD "+Math.round(x.costoTotal):"—",
   })),[rowsResumenPorEquipo]);
 
@@ -13191,6 +13196,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                     <th style={{...thS,background:C.yellow,color:"#111",border:`1px solid ${C.borderLight}`}}>Modelo Tipo</th>
                     <th style={{...thS,background:C.yellow,color:"#111",border:`1px solid ${C.borderLight}`}}>Costo Horario de Amortización</th>
                     <th style={{...thS,background:C.yellow,color:"#111",border:`1px solid ${C.borderLight}`}}>% Mantenimiento</th>
+                    <th style={{...thS,background:C.yellow,color:"#111",border:`1px solid ${C.borderLight}`}}>Costo Horario</th>
                     <th style={{...thS,background:C.yellow,color:"#111",border:`1px solid ${C.borderLight}`}}>Costo Total Horario</th>
                   </tr>
                 </thead>
@@ -13242,6 +13248,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                       <td style={{...tdS,textAlign:"left",fontWeight:600,color:C.textSub}}>{x.modelo||"—"}</td>
                       <td style={{...tdS,fontWeight:700,color:C.yellow}}>{x.costoAmort>0?"USD "+fmtNum(Math.round(x.costoAmort)):"—"}</td>
                       <td style={{...tdS,fontWeight:700,color:C.textSub}}>{x.pctMant>0?(x.pctMant*100).toFixed(0)+"%":"—"}</td>
+                      <td style={{...tdS,fontWeight:800,color:C.cyan}}>{x.costoHorario>0?"USD "+fmtNum(Math.round(x.costoHorario)):"—"}</td>
                       <td style={{...tdS,fontWeight:800,color:C.green}}>{x.costoTotal>0?"USD "+fmtNum(Math.round(x.costoTotal)):"—"}</td>
                     </tr>
                   ))}
