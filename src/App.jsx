@@ -16981,23 +16981,79 @@ function LicitacionesModule({listaEquipos=[],initialTab="nueva"}){
     gastos:[{id:"g1",concepto:"Movilización",tipo:"monto",valor:0},{id:"g2",concepto:"Campamento",tipo:"monto",valor:0},{id:"g3",concepto:"Seguros",tipo:"porcentaje",valor:0},{id:"g4",concepto:"Garantías",tipo:"porcentaje",valor:0},{id:"g5",concepto:"Impuestos",tipo:"porcentaje",valor:0},{id:"g6",concepto:"Gastos generales",tipo:"porcentaje",valor:0},{id:"g7",concepto:"Utilidad",tipo:"porcentaje",valor:0}],
     notas:""
   });
-  const load=()=>{try{const x=JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");return Array.isArray(x)&&x.length?x.map(t=>({
-    ...t,
-    fechas:Array.isArray(t.fechas)?t.fechas:[],
-    horasContrato1:t.horasContrato1??t.equipos?.[0]?.horas??180,
-    horasContrato2:t.horasContrato2??0,
-    usarSegundoContrato:!!t.usarSegundoContrato,
-    estado:String(t.estado||"EN CURSO").toUpperCase()==="CERRADA"?"CERRADA":"EN CURSO",
-    resultado:["GANADA","PERDIDA"].includes(String(t.resultado||"").toUpperCase())?String(t.resultado).toUpperCase():"PENDIENTE",
-    planillas:(t.planillas&&typeof t.planillas==="object")?t.planillas:{}
-  })):[emptyTender()];}catch(_){return[emptyTender()];}};
-  const[licitaciones,setLicitaciones]=useState(load);
+  const normalizeTender=(t)=>({
+    ...emptyTender(),...t,
+    fechas:Array.isArray(t?.fechas)?t.fechas:[],
+    equipos:Array.isArray(t?.equipos)?t.equipos:[],
+    horasContrato1:t?.horasContrato1??t?.equipos?.[0]?.horas??180,
+    horasContrato2:t?.horasContrato2??0,
+    usarSegundoContrato:!!t?.usarSegundoContrato,
+    estado:String(t?.estado||"EN CURSO").toUpperCase()==="CERRADA"?"CERRADA":"EN CURSO",
+    resultado:["GANADA","PERDIDA"].includes(String(t?.resultado||"").toUpperCase())?String(t.resultado).toUpperCase():"PENDIENTE",
+    planillas:(t?.planillas&&typeof t.planillas==="object")?t.planillas:{}
+  });
+  const loadLocal=()=>{try{const x=JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]");return Array.isArray(x)&&x.length?x.map(normalizeTender):[emptyTender()];}catch(_){return[emptyTender()];}};
+  const[licitaciones,setLicitaciones]=useState(loadLocal);
   const[activeId,setActiveId]=useState("");
   const[tab,setTab]=useState(initialTab||"nueva");
+  const[licitacionesReady,setLicitacionesReady]=useState(false);
+  const[licitacionesSaving,setLicitacionesSaving]=useState(false);
+  const[licitacionesError,setLicitacionesError]=useState("");
+  const lastSavedRef=useRef(new Map());
+  const saveTimersRef=useRef(new Map());
+  const postLicitaciones=useCallback(async(payload)=>{
+    const res=await fetch(APPS_SCRIPT_URL,{method:"POST",cache:"no-store",redirect:"follow",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:new URLSearchParams({payload:JSON.stringify(payload)}).toString()});
+    if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
+    const json=await res.json();
+    if(!json.ok)throw new Error(json?.error?.message||"No se pudo guardar la licitación.");
+    return json;
+  },[]);
+  const guardarLicitacion=useCallback(async(lic,{silent=false}={})=>{
+    if(!lic?.id)return;
+    const signature=JSON.stringify(lic);
+    if(lastSavedRef.current.get(lic.id)===signature)return;
+    setLicitacionesSaving(true);setLicitacionesError("");
+    try{
+      await postLicitaciones({action:"guardar_licitacion",licitacion:lic});
+      lastSavedRef.current.set(lic.id,signature);
+      try{localStorage.setItem(STORAGE_KEY,JSON.stringify(licitaciones));}catch(_){}
+      if(!silent)await appAlert("La licitación se guardó en la planilla compartida.","Guardado");
+    }catch(err){setLicitacionesError(err?.message||String(err));if(!silent)await appAlert(err?.message||String(err),"No se pudo guardar");throw err;}
+    finally{setLicitacionesSaving(false);}
+  },[postLicitaciones,licitaciones]);
   useEffect(()=>{if(initialTab&&initialTab!==tab)setTab(initialTab);},[initialTab]);
+  useEffect(()=>{
+    let alive=true;
+    (async()=>{
+      try{
+        const res=await fetch(`${APPS_SCRIPT_URL}?action=licitaciones_compartidas&_=${Date.now()}`,{cache:"no-store"});
+        const json=await res.json();
+        if(!alive)return;
+        if(!json.ok)throw new Error(json?.error?.message||"No se pudieron cargar las licitaciones.");
+        const rows=Array.isArray(json.data)?json.data.map(normalizeTender):[];
+        if(rows.length){setLicitaciones(rows);setActiveId(rows[0].id);rows.forEach(x=>lastSavedRef.current.set(x.id,JSON.stringify(x)));}
+        else{const first=emptyTender();setLicitaciones([first]);setActiveId(first.id);}
+        setLicitacionesError("");
+      }catch(err){if(alive)setLicitacionesError(err?.message||String(err));}
+      finally{if(alive)setLicitacionesReady(true);}
+    })();
+    return()=>{alive=false;};
+  },[]);
   const tender=licitaciones.find(x=>x.id===activeId)||licitaciones[0];
   useEffect(()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(licitaciones));}catch(_){ }},[licitaciones]);
   useEffect(()=>{if(!licitaciones.some(x=>x.id===activeId)&&licitaciones[0])setActiveId(licitaciones[0].id);},[licitaciones,activeId]);
+  useEffect(()=>{
+    if(!licitacionesReady)return;
+    licitaciones.forEach(lic=>{
+      const signature=JSON.stringify(lic);
+      if(lastSavedRef.current.get(lic.id)===signature)return;
+      const old=saveTimersRef.current.get(lic.id);if(old)clearTimeout(old);
+      const timer=setTimeout(()=>guardarLicitacion(lic,{silent:true}).catch(()=>{}),900);
+      saveTimersRef.current.set(lic.id,timer);
+    });
+    return()=>{};
+  },[licitaciones,licitacionesReady,guardarLicitacion]);
+  useEffect(()=>()=>{saveTimersRef.current.forEach(t=>clearTimeout(t));},[]);
   const update=(patch)=>setLicitaciones(xs=>xs.map(x=>x.id===tender.id?{...x,...patch}:x));
   const planillaName=LICITACION_PLANILLA_BY_TAB[tab]||"";
   const colToIndex=(col)=>String(col||"").toUpperCase().split("").reduce((acc,ch)=>acc*26+(ch.charCodeAt(0)-64),0)-1;
@@ -17244,7 +17300,7 @@ function LicitacionesModule({listaEquipos=[],initialTab="nueva"}){
   const totalFinal=subtotalEquipos+gastosMonto+gastosPct;
   const addTender=()=>{const x=emptyTender();setLicitaciones(v=>[...v,x]);setActiveId(x.id);setTab("nueva");};
   const duplicate=()=>{const x={...JSON.parse(JSON.stringify(tender)),id:`LIC-${Date.now()}`,nombre:`${tender.nombre} — Copia`};setLicitaciones(v=>[...v,x]);setActiveId(x.id);};
-  const removeTender=async()=>{if(licitaciones.length===1){await appAlert("Debe conservarse al menos una licitación.");return;}if(await appConfirm(`¿Eliminar ${tender.nombre}?`)){setLicitaciones(v=>v.filter(x=>x.id!==tender.id));}};
+  const removeTender=async()=>{if(licitaciones.length===1){await appAlert("Debe conservarse al menos una licitación.");return;}if(await appConfirm(`¿Eliminar ${tender.nombre}?`)){try{await postLicitaciones({action:"eliminar_licitacion",idLicitacion:tender.id});lastSavedRef.current.delete(tender.id);setLicitaciones(v=>v.filter(x=>x.id!==tender.id));}catch(err){await appAlert(err?.message||String(err),"No se pudo eliminar");}}};
   const addEquipo=()=>update({equipos:[...tender.equipos,{id:`eq-${Date.now()}`,equipoPedido:"",equipoOptionId:"",codigo:"",tipo:"",marca:"",modelo:"",propiedad:"",costoAdquisicion:0,cantidad:1,vidaUtil:6000,mantAdoptado:null,costoArrendado:0}]});
   const updEquipo=(id,patch)=>update({equipos:tender.equipos.map(e=>e.id===id?{...e,...patch}:e)});
   const addFecha=()=>update({fechas:[...(tender.fechas||[]),{id:`f-${Date.now()}`,fecha:"",descripcion:""}]});
@@ -17346,6 +17402,8 @@ function LicitacionesModule({listaEquipos=[],initialTab="nueva"}){
       <button onClick={addTender} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>+ Nueva</button>
       <button onClick={duplicate} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.blue}66`,background:`${C.blue}18`,color:C.blue,fontWeight:900,cursor:"pointer"}}>Duplicar</button>
       <button onClick={removeTender} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.red}66`,background:C.redDim,color:C.red,fontWeight:900,cursor:"pointer"}}>Eliminar</button>
+      <button onClick={()=>guardarLicitacion(tender)} disabled={licitacionesSaving} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.accent}66`,background:C.accentDim,color:C.accent,fontWeight:900,cursor:licitacionesSaving?"wait":"pointer"}}>{licitacionesSaving?"Guardando...":"Guardar en Google Sheets"}</button>
+      <span style={{fontSize:11,fontWeight:800,color:licitacionesError?C.red:C.textMuted}}>{licitacionesError?`Error: ${licitacionesError}`:(licitacionesReady?"Base compartida conectada":"Conectando...")}</span>
       <button onClick={exportExcel} style={{marginLeft:"auto",padding:"9px 13px",borderRadius:8,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>Descargar Excel</button>
     </div>
     {tab==="nueva"&&<div style={{display:"grid",gap:14}}>
