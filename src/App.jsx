@@ -12303,7 +12303,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           tipoGrupo,
           amorts:[],
           pctMantVals:[],
-          totalVals:[],
+          mantVals:[],
           modelos:{},
           modeloOrden:[],
           detalleMaquinas:[],
@@ -12318,8 +12318,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const pctMant=Number(x.pctMant)||0;
       if(pctMant>0)grupos[key].pctMantVals.push(pctMant);
 
-      const totalUSDhs=Number(x.totalUSDhs)||0;
-      if(totalUSDhs>0)grupos[key].totalVals.push(totalUSDhs);
+      const mantUSDhs=Number(x.mantUSDhs)||0;
+      if(mantUSDhs>0)grupos[key].mantVals.push(mantUSDhs);
 
       const modelo=x._resumenModelo||modeloListaEquipo(x.equipo,x.modelo)||"—";
       const modeloKey=cleanKey(modelo);
@@ -12349,9 +12349,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         // Ej.: si filtrás Propiedad = DELTA, Topadora calcula sólo con topadoras Delta.
         const costoAmort=g.amorts.length?g.amorts.reduce((s,v)=>s+v,0)/g.amorts.length:0;
         const pctMant=g.pctMantVals.length?g.pctMantVals.reduce((s,v)=>s+v,0)/g.pctMantVals.length:0;
-        // Costo horario: promedio de la columna Total (USD/hs) de Amortización
+        // Costo horario: promedio de la columna Mant. (USD/hs) de Amortización
         // para los equipos visibles del mismo tipo, respetando los filtros aplicados.
-        const costoHorario=g.totalVals.length?g.totalVals.reduce((s,v)=>s+v,0)/g.totalVals.length:0;
+        const costoHorario=g.mantVals.length?g.mantVals.reduce((s,v)=>s+v,0)/g.mantVals.length:0;
         const costoTotal=costoHorario>0?costoHorario:costoAmort*(1+pctMant);
         const modelos=Object.values(g.modelos||{});
         const modeloPredominante=modelos.length
