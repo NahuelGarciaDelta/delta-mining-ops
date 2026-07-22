@@ -10469,6 +10469,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const equipoCostoDisplay=React.useCallback((maquina)=>{
     const eq=getEquipoListaMaestra(maquina);
+    // La Lista Maestra define la identidad canónica del equipo.
+    // Se prioriza Código Nuevo para unificar registros históricos cargados con
+    // Código Drusila (por ejemplo TOP-0014) con el código vigente (TOP-0032).
+    const codNuevo=getValue(eq||{},["Código Nuevo","Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual","Código Interno","Codigo Interno"]);
+    if(codNuevo)return cleanMachine(codNuevo);
     const codDrusila=getValue(eq||{},["Código Drusila","Codigo Drusila","Código drusila","Codigo drusila"]);
     if(codDrusila)return cleanMachine(codDrusila);
     const {main,sinParentesis}=extraerCodigosCosto(maquina);
@@ -11139,7 +11144,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     };
 
     historialAcumuladoFiltrado.forEach(x=>{
-      const equipo=x.equipo;
+      // También se canonizan los meses históricos para que el código anterior
+      // y el nuevo no aparezcan como dos equipos separados.
+      const equipo=metaEquipoCosto(x.equipo).display||x.equipo;
       const row=ensure(equipo,x.section);
       mesesFijosAcumuladoMensual.forEach(m=>{
         const d=x.months?.[m.key]||{prev:0,corr:0,total:0};
@@ -11191,7 +11198,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       return map[key];
     };
     historialAcumuladoFiltradoMO.forEach(x=>{
-      const equipo=x.equipo;
+      const equipo=metaEquipoCosto(x.equipo).display||x.equipo;
       const row=ensure(equipo,x.section);
       mesesFijosAcumuladoMensual.forEach(m=>{
         const d=x.months?.[m.key]||{prev:0,corr:0,total:0};
