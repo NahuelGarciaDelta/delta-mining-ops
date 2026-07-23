@@ -1,0 +1,21 @@
+PWA - DELTA MINING OPS
+
+Cambios incluidos:
+- Manifest de instalación.
+- Service Worker.
+- Iconos 192x192, 512x512 y maskable.
+- Botón flotante "Instalar aplicación" cuando el navegador habilita la instalación.
+- Funcionamiento en ventana independiente como aplicación de escritorio.
+- Caché básica del shell visual para abrir la interfaz aunque haya una interrupción breve.
+
+Para usarla:
+1. Subir esta versión al hosting mediante el procedimiento habitual.
+2. La aplicación debe abrirse mediante HTTPS. En desarrollo también funciona en localhost.
+3. Abrir la web con Google Chrome o Microsoft Edge.
+4. Presionar "Instalar aplicación" cuando aparezca abajo a la derecha.
+5. También puede instalarse desde el ícono de instalación de la barra de direcciones.
+
+IMPORTANTE:
+- La app puede abrir la interfaz sin conexión gracias al caché.
+- Los datos de Google Sheets y Apps Script requieren internet para cargarse o guardarse.
+- Si no aparece el botón, recargar una vez después de publicar la nueva versión.
