@@ -7376,7 +7376,7 @@ function ViewCHC({rop02All,extState,setExtState}){
       // Horas OD = días OD × (180hs / días del período)
       const hsOD=diasPeriodo>0?Math.round((HS_EQUIPO/diasPeriodo)*eq.diasOD*10)/10:0;
       // % CHC = (hs trabajadas + hs OD) / hs contratadas
-      const pct=hsContratadas>0?Math.round(((eq.horasTrabajo+hsOD)/hsContratadas)*1000)/10:0;
+      const pct=hsContratadas>0?Math.round(((eq.horasTrabajo+hsOD)/hsContratadas)*10000)/100:0;
       return{
         ...eq,
         fechaInicio,
@@ -7395,6 +7395,10 @@ function ViewCHC({rop02All,extState,setExtState}){
     const hsOD=Math.round(rows.reduce((s,r)=>s+r.hsOD,0)*10)/10;
     const hsContratadas=Math.round(rows.reduce((s,r)=>s+r.hsContratadas,0)*10)/10;
     const pct=hsContratadas>0?Math.round(((horasTrabajo+hsOD)/hsContratadas)*1000)/10:0;
+    // Promedio simple de los porcentajes individuales para la fila TOTAL de la tabla.
+    const pctPromedio=rows.length>0
+      ? Math.round((rows.reduce((s,r)=>s+(Number(r.pct)||0),0)/rows.length)*100)/100
+      : 0;
     return{
       horasTrabajo,
       diasFS:rows.reduce((s,r)=>s+r.diasFS,0),
@@ -7402,6 +7406,7 @@ function ViewCHC({rop02All,extState,setExtState}){
       hsOD,
       hsContratadas,
       pct,
+      pctPromedio,
     };
   },[rows]);
 
@@ -7491,7 +7496,7 @@ function ViewCHC({rop02All,extState,setExtState}){
                     <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:r.diasFaltaOp>0?C.purple:C.textMuted}}>{r.diasFaltaOp||"—"}</td>
                     <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`,color:C.blue,fontWeight:600}}>{fmtNum(r.hsContratadas)}</td>
                     <td style={{padding:"8px 10px",textAlign:"center",borderBottom:`1px solid ${C.border}18`}}>
-                      <span style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,color:sem.color,background:sem.bg,border:`1px solid ${sem.color}44`}}>{r.pct}%</span>
+                      <span style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:700,color:sem.color,background:sem.bg,border:`1px solid ${sem.color}44`}}>{Number(r.pct).toFixed(2)}%</span>
                     </td>
                   </tr>
                 );
@@ -7509,7 +7514,7 @@ function ViewCHC({rop02All,extState,setExtState}){
                   <td/>
                   <td style={{padding:"10px",textAlign:"center",fontFamily:"Inter",fontWeight:800,color:C.blue}}>{fmtNum(totales.hsContratadas)}</td>
                   <td style={{padding:"10px",textAlign:"center"}}>
-                    <span style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:800,color:semPct(totales.pct).color,background:semPct(totales.pct).bg,border:`1px solid ${semPct(totales.pct).color}44`}}>{totales.pct}%</span>
+                    <span style={{display:"inline-block",padding:"3px 10px",borderRadius:20,fontSize:12,fontWeight:800,color:semPct(totales.pctPromedio).color,background:semPct(totales.pctPromedio).bg,border:`1px solid ${semPct(totales.pctPromedio).color}44`}}>{Number(totales.pctPromedio).toFixed(2)}%</span>
                   </td>
                 </tr>
               )}
@@ -17724,6 +17729,23 @@ function useGlobalThreeStateTableSort(){
 
 export default function App(){
   useGlobalThreeStateTableSort();
+  const [pwaInstallAvailable,setPwaInstallAvailable]=useState(()=>Boolean(window.dmPwaInstallAvailable));
+  useEffect(()=>{
+    const onAvailable=()=>setPwaInstallAvailable(true);
+    const onUnavailable=()=>setPwaInstallAvailable(false);
+    window.addEventListener("dm-pwa-install-available",onAvailable);
+    window.addEventListener("dm-pwa-install-unavailable",onUnavailable);
+    setPwaInstallAvailable(Boolean(window.dmPwaInstallAvailable));
+    return()=>{
+      window.removeEventListener("dm-pwa-install-available",onAvailable);
+      window.removeEventListener("dm-pwa-install-unavailable",onUnavailable);
+    };
+  },[]);
+  const installPwa=useCallback(async()=>{
+    if(typeof window.dmInstallPWA!=="function")return;
+    const installed=await window.dmInstallPWA();
+    if(installed)setPwaInstallAvailable(false);
+  },[]);
   const [appDialog,setAppDialog]=useState(null);
   useEffect(()=>{
     dmOpenAppDialog=(payload)=>new Promise(resolve=>{
@@ -18622,9 +18644,12 @@ export default function App(){
         {showSidebar&&sidebarTooltip&&!sidebarOpen&&(<div style={{position:"fixed",left:sidebarTooltip.x,top:sidebarTooltip.y,transform:"translateY(-50%)",background:"rgba(18,18,18,.96)",border:`1px solid ${C.border}`,boxShadow:"0 10px 24px rgba(0,0,0,.35)",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none"}}>{sidebarTooltip.label}</div>)}
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",transition:"all .25s ease"}}>
           {showSidebar&&(<div style={{height:50,flexShrink:0,background:"rgba(22,22,22,0.65)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${C.border}44`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <h1 style={{fontFamily:"Inter",fontWeight:700,fontSize:14,color:C.text}}>{titles[view]}</h1>
+            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+              <h1 style={{fontFamily:"Inter",fontWeight:700,fontSize:14,color:C.text,whiteSpace:"nowrap"}}>{titles[view]}</h1>
               {titleHelp[view]&&<HelpTip text={titleHelp[view]}/>}
+              {pwaInstallAvailable&&<button type="button" onClick={installPwa} style={{display:"flex",alignItems:"center",gap:6,marginLeft:14,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.blue}66`,background:C.blueDim,color:C.blue,fontSize:11,fontWeight:700,fontFamily:"Inter",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                <span aria-hidden="true">⬇</span> Instalar aplicación
+              </button>}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
               <div style={{display:"flex",alignItems:"center",gap:7,padding:"5px 9px",borderRadius:7,background:"rgba(0,0,0,.18)",border:`1px solid ${C.border}55`,minWidth:0,maxWidth:"52vw",whiteSpace:"nowrap",overflow:"hidden"}}>

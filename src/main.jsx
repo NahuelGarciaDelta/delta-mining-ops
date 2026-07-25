@@ -19,43 +19,26 @@ if ("serviceWorker" in navigator) {
 }
 
 let deferredInstallPrompt = null;
-const installButton = document.createElement("button");
-installButton.type = "button";
-installButton.textContent = "Instalar aplicación";
-installButton.setAttribute("aria-label", "Instalar Delta Mining OPS en este equipo");
-Object.assign(installButton.style, {
-  position: "fixed",
-  right: "18px",
-  bottom: "18px",
-  zIndex: "99999",
-  display: "none",
-  border: "1px solid rgba(255,255,255,.25)",
-  borderRadius: "12px",
-  padding: "11px 16px",
-  background: "#0F243E",
-  color: "#FFFFFF",
-  fontWeight: "700",
-  fontFamily: "inherit",
-  cursor: "pointer",
-  boxShadow: "0 10px 28px rgba(0,0,0,.28)"
-});
-document.body.appendChild(installButton);
+window.dmPwaInstallAvailable = false;
+window.dmInstallPWA = async () => {
+  if (!deferredInstallPrompt) return false;
+  deferredInstallPrompt.prompt();
+  const choice = await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  window.dmPwaInstallAvailable = false;
+  window.dispatchEvent(new Event("dm-pwa-install-unavailable"));
+  return choice?.outcome === "accepted";
+};
 
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   deferredInstallPrompt = event;
-  installButton.style.display = "block";
-});
-
-installButton.addEventListener("click", async () => {
-  if (!deferredInstallPrompt) return;
-  deferredInstallPrompt.prompt();
-  await deferredInstallPrompt.userChoice;
-  deferredInstallPrompt = null;
-  installButton.style.display = "none";
+  window.dmPwaInstallAvailable = true;
+  window.dispatchEvent(new Event("dm-pwa-install-available"));
 });
 
 window.addEventListener("appinstalled", () => {
   deferredInstallPrompt = null;
-  installButton.style.display = "none";
+  window.dmPwaInstallAvailable = false;
+  window.dispatchEvent(new Event("dm-pwa-install-unavailable"));
 });
