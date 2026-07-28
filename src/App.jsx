@@ -5598,17 +5598,23 @@ function ViewROP05Discriminacion({rop05,extState,setExtState}){
 }
 
 function calcularErroresControlEquipo(rows){
-  const byMaq={};
+  // La continuidad se controla dentro del mismo proyecto. Si un equipo cambia
+  // de proyecto, la numeración y el horómetro comienzan una nueva secuencia y
+  // no se comparan contra el último registro del proyecto anterior.
+  const byMaqProyecto={};
   (rows||[]).forEach(r=>{
     if(r.maquina){
-      if(!byMaq[r.maquina])byMaq[r.maquina]=[];
-      byMaq[r.maquina].push(r);
+      const proyectoKey=String(r.proyecto||"SIN PROYECTO").trim().toUpperCase();
+      const key=`${r.maquina}|||${proyectoKey}`;
+      if(!byMaqProyecto[key])byMaqProyecto[key]=[];
+      byMaqProyecto[key].push(r);
     }
   });
   const erroresPartes=[];
   const erroresHoro=[];
   const parseParte=p=>{const m=String(p||"").match(/(\d+)/g);return m?Number(m[m.length-1]):null;};
-  Object.entries(byMaq).forEach(([maq,items])=>{
+  Object.entries(byMaqProyecto).forEach(([groupKey,items])=>{
+    const maq=groupKey.split("|||")[0];
     const byFecha={};
     items.forEach(r=>{
       if(!byFecha[r.fecha])byFecha[r.fecha]={fecha:r.fecha,TD:null,TN:null};
@@ -5662,6 +5668,12 @@ function calcularErroresControlEquipo(rows){
     for(let i=0;i<diasPartes.length-1;i++){
       const hoy=diasPartes[i];
       const siguiente=diasPartes[i+1];
+      const proyectoAnterior=normProject(hoy.ultimo?.proyecto||hoy.primero?.proyecto||"");
+      const proyectoActual=normProject(siguiente.primero?.proyecto||siguiente.ultimo?.proyecto||"");
+      // Guardia explícita: nunca comparar continuidad entre proyectos distintos.
+      // Esto evita que una máquina que se trasladó (por ejemplo TOP-0072)
+      // arrastre la numeración del proyecto anterior.
+      if(!proyectoAnterior||!proyectoActual||proyectoAnterior!==proyectoActual)continue;
       if(hoy.numUltimo!==null&&siguiente.numPrimero!==null&&siguiente.numPrimero!==hoy.numUltimo+1){
         erroresPartes.push({
           tipo:"ENTRE_DIAS",
@@ -5700,6 +5712,10 @@ function calcularErroresControlEquipo(rows){
     for(let i=0;i<diasHoro.length-1;i++){
       const diaActual=diasHoro[i];
       const diaSiguiente=diasHoro[i+1];
+      const proyectoAnterior=normProject(diaActual.ultimo?.proyecto||diaActual.primero?.proyecto||"");
+      const proyectoActual=normProject(diaSiguiente.primero?.proyecto||diaSiguiente.ultimo?.proyecto||"");
+      // La continuidad de horómetro también se reinicia al cambiar de proyecto.
+      if(!proyectoAnterior||!proyectoActual||proyectoAnterior!==proyectoActual)continue;
       const hfPrev=Number(diaActual.ultimo?.horometroFinal)||null;
       const hiCurr=Number(diaSiguiente.primero?.horometroInicial)||null;
       if(hfPrev&&hiCurr&&hfPrev!==hiCurr){
@@ -5735,7 +5751,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   }),[rop02Prod]);
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const hoy=new Date();
-  const{proyecto,maquina,año,mesIdx,tipo,tipoMaquina="todas"}=extState;
+  const{proyecto,maquina,año,mesIdx,tipo,tipoMaquina="todas",fechaDesde="",fechaHasta=""}=extState;
   const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
   const periodo=useMemo(()=>{
     const y=parseFloat(año,10);
@@ -5753,10 +5769,12 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   },[rop02ControlRows]);
   const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(r=>dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
   const proyectos=useMemo(()=>uniq(rop02ControlTipo.map(r=>r.proyecto).filter(Boolean)).sort(),[rop02ControlTipo]);
+  const rangoDesde=fechaDesde||periodo.fechaD;
+  const rangoHasta=fechaHasta||periodo.fechaH;
   const maquinas=useMemo(()=>{
-    const base=rop02ControlTipo.filter(r=>matchMulti(r.proyecto,proyecto,"todos")&&r.fecha>=periodo.fechaD&&r.fecha<=periodo.fechaH);
+    const base=rop02ControlTipo.filter(r=>matchMulti(r.proyecto,proyecto,"todos")&&r.fecha>=rangoDesde&&r.fecha<=rangoHasta);
     return uniq(base.map(r=>r.maquina).filter(Boolean)).filter(m=>!isRop02ControlMachineExcluded(m)).sort();
-  },[rop02ControlTipo,proyecto,periodo]);
+  },[rop02ControlTipo,proyecto,rangoDesde,rangoHasta]);
   React.useEffect(()=>{
     if(!multiIsAll(maquina,"todas")&&(!maquina.some(m=>maquinas.includes(m))||maquina.some(m=>isRop02ControlMachineExcluded(m))))set("maquina","todas");
   },[maquinas,maquina]);// eslint-disable-line
@@ -5764,9 +5782,9 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
     if(isRop02ControlMachineExcluded(r.maquina))return false;
     if(!matchMulti(r.maquina,maquina,"todas"))return false;
-    if(r.fecha<periodo.fechaD||r.fecha>periodo.fechaH)return false;
+    if(r.fecha<rangoDesde||r.fecha>rangoHasta)return false;
     return true;
-  }),[rop02ControlTipo,proyecto,maquina,periodo]);
+  }),[rop02ControlTipo,proyecto,maquina,rangoDesde,rangoHasta]);
   const control=useMemo(()=>calcularErroresControlEquipo(filtered),[filtered]);
   const todosErrores=useMemo(()=>[
     ...control.erroresPartes.map(e=>({...e,_tipo:"Numeración"})),
@@ -5783,8 +5801,8 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     todosErrores.forEach(e=>{const k=e.maquina||"—";map[k]=(map[k]||0)+1;});
     return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,12);
   },[todosErrores]);
-  const hayFiltros=!multiIsAll(tipoMaquina,"todas")||!multiIsAll(proyecto,"todos")||!multiIsAll(maquina,"todas")||año!==String(hoy.getFullYear())||mesIdx!==hoy.getMonth()||tipo!=="todos";
-  const reset=()=>setExtState({tipoMaquina:"todas",proyecto:"todos",maquina:"todas",año:String(hoy.getFullYear()),mesIdx:hoy.getMonth(),tipo:"todos"});
+  const hayFiltros=!multiIsAll(tipoMaquina,"todas")||!multiIsAll(proyecto,"todos")||!multiIsAll(maquina,"todas")||año!==String(hoy.getFullYear())||mesIdx!==hoy.getMonth()||tipo!=="todos"||Boolean(fechaDesde)||Boolean(fechaHasta);
+  const reset=()=>setExtState({tipoMaquina:"todas",proyecto:"todos",maquina:"todas",año:String(hoy.getFullYear()),mesIdx:hoy.getMonth(),tipo:"todos",fechaDesde:"",fechaHasta:""});
   const descargar=()=>{
     const cols=["Tipo","Proyecto","Máquina","Fecha con error","Turno","Supervisor","Parte informado","Valor informado","Valor esperado/anterior","Diferencia","Fecha anterior","Turno anterior","Parte anterior","Detalle"];
     const data=[cols,...erroresTabla.map(e=>[e._tipo,e.proyecto,e.maquina,e.fecha,e.turno,e.supervisor,e.numeroIncorrecto||e.parte||"",e.numeroIncorrecto||e.hiActual||"",e.numeroCorrecto||e.hfAnterior||"",e.diff,e.fechaAnterior||"",e.turnoAnterior||"",e.parteAnterior||"",e.detalle||""] )];
@@ -5802,11 +5820,13 @@ function ControlDeErrores({rop02All,extState,setExtState}){
         <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
           <Sel label="Mes" value={String(mesIdx)} onChange={v=>set("mesIdx",Number(v))} options={MESES.map((m,i)=>({value:String(i),label:m}))}/>
           <Sel label="Año" value={año} onChange={v=>set("año",v)} options={años.map(y=>({value:y,label:y}))}/>
+          <DateIn label="Desde" value={rangoDesde} onChange={v=>set("fechaDesde",v)} max={rangoHasta||undefined}/>
+          <DateIn label="Hasta" value={rangoHasta} onChange={v=>set("fechaHasta",v)} min={rangoDesde||undefined} warn={rangoHasta&&rangoDesde&&rangoHasta<rangoDesde?"≥ Desde":null}/>
           <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{set("tipoMaquina",v);set("maquina","todas");}} options={dmTipoMaquinaOptions()}/>
           <MultiSel label="Proyecto" value={proyecto} onChange={v=>{set("proyecto",v);set("maquina","todas");}} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
           <MultiSel label="Máquina" value={maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
           <Sel label="Tipo de error" value={tipo} onChange={v=>set("tipo",v)} options={[{value:"todos",label:"Todos"},{value:"numeracion",label:"Numeración"},{value:"horometros",label:"Horómetros"}]}/>
-          <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:`1px solid ${C.border}`,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{periodo.label}</strong></div>
+          <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:`1px solid ${C.border}`,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{fmtFecha(rangoDesde)} → {fmtFecha(rangoHasta)}</strong></div>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
             <Icon name="close" size={11} color={C.red}/>Limpiar filtros
           </button>
@@ -18105,7 +18125,7 @@ export default function App(){
   const[stHorometros,setStHorometros]=useState(()=>savedOr("stHorometros",{mode:"periodo",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
   const[stVeh,setStVeh]=useState(()=>savedOr("stVeh",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
   const[stComb,setStComb]=useState(()=>savedOr("stComb",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",operario:"todos"}}));
-  const[stControlErrores,setStControlErrores]=useState(()=>savedOr("stControlErrores",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),tipo:"todos"}));
+  const[stControlErrores,setStControlErrores]=useState(()=>savedOr("stControlErrores",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),tipo:"todos",fechaDesde:"",fechaHasta:""}));
   const[stCtrlEquipo,setStCtrlEquipo]=useState(()=>savedOr("stCtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:"",controlActivo:"numeracion"}));
   const[stControlROP02,setStControlROP02]=useState(()=>savedOr("stControlROP02",{tab:"errores"}));
   const[st05,setSt05]=useState(()=>savedOr("st05",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}}));
