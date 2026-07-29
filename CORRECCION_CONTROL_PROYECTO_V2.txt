@@ -1,0 +1,9 @@
+CORRECCIÓN V2 - CONTROL DE ERRORES
+
+1. Se agregó una validación explícita antes de comparar dos días consecutivos:
+   - proyecto anterior y proyecto actual deben ser iguales.
+   - si la máquina cambió de proyecto, no se genera error de numeración ni de horómetro.
+
+2. Se incrementó la versión del caché PWA para impedir que el navegador siga mostrando el JavaScript anterior.
+
+Luego de publicar, cerrar completamente la PWA/app y volver a abrirla. Si continuara mostrando la versión anterior, desinstalar la PWA una vez y volver a instalarla.

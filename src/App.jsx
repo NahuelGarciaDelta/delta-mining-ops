@@ -18684,6 +18684,7 @@ export default function App(){
         ]},
         {id:"grp_solicitudes",icon:"clipboardList",label:"Solicitudes",type:"group",color:C.accent,children:[
           {id:"abastecimiento",icon:"report",label:"Realizadas"},
+          {id:"abastecimientoPendientes",icon:"warn",label:"Pendientes"},
           {id:"abastecimientoParciales",icon:"report",label:"Parciales"},
           {id:"abastecimientoCerradas",icon:"check",label:"Cerradas"},
           {id:"abastecimientoRechazadas",icon:"close",label:"Rechazadas"},

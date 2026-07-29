@@ -1,0 +1,1 @@
+Se agregó/normalizó el filtro "Tipo de Máquina" en las vistas operativas que trabajan con equipos y no lo tenían, incluyendo Horómetros, Control de Errores, Control por Equipo ROP02, Control por Equipo RMA15, ICHC, Ranking de Operarios y Cambios de Turno. El filtro limita los registros y también reinicia la selección de máquina para evitar selecciones incompatibles.
