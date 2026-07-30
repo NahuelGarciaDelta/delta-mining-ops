@@ -15898,7 +15898,7 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
       }
       const buffer=await file.arrayBuffer();
       const pdf=await pdfjs.getDocument({data:buffer}).promise;
-      let text="";
+      const parsedPages=[];
       for(let pageNum=1;pageNum<=pdf.numPages;pageNum++){
         const page=await pdf.getPage(pageNum);
         const content=await page.getTextContent();
@@ -15910,13 +15910,42 @@ function AbastecimientoModule({initialTab="solicitudes",readOnly=false,assignedP
           if(!row){row={y,items:[]};rows.push(row);}
           row.items.push({x,str:item.str});
         });
+        let pageText="";
         rows
           .sort((a,b)=>b.y-a.y)
           .forEach(row=>{
-            text+=row.items.sort((a,b)=>a.x-b.x).map(it=>it.str).join(" ").replace(/\s+/g," ").trim()+"\n";
+            pageText+=row.items.sort((a,b)=>a.x-b.x).map(it=>it.str).join(" ").replace(/\s+/g," ").trim()+"\n";
           });
+        parsedPages.push(parseRaba08Text(pageText));
       }
-      const parsed=parseRaba08Text(text);
+
+      // Cada página del PDF se procesa de forma independiente para que los cortes
+      // por TOTAL/OBSERVACIONES no impidan leer las páginas siguientes. Luego se
+      // unifican todos los artículos y se eliminan únicamente las filas repetidas
+      // con la misma combinación de código + descripción + cantidad.
+      const firstParsed=parsedPages[0]||parseRaba08Text("");
+      const uniqueItems=[];
+      const seenItems=new Set();
+      parsedPages.forEach(pageParsed=>{
+        (pageParsed.items||[]).forEach(item=>{
+          const codigo=String(item.codigo||"").trim();
+          const descripcion=String(item.descripcion||"").replace(/\s+/g," ").trim();
+          const cantidad=toNumber(item.cantidad);
+          if(!codigo||cantidad<=0)return;
+          const key=[
+            codigo.toUpperCase(),
+            descripcion.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase(),
+            Number(cantidad).toFixed(6)
+          ].join("__");
+          if(seenItems.has(key))return;
+          seenItems.add(key);
+          uniqueItems.push({codigo,descripcion,cantidad});
+        });
+      });
+      const parsed={
+        ...firstParsed,
+        items:uniqueItems.length?uniqueItems:[{codigo:"",descripcion:"",cantidad:""}]
+      };
       if(agregarAlLote){
         const cleanItems=(parsed.items||[])
           .map(it=>({codigo:String(it.codigo||"").trim(),descripcion:String(it.descripcion||"").trim(),cantidad:toNumber(it.cantidad)}))
