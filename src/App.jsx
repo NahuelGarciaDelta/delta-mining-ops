@@ -10120,25 +10120,25 @@ function HealthDashboard({health,onLoadAll,loading}){
 
 function tipoEquipoCosto(maquina){
   const tipo=String(getMachineType(maquina)||"").toUpperCase();
-  const code=String(maquina||"").toUpperCase();
+  const code=cleanMachine(String(maquina||"")).toUpperCase();
 
   if(tipo.includes("CAMIONETA")||/^CTA/.test(code)||/^AG[0-9]/.test(code)||/^AH[0-9]/.test(code))return "CAMIONETAS";
   if(tipo.includes("CAMION")||/^CAR/.test(code)||/^CAV/.test(code)||/^CAA/.test(code)||/^CAT-[0-9]/.test(code))return "CAMIONES";
 
   // IMPORTANTE: MINICARGADORA va antes que CARGADORA FRONTAL.
-  // Si se evalúa "CARGADORA" primero, MCA-0005 cae mal como cargadora frontal.
-  if(tipo.includes("MINICARGADORA"))return "MINICARGADORA";
+  if(tipo.includes("MINICARGADORA")||/^MCA-/.test(code)||/^MNC-/.test(code))return "MINICARGADORA";
 
-  if(tipo.includes("EXCAVADORA"))return "EXCAVADORA";
-  if(tipo.includes("CARGADORA FRONTAL"))return "CARGADORA FRONTAL";
-  if(tipo.includes("MOTONIVELADORA"))return "MOTONIVELADORA";
-  if(tipo.includes("TOPADORA"))return "TOPADORA";
-  if(tipo.includes("RETROPALA"))return "RETROPALA";
-  if(tipo.includes("VIBROCOMPACTADOR"))return "VIBROCOMPACTADOR";
+  if(tipo.includes("EXCAVADORA")||/^EXC-/.test(code))return "EXCAVADORA";
+  if(tipo.includes("CARGADORA FRONTAL")||tipo==="CARGADORA"||/^PCA-/.test(code)||/^CFN-/.test(code))return "CARGADORA FRONTAL";
+  if(tipo.includes("MOTONIVELADORA")||/^MOT-/.test(code))return "MOTONIVELADORA";
+  if(tipo.includes("TOPADORA")||/^TOP-/.test(code))return "TOPADORA";
+  if(tipo.includes("RETROPALA")||/^RTP-/.test(code))return "RETROPALA";
+  // Los rodillos/compactadores pueden figurar como COMPACTACIÓN en Lista Maestra.
+  if(tipo.includes("VIBROCOMPACTADOR")||tipo.includes("COMPACT")||/^RPC-/.test(code)||/^ROD-/.test(code))return "COMPACTACION";
   return "OTROS";
 }
 function esMaquinaCosto(tipo){
-  return ["EXCAVADORA","CARGADORA FRONTAL","MOTONIVELADORA","TOPADORA","RETROPALA","VIBROCOMPACTADOR","MINICARGADORA"].includes(String(tipo||"").toUpperCase());
+  return ["EXCAVADORA","CARGADORA FRONTAL","MOTONIVELADORA","TOPADORA","RETROPALA","VIBROCOMPACTADOR","COMPACTACION","MINICARGADORA"].includes(String(tipo||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase());
 }
 
 const MESES_ES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -10726,11 +10726,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         display:equipoCostoDisplay(r.maquina),
         props,
         propiedad:real||props[0]||"S/D",
-        tipo:tipoEquipoCosto(r.maquina),
+        tipo:tipoEquipoCosto(codigoCanonicoEquipo(r.maquina)),
       });
     });
     return map;
-  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay]);
+  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay,codigoCanonicoEquipo]);
 
   const metaEquipoCosto=React.useCallback((maquina)=>{
     const key=String(maquina||"");
@@ -10738,9 +10738,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       display:equipoCostoDisplay(maquina),
       props:propiedadesEquipo(maquina),
       propiedad:propiedadEquipo(maquina),
-      tipo:tipoEquipoCosto(maquina),
+      tipo:tipoEquipoCosto(codigoCanonicoEquipo(maquina)),
     };
-  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,propiedadEquipo]);
+  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,propiedadEquipo,codigoCanonicoEquipo]);
 
   const matchPropiedadMeta=React.useCallback((meta,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return true;

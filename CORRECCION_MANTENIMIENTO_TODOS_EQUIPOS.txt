@@ -1,0 +1,7 @@
+Corrección aplicada:
+- Se conserva exactamente el agrupamiento existente de la tabla Amortización.
+- La clasificación para filtros y acumulados ahora usa primero el código interno consolidado.
+- Se reconocen como máquinas los equipos de compactación RPC/ROD y el tipo COMPACTACIÓN.
+- Las equivalencias históricas CFN→PCA, EXC, MOT, RTP y TOP se aplican antes de determinar el tipo.
+- Esto permite que equipos como RPC-0039, PCA-0095, MOT-0014, EXC-0034, EXC-0043 y EXC-0048 incorporen sus costos de mantenimiento reales cuando existen en el histórico/RMA15.
+- No se alteró el control Delta de Vida útil ni el criterio de agrupación visual.
