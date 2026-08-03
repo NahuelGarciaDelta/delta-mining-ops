@@ -11871,20 +11871,16 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
 
   const getManoObraCostoMensual=React.useCallback((x)=>{
-    const proyecto=sectionProyectoCosto(x?.section);
-    // Usar la MISMA identidad canónica que consolida costos históricos.
-    // Esto evita que la mano de obra quede en el código viejo mientras la
-    // tabla mensual ya muestra el código nuevo (por ejemplo MOT-0024/MOT-0047
-    // y TOP-0014/TOP-0032).
-    const eqKey=codigoCanonicoEquipo(x?.equipo);
-    const proyKey=String(proyecto||"").trim().toUpperCase();
-    const row=(rowsManoObra||[]).find(r=>
-      !r.isCTA &&
-      codigoCanonicoEquipo(r.equipo)===eqKey &&
-      String(r.proyecto||"").trim().toUpperCase()===proyKey
-    );
-    return Number(row?.manoObra)||0;
-  },[rowsManoObra,sectionProyectoCosto,codigoCanonicoEquipo]);
+    // Calcular directamente la distribución de mano de obra sobre la fila
+    // consolidada que se muestra en Costo mensual acumulado. No se busca otra
+    // fila por interno, porque los códigos históricos ya fueron unificados y
+    // esa búsqueda podía dejar sin MO a MOT-0047 y TOP-0032.
+    const section=x?.section==="JM"?"JM":"FS";
+    const mantenimiento=Number(promedioCostoMensual(x).total)||0;
+    const totalProyecto=Number(totalMantenimientoConCTAPorProyecto?.[section])||0;
+    const subtotal=section==="JM"?(Number(subtotalJM)||0):(Number(subtotalFS)||0);
+    return totalProyecto>0?subtotal*(mantenimiento/totalProyecto):0;
+  },[promedioCostoMensual,totalMantenimientoConCTAPorProyecto,subtotalJM,subtotalFS]);
 
   const getUsdHoraCostoMensual=React.useCallback((x)=>{
     const p=promedioCostoMensual(x);
