@@ -454,8 +454,22 @@ function cleanMachine(v){
 // Ej: CFN-0101, PCA-0101, CFN0101 y PCA0101 se cruzan como CFN-0101.
 function canonicalEquivalentMachineCode(code){
   const c=cleanMachine(String(code||"").replace(/\s*\(.*?\)/g,""));
-  const m=c.match(/^(CFN|PCA)-?(\d{4})$/);
-  if(m)return `CFN-${m[2]}`;
+  // Equivalencias históricas confirmadas. Se usa el código vigente como
+  // identidad única en todas las tablas, incluida Amortización.
+  const equivalencias={
+    "CFN-0041":"PCA-0081",
+    "CFN-0043":"PCA-0093",
+    "CFN-0044":"PCA-0095",
+    "CFN-0045":"PCA-0095",
+    "EXC-0014":"EXC-0034",
+    "EXC-0019":"EXC-0048",
+    "MOT-0024":"MOT-0047",
+    "RTP-0010":"RTP-0016",
+    "RTP-0012":"RTP-0024",
+    "TOP-0014":"TOP-0032",
+    "TOP-0059":"TOP-0058",
+  };
+  if(equivalencias[c])return equivalencias[c];
   return c;
 }
 function machineCodeOutsideParentheses(code){
@@ -11954,15 +11968,15 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     // Orden y agrupación definitiva para Amortización.
     // 1) Primero se respeta la coincidencia exacta de equipos especiales.
     // 2) Después, los equipos nuevos entran por prefijo en el grupo indicado.
-    {tipo:"MOTONIVELADORA 1", equipos:["MOT-0014","MOT-0024","MOT-0049","MOT-0051","MOT-0069"], prefixes:["MOT"]},
+    {tipo:"MOTONIVELADORA 1", equipos:["MOT-0014","MOT-0047","MOT-0049","MOT-0051","MOT-0069"], prefixes:["MOT"]},
     {tipo:"MINICARGADORA", equipos:["MCA-0005","MNC-0001","MNC-001"], prefixes:["MCA","MNC"]},
-    {tipo:"EXCAVADORA 1", equipos:["EXC-0014"], prefixes:[]},
-    {tipo:"EXCAVADORA", equipos:["EXC-0005","EXC-0017","EXC-0019","EXC-0055"], prefixes:["EXC"]},
-    {tipo:"CARGADORA 1", equipos:["CFN-0043"], prefixes:[]},
-    {tipo:"CARGADORA", equipos:["CFN-0041","CFN-0044","CFN-0101","PCA-0017","PCA-0021","PCA-0051","PCA-0070","PCA-0074","PCA-0101"], prefixes:["CFN","PCA"]},
+    {tipo:"EXCAVADORA 1", equipos:["EXC-0034"], prefixes:[]},
+    {tipo:"EXCAVADORA", equipos:["EXC-0005","EXC-0017","EXC-0048","EXC-0055"], prefixes:["EXC"]},
+    {tipo:"CARGADORA 1", equipos:["PCA-0093"], prefixes:[]},
+    {tipo:"CARGADORA", equipos:["PCA-0081","PCA-0095","CFN-0101","PCA-0017","PCA-0021","PCA-0051","PCA-0070","PCA-0074","PCA-0101"], prefixes:["CFN","PCA"]},
     {tipo:"COMPACTACIÓN", equipos:["ROD-0001","RCP-0016","RPC-0016","RCP-0036","RPC-0036","RPC-0039"], prefixes:["ROD","RCP","RPC"]},
-    {tipo:"RETROPALA", equipos:["RTP-0010","RTP-0011","RTP-0012","RTP-0018","RTP-0030"], prefixes:["RTP"]},
-    {tipo:"TOPADORA", equipos:["TOP-0032","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0059"], prefixes:["TOP"]},
+    {tipo:"RETROPALA", equipos:["RTP-0016","RTP-0011","RTP-0024","RTP-0018","RTP-0030"], prefixes:["RTP"]},
+    {tipo:"TOPADORA", equipos:["TOP-0032","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0058"], prefixes:["TOP"]},
   ],[]);
 
   const amortizacionGrupoInfo=React.useCallback((equipo)=>{
