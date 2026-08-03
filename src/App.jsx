@@ -10637,6 +10637,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       "MOT-0024":"MOT-0047",
       "RTP-0010":"RTP-0016",
       "RTP-0012":"RTP-0024",
+      "TOP-0014":"TOP-0032",
+      "TOP-0059":"TOP-0058",
     };
     const codigoLimpioForzado=cleanMachine(String(maquina||"").replace(/\s*\(.*?\)/g,""));
     if(equivalenciasHistoricasForzadas[codigoLimpioForzado]){
@@ -11870,15 +11872,19 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const getManoObraCostoMensual=React.useCallback((x)=>{
     const proyecto=sectionProyectoCosto(x?.section);
-    const eqKey=canonicalEquivalentMachineCode(x?.equipo);
+    // Usar la MISMA identidad canónica que consolida costos históricos.
+    // Esto evita que la mano de obra quede en el código viejo mientras la
+    // tabla mensual ya muestra el código nuevo (por ejemplo MOT-0024/MOT-0047
+    // y TOP-0014/TOP-0032).
+    const eqKey=codigoCanonicoEquipo(x?.equipo);
     const proyKey=String(proyecto||"").trim().toUpperCase();
     const row=(rowsManoObra||[]).find(r=>
       !r.isCTA &&
-      canonicalEquivalentMachineCode(r.equipo)===eqKey &&
+      codigoCanonicoEquipo(r.equipo)===eqKey &&
       String(r.proyecto||"").trim().toUpperCase()===proyKey
     );
     return Number(row?.manoObra)||0;
-  },[rowsManoObra,sectionProyectoCosto]);
+  },[rowsManoObra,sectionProyectoCosto,codigoCanonicoEquipo]);
 
   const getUsdHoraCostoMensual=React.useCallback((x)=>{
     const p=promedioCostoMensual(x);
