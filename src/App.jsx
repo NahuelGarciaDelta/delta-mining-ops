@@ -11871,27 +11871,34 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
 
   const manoObraPorEquipoCostoMensual=React.useMemo(()=>{
-    // La columna MANO DE OBRA de Costo mensual acumulado debe reproducir
-    // exactamente el valor ya calculado en la tabla "Mano de Obra".
-    // Se arma un índice por proyecto + interno canónico para que los códigos
-    // históricos consolidados (p. ej. MOT-0024 -> MOT-0047 y
-    // TOP-0014 -> TOP-0032) encuentren la misma fila visible.
-    const map=new Map();
+    // Copia EXACTAMENTE el valor visible en la tabla "Mano de Obra".
+    // La clave usa el código canónico para que internos viejos y nuevos
+    // coincidan (MOT-0024 -> MOT-0047, TOP-0014 -> TOP-0032, etc.).
+    const porProyecto=new Map();
+    const porEquipo=new Map();
     (rowsManoObra||[]).forEach(r=>{
       if(r?.isCTA)return;
-      const section=String(r.proyecto||"").toUpperCase().includes("JOSE")?"JM":"FS";
-      const equipo=metaEquipoCosto(r.equipo).display||String(r.equipo||"").trim();
-      const key=section+"__"+equipo;
-      map.set(key,(Number(map.get(key))||0)+(Number(r.manoObra)||0));
+      const proyectoNorm=normalizeText(String(r.proyecto||""));
+      const section=proyectoNorm.includes("jose")?"JM":"FS";
+      const equipo=codigoCanonicoEquipo(r.equipo);
+      const valor=Number(r.manoObra)||0;
+      if(!equipo||equipo==="—")return;
+      // La tabla Mano de Obra ya está consolidada: conservar el valor exacto,
+      // sin recalcularlo ni volver a prorratearlo.
+      porProyecto.set(section+"__"+equipo,valor);
+      porEquipo.set(equipo,valor);
     });
-    return map;
-  },[rowsManoObra,metaEquipoCosto]);
+    return {porProyecto,porEquipo};
+  },[rowsManoObra,codigoCanonicoEquipo]);
 
   const getManoObraCostoMensual=React.useCallback((x)=>{
     const section=x?.section==="JM"?"JM":"FS";
-    const equipo=metaEquipoCosto(x?.equipo).display||String(x?.equipo||"").trim();
-    return Number(manoObraPorEquipoCostoMensual.get(section+"__"+equipo))||0;
-  },[manoObraPorEquipoCostoMensual,metaEquipoCosto]);
+    const equipo=codigoCanonicoEquipo(x?.equipo);
+    const exacto=manoObraPorEquipoCostoMensual.porProyecto.get(section+"__"+equipo);
+    if(exacto!==undefined)return Number(exacto)||0;
+    // Respaldo para históricos cuyo proyecto/section venga con otro formato.
+    return Number(manoObraPorEquipoCostoMensual.porEquipo.get(equipo))||0;
+  },[manoObraPorEquipoCostoMensual,codigoCanonicoEquipo]);
 
   const getUsdHoraCostoMensual=React.useCallback((x)=>{
     const p=promedioCostoMensual(x);
