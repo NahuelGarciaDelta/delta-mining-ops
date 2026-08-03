@@ -11878,7 +11878,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const porEquipo=new Map();
     (rowsManoObra||[]).forEach(r=>{
       if(r?.isCTA)return;
-      const proyectoNorm=normalizeText(String(r.proyecto||""));
+      const proyectoNorm=String(r.proyecto||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
       const section=proyectoNorm.includes("jose")?"JM":"FS";
       const equipo=codigoCanonicoEquipo(r.equipo);
       const valor=Number(r.manoObra)||0;
