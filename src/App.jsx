@@ -11870,17 +11870,28 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   };
 
 
+  const manoObraPorEquipoCostoMensual=React.useMemo(()=>{
+    // La columna MANO DE OBRA de Costo mensual acumulado debe reproducir
+    // exactamente el valor ya calculado en la tabla "Mano de Obra".
+    // Se arma un índice por proyecto + interno canónico para que los códigos
+    // históricos consolidados (p. ej. MOT-0024 -> MOT-0047 y
+    // TOP-0014 -> TOP-0032) encuentren la misma fila visible.
+    const map=new Map();
+    (rowsManoObra||[]).forEach(r=>{
+      if(r?.isCTA)return;
+      const section=String(r.proyecto||"").toUpperCase().includes("JOSE")?"JM":"FS";
+      const equipo=metaEquipoCosto(r.equipo).display||String(r.equipo||"").trim();
+      const key=section+"__"+equipo;
+      map.set(key,(Number(map.get(key))||0)+(Number(r.manoObra)||0));
+    });
+    return map;
+  },[rowsManoObra,metaEquipoCosto]);
+
   const getManoObraCostoMensual=React.useCallback((x)=>{
-    // Calcular directamente la distribución de mano de obra sobre la fila
-    // consolidada que se muestra en Costo mensual acumulado. No se busca otra
-    // fila por interno, porque los códigos históricos ya fueron unificados y
-    // esa búsqueda podía dejar sin MO a MOT-0047 y TOP-0032.
     const section=x?.section==="JM"?"JM":"FS";
-    const mantenimiento=Number(promedioCostoMensual(x).total)||0;
-    const totalProyecto=Number(totalMantenimientoConCTAPorProyecto?.[section])||0;
-    const subtotal=section==="JM"?(Number(subtotalJM)||0):(Number(subtotalFS)||0);
-    return totalProyecto>0?subtotal*(mantenimiento/totalProyecto):0;
-  },[promedioCostoMensual,totalMantenimientoConCTAPorProyecto,subtotalJM,subtotalFS]);
+    const equipo=metaEquipoCosto(x?.equipo).display||String(x?.equipo||"").trim();
+    return Number(manoObraPorEquipoCostoMensual.get(section+"__"+equipo))||0;
+  },[manoObraPorEquipoCostoMensual,metaEquipoCosto]);
 
   const getUsdHoraCostoMensual=React.useCallback((x)=>{
     const p=promedioCostoMensual(x);

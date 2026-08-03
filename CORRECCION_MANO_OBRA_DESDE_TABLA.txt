@@ -1,0 +1,13 @@
+CORRECCION MANO DE OBRA - COSTO MENSUAL ACUMULADO
+
+La columna MANO DE OBRA de la tabla Costo mensual acumulado ahora toma
+exactamente el valor calculado en la tabla Mano de Obra para el mismo equipo
+y proyecto.
+
+Se eliminó el recálculo alternativo que generaba valores incorrectos como USD 19.
+La búsqueda usa el código canónico consolidado, por lo que contempla, entre otras:
+- MOT-0024 -> MOT-0047
+- TOP-0014 -> TOP-0032
+- TOP-0059 -> TOP-0058
+
+No se modificaron las fórmulas de la tabla Mano de Obra.
