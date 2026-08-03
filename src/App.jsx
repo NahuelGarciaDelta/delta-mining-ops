@@ -10624,6 +10624,19 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[listaEquipos,codeLookupVariantsCosto,isInvalidEquipoCodeCosto]);
 
   const codigoCanonicoEquipo=React.useCallback((maquina)=>{
+    // Equivalencias históricas confirmadas: estos códigos CFN fueron
+    // reemplazados por los PCA indicados. Se aplican antes de cualquier
+    // agrupamiento para consolidar todos los meses en una sola fila.
+    const equivalenciasHistoricasForzadas={
+      "CFN-0041":"PCA-0081",
+      "CFN-0043":"PCA-0093",
+      "CFN-0044":"PCA-0095",
+      "CFN-0045":"PCA-0095",
+    };
+    const codigoLimpioForzado=cleanMachine(String(maquina||"").replace(/\s*\(.*?\)/g,""));
+    if(equivalenciasHistoricasForzadas[codigoLimpioForzado]){
+      return equivalenciasHistoricasForzadas[codigoLimpioForzado];
+    }
     const keys=machineLookupKeysCosto(maquina);
     for(const k of keys){
       const canon=identidadCanonicaEquipos.get(k);
