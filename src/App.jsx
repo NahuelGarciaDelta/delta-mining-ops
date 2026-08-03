@@ -10632,6 +10632,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       "CFN-0043":"PCA-0093",
       "CFN-0044":"PCA-0095",
       "CFN-0045":"PCA-0095",
+      "EXC-0014":"EXC-0034",
+      "EXC-0019":"EXC-0048",
+      "MOT-0024":"MOT-0047",
+      "RTP-0010":"RTP-0016",
+      "RTP-0012":"RTP-0024",
     };
     const codigoLimpioForzado=cleanMachine(String(maquina||"").replace(/\s*\(.*?\)/g,""));
     if(equivalenciasHistoricasForzadas[codigoLimpioForzado]){
