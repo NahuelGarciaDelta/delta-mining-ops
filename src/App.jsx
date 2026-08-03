@@ -1530,12 +1530,12 @@ function sortRowsForTable(rows,sort,getters={}){
     return sort.dir==="desc"?-cmp:cmp;
   });
 }
-function SortableTH({sortId,sortKey,sorts,setSorts,children,style,initialDir}){
+function SortableTH({sortId,sortKey,sorts,setSorts,children,style,initialDir,...thProps}){
   const active=sorts?.[sortId]?.key===sortKey;
   const dir=sorts?.[sortId]?.dir||"asc";
   const firstDir=initialDir||"asc";
   return(
-    <th onClick={()=>setSorts(prev=>{
+    <th {...thProps} onClick={()=>setSorts(prev=>{
       const cur=prev?.[sortId];
       if(cur?.key===sortKey){
         if(cur.dir==="asc")return {...prev,[sortId]:{key:sortKey,dir:"desc"}};
@@ -7756,6 +7756,52 @@ function ParamInput({value,set,style}){
   return <input type="number" value={local} onChange={handleChange} onBlur={handleBlur} onKeyDown={handleKeyDown} style={style}/>;
 }
 
+// Selector con estado local: el cambio visual es inmediato y el recálculo pesado
+// se confirma cuando el navegador queda libre.
+const CategoriaModeloSelect=React.memo(function CategoriaModeloSelect({modelKey,value,options,onCommit,style}){
+  const [local,setLocal]=React.useState(value||"SIN CATEGORIA");
+  const taskRef=React.useRef(null);
+  React.useEffect(()=>setLocal(value||"SIN CATEGORIA"),[value]);
+  React.useEffect(()=>()=>{
+    if(taskRef.current!=null){
+      if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(taskRef.current);
+      else window.clearTimeout(taskRef.current);
+    }
+  },[]);
+  const change=React.useCallback((e)=>{
+    const next=e.target.value;
+    setLocal(next);
+    if(taskRef.current!=null){
+      if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(taskRef.current);
+      else window.clearTimeout(taskRef.current);
+    }
+    const run=()=>onCommit(modelKey,next);
+    taskRef.current=typeof window.requestIdleCallback==="function"
+      ?window.requestIdleCallback(run,{timeout:350})
+      :window.setTimeout(run,30);
+  },[modelKey,onCommit]);
+  return <select value={local} onChange={change} style={style}>
+    <option value="SIN CATEGORIA">SIN CATEGORIA</option>
+    {(options||[]).map(c=><option key={c} value={c}>{c}</option>)}
+  </select>;
+});
+
+// Fila memoizada del catálogo de categorías. Al asignar un modelo sólo vuelve
+// a renderizarse esa fila; no las decenas o centenas restantes.
+const CategoriaModeloTableRow=React.memo(function CategoriaModeloTableRow({row,index,value,options,onCommit,colors}){
+  const bg=index%2===0?"rgba(255,255,255,.025)":"rgba(255,255,255,.055)";
+  const tdBase={padding:"9px 10px",borderBottom:`1px solid ${colors.border}`,fontSize:12,color:colors.textSub,textAlign:"center"};
+  const tdLeft={...tdBase,textAlign:"left",color:colors.text};
+  const selectStyle={width:"100%",minWidth:210,padding:"8px 10px",borderRadius:7,border:`1px solid ${colors.border}`,background:"rgba(0,0,0,.28)",color:colors.text,fontWeight:800};
+  return <tr style={{background:bg}}>
+    <td style={{...tdLeft,fontWeight:800}}>{row.familia}</td>
+    <td style={tdBase}>{row.marca||"—"}</td>
+    <td style={{...tdBase,fontWeight:700}}>{row.modelo}</td>
+    <td style={tdBase} title={(row.equipos||[]).join(", ")}>{row.cantidad}</td>
+    <td style={tdLeft}><CategoriaModeloSelect modelKey={row.key} value={value} options={options} onCommit={onCommit} style={selectStyle}/></td>
+  </tr>;
+},(a,b)=>a.row===b.row&&a.index===b.index&&a.value===b.value&&a.options===b.options&&a.onCommit===b.onCommit&&a.colors.border===b.colors.border&&a.colors.text===b.colors.text&&a.colors.textSub===b.colors.textSub);
+
 // ─── AmortRow — fila memoizada de la tabla de amortización ──────────────────
 const AmortRow=React.memo(function AmortRow({x,i,useListaVidaUtil,vidaUtilOverride,setVidaUtilState,tdL,tdS,C,fmtNum}){
   const vidaLM=x.vidaListaMaestra||x.vidaBase||x.vida||8000;
@@ -10201,6 +10247,32 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[initialCostosMantState]);
 
   const [tab,setTab]=React.useState(initialCostosMantState.tab||"t1");
+  const [amortizacionSubtab,setAmortizacionSubtab]=React.useState(initialCostosMantState.amortizacionSubtab||"tabla");
+  const [amortizacionCategorias,setAmortizacionCategorias]=React.useState(()=>initialCostosMantState.amortizacionCategorias&&typeof initialCostosMantState.amortizacionCategorias==="object"?initialCostosMantState.amortizacionCategorias:{});
+  // La UI de categorías responde al instante. Los cálculos de Amortización y
+  // Resumen usan una copia estable que se actualiza cuando el navegador queda
+  // libre. Así cambiar/renombrar/asignar una categoría no bloquea el click.
+  const [amortizacionCategoriasCalculo,setAmortizacionCategoriasCalculo]=React.useState(amortizacionCategorias);
+  React.useEffect(()=>{
+    let idleId=null;
+    const timer=window.setTimeout(()=>{
+      const apply=()=>setAmortizacionCategoriasCalculo(amortizacionCategorias);
+      idleId=typeof window.requestIdleCallback==="function"
+        ?window.requestIdleCallback(apply,{timeout:1200})
+        :window.setTimeout(apply,32);
+    },80);
+    return()=>{
+      window.clearTimeout(timer);
+      if(idleId!=null){
+        if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(idleId);
+        else window.clearTimeout(idleId);
+      }
+    };
+  },[amortizacionCategorias]);
+  const [amortizacionCategoriasLista,setAmortizacionCategoriasLista]=React.useState(()=>Array.isArray(initialCostosMantState.amortizacionCategoriasLista)?initialCostosMantState.amortizacionCategoriasLista:null);
+  const [nuevaCategoriaAmortizacion,setNuevaCategoriaAmortizacion]=React.useState("");
+  const [categoriaAmortizacionDrafts,setCategoriaAmortizacionDrafts]=React.useState({});
+  const [categoriaAmortizacionReasignacion,setCategoriaAmortizacionReasignacion]=React.useState({});
   // Cambio directo de pestaña: primero responde el click y después se cargan/calculan datos.
   // No usar startTransition acá: bajo carga de datos React puede demorar el cambio visual.
   const costosRenderTab=tab;
@@ -10216,6 +10288,38 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       return ()=>window.clearTimeout(id);
     },[value,delay]);
     return debounced;
+  };
+  // Monta tablas grandes por tandas. Los cálculos y totales usan la colección
+  // completa; sólo se distribuye el trabajo de crear nodos DOM entre varios frames.
+  const useProgressiveRows=(rows,active=true,initial=60,step=60)=>{
+    const total=(rows||[]).length;
+    const [visible,setVisible]=React.useState(()=>Math.min(total,initial));
+    React.useEffect(()=>{
+      if(!active){setVisible(0);return;}
+      setVisible(Math.min(total,initial));
+      if(total<=initial)return;
+      let alive=true;
+      let handle=null;
+      const schedule=()=>{
+        const run=()=>{
+          if(!alive)return;
+          setVisible(v=>{
+            const next=Math.min(total,v+step);
+            if(next<total)schedule();
+            return next;
+          });
+        };
+        if(typeof window.requestIdleCallback==="function")handle=window.requestIdleCallback(run,{timeout:250});
+        else handle=window.setTimeout(run,16);
+      };
+      schedule();
+      return()=>{
+        alive=false;
+        if(typeof window.cancelIdleCallback==="function"&&handle!=null)window.cancelIdleCallback(handle);
+        else if(handle!=null)window.clearTimeout(handle);
+      };
+    },[rows,active,total,initial,step]);
+    return (rows||[]).slice(0,visible);
   };
   const [usdRate2,setUsdRate2]=React.useState(()=>readSavedNumber("usdRate2",1400));
   const [hsEfJM,setHsEfJM]=React.useState(()=>readSavedNumber("hsEfJM",180));
@@ -10309,31 +10413,38 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const isCostosTabAmortizacion=costosRenderTab==="t5";
   const isCostosTabResumen=costosRenderTab==="t8";
 
+  // Precarga progresiva del motor de costos. Las tablas dependientes se calculan
+  // en segundo plano, por etapas y durante tiempos ociosos del navegador. Así
+  // Resumen por equipo siempre recibe Costo mensual, Mano de Obra y Amortización
+  // completos, sin exigir que el usuario abra cada pestaña y sin bloquear la UI.
+  const [costosPreloadPhase,setCostosPreloadPhase]=React.useState(0);
+  const costosBaseCalcReady=costosPreloadPhase>=1;
   React.useEffect(()=>{
-    if(!isCostosTabAmortizacion){
-      setAmortizacionCalcEnabled(false);
-      return;
-    }
-    setAmortizacionVisibleCount(50);
-    setAmortizacionCalcEnabled(false);
     let alive=true;
-    const run=()=>{
-      if(!alive)return;
-      const apply=()=>setAmortizacionCalcEnabled(true);
-      if(React.startTransition)React.startTransition(apply);
-      else apply();
-    };
-    const id=(window.requestIdleCallback?window.requestIdleCallback(run,{timeout:220}):window.setTimeout(run,60));
-    return ()=>{
-      alive=false;
+    const schedule=(fn,timeout=500)=>window.requestIdleCallback
+      ? window.requestIdleCallback(fn,{timeout})
+      : window.setTimeout(fn,80);
+    const cancel=(id)=>{
       if(window.cancelIdleCallback&&typeof id==="number")window.cancelIdleCallback(id);
       else window.clearTimeout(id);
     };
-  },[isCostosTabAmortizacion]);
+    let id2=null;
+    const id1=schedule(()=>{
+      if(!alive)return;
+      const apply1=()=>setCostosPreloadPhase(p=>Math.max(p,1));
+      if(React.startTransition)React.startTransition(apply1); else apply1();
+      id2=schedule(()=>{
+        if(!alive)return;
+        const apply2=()=>setCostosPreloadPhase(p=>Math.max(p,2));
+        if(React.startTransition)React.startTransition(apply2); else apply2();
+      },1400);
+    },450);
+    return ()=>{alive=false;cancel(id1);if(id2!==null)cancel(id2);};
+  },[]);
 
-  // Amortización necesita la distribución de Mano de Obra para calcular
-  // los USD/hs y el promedio por tipo aunque el usuario no haya entrado antes a esa pestaña.
-  const needsManoObraCostos=isCostosTabManoObra||isCostosTabAmortizacion;
+  // Mano de Obra se precarga en la primera etapa y queda disponible para las
+  // demás tablas aun cuando su pestaña nunca haya sido abierta.
+  const needsManoObraCostos=costosBaseCalcReady;
   const filtrosCostosActivos=getCostosFiltrosTabla(activeCostosFiltroKey);
   const dFCMaquinas=useCostoDebouncedValue(filtrosCostosActivos.equipo,180);
   const dFCTipoEquipo=useCostoDebouncedValue(filtrosCostosActivos.tipo,180);
@@ -10420,14 +10531,17 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       fResumenTipo,fResumenEquipo,fResumenPropiedad,
       costosMantSorts,
       costoMensualScrollLeft:costoMensualScrollLeftRef.current||0,
-      useListaVidaUtil,vidaUtilOverride,hombreVestido,hsPropios,hsArrendados
+      useListaVidaUtil,vidaUtilOverride,hombreVestido,hsPropios,hsArrendados,
+      amortizacionSubtab,amortizacionCategorias,amortizacionCategoriasLista
     };
     costosMantSnapshotRef.current=snapshot;
     // Guardado breve y diferido: mantiene fluidez, pero no pierde el último cambio.
     if(saveCostosMantRef.current)window.clearTimeout(saveCostosMantRef.current);
     saveCostosMantRef.current=window.setTimeout(()=>{
-      try{window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify(costosMantSnapshotRef.current));}catch(_){}
-    },250);
+      const guardar=()=>{try{window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify(costosMantSnapshotRef.current));}catch(_){}};
+      if(typeof window.requestIdleCallback==="function")window.requestIdleCallback(guardar,{timeout:1200});
+      else guardar();
+    },450);
     return ()=>{
       if(saveCostosMantRef.current)window.clearTimeout(saveCostosMantRef.current);
     };
@@ -10437,7 +10551,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     fechaDCostoMensual,fechaHCostoMensual,costosFiltrosTabla,
     fMOMaquinas,fMOTipoEquipo,fMOPropiedad,
     fResumenTipo,fResumenEquipo,fResumenPropiedad,costosMantSorts,
-    vidaUtilState,hombreVestido,hsPropios,hsArrendados
+    vidaUtilState,hombreVestido,hsPropios,hsArrendados,amortizacionSubtab,amortizacionCategorias,amortizacionCategoriasLista
   ]);
 
   // Al salir de Informe de Costos, guardar inmediatamente el último estado de todos los filtros.
@@ -10486,8 +10600,20 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return (rows||[]).map(r=>({...r,insumos:(r.insumos||[]).filter(ins=>selected.has(costoInsumoCode(ins)))}));
   },[costoInsumoCode]);
 
-  const rma15PorFecha=React.useMemo(()=>filtrarInsumosCosto(rma15PorFechaBase,dFInsumos),[rma15PorFechaBase,dFInsumos,filtrarInsumosCosto]);
-  const rma15CostoMensualPorFecha=React.useMemo(()=>filtrarInsumosCosto(rma15CostoMensualPorFechaBase,dFInsumos),[rma15CostoMensualPorFechaBase,dFInsumos,filtrarInsumosCosto]);
+  // Precalcular una sola vez los importes de cada registro. Varias tablas usaban
+  // volver a recorrer todos los insumos para obtener exactamente el mismo total.
+  // Mantener los insumos originales permite que Top 3 siga mostrando el detalle.
+  const costoFilaPreparadaMemo=React.useMemo(()=>new WeakMap(),[rma15]);
+  const prepararFilasCosto=React.useCallback((rows)=>(rows||[]).map(r=>{
+    if(r&&typeof r==="object"&&costoFilaPreparadaMemo.has(r))return costoFilaPreparadaMemo.get(r);
+    let totalARS=0;
+    (r.insumos||[]).forEach(ins=>{totalARS+=Number(ins?.costoTotal)||0;});
+    const out={...r,_costoTotalARS:totalARS,_esPreventivo:String(r.tipoMant||"").toUpperCase().includes("PREV")};
+    if(r&&typeof r==="object")costoFilaPreparadaMemo.set(r,out);
+    return out;
+  }),[costoFilaPreparadaMemo]);
+  const rma15PorFecha=React.useMemo(()=>prepararFilasCosto(filtrarInsumosCosto(rma15PorFechaBase,dFInsumos)),[rma15PorFechaBase,dFInsumos,filtrarInsumosCosto,prepararFilasCosto]);
+  const rma15CostoMensualPorFecha=React.useMemo(()=>prepararFilasCosto(filtrarInsumosCosto(rma15CostoMensualPorFechaBase,dFInsumos)),[rma15CostoMensualPorFechaBase,dFInsumos,filtrarInsumosCosto,prepararFilasCosto]);
 
   // Mapa de Lista Maestra para correlación.
   // REGLA DEFINITIVA:
@@ -10536,7 +10662,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return {raw,main,sinParentesis,viejos};
   },[]);
 
+  const machineLookupKeysMemo=React.useMemo(()=>new Map(),[listaEquipos]);
   const machineLookupKeysCosto=React.useCallback((maquina)=>{
+    const cacheKey=String(maquina||"").trim().toUpperCase();
+    if(machineLookupKeysMemo.has(cacheKey))return machineLookupKeysMemo.get(cacheKey);
     const {raw,main,sinParentesis,viejos}=extraerCodigosCosto(maquina);
     // Primero código real / externo. Código viejo entre paréntesis queda al final,
     // sólo como respaldo de correlación.
@@ -10545,8 +10674,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     base.forEach(code=>{
       codeLookupVariantsCosto(code).forEach(k=>keys.push(k));
     });
-    return [...new Set(keys)];
-  },[extraerCodigosCosto,codeLookupVariantsCosto]);
+    const out=[...new Set(keys)];
+    machineLookupKeysMemo.set(cacheKey,out);
+    return out;
+  },[extraerCodigosCosto,codeLookupVariantsCosto,machineLookupKeysMemo]);
 
   const listaEquiposIndex=React.useMemo(()=>{
     const bestMap={};
@@ -10586,7 +10717,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return {bestMap,allMap};
   },[listaEquipos,codeLookupVariantsCosto]);
 
+  const equipoListaMaestraMemo=React.useMemo(()=>new Map(),[listaEquiposIndex]);
+  const equiposListaMaestraAllMemo=React.useMemo(()=>new Map(),[listaEquiposIndex]);
   const getEquipoListaMaestra=React.useCallback((maquina)=>{
+    const cacheKey=String(maquina||"").trim().toUpperCase();
+    if(equipoListaMaestraMemo.has(cacheKey))return equipoListaMaestraMemo.get(cacheKey);
     const keys=machineLookupKeysCosto(maquina);
     let best=null;
     for(const k of keys){
@@ -10594,10 +10729,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       if(hit&&(!best||hit.priority>best.priority))best=hit;
       if(best&&best.priority>=100)break;
     }
-    return best?.row||null;
-  },[listaEquiposIndex,machineLookupKeysCosto]);
+    const out=best?.row||null;
+    equipoListaMaestraMemo.set(cacheKey,out);
+    return out;
+  },[listaEquiposIndex,machineLookupKeysCosto,equipoListaMaestraMemo]);
 
   const getEquiposListaMaestraAll=React.useCallback((maquina)=>{
+    const cacheKey=String(maquina||"").trim().toUpperCase();
+    if(equiposListaMaestraAllMemo.has(cacheKey))return equiposListaMaestraAllMemo.get(cacheKey);
     const keys=machineLookupKeysCosto(maquina);
     const seen=new WeakSet();
     const out=[];
@@ -10610,8 +10749,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         out.push(row);
       });
     });
+    equiposListaMaestraAllMemo.set(cacheKey,out);
     return out;
-  },[listaEquiposIndex,machineLookupKeysCosto]);
+  },[listaEquiposIndex,machineLookupKeysCosto,equiposListaMaestraAllMemo]);
 
   // Identidad canónica única para toda la app: todas las variantes de una fila
   // de Lista Maestra apuntan al Código Nuevo. Si no existe, se usa Código Drusila
@@ -10637,7 +10777,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return map;
   },[listaEquipos,codeLookupVariantsCosto,isInvalidEquipoCodeCosto]);
 
+  const codigoCanonicoEquipoMemo=React.useMemo(()=>new Map(),[identidadCanonicaEquipos,listaEquiposIndex]);
   const codigoCanonicoEquipo=React.useCallback((maquina)=>{
+    const cacheKey=String(maquina||"").trim().toUpperCase();
+    if(codigoCanonicoEquipoMemo.has(cacheKey))return codigoCanonicoEquipoMemo.get(cacheKey);
     // Equivalencias históricas confirmadas: estos códigos CFN fueron
     // reemplazados por los PCA indicados. Se aplican antes de cualquier
     // agrupamiento para consolidar todos los meses en una sola fila.
@@ -10656,12 +10799,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     };
     const codigoLimpioForzado=cleanMachine(String(maquina||"").replace(/\s*\(.*?\)/g,""));
     if(equivalenciasHistoricasForzadas[codigoLimpioForzado]){
-      return equivalenciasHistoricasForzadas[codigoLimpioForzado];
+      const out=equivalenciasHistoricasForzadas[codigoLimpioForzado];
+      codigoCanonicoEquipoMemo.set(cacheKey,out);
+      return out;
     }
     const keys=machineLookupKeysCosto(maquina);
     for(const k of keys){
       const canon=identidadCanonicaEquipos.get(k);
-      if(canon)return canon;
+      if(canon){codigoCanonicoEquipoMemo.set(cacheKey,canon);return canon;}
     }
     const eq=getEquipoListaMaestra(maquina);
     if(eq){
@@ -10670,11 +10815,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const canon=read("Código Nuevo",["Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual","Código Interno","Codigo Interno","CODIGO N° INTERNO","Interno"])||
         read("Código Drusila",["Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila"])||
         read("Código Viejo",["Codigo Viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"]);
-      if(canon)return cleanMachine(canon);
+      if(canon){const out=cleanMachine(canon);codigoCanonicoEquipoMemo.set(cacheKey,out);return out;}
     }
     const {main,sinParentesis}=extraerCodigosCosto(maquina);
-    return cleanMachine(main||sinParentesis||maquina)||"—";
-  },[identidadCanonicaEquipos,machineLookupKeysCosto,getEquipoListaMaestra,extraerCodigosCosto]);
+    const out=cleanMachine(main||sinParentesis||maquina)||"—";
+    codigoCanonicoEquipoMemo.set(cacheKey,out);
+    return out;
+  },[identidadCanonicaEquipos,machineLookupKeysCosto,getEquipoListaMaestra,extraerCodigosCosto,codigoCanonicoEquipoMemo]);
 
   const equipoCostoDisplay=React.useCallback((maquina)=>codigoCanonicoEquipo(maquina),[codigoCanonicoEquipo]);
 
@@ -10684,8 +10831,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return String(k?eq[k]:"S/D").trim().toUpperCase()||"S/D";
   },[]);
 
+  const propiedadesEquipoMemo=React.useMemo(()=>new Map(),[listaEquiposIndex]);
   const propiedadesEquipo=React.useCallback((maquina)=>{
     const raw=String(maquina||"").trim().toUpperCase();
+    if(propiedadesEquipoMemo.has(raw))return propiedadesEquipoMemo.get(raw);
     if(isInvalidEquipoCodeCosto(raw))return ["S/D"];
 
     const rows=getEquiposListaMaestraAll(maquina);
@@ -10695,8 +10844,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     // Si un equipo cruza con DELTA, SULLAIR, DIESEL LANGE, etc., no debe aparecer
     // también dentro de S/D por culpa de filas con Código Viejo = "-".
     const reales=props.filter(p=>p&&p!=="S/D"&&p!=="-"&&p!=="—");
-    return reales.length?reales:["S/D"];
-  },[getEquiposListaMaestraAll,getPropiedadFromListaRow,isInvalidEquipoCodeCosto]);
+    const out=reales.length?reales:["S/D"];
+    propiedadesEquipoMemo.set(raw,out);
+    return out;
+  },[getEquiposListaMaestraAll,getPropiedadFromListaRow,isInvalidEquipoCodeCosto,propiedadesEquipoMemo]);
 
   const propiedadEquipo=React.useCallback((maquina)=>{
     const props=propiedadesEquipo(maquina);
@@ -10732,15 +10883,23 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     return map;
   },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay,codigoCanonicoEquipo]);
 
+  const metaEquipoFallbackMemo=React.useMemo(()=>new Map(),[listaEquiposIndex,identidadCanonicaEquipos]);
   const metaEquipoCosto=React.useCallback((maquina)=>{
     const key=String(maquina||"");
-    return rma15MetaMap.get(key)||{
+    const ready=rma15MetaMap.get(key);
+    if(ready)return ready;
+    if(metaEquipoFallbackMemo.has(key))return metaEquipoFallbackMemo.get(key);
+    const props=propiedadesEquipo(maquina);
+    const real=props.find(p=>p&&p!=="S/D");
+    const out={
       display:equipoCostoDisplay(maquina),
-      props:propiedadesEquipo(maquina),
-      propiedad:propiedadEquipo(maquina),
+      props,
+      propiedad:real||props[0]||"S/D",
       tipo:tipoEquipoCosto(codigoCanonicoEquipo(maquina)),
     };
-  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,propiedadEquipo,codigoCanonicoEquipo]);
+    metaEquipoFallbackMemo.set(key,out);
+    return out;
+  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,codigoCanonicoEquipo,metaEquipoFallbackMemo]);
 
   const matchPropiedadMeta=React.useCallback((meta,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return true;
@@ -10893,7 +11052,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[needsManoObraCostos,rma15PorFecha,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
   const rma15Filtrado=React.useMemo(()=>{
-    const activeCalc=isCostosTabTabla||isCostosTabTop3;
+    const activeCalc=costosBaseCalcReady;
     if(!activeCalc)return rma15FiltradoCacheRef.current||[];
     const out=(rma15PorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
@@ -10907,11 +11066,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     rma15FiltradoCacheRef.current=out;
     return out;
-  },[isCostosTabTabla,isCostosTabTop3,rma15PorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+  },[costosBaseCalcReady,rma15PorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
   const rma15CostoMensualFiltrado=React.useMemo(()=>{
     // Usa el período propio de Costo mensual acumulado y los filtros propios de esa pestaña.
-    const activeCalc=isCostosTabAcumulado||isCostosTabAmortizacion||isCostosTabResumen;
+    const activeCalc=costosBaseCalcReady;
     if(!activeCalc)return rma15CostoMensualFiltradoCacheRef.current||[];
     const out=(rma15CostoMensualPorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
@@ -10925,7 +11084,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     rma15CostoMensualFiltradoCacheRef.current=out;
     return out;
-  },[isCostosTabAcumulado,isCostosTabAmortizacion,isCostosTabResumen,rma15CostoMensualPorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+  },[costosBaseCalcReady,rma15CostoMensualPorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
   const fmtU=v=>v==null||v===0?"—":"$"+fmtNum(Math.round(v));
   const fmtUSD2=v=>v==null||v===0?"—":"U$S "+fmtNum(Math.round(v));
@@ -10933,23 +11092,21 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   // Tabla de costos desde RMA15
   const tabla1CacheRef=React.useRef([]);
   const tabla1=React.useMemo(()=>{
-    const activeCalc=isCostosTabTabla||isCostosTabTop3;
+    const activeCalc=costosBaseCalcReady;
     if(!activeCalc)return tabla1CacheRef.current||[];
     const map={};
     (rma15Filtrado||[]).forEach(r=>{
       const meta=metaEquipoCosto(r.maquina);
       const eq=meta.display;
       if(!map[eq])map[eq]={equipo:eq,propiedad:meta.propiedad||"S/D",prev:0,corr:0};
-      (r.insumos||[]).forEach(ins=>{
-        const t=String(r.tipoMant||"").toUpperCase();
-        if(t.includes("PREV"))map[eq].prev+=ins.costoTotal||0;
-        else map[eq].corr+=ins.costoTotal||0;
-      });
+      const costo=Number(r._costoTotalARS)||0;
+      if(r._esPreventivo)map[eq].prev+=costo;
+      else map[eq].corr+=costo;
     });
     const out=Object.values(map).filter(x=>x.prev>0||x.corr>0).sort((a,b)=>a.equipo.localeCompare(b.equipo)).map(x=>({...x,total:x.prev+x.corr}));
     tabla1CacheRef.current=out;
     return out;
-  },[isCostosTabTabla,isCostosTabTop3,rma15Filtrado,metaEquipoCosto]);
+  },[costosBaseCalcReady,rma15Filtrado,metaEquipoCosto]);
 
   const tabla2=tabla1;
   /* const tabla2=React.useMemo(()=>{
@@ -10969,12 +11126,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
   const mesesAcumuladoCacheRef=React.useRef([]);
   const mesesAcumulado=React.useMemo(()=>{
-    const activeCalc=isCostosTabAcumulado||isCostosTabManoObra;
+    const activeCalc=costosBaseCalcReady;
     if(!activeCalc)return mesesAcumuladoCacheRef.current||[];
     const out=buildMonthKeysCosto(rma15Filtrado||[],modoFecha,fechaDia,fechaD,fechaH);
     mesesAcumuladoCacheRef.current=out;
     return out;
-  },[isCostosTabAcumulado,isCostosTabManoObra,rma15Filtrado,modoFecha,fechaDia,fechaD,fechaH]);
+  },[costosBaseCalcReady,rma15Filtrado,modoFecha,fechaDia,fechaD,fechaH]);
 
   // Debe calcularse ANTES de acumuladoEquipos. Si queda debajo, React intenta usar
   // subtotalJM/subtotalFS antes de inicializarlos y la pestaña se pone en blanco.
@@ -10995,8 +11152,29 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const [amortizacionCalcEnabled,setAmortizacionCalcEnabled]=React.useState(false);
   const [amortizacionVisibleCount,setAmortizacionVisibleCount]=React.useState(50);
 
+  // Segunda etapa: construir Amortización una sola vez en segundo plano. No se
+  // vuelve a desactivar al cambiar de pestaña, evitando datos incompletos en Resumen.
+  React.useEffect(()=>{
+    if(amortizacionCalcEnabled)return;
+    if(costosPreloadPhase<2)return;
+    let alive=true;
+    const run=()=>{
+      if(!alive)return;
+      const apply=()=>setAmortizacionCalcEnabled(true);
+      if(React.startTransition)React.startTransition(apply); else apply();
+    };
+    const id=window.requestIdleCallback
+      ? window.requestIdleCallback(run,{timeout:900})
+      : window.setTimeout(run,100);
+    return ()=>{
+      alive=false;
+      if(window.cancelIdleCallback&&typeof id==="number")window.cancelIdleCallback(id);
+      else window.clearTimeout(id);
+    };
+  },[costosPreloadPhase,amortizacionCalcEnabled]);
+
   const acumuladoEquipos=React.useMemo(()=>{
-    const activeCalc=isCostosTabAcumulado||isCostosTabManoObra;
+    const activeCalc=costosBaseCalcReady;
     if(!activeCalc)return acumuladoEquiposCacheRef.current||[];
     const map={};
     (rma15CostoMensualFiltrado||[]).forEach(r=>{
@@ -11010,19 +11188,17 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         map[key]={equipo,section,months:{},prev:0,corr:0,total:0};
       }
       if(!map[key].months[mes])map[key].months[mes]={prev:0,corr:0,total:0};
-      const esPrev=String(r.tipoMant||"").toUpperCase().includes("PREV");
-      (r.insumos||[]).forEach(ins=>{
-        const usd=(Number(ins.costoTotal)||0)/(Number(usdRate2)||1);
-        if(esPrev){
-          map[key].months[mes].prev+=usd;
-          map[key].prev+=usd;
-        }else{
-          map[key].months[mes].corr+=usd;
-          map[key].corr+=usd;
-        }
-        map[key].months[mes].total+=usd;
-        map[key].total+=usd;
-      });
+      const esPrev=!!r._esPreventivo;
+      const usd=(Number(r._costoTotalARS)||0)/(Number(usdRate2)||1);
+      if(esPrev){
+        map[key].months[mes].prev+=usd;
+        map[key].prev+=usd;
+      }else{
+        map[key].months[mes].corr+=usd;
+        map[key].corr+=usd;
+      }
+      map[key].months[mes].total+=usd;
+      map[key].total+=usd;
     });
 
     const mapValues=Object.values(map);
@@ -11044,7 +11220,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       .sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
     acumuladoEquiposCacheRef.current=out;
     return out;
-  },[isCostosTabAcumulado,isCostosTabManoObra,rma15CostoMensualFiltrado,mesesAcumulado,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,metaEquipoCosto]);
+  },[costosBaseCalcReady,rma15CostoMensualFiltrado,mesesAcumulado,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,metaEquipoCosto]);
 
   const acumuladoSubtotales=React.useMemo(()=>{
     const mk=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesAcumulado||[]).map(m=>[m.key,{prev:0,corr:0,total:0}])),promedio:0,mo:0,hsEf:0,usdHs:0});
@@ -11268,7 +11444,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const historialAcumuladoFiltrado=React.useMemo(()=>{
     // Costo mensual acumulado: el período es propio de la tabla,
     // pero proyecto / propiedad / tipo / máquinas responden a los filtros generales.
-    const activeCalc=isCostosTabAcumulado||isCostosTabAmortizacion||isCostosTabResumen;
+    const activeCalc=costosBaseCalcReady;
     if(!activeCalc)return historialAcumuladoFiltradoCacheRef.current||[];
     const out=(HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).filter(x=>{
       const proyecto=sectionProyectoCosto(x.section);
@@ -11285,7 +11461,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     historialAcumuladoFiltradoCacheRef.current=out;
     return out;
-  },[isCostosTabAcumulado,isCostosTabAmortizacion,isCostosTabResumen,dFProyecto,dFPropiedad,dFMaquinas,dFTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
+  },[costosBaseCalcReady,dFProyecto,dFPropiedad,dFMaquinas,dFTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
 
   // Historial filtrado con filtros MO aislados (para Mano de Obra)
   const historialAcumuladoFiltradoMO=React.useMemo(()=>{
@@ -11308,7 +11484,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[needsManoObraCostos,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,sectionProyectoCosto]);
 
   const mesesFijosAcumuladoMensual=React.useMemo(()=>
-    (HIST_COSTO_MENSUAL_ACUMULADO.months||[]).filter(m=>monthInFechaFiltroCosto(m.key)),
+    // Los meses 2025 se conservan siempre para poder consolidarlos en TOTAL 2025,
+    // aunque el usuario filtre un período que comience en 2026.
+    (HIST_COSTO_MENSUAL_ACUMULADO.months||[]).filter(m=>
+      String(m.key||"").startsWith("2025-")||monthInFechaFiltroCosto(m.key)
+    ),
     [monthInFechaFiltroCosto]
   );
 
@@ -11335,7 +11515,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   },[mesesCostoMensual,monthlyDollar,usdRate2]);
 
   const costoMensualAcumulado=React.useMemo(()=>{
-    const activeCalc=isCostosTabAcumulado||isCostosTabAmortizacion||isCostosTabResumen;
+    const activeCalc=costosBaseCalcReady;
     if(!activeCalc)return costoMensualAcumuladoCacheRef.current||[];
     const map={};
     const ensure=(equipo,section)=>{
@@ -11366,14 +11546,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const equipo=metaEquipoCosto(r.maquina).display;
       const row=ensure(equipo,section);
       if(!row.months[mes])row.months[mes]={prev:0,corr:0,total:0};
-      const esPrev=String(r.tipoMant||"").toUpperCase().includes("PREV");
+      const esPrev=!!r._esPreventivo;
       const rate=Number(monthlyDollar[mes])||Number(usdRate2)||1;
-      (r.insumos||[]).forEach(ins=>{
-        const usd=(Number(ins.costoTotal)||0)/rate;
-        if(esPrev)row.months[mes].prev+=usd;
-        else row.months[mes].corr+=usd;
-        row.months[mes].total+=usd;
-      });
+      const usd=(Number(r._costoTotalARS)||0)/rate;
+      if(esPrev)row.months[mes].prev+=usd;
+      else row.months[mes].corr+=usd;
+      row.months[mes].total+=usd;
     });
 
     Object.values(map).forEach(row=>{
@@ -11387,7 +11565,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const out=Object.values(map).filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
     costoMensualAcumuladoCacheRef.current=out;
     return out;
-  },[isCostosTabAcumulado,isCostosTabAmortizacion,isCostosTabResumen,historialAcumuladoFiltrado,mesesFijosAcumuladoMensual,rma15CostoMensualFiltrado,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
+  },[costosBaseCalcReady,historialAcumuladoFiltrado,mesesFijosAcumuladoMensual,rma15CostoMensualFiltrado,metaEquipoCosto,monthlyDollar,usdRate2,mesesCostoMensual]);
 
   // costoMensualAcumulado con filtros MO aislados (para distribuir MO sobre todas las máquinas seleccionadas en MO)
   const costoMensualAcumuladoMO=React.useMemo(()=>{
@@ -11417,14 +11595,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const equipo=metaEquipoCosto(r.maquina).display;
       const row=ensure(equipo,section);
       if(!row.months[mes])row.months[mes]={prev:0,corr:0,total:0};
-      const esPrev=String(r.tipoMant||"").toUpperCase().includes("PREV");
+      const esPrev=!!r._esPreventivo;
       const rate=Number(monthlyDollar[mes])||Number(usdRate2)||1;
-      (r.insumos||[]).forEach(ins=>{
-        const usd=(Number(ins.costoTotal)||0)/rate;
-        if(esPrev)row.months[mes].prev+=usd;
-        else row.months[mes].corr+=usd;
-        row.months[mes].total+=usd;
-      });
+      const usd=(Number(r._costoTotalARS)||0)/rate;
+      if(esPrev)row.months[mes].prev+=usd;
+      else row.months[mes].corr+=usd;
+      row.months[mes].total+=usd;
     });
     Object.values(map).forEach(row=>{
       (mesesCostoMensual||[]).forEach(m=>{
@@ -11979,6 +12155,54 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     {tipo:"TOPADORA", equipos:["TOP-0032","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0058"], prefixes:["TOP"]},
   ],[]);
 
+  const normalizarCategoriaTexto=React.useCallback((v)=>String(v||"")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toUpperCase().replace(/\s+/g," ").trim(),[]);
+
+  const claveCategoriaAmortizacion=React.useCallback((equipo)=>{
+    const code=codigoCanonicoEquipo(cleanMachine(mainMachineCode(equipo)));
+    const eq=getEquipoListaMaestra(code)||{};
+    const familia=normalizarCategoriaTexto(getValue(eq,["Familia","FAMILIA","Tipo","Tipo de equipo","Tipo Equipo","EQUIPO"])||getMachineType(code)||"S/D");
+    const modelo=normalizarCategoriaTexto(getValue(eq,["Modelo","MODELO","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"");
+    return modelo?`${familia}|||${modelo}`:"";
+  },[codigoCanonicoEquipo,getEquipoListaMaestra,normalizarCategoriaTexto]);
+
+  const categoriasAmortizacionDisponibles=React.useMemo(()=>{
+    const base=amortizacionCategoriasLista===null
+      ?(AMORTIZACION_GRUPOS||[]).map(g=>normalizarCategoriaTexto(g.tipo)).filter(Boolean)
+      :(amortizacionCategoriasLista||[]).map(normalizarCategoriaTexto).filter(Boolean);
+    const vals=new Set(base);
+    Object.values(amortizacionCategorias||{}).forEach(v=>{
+      const t=normalizarCategoriaTexto(v);
+      if(t&&t!=="SIN CATEGORIA")vals.add(t);
+    });
+    return Array.from(vals).sort((a,b)=>a.localeCompare(b,"es"));
+  },[AMORTIZACION_GRUPOS,amortizacionCategorias,amortizacionCategoriasLista,normalizarCategoriaTexto]);
+
+  const catalogoCategoriasAmortizacion=React.useMemo(()=>{
+    const map=new Map();
+    const codigoLista=(eq)=>{
+      const keys=Object.keys(eq||{});
+      const read=(label,aliases=[])=>{const k=findColumnKey(keys,label,aliases);return k?String(eq[k]||"").trim():"";};
+      return read("Código Nuevo",["Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual","Código Interno","Codigo Interno","CODIGO N° INTERNO","Interno"])||
+        read("Código Drusila",["Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila"])||
+        read("Código Viejo",["Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"]);
+    };
+    (listaEquipos||[]).forEach(eq=>{
+      const code=codigoCanonicoEquipo(codigoLista(eq));
+      if(!code||isInvalidEquipoCodeCosto(code))return;
+      const familia=normalizarCategoriaTexto(getValue(eq,["Familia","FAMILIA","Tipo","Tipo de equipo","Tipo Equipo","EQUIPO"])||getMachineType(code)||"S/D");
+      const marca=String(getValue(eq,["Marca","MARCA"])||"").trim();
+      const modelo=String(getValue(eq,["Modelo","MODELO","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"").trim();
+      if(!modelo)return;
+      const modeloNorm=normalizarCategoriaTexto(modelo);
+      const key=`${familia}|||${modeloNorm}`;
+      if(!map.has(key))map.set(key,{key,familia,marca,modelo,cantidad:0,equipos:[]});
+      const row=map.get(key);row.cantidad+=1;if(row.equipos.length<8)row.equipos.push(code);
+    });
+    return Array.from(map.values()).sort((a,b)=>a.familia.localeCompare(b.familia,"es")||a.modelo.localeCompare(b.modelo,"es"));
+  },[listaEquipos,codigoCanonicoEquipo,isInvalidEquipoCodeCosto,normalizarCategoriaTexto]);
+
   const amortizacionGrupoInfo=React.useCallback((equipo)=>{
     const code=codigoCanonicoEquipo(cleanMachine(mainMachineCode(equipo)));
     const prefix=String(code||"").split("-")[0];
@@ -11989,6 +12213,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const eqLista=getEquipoListaMaestra(code)||{};
     const modeloEspecial=String(getValue(eqLista,["Modelo","MODELO","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"")
       .normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[\s\-_/]+/g,"");
+    const claveCategoria=claveCategoriaAmortizacion(code);
+    const categoriaManual=claveCategoria?normalizarCategoriaTexto(amortizacionCategoriasCalculo?.[claveCategoria]):"";
+    if(categoriaManual){
+      const gi=AMORTIZACION_GRUPOS.findIndex(g=>normalizarCategoriaTexto(g.tipo)===categoriaManual);
+      return {grupo:categoriaManual,grupoIndex:gi>=0?gi:998,orden:0};
+    }
     if(modeloEspecial.includes("PC350")){
       const gi=AMORTIZACION_GRUPOS.findIndex(g=>g.tipo==="EXCAVADORA 1");
       return {grupo:"EXCAVADORA 1",grupoIndex:gi>=0?gi:2,orden:0};
@@ -12014,10 +12244,125 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
     const fallback=tipoEquipoListaMaestra(equipo)||getMachineType(equipo)||"S/D";
     return {grupo:fallback,grupoIndex:999,orden:9999};
-  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra,getEquipoListaMaestra,codigoCanonicoEquipo]);
+  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra,getEquipoListaMaestra,codigoCanonicoEquipo,claveCategoriaAmortizacion,amortizacionCategoriasCalculo,normalizarCategoriaTexto]);
+
+  // Índice liviano para la subpestaña de categorías. Evita recorrer todo el
+  // catálogo una vez por cada categoría y otra vez por cada fila renderizada.
+  const categoriaEfectivaPorModelo=React.useMemo(()=>{
+    const out={};
+    (catalogoCategoriasAmortizacion||[]).forEach(r=>{
+      const muestra=r.equipos?.[0]||"";
+      out[r.key]=normalizarCategoriaTexto(
+        amortizacionCategorias[r.key]||amortizacionGrupoInfo(muestra).grupo||r.familia||"SIN CATEGORIA"
+      )||"SIN CATEGORIA";
+    });
+    return out;
+  },[catalogoCategoriasAmortizacion,amortizacionCategorias,amortizacionGrupoInfo,normalizarCategoriaTexto]);
+
+  const cantidadModelosPorCategoria=React.useMemo(()=>{
+    const out={};
+    Object.values(categoriaEfectivaPorModelo||{}).forEach(cat=>{out[cat]=(out[cat]||0)+1;});
+    return out;
+  },[categoriaEfectivaPorModelo]);
+
+
+  const commitCategoriaModelo=React.useCallback((modelKey,value)=>{
+    const v=normalizarCategoriaTexto(value);
+    const apply=()=>setAmortizacionCategorias(prev=>{
+      const actual=normalizarCategoriaTexto(prev?.[modelKey]||categoriaEfectivaPorModelo?.[modelKey]||"");
+      if(actual===v)return prev;
+      const next={...prev};
+      if(v)next[modelKey]=v;else delete next[modelKey];
+      return next;
+    });
+    if(React.startTransition)React.startTransition(apply);else apply();
+  },[normalizarCategoriaTexto,categoriaEfectivaPorModelo]);
+
+
+  const agregarCategoriaAmortizacion=React.useCallback(()=>{
+    const nueva=normalizarCategoriaTexto(nuevaCategoriaAmortizacion);
+    if(!nueva)return;
+    if(categoriasAmortizacionDisponibles.includes(nueva)){
+      appAlert(`La categoría "${nueva}" ya existe.`,"Categoría duplicada");
+      return;
+    }
+    setAmortizacionCategoriasLista(prev=>{
+      const base=prev===null?(AMORTIZACION_GRUPOS||[]).map(g=>normalizarCategoriaTexto(g.tipo)).filter(Boolean):[...(prev||[])];
+      return Array.from(new Set([...base,nueva])).sort((a,b)=>a.localeCompare(b,"es"));
+    });
+    setNuevaCategoriaAmortizacion("");
+  },[nuevaCategoriaAmortizacion,categoriasAmortizacionDisponibles,AMORTIZACION_GRUPOS,normalizarCategoriaTexto]);
+
+  const renombrarCategoriaAmortizacion=React.useCallback((categoriaActual)=>{
+    const anterior=normalizarCategoriaTexto(categoriaActual);
+    const nueva=normalizarCategoriaTexto(categoriaAmortizacionDrafts[anterior]??anterior);
+    if(!nueva||nueva===anterior){
+      setCategoriaAmortizacionDrafts(prev=>{const next={...prev};delete next[anterior];return next;});
+      return;
+    }
+    if(categoriasAmortizacionDisponibles.includes(nueva)){
+      appAlert(`La categoría "${nueva}" ya existe.`,"Categoría duplicada");
+      return;
+    }
+    setAmortizacionCategoriasLista(prev=>{
+      const base=prev===null?(AMORTIZACION_GRUPOS||[]).map(g=>normalizarCategoriaTexto(g.tipo)).filter(Boolean):[...(prev||[])];
+      return Array.from(new Set(base.map(c=>normalizarCategoriaTexto(c)===anterior?nueva:normalizarCategoriaTexto(c)))).sort((a,b)=>a.localeCompare(b,"es"));
+    });
+    setAmortizacionCategorias(prev=>{
+      const next={...prev};
+      (catalogoCategoriasAmortizacion||[]).forEach(r=>{
+        const efectiva=normalizarCategoriaTexto(prev[r.key]||categoriaEfectivaPorModelo[r.key]||r.familia);
+        if(efectiva===anterior)next[r.key]=nueva;
+      });
+      Object.keys(next).forEach(k=>{if(normalizarCategoriaTexto(next[k])===anterior)next[k]=nueva;});
+      return next;
+    });
+    setCategoriaAmortizacionDrafts(prev=>{const next={...prev};delete next[anterior];return next;});
+    setCategoriaAmortizacionReasignacion(prev=>{
+      const next={...prev};
+      if(next[anterior]!==undefined){next[nueva]=next[anterior];delete next[anterior];}
+      Object.keys(next).forEach(k=>{if(normalizarCategoriaTexto(next[k])===anterior)next[k]=nueva;});
+      return next;
+    });
+  },[categoriaAmortizacionDrafts,categoriasAmortizacionDisponibles,AMORTIZACION_GRUPOS,catalogoCategoriasAmortizacion,categoriaEfectivaPorModelo,normalizarCategoriaTexto]);
+
+  const eliminarCategoriaAmortizacion=React.useCallback(async(categoriaActual)=>{
+    const categoria=normalizarCategoriaTexto(categoriaActual);
+    const reemplazo=normalizarCategoriaTexto(categoriaAmortizacionReasignacion[categoria]||"");
+    const afectados=(catalogoCategoriasAmortizacion||[]).filter(r=>
+      normalizarCategoriaTexto(categoriaEfectivaPorModelo[r.key]||r.familia)===categoria
+    );
+    const mensaje=afectados.length
+      ?`La categoría "${categoria}" tiene ${afectados.length} modelo(s) asignado(s). ${reemplazo?`Se reasignarán a "${reemplazo}".`:'Quedarán como "SIN CATEGORIA".'} ¿Continuar?`
+      :`¿Eliminar la categoría "${categoria}"?`;
+    if(!(await appConfirm(mensaje,"Eliminar categoría")))return;
+    setAmortizacionCategoriasLista(prev=>{
+      const base=prev===null?(AMORTIZACION_GRUPOS||[]).map(g=>normalizarCategoriaTexto(g.tipo)).filter(Boolean):[...(prev||[])];
+      return base.filter(c=>normalizarCategoriaTexto(c)!==categoria);
+    });
+    setAmortizacionCategorias(prev=>{
+      const next={...prev};
+      (catalogoCategoriasAmortizacion||[]).forEach(r=>{
+        const efectiva=normalizarCategoriaTexto(prev[r.key]||categoriaEfectivaPorModelo[r.key]||r.familia);
+        if(efectiva===categoria)next[r.key]=reemplazo||"SIN CATEGORIA";
+      });
+      Object.keys(next).forEach(k=>{if(normalizarCategoriaTexto(next[k])===categoria)next[k]=reemplazo||"SIN CATEGORIA";});
+      return next;
+    });
+    setCategoriaAmortizacionDrafts(prev=>{const next={...prev};delete next[categoria];return next;});
+    setCategoriaAmortizacionReasignacion(prev=>{const next={...prev};delete next[categoria];return next;});
+  },[categoriaAmortizacionReasignacion,catalogoCategoriasAmortizacion,amortizacionCategorias,categoriaEfectivaPorModelo,AMORTIZACION_GRUPOS,normalizarCategoriaTexto]);
+
+  const restablecerCategoriasAmortizacion=React.useCallback(async()=>{
+    if(!(await appConfirm("Se restaurarán las categorías originales y se eliminarán todas las asignaciones manuales. ¿Continuar?","Restablecer categorías")))return;
+    setAmortizacionCategorias({});
+    setAmortizacionCategoriasLista(null);
+    setCategoriaAmortizacionDrafts({});
+    setCategoriaAmortizacionReasignacion({});
+  },[]);
 
   const rowsAmortizacion=React.useMemo(()=>{
-    if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionCacheRef.current||[];
+    if(!amortizacionCalcEnabled)return rowsAmortizacionCacheRef.current||[];
     // Colapsar por equipo: si un equipo opera en FS y JM aparece dos veces en
     // costoMensualAcumulado. Sumamos mantUSDhs de todas las secciones y mostramos
     // una sola fila por equipo (adq y vida son propiedades del equipo, no de la sección).
@@ -12124,12 +12469,12 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     );
     rowsAmortizacionCacheRef.current=out;
     return out;
-  },[isCostosTabAmortizacion,amortizacionCalcEnabled,costoMensualAcumulado,listaEquipos,AMORTIZACION_GRUPOS,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto,isInvalidEquipoCodeCosto,codigoCanonicoEquipo]);
+  },[amortizacionCalcEnabled,costoMensualAcumulado,listaEquipos,AMORTIZACION_GRUPOS,getEquipoListaMaestra,getCostoAdqAlquilerEquipo,propiedadEquipo,getVidaUtilEquipo,getUsdHoraCostoMensual,amortizacionGrupoInfo,sectionProyectoCosto,isInvalidEquipoCodeCosto,codigoCanonicoEquipo]);
 
   // Enriquecer con HH Hombre Vestido y lógica no-Delta (depende de estado hombreVestido, hsEf)
   // vidaBase = vida de lista maestra (sin override), para mostrarlo en la celda cuando override=false
   const rowsAmortizacionConHH=React.useMemo(()=>{
-    if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionHHCacheRef.current||[];
+    if(!amortizacionCalcEnabled)return rowsAmortizacionHHCacheRef.current||[];
     const out=(rowsAmortizacion||[]).map(x=>{
       const sections=x.sections||[];
       const tieneJM=sections.includes("JM");
@@ -12161,11 +12506,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     rowsAmortizacionHHCacheRef.current=out;
     return out;
-  },[isCostosTabAmortizacion,amortizacionCalcEnabled,rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS,hsPropios,hsArrendados]);
+  },[amortizacionCalcEnabled,rowsAmortizacion,hombreVestido,hsEfJM,hsEfFS,hsPropios,hsArrendados]);
 
 
   const rowsAmortizacionOrdenadas=React.useMemo(()=>{
-    if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionOrdCacheRef.current||[];
+    if(!amortizacionCalcEnabled)return rowsAmortizacionOrdCacheRef.current||[];
     // Recalcular promTipo usando el pctMant final (post HH / no-Delta)
     const gruposConHH={};
     (rowsAmortizacionConHH||[]).forEach(x=>{(gruposConHH[x.tipo]=gruposConHH[x.tipo]||[]).push(x);});
@@ -12189,7 +12534,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     });
     rowsAmortizacionOrdCacheRef.current=out;
     return out;
-  },[isCostosTabAmortizacion,amortizacionCalcEnabled,rowsAmortizacionConHH,costosMantSorts.amortizacion]);
+  },[amortizacionCalcEnabled,rowsAmortizacionConHH,costosMantSorts.amortizacion]);
 
 
   const filtrosAmortizacion=getCostosFiltrosTabla("t5");
@@ -12197,7 +12542,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const dFAmortTipo=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.tipo):filtrosAmortizacion.tipo;
   const dFAmortPropiedad=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.propiedad):filtrosAmortizacion.propiedad;
   const rowsAmortizacionOrdenadasFiltradas=React.useMemo(()=>{
-    if(!isCostosTabAmortizacion||!amortizacionCalcEnabled)return rowsAmortizacionFiltCacheRef.current||[];
+    if(!amortizacionCalcEnabled)return rowsAmortizacionFiltCacheRef.current||[];
 
     // Primero aplicar los filtros sobre las filas base. El promedio azul debe
     // calcularse únicamente con los equipos visibles de cada tipo, no con el
@@ -12258,7 +12603,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     rowsAmortizacionFiltCacheRef.current=out;
     return out;
   },[
-    isCostosTabAmortizacion,amortizacionCalcEnabled,rowsAmortizacionConHH,costosMantSorts.amortizacion,
+    amortizacionCalcEnabled,rowsAmortizacionConHH,costosMantSorts.amortizacion,
     dFAmortEquipo,dFAmortTipo,dFAmortPropiedad,metaEquipoCosto,
     useListaVidaUtil,vidaUtilOverride
   ]);
@@ -12296,6 +12641,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const rows=rowsAmortizacionDeferred||[];
     return rows.slice(0,Math.min(rows.length,amortizacionVisibleCount));
   },[rowsAmortizacionDeferred,amortizacionVisibleCount]);
+
+  const costosTablasReady=costosPreloadPhase>=2&&amortizacionCalcEnabled;
 
   const rowsAmortizacionExcel=React.useMemo(()=>(rowsAmortizacionOrdenadasFiltradas||[]).map(x=>({
     Equipo:x.equipo,
@@ -12576,6 +12923,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     "Costo Total Horario":x.costoTotal>0?"USD "+Math.round(x.costoTotal):"—",
   })),[rowsResumenPorEquipo]);
 
+  const rowsManoObraRender=useProgressiveRows(rowsManoObraOrdenadas,isCostosTabManoObra,80,80);
+  const catalogoCategoriasRender=useProgressiveRows(catalogoCategoriasAmortizacion,isCostosTabAmortizacion&&amortizacionSubtab==="categorias",70,70);
+  const rowsResumenPorEquipoRender=useProgressiveRows(rowsResumenPorEquipo,isCostosTabResumen,70,70);
+
   const costoMensualRowsPorSection=React.useCallback((section)=>
     (costoMensualAcumulado||[]).filter(x=>x.section===section),[costoMensualAcumulado]);
 
@@ -12597,30 +12948,46 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
   const TablaCostoMensualAcumulado=()=>{
     const mesDesde=fechaDCostoMensual?monthKeyCosto(fechaDCostoMensual):"";
     const mesHasta=hastaCostoMensual?monthKeyCosto(hastaCostoMensual):"";
+    const clavesTotal2025=new Set(["2025-09","2025-10","2025-11","2025-12"]);
+    const meses2025=(mesesCostoMensual||[]).filter(m=>clavesTotal2025.has(String(m.key||"")));
+    // Desde 2026 se siguen mostrando los meses individualmente.
     const mesesCM=(mesesCostoMensual||[]).filter(m=>{
+      if(String(m.key||"")<"2026-01")return false;
       if(mesDesde&&m.key<mesDesde)return false;
       if(mesHasta&&m.key>mesHasta)return false;
       return true;
     });
     const rowsCM=(costoMensualAcumulado||[]).map(x=>{
+      // Solo se conserva la fila si el interno consolidado tiene al menos un registro en 2026.
+      const tieneRegistro2026=Object.entries(x.months||{}).some(([key,d])=>{
+        if(!String(key).startsWith("2026-"))return false;
+        const prev=Number(d?.prev)||0;
+        const corr=Number(d?.corr)||0;
+        const total=Number(d?.total)||prev+corr;
+        return total>0;
+      });
+      const total2025=meses2025.reduce((sum,m)=>{
+        const d=x.months?.[m.key]||{};
+        return sum+(Number(d.total)||((Number(d.prev)||0)+(Number(d.corr)||0)));
+      },0);
       const months={};
-      let prev=0,corr=0,total=0;
+      let prev=0,corr=0,total2026=0;
       mesesCM.forEach(m=>{
         const d=x.months?.[m.key]||{prev:0,corr:0,total:0};
         const p=Number(d.prev)||0;
         const c=Number(d.corr)||0;
         const t=Number(d.total)||p+c;
         months[m.key]={prev:p,corr:c,total:t};
-        prev+=p;corr+=c;total+=t;
+        prev+=p;corr+=c;total2026+=t;
       });
-      return {...x,months,prev,corr,total};
-    }).filter(x=>x.total>0);
-    const mkTot=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesCM||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
+      return {...x,months,prev,corr,total2025,total2026,total:total2025+total2026,tieneRegistro2026};
+    }).filter(x=>x.tieneRegistro2026);
+    const mkTot=()=>({prev:0,corr:0,total:0,total2025:0,months:Object.fromEntries((mesesCM||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
     const totalesCM={FS:mkTot(),JM:mkTot(),TOTAL:mkTot()};
     rowsCM.forEach(x=>{
       const sec=totalesCM[x.section]||totalesCM.FS;
       [sec,totalesCM.TOTAL].forEach(t=>{
-        t.prev+=x.prev||0;t.corr+=x.corr||0;t.total+=x.total||0;
+        t.prev+=x.prev||0;t.corr+=x.corr||0;t.total2025+=x.total2025||0;t.total+=x.total||0;
         mesesCM.forEach(m=>{
           const d=x.months?.[m.key]||{};
           if(!t.months[m.key])t.months[m.key]={prev:0,corr:0,total:0};
@@ -12652,31 +13019,48 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       const prop=String(propiedadEquipo(x.equipo)||"").trim().toUpperCase();
       return prop.includes("DELTA")?(Number(hsPropios)||0):(Number(hsArrendados)||0);
     };
-    const sumCM=(section,kind,monthKey=null)=>{
-      const rows=section==="TOTAL"?rowsCM:rowsCM.filter(x=>x.section===section);
-      return rows.reduce((sum,x)=>{
-        if(monthKey){
-          const d=x.months?.[monthKey]||{};
-          return sum+Math.round(Number(d[kind])||0);
-        }
-        if(kind==="totalB")return sum+Math.round(Number(x.total)||0);
-        if(kind==="mo")return sum+Math.round(Number(getManoObraCostoMensual(x))||0);
-        if(kind==="usdHs")return sum+Math.round(Number(getUsdHoraCM(x))||0);
-        if(kind==="hsEf")return sum+Math.round(Number(getHsEfectivasCM(x))||0);
+    // Los subtotales se pedían decenas de veces durante cada render y cada
+    // llamada volvía a recorrer todas las filas. Se calculan una sola vez.
+    const sumCMCache=React.useMemo(()=>{
+      const mk=()=>({total2025:0,totalB:0,mo:0,usdHs:0,hsEf:0,prev:0,corr:0,total:0,months:{}});
+      const out={FS:mk(),JM:mk(),TOTAL:mk()};
+      (rowsCM||[]).forEach(x=>{
+        const targets=[out[x.section]||out.FS,out.TOTAL];
         const p=promedioCM(x);
-        return sum+Math.round(Number(p[kind])||0);
-      },0);
-    };
+        const values={
+          total2025:Math.round(Number(x.total2025)||0),
+          totalB:Math.round(Number(x.total)||0),
+          mo:Math.round(Number(getManoObraCostoMensual(x))||0),
+          usdHs:Math.round(Number(getUsdHoraCM(x))||0),
+          hsEf:Math.round(Number(getHsEfectivasCM(x))||0),
+          prev:Math.round(Number(p.prev)||0),
+          corr:Math.round(Number(p.corr)||0),
+          total:Math.round(Number(p.total)||0),
+        };
+        targets.forEach(t=>{
+          Object.keys(values).forEach(k=>{t[k]+=values[k];});
+          (mesesCM||[]).forEach(m=>{
+            const d=x.months?.[m.key]||{};
+            if(!t.months[m.key])t.months[m.key]={prev:0,corr:0,total:0};
+            t.months[m.key].prev+=Math.round(Number(d.prev)||0);
+            t.months[m.key].corr+=Math.round(Number(d.corr)||0);
+            t.months[m.key].total+=Math.round(Number(d.total)||0);
+          });
+        });
+      });
+      return out;
+    },[rowsCM,mesesCM,hsEfJM,hsEfFS,hsPropios,hsArrendados,manoObraPorEquipoCostoMensual,propiedadEquipo]);
+    const sumCM=(section,kind,monthKey=null)=>monthKey
+      ?(sumCMCache?.[section]?.months?.[monthKey]?.[kind]||0)
+      :(sumCMCache?.[section]?.[kind]||0);
     const sections=[{id:"FS",label:"FILO DEL SOL"},{id:"JM",label:"JOSE MARIA"}].filter(sec=>
       rowsCM.some(x=>x.section===sec.id)
     );
 
-    const rowsExcelCM=(()=>{
+    const rowsExcelCM=React.useMemo(()=>{
       // Formato especial para el Excel de Costo mensual acumulado.
-      // No se exportan las columnas mensuales 2025: solo se conserva Total 2025.
-      // Total 2025 = suma de las columnas Total de todos los meses anteriores a Enero 2026.
-      const meses2025=(mesesCM||[]).filter(m=>String(m.key||"")<"2026-01");
-      const mesesDesdeEnero=(mesesCM||[]).filter(m=>String(m.key||"")>="2026-01");
+      // Septiembre, Octubre, Noviembre y Diciembre de 2025 se exportan agrupados en Total 2025.
+      const mesesDesdeEnero=mesesCM;
       const round=v=>Math.round(Number(v)||0);
       const emptyRow=()=>[];
       const rowLen=3+(mesesDesdeEnero.length*3)+1+3+3;
@@ -12697,7 +13081,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
         out.push(row);
       };
 
-      const total2025Equipo=(x)=>meses2025.reduce((s,m)=>s+round(x.months?.[m.key]?.total||0),0);
+      const total2025Equipo=(x)=>round(x.total2025||0);
       const pushEquipo=(x)=>{
         const row=[x.equipo,propiedadEquipo(x.equipo)||"S/D",total2025Equipo(x)];
         mesesDesdeEnero.forEach(m=>{
@@ -12720,11 +13104,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
 
       const pushSubtotal=(sectionId,label)=>{
         const row=[label,"",0];
-        let total2025=0;
-        meses2025.forEach(m=>{
-          total2025+=round(sumCM(sectionId,"total",m.key));
-        });
-        row[2]=total2025;
+        row[2]=round(sumCM(sectionId,"total2025"));
         mesesDesdeEnero.forEach(m=>{
           row.push(round(sumCM(sectionId,"prev",m.key)),round(sumCM(sectionId,"corr",m.key)),round(sumCM(sectionId,"total",m.key)));
         });
@@ -12748,10 +13128,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       });
       pushSubtotal("TOTAL","TOTAL");
       return out;
-    })();
+    },[rowsCM,mesesCM,sections,sumCMCache,hsEfJM,hsEfFS,hsPropios,hsArrendados,manoObraPorEquipoCostoMensual,propiedadEquipo]);
 
     const costoMensualGetters={
       equipo:x=>x.equipo,
+      total2025:x=>x.total2025,
       totalB:x=>x.total,
       promPrev:x=>promedioCM(x).prev,
       promCorr:x=>promedioCM(x).corr,
@@ -12765,7 +13146,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       costoMensualGetters[`${m.key}_corr`]=x=>x.months?.[m.key]?.corr||0;
       costoMensualGetters[`${m.key}_total`]=x=>x.months?.[m.key]?.total||0;
     });
-    const costoMensualRowsOrdenadas=(section)=>sortRowsForTable(rowsCM.filter(x=>x.section===section),costosMantSorts.costoMensual,costoMensualGetters);
+    const costoMensualRowsPorSeccion=React.useMemo(()=>({
+      FS:sortRowsForTable((rowsCM||[]).filter(x=>x.section==="FS"),costosMantSorts.costoMensual,costoMensualGetters),
+      JM:sortRowsForTable((rowsCM||[]).filter(x=>x.section==="JM"),costosMantSorts.costoMensual,costoMensualGetters),
+    }),[rowsCM,costosMantSorts.costoMensual,mesesCM]);
+    const costoMensualRowsFSRender=useProgressiveRows(costoMensualRowsPorSeccion.FS,isCostosTabAcumulado,45,45);
+    const costoMensualRowsJMRender=useProgressiveRows(costoMensualRowsPorSeccion.JM,isCostosTabAcumulado,45,45);
+    const costoMensualRowsOrdenadas=(section)=>section==="JM"?costoMensualRowsJMRender:costoMensualRowsFSRender;
 
     const DollarMesInput=({m})=>{
       const initial=String(monthlyDollar[m.key]??m.dollar??usdRate2??1400);
@@ -12788,10 +13175,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Meses: <b style={{color:C.text}}>{mesesCM.length}</b></span>
         </div>
         <div ref={costoMensualScrollRef} onScroll={rememberCostoMensualScroll} style={{overflowX:"auto",overflowY:"scroll",maxHeight:620,scrollbarGutter:"stable",borderTop:`1px solid ${C.border}`}}>
-          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,minWidth:Math.max(1250,180+(mesesCM.length*270)+120+270+220),width:"max-content",tableLayout:"fixed"}}>
+          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,minWidth:Math.max(1370,300+(mesesCM.length*270)+120+270+220),width:"max-content",tableLayout:"fixed"}}>
             <thead>
               <tr>
                 <th style={{...thL,position:"sticky",left:0,top:0,zIndex:8,minWidth:170,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</th>
+                <SortableTH sortId="costoMensual" sortKey="total2025" sorts={costosMantSorts} setSorts={setCostosMantSorts} rowSpan={3} style={{...thS,position:"sticky",top:0,zIndex:7,minWidth:120,background:"#374151",color:"#fff",fontWeight:900,borderLeft:`1px solid ${C.border}`}}>TOTAL 2025</SortableTH>
                 {mesesCM.map(m=>{
                   const t=monthThemeCosto(m.key);
                   return(
@@ -12838,10 +13226,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             <tbody>
               {sections.map(sec=>(
                 <React.Fragment key={sec.id}>
-                  <tr><td colSpan={4+mesesCM.length*3+4} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
+                  <tr><td colSpan={5+mesesCM.length*3+4} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
                   {costoMensualRowsOrdenadas(sec.id).map((x,i)=>(
                     <tr key={sec.id+"__"+x.equipo} style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)"}}>
                       <td style={{...tdL,position:"sticky",left:0,zIndex:2,background:i%2===0?C.card:C.surface}}>{x.equipo}</td>
+                      <td style={{...tdS,background:"rgba(55,65,81,.42)",color:"#fff",fontWeight:900}}>{fmtU(x.total2025||0)}</td>
                       {mesesCM.map(m=>{
                         const d=x.months[m.key]||{};
                         return(
@@ -12867,6 +13256,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                   ))}
                   <tr>
                     <td style={{...tdL,position:"sticky",left:0,zIndex:2,...rowSubtotalStyleCosto}}>Subtotal {sec.id}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#374151",color:"#fff"}}>{fmtU(sumCM(sec.id,"total2025"))}</td>
                     {mesesCM.map(m=>{
                       const d=totalesCM[sec.id]?.months?.[m.key]||{};
                       return(
@@ -12889,6 +13279,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
               ))}
               <tr>
                 <td style={{...tdL,position:"sticky",left:0,zIndex:2,...rowTotalStyleCosto,color:"#fff"}}>TOTAL</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#1f2937",color:"#fff"}}>{fmtU(sumCM("TOTAL","total2025"))}</td>
                 {mesesCM.map(m=>{
                   const d=totalesCM.TOTAL?.months?.[m.key]||{};
                   return(
@@ -12911,7 +13302,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
           </table>
         </div>
         <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
-          Septiembre a Marzo quedan fijos desde el Excel histórico. Desde Abril en adelante se calcula desde RMA15 con el dólar indicado arriba de cada mes.
+          Solo se muestran equipos con registros en 2026. Septiembre, Octubre, Noviembre y Diciembre de 2025 se consolidan en TOTAL 2025; desde Enero 2026 los meses se muestran individualmente.
         </div>
       </Card>
     );
@@ -12923,6 +13314,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     const datosOrdenados=React.useMemo(()=>sortRowsForTable(datos,costosMantSorts.tablaCostos,{
       equipo:r=>r.equipo,propiedad:r=>r.propiedad,prev:r=>r.prev,corr:r=>r.corr,total:r=>r.total
     }),[datos,costosMantSorts.tablaCostos]);
+    const datosRender=useProgressiveRows(datosOrdenados,true,80,80);
     const resumen=React.useMemo(()=>totalesPorPropiedadTabla(datos),[datos]);
     const RowTotalTabla=({label,total,accent})=>(
       <tr>
@@ -12946,7 +13338,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
             {sortableCostHead("tablaCostos","total","Total",thS)}
           </tr></thead>
           <tbody>
-            {datosOrdenados.map((x,i)=>(
+            {datosRender.map((x,i)=>(
               <tr key={x.equipo} style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)"}}>
                 <td style={tdL}>{x.equipo}</td>
                 <td style={{...tdS,color:C.textSub,fontWeight:600}}>{x.propiedad||"S/D"}</td>
@@ -13122,7 +13514,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                 {sortableCostHead("manoObra","total","Total (USD)",thS)}
               </tr></thead>
               <tbody>
-                {rowsManoObraOrdenadas.map((x,i)=>(
+                {rowsManoObraRender.map((x,i)=>(
                   <tr key={x.proyecto+"__"+x.equipo} style={{background:x.isCTA?C.tealDim:(i%2===0?"transparent":C.surface+"33")}}>
                     <td style={{...tdL,fontWeight:x.isCTA?900:700,color:x.isCTA?C.teal:C.text}}>{x.equipo}{x.isCTA&&x.cantidadCTA?` (${x.cantidadCTA})`:""}</td>
                     <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:600}}>{x.propiedad||"S/D"}</td>
@@ -13290,14 +13682,18 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
       })()}
 
       {costosRenderTab==="t5"&&(
-        <Card title="Costo horario de amortización y mantenimiento" action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",rowsAmortizacionExcel)}/>}> 
-          {renderCostosQuickFilters("t5",true)}
-          {isCostosTabAmortizacion&&(!amortizacionCalcEnabled||amortizacionVisibleCount<(rowsAmortizacionDeferred||[]).length)&&listaEquipos&&listaEquipos.length>0&&(
+        <Card title="Costo horario de amortización y mantenimiento" action={amortizacionSubtab==="tabla"?<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",rowsAmortizacionExcel)}/>:null}> 
+          <div style={{display:"flex",gap:8,padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(0,0,0,.12)"}}>
+            <button onClick={()=>setAmortizacionSubtab("tabla")} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${amortizacionSubtab==="tabla"?C.teal:C.border}`,background:amortizacionSubtab==="tabla"?"rgba(45,212,191,.18)":"rgba(255,255,255,.04)",color:amortizacionSubtab==="tabla"?C.teal:C.textSub,fontWeight:800,cursor:"pointer"}}>Amortización</button>
+            <button onClick={()=>setAmortizacionSubtab("categorias")} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${amortizacionSubtab==="categorias"?C.teal:C.border}`,background:amortizacionSubtab==="categorias"?"rgba(45,212,191,.18)":"rgba(255,255,255,.04)",color:amortizacionSubtab==="categorias"?C.teal:C.textSub,fontWeight:800,cursor:"pointer"}}>Categorías por modelo</button>
+          </div>
+          {amortizacionSubtab==="tabla"&&renderCostosQuickFilters("t5",true)}
+          {amortizacionSubtab==="tabla"&&isCostosTabAmortizacion&&(!amortizacionCalcEnabled||amortizacionVisibleCount<(rowsAmortizacionDeferred||[]).length)&&listaEquipos&&listaEquipos.length>0&&(
             <div style={{padding:"7px 14px",fontSize:11,color:C.textMuted,borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.12)"}}>
               Preparando tabla sin bloquear la app{amortizacionCalcEnabled&&rowsAmortizacionDeferred?.length?` · ${Math.min(amortizacionVisibleCount,rowsAmortizacionDeferred.length)} de ${rowsAmortizacionDeferred.length} filas`:""}
             </div>
           )}
-          {(!listaEquipos||listaEquipos.length===0)?(
+          {amortizacionSubtab==="tabla"&&((!listaEquipos||listaEquipos.length===0)?(
             <div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:13}}>
               Cargá la <b>Lista Maestra de Equipos</b> desde el menú lateral para ver esta tabla.
             </div>
@@ -13366,6 +13762,59 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                 </tbody>
               </table>
             </div>
+          ))}
+
+          {amortizacionSubtab==="categorias"&&(
+            <div style={{padding:14}}>
+              <div style={{display:"grid",gridTemplateColumns:"minmax(320px,.8fr) minmax(520px,1.7fr)",gap:14,alignItems:"start"}}>
+                <div style={{border:`1px solid ${C.border}`,borderRadius:12,background:"rgba(0,0,0,.18)",overflow:"hidden"}}>
+                  <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(255,255,255,.04)"}}>
+                    <div style={{fontSize:14,fontWeight:900,color:C.text}}>Administrar categorías</div>
+                    <div style={{fontSize:11,color:C.textMuted,marginTop:3}}>Creá, renombrá o eliminá las categorías usadas para calcular los promedios.</div>
+                  </div>
+                  <div style={{padding:12,display:"flex",gap:8}}>
+                    <input value={nuevaCategoriaAmortizacion} onChange={e=>setNuevaCategoriaAmortizacion(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")agregarCategoriaAmortizacion();}} placeholder="Nueva categoría" style={{flex:1,minWidth:0,padding:"9px 10px",borderRadius:8,border:`1px solid ${C.border}`,background:"rgba(0,0,0,.30)",color:C.text,fontWeight:700}}/>
+                    <button onClick={agregarCategoriaAmortizacion} style={{padding:"9px 12px",borderRadius:8,border:`1px solid ${C.teal}`,background:"rgba(45,212,191,.16)",color:C.teal,fontWeight:900,cursor:"pointer"}}>Agregar</button>
+                  </div>
+                  <div style={{maxHeight:465,overflow:"auto",padding:"0 12px 12px"}}>
+                    {(categoriasAmortizacionDisponibles||[]).map(cat=>{
+                      const afectados=cantidadModelosPorCategoria[cat]||0;
+                      const opcionesReasignacion=(categoriasAmortizacionDisponibles||[]).filter(c=>c!==cat);
+                      return <div key={cat} style={{padding:"10px 0",borderTop:`1px solid ${C.border}66`}}>
+                        <div style={{display:"flex",gap:7,alignItems:"center"}}>
+                          <input key={cat} defaultValue={categoriaAmortizacionDrafts[cat]??cat} onBlur={e=>setCategoriaAmortizacionDrafts(prev=>({...prev,[cat]:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"){setCategoriaAmortizacionDrafts(prev=>({...prev,[cat]:e.currentTarget.value}));e.currentTarget.blur();}}} style={{flex:1,minWidth:0,padding:"8px 9px",borderRadius:7,border:`1px solid ${C.border}`,background:"rgba(0,0,0,.28)",color:C.text,fontWeight:800}}/>
+                          <button onClick={()=>renombrarCategoriaAmortizacion(cat)} title="Guardar nuevo nombre" style={{padding:"8px 10px",borderRadius:7,border:`1px solid ${C.blue||C.teal}`,background:"rgba(59,130,246,.14)",color:C.blue||C.teal,fontWeight:900,cursor:"pointer"}}>Guardar</button>
+                        </div>
+                        <div style={{display:"flex",gap:7,alignItems:"center",marginTop:7}}>
+                          <span style={{fontSize:11,color:C.textMuted,whiteSpace:"nowrap"}}>{afectados} modelo(s)</span>
+                          <select value={categoriaAmortizacionReasignacion[cat]||""} onChange={e=>setCategoriaAmortizacionReasignacion(prev=>({...prev,[cat]:e.target.value}))} style={{flex:1,minWidth:0,padding:"7px 8px",borderRadius:7,border:`1px solid ${C.border}`,background:"rgba(0,0,0,.28)",color:C.text,fontSize:11}}>
+                            <option value="">Eliminar y dejar sin categoría</option>
+                            {opcionesReasignacion.map(c=><option key={c} value={c}>Mover modelos a {c}</option>)}
+                          </select>
+                          <button onClick={()=>eliminarCategoriaAmortizacion(cat)} style={{padding:"7px 9px",borderRadius:7,border:"1px solid rgba(239,68,68,.65)",background:"rgba(239,68,68,.12)",color:"#ff7b7b",fontWeight:900,cursor:"pointer"}}>Eliminar</button>
+                        </div>
+                      </div>;
+                    })}
+                    {(!categoriasAmortizacionDisponibles||categoriasAmortizacionDisponibles.length===0)&&<div style={{padding:18,textAlign:"center",color:C.textMuted,fontSize:12}}>No hay categorías creadas.</div>}
+                  </div>
+                  <div style={{padding:12,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"flex-end"}}>
+                    <button onClick={restablecerCategoriasAmortizacion} style={{padding:"8px 12px",borderRadius:8,border:`1px solid ${C.border}`,background:"rgba(255,255,255,.05)",color:C.textSub,fontWeight:700,cursor:"pointer"}}>Restablecer originales</button>
+                  </div>
+                </div>
+
+                <div style={{border:`1px solid ${C.border}`,borderRadius:12,background:"rgba(0,0,0,.18)",overflow:"hidden"}}>
+                  <div style={{padding:"12px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(255,255,255,.04)"}}>
+                    <div style={{fontSize:14,fontWeight:900,color:C.text}}>Asignación por tipo y modelo</div>
+                    <div style={{fontSize:11,color:C.textMuted,marginTop:3}}>La tabla Amortización y el Promedio por tipo usan directamente esta clasificación.</div>
+                  </div>
+                  <div className="dm-table-scroll" style={{overflow:"auto",maxHeight:540}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}><thead><tr><th style={thL}>Tipo de equipo</th><th style={thS}>Marca</th><th style={thS}>Modelo</th><th style={thS}>Equipos</th><th style={{...thL,minWidth:220}}>Categoría de amortización</th></tr></thead>
+                      <tbody>{catalogoCategoriasRender.map((r,i)=><CategoriaModeloTableRow key={r.key} row={r} index={i} value={categoriaEfectivaPorModelo[r.key]||"SIN CATEGORIA"} options={categoriasAmortizacionDisponibles} onCommit={commitCategoriaModelo} colors={{border:C.border,text:C.text,textSub:C.textSub}}/>)}</tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </Card>
       )}
@@ -13398,7 +13847,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
                   </tr>
                 </thead>
                 <tbody>
-                  {rowsResumenPorEquipo.map((x,i)=>(
+                  {rowsResumenPorEquipoRender.map((x,i)=>(
                     <tr
                       key={`${x.maquina}_${x.modelo}_${i}`}
                       style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)",cursor:"pointer"}}
@@ -13458,6 +13907,15 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate}){
     </div>
   );
 }
+
+// Evita que polling, navegación u otros estados globales vuelvan a renderizar
+// el Informe de Costos cuando sus cuatro fuentes no cambiaron.
+const MemoViewCostosMant=React.memo(ViewCostosMant,(prev,next)=>
+  prev.rma15===next.rma15 &&
+  prev.insumos===next.insumos &&
+  prev.listaEquipos===next.listaEquipos &&
+  prev.usdRate===next.usdRate
+);
 
 
 // ─── Cambios de turno ROP02 ───────────────────────────────────────────────────
@@ -18959,7 +19417,7 @@ export default function App(){
                 {view==="mant"&&(viewDataReady?<ViewMantenimiento rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
                 {view==="distMant"&&(dataHydrated&&rma15.length>0?<ViewDistribucionMantenimientos rma15={rma15}/>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
                 {view==="rma15CtrlEquipo"&&(dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<BlockingDataLoader label="Cargando Control por Equipo..." />)}
-                {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
+                {view==="costosMant"&&(dataHydrated&&rma15.length>0?<MemoViewCostosMant rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {view==="chc"&&(dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<BlockingDataLoader label="Cargando ICHC..." />)}
                 {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<AbastecimientoModule readOnly={!dmCanEditArea("ABASTECIMIENTO")} assignedProject={proyectoUsuario} initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoEnviosSinSolicitud:"enviosSinSolicitud",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/>) }

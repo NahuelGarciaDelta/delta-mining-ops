@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v3-cfn-pca-consolidado";
+const CACHE_NAME = "delta-mining-ops-v8-costos-sin-bloqueos";
 const APP_SHELL = [
   "/",
   "/index.html",

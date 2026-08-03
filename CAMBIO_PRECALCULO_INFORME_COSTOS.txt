@@ -1,0 +1,12 @@
+CAMBIO REALIZADO
+
+- Costo mensual acumulado, Mano de Obra, Amortización y Resumen por equipo ahora se precargan en segundo plano.
+- Resumen por equipo ya no depende de haber abierto antes las otras pestañas.
+- La precarga se ejecuta en dos etapas mediante requestIdleCallback/startTransition para reducir bloqueos de interfaz.
+- Al abrir directamente Resumen o Amortización, los cálculos requeridos se activan inmediatamente.
+- Amortización ya no borra su cálculo al cambiar de pestaña.
+- Se actualizó la versión del caché PWA para evitar cargar una versión anterior.
+
+VALIDACIÓN
+- Se revisaron las dependencias de los useMemo modificados.
+- No fue posible ejecutar npm run build en este entorno por no estar instaladas las dependencias del proyecto.
