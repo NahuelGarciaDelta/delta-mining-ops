@@ -12,13 +12,14 @@ import {
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 let __deps = {};
 
-function LicitacionesView({listaEquipos=[],initialTab="nueva"}){
-  const { APPS_SCRIPT_URL, C, Icon, Spinner, appAlert, appConfirm, dmNormKey } = __deps;
+function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initialTab="nueva"}){
+  const { APPS_SCRIPT_URL, C, Icon, Spinner, MultiSel, multiIsAll, appAlert, appConfirm, dmNormKey, canonicalEquivalentMachineCode, cleanMachine, mainMachineCode } = __deps;
   const STORAGE_KEY="dm_licitaciones_v1";
   const tabs=[
     ["nueva","Nueva Licitación","fileSpreadsheet"],
     ["control","Control de Licitaciones","dashboard"],
     ["equipos","Costos de Equipos","truck"],
+    ["datosEquipos","Datos Equipos","database"],
   ];
   const emptyTender=()=>({
     id:`LIC-${Date.now()}`,nombre:"Nueva Licitación",cliente:"",proyecto:"",fecha:new Date().toISOString().slice(0,10),estado:"EN CURSO",resultado:"PENDIENTE",moneda:"USD",convenio:"AOMA",planillas:{},
@@ -284,6 +285,284 @@ function LicitacionesView({listaEquipos=[],initialTab="nueva"}){
     });
     return Array.from(groups.values()).sort((a,b)=>a.label.localeCompare(b.label));
   },[listaEquipos]);
+
+  const COSTOS_MANT_STATE_KEY="delta_costos_mant_state_v1";
+  const DATOS_EQUIPOS_VIDA_KEY="dm_licitaciones_datos_equipos_vida_v1";
+  const AMORTIZACION_GRUPOS_DEFAULT=useMemo(()=>[
+    {tipo:"MOTONIVELADORA 1",equipos:["MOT-0014","MOT-0047","MOT-0049","MOT-0051","MOT-0069"],prefixes:["MOT"]},
+    {tipo:"MINICARGADORA",equipos:["MCA-0005","MNC-0001","MNC-001"],prefixes:["MCA","MNC"]},
+    {tipo:"EXCAVADORA 1",equipos:["EXC-0034"],prefixes:[]},
+    {tipo:"EXCAVADORA",equipos:["EXC-0005","EXC-0017","EXC-0048","EXC-0055"],prefixes:["EXC"]},
+    {tipo:"CARGADORA 1",equipos:["PCA-0093"],prefixes:[]},
+    {tipo:"CARGADORA",equipos:["PCA-0081","PCA-0095","CFN-0101","PCA-0017","PCA-0021","PCA-0051","PCA-0070","PCA-0074","PCA-0101"],prefixes:["CFN","PCA"]},
+    {tipo:"COMPACTACIÓN",equipos:["ROD-0001","RCP-0016","RPC-0016","RCP-0036","RPC-0036","RPC-0039"],prefixes:["ROD","RCP","RPC"]},
+    {tipo:"RETROPALA",equipos:["RTP-0016","RTP-0011","RTP-0024","RTP-0018","RTP-0030"],prefixes:["RTP"]},
+    {tipo:"TOPADORA",equipos:["TOP-0032","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0058"],prefixes:["TOP"]},
+  ],[]);
+  const readCostosMantConfig=useCallback(()=>{try{const x=JSON.parse(localStorage.getItem(COSTOS_MANT_STATE_KEY)||"{}");return x&&typeof x==="object"?x:{};}catch(_){return{};}},[]);
+  const[costosMantConfig,setCostosMantConfig]=useState(readCostosMantConfig);
+  const[datosEquiposVida,setDatosEquiposVida]=useState(()=>{try{const x=JSON.parse(localStorage.getItem(DATOS_EQUIPOS_VIDA_KEY)||"{}");return x&&typeof x==="object"?x:{};}catch(_){return{};}});
+  const hoyIso=new Date().toISOString().slice(0,10);
+  const[datosEquiposDesde,setDatosEquiposDesde]=useState(()=>`${new Date().getFullYear()}-01-01`);
+  const[datosEquiposHasta,setDatosEquiposHasta]=useState(hoyIso);
+  const[datosEquiposCategorias,setDatosEquiposCategorias]=useState("todos");
+  const[datosEquiposEquipos,setDatosEquiposEquipos]=useState("todos");
+  const[datosEquiposProyectos,setDatosEquiposProyectos]=useState("todos");
+  const[datosEquiposInsumos,setDatosEquiposInsumos]=useState("todos");
+  const fechaRegistro=(r)=>{
+    const raw=r?.fecha??r?.Fecha??r?.FECHA??r?.["Fecha OT"]??r?.["FECHA OT"]??r?.fechaOT??r?.date??"";
+    if(!raw)return"";
+    if(raw instanceof Date&&!Number.isNaN(raw.getTime()))return raw.toISOString().slice(0,10);
+    const txt=String(raw).trim();
+    const dm=txt.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+    if(dm)return`${dm[3]}-${String(dm[2]).padStart(2,"0")}-${String(dm[1]).padStart(2,"0")}`;
+    const ym=txt.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if(ym)return`${ym[1]}-${String(ym[2]).padStart(2,"0")}-${String(ym[3]).padStart(2,"0")}`;
+    const d=new Date(txt);
+    return Number.isNaN(d.getTime())?"":d.toISOString().slice(0,10);
+  };
+  const dentroPeriodo=(r)=>{
+    const f=fechaRegistro(r);
+    if(!f)return false;
+    return(!datosEquiposDesde||f>=datosEquiposDesde)&&(!datosEquiposHasta||f<=datosEquiposHasta);
+  };
+  const multiSelecciona=useCallback((seleccion,valor)=>{
+    if(multiIsAll?multiIsAll(seleccion,"todos"):seleccion==="todos")return true;
+    const arr=Array.isArray(seleccion)?seleccion:[seleccion];
+    return arr.map(x=>String(x||"").trim()).includes(String(valor||"").trim());
+  },[multiIsAll]);
+  const proyectoRegistro=useCallback((r)=>normTxt(r?.proyecto??r?.Proyecto??r?.PROYECTO??r?.ubicacion??r?.Ubicacion??""),[]);
+  const codigoInsumo=useCallback((ins)=>String(ins?.codigo??ins?.code??ins?.cod??ins?.["Código"]??ins?.["Codigo"]??"").trim(),[]);
+  const nombreInsumo=useCallback((ins)=>String(ins?.nombre??ins?.descripcion??ins?.insumo??ins?.["Descripción"]??ins?.["Descripcion"]??"").trim(),[]);
+  useEffect(()=>{
+    const refresh=()=>setCostosMantConfig(readCostosMantConfig());
+    const onStorage=e=>{if(!e?.key||e.key===COSTOS_MANT_STATE_KEY||e.key==="dm_costos_resumen_equipos")refresh();};
+    window.addEventListener("storage",onStorage);
+    window.addEventListener("focus",refresh);
+    window.addEventListener("dm-costos-mant-state-updated",refresh);
+    return()=>{window.removeEventListener("storage",onStorage);window.removeEventListener("focus",refresh);window.removeEventListener("dm-costos-mant-state-updated",refresh);};
+  },[readCostosMantConfig]);
+  useEffect(()=>{try{localStorage.setItem(DATOS_EQUIPOS_VIDA_KEY,JSON.stringify(datosEquiposVida));}catch(_){}},[datosEquiposVida]);
+  const rawMachineCode=useCallback((value)=>{
+    return cleanMachine?cleanMachine(mainMachineCode?mainMachineCode(value):value):String(value||"").trim().toUpperCase();
+  },[cleanMachine,mainMachineCode]);
+  const canonCode=useCallback((value)=>{
+    const raw=rawMachineCode(value);
+    return canonicalEquivalentMachineCode?canonicalEquivalentMachineCode(raw):raw;
+  },[canonicalEquivalentMachineCode,rawMachineCode]);
+  const categoriaModeloKey=useCallback((familia,modelo)=>`${normTxt(familia)||"S/D"}|||${normTxt(modelo)}`,[]);
+  const codigoListaEquipo=useCallback((r)=>canonCode(getEqVal(r,[
+    "Código Nuevo","Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual",
+    "Código Interno","Codigo Interno","CODIGO N° INTERNO","Interno",
+    "Código Drusila","Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila",
+    "Código Viejo","Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"
+  ])),[canonCode]);
+  const categoriaFallback=useCallback((code,familia,modelo)=>{
+    const modelCompact=normTxt(modelo).replace(/[\s\-_/]+/g,"");
+    if(modelCompact.includes("PC350"))return"EXCAVADORA 1";
+    if(modelCompact.includes("L120"))return"CARGADORA 1";
+    const canonical=canonCode(code);
+    for(const group of AMORTIZACION_GRUPOS_DEFAULT){
+      if((group.equipos||[]).some(x=>canonCode(x)===canonical))return normTxt(group.tipo);
+    }
+    const prefix=String(canonical||"").split("-")[0];
+    for(const group of AMORTIZACION_GRUPOS_DEFAULT){if((group.prefixes||[]).includes(prefix))return normTxt(group.tipo);}
+    return normTxt(familia)||"SIN CATEGORIA";
+  },[AMORTIZACION_GRUPOS_DEFAULT,canonCode]);
+  const categoriaParaEquipo=useCallback((code,familia,modelo)=>{
+    const key=categoriaModeloKey(familia,modelo);
+    const manual=normTxt(costosMantConfig?.amortizacionCategorias?.[key]);
+    return manual||categoriaFallback(code,familia,modelo);
+  },[categoriaModeloKey,costosMantConfig,categoriaFallback]);
+  const esEquipoOCamion=useCallback((code,familia)=>{
+    const fam=normTxt(familia);
+    if(!fam)return false;
+    if(fam.includes("CAMIONETA")||fam.includes("PICK UP")||fam.includes("PICKUP")||fam.includes("VEHICULO LIVIANO"))return false;
+    if(fam.includes("CAMION")||fam.includes("CAMIÓN"))return true;
+    if(["EXCAV","CARGADOR","MOTONIV","TOPADOR","RETROPALA","COMPACT","RODILLO","MINICARG","TRACTOR","HIDROGRUA"].some(x=>fam.includes(x)))return true;
+    const prefix=String(canonCode(code)||"").split("-")[0];
+    return new Set(["MOT","MCA","MNC","EXC","PCA","CFN","ROD","RCP","RPC","RTP","TOP","CAR","CAA","CAM","CMB","HGR"]).has(prefix);
+  },[canonCode]);
+  const datosEquiposCatalogo=useMemo(()=>{
+    const rows=[];
+    (listaEquipos||[]).forEach((r,index)=>{
+      const codigo=codigoListaEquipo(r);
+      const camposCodigo=[
+        "Código Nuevo","Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual",
+        "Código Interno","Codigo Interno","CODIGO N° INTERNO","Interno",
+        "Código Drusila","Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila",
+        "Código Viejo","Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"
+      ];
+      const codigosOrigen=Array.from(new Set(camposCodigo.map(k=>rawMachineCode(r?.[k])).filter(Boolean)));
+      if(codigo&&!codigosOrigen.includes(rawMachineCode(codigo)))codigosOrigen.push(rawMachineCode(codigo));
+      const familia=String(getEqVal(r,["Familia","FAMILIA","Familia de equipo","Tipo de equipo","Tipo Equipo","Tipo","Equipo","Máquina","Maquina","EQUIPO"])||"").trim();
+      const marca=String(getEqVal(r,["Marca","MARCA","Fabricante"])||"").trim();
+      const modelo=String(getEqVal(r,["Modelo","MODELO","Modelo Equipo","Modelo de equipo","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"").trim();
+      if(!codigo||!modelo||!esEquipoOCamion(codigo,familia))return;
+      const categoria=categoriaParaEquipo(codigo,familia,modelo);
+      if(!categoria||categoria==="SIN CATEGORIA")return;
+      const adquisicion=n(getEqVal(r,["Costo Local en Dolares sin IVA","Costo Local en Dólares sin IVA","Costo local en dolares sin IVA","Costo local en dólares sin IVA","Costo Local USD sin IVA","Costo local USD sin IVA","Costo Local USD","Costo local USD","Costo USD","Valor USD","Costo de Adquisición","Costo de Adquisicion","Costo Adquisición","Costo Adquisicion","C. Adq./Alquiler (USD)"]));
+      const vidaLista=n(getEqVal(r,["Vida Útil hs","Vida Util hs","Vida Útil hs/km","Vida Util hs/km","Vida útil","Vida Util","Vida útil horas","Vida util horas"]));
+      rows.push({id:`de-${index}`,codigo,codigosOrigen,familia,marca,modelo,adquisicion,vidaLista,categoria});
+    });
+    return rows;
+  },[listaEquipos,codigoListaEquipo,esEquipoOCamion,categoriaParaEquipo,rawMachineCode]);
+
+  const datosEquiposCategoriaOpts=useMemo(()=>[
+    {value:"todos",label:"Todas"},
+    ...Array.from(new Set(datosEquiposCatalogo.map(x=>normTxt(x.categoria)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")).map(x=>({value:x,label:x}))
+  ],[datosEquiposCatalogo]);
+  const datosEquiposEquipoOpts=useMemo(()=>[
+    {value:"todos",label:"Todos"},
+    ...datosEquiposCatalogo.slice().sort((a,b)=>a.codigo.localeCompare(b.codigo,"es",{numeric:true})).map(x=>({value:x.codigo,label:`${x.codigo} — ${[x.marca,x.modelo].filter(Boolean).join(" ")}`}))
+  ],[datosEquiposCatalogo]);
+  const datosEquiposProyectoOpts=useMemo(()=>{
+    const values=new Set();
+    [...(rma15||[]),...(rop02All||[])].forEach(r=>{if(dentroPeriodo(r)){const p=proyectoRegistro(r);if(p)values.add(p);}});
+    return [{value:"todos",label:"Todos"},...Array.from(values).sort((a,b)=>a.localeCompare(b,"es")).map(x=>({value:x,label:x}))];
+  },[rma15,rop02All,datosEquiposDesde,datosEquiposHasta,proyectoRegistro]);
+  const datosEquiposCatalogoFiltrado=useMemo(()=>datosEquiposCatalogo.filter(eq=>
+    multiSelecciona(datosEquiposCategorias,normTxt(eq.categoria))&&multiSelecciona(datosEquiposEquipos,eq.codigo)
+  ),[datosEquiposCatalogo,datosEquiposCategorias,datosEquiposEquipos,multiSelecciona]);
+  const datosEquiposCodigosPermitidos=useMemo(()=>new Set(datosEquiposCatalogoFiltrado.map(x=>x.codigo)),[datosEquiposCatalogoFiltrado]);
+  // Relación estricta entre los códigos realmente declarados para cada unidad en
+  // Lista Maestra y su código vigente. Evita que un equipo sin RMA15 herede el
+  // mantenimiento de otra unidad por compartir categoría, modelo o equivalencia.
+  const datosEquiposPorCodigoOrigen=useMemo(()=>{
+    const out=new Map();
+    datosEquiposCatalogoFiltrado.forEach(eq=>{
+      (eq.codigosOrigen||[]).forEach(code=>{if(code&&!out.has(code))out.set(code,eq);});
+    });
+    return out;
+  },[datosEquiposCatalogoFiltrado]);
+  const equipoDatosDesdeRegistro=useCallback((r)=>{
+    const raw=rawMachineCode(r?.maquina||r?.interno||r?.codigo||r?.["CODIGO N° INTERNO"]||r?.["Código interno"]||"");
+    return raw?datosEquiposPorCodigoOrigen.get(raw)||null:null;
+  },[rawMachineCode,datosEquiposPorCodigoOrigen]);
+  const datosEquiposInsumoOpts=useMemo(()=>{
+    const map=new Map();
+    (rma15||[]).forEach(r=>{
+      if(!dentroPeriodo(r)||!multiSelecciona(datosEquiposProyectos,proyectoRegistro(r)))return;
+      const equipoMeta=equipoDatosDesdeRegistro(r);
+      const codigo=equipoMeta?.codigo||"";
+      if(!codigo||!datosEquiposCodigosPermitidos.has(codigo))return;
+      (r?.insumos||[]).forEach(ins=>{
+        const cod=codigoInsumo(ins);if(!cod)return;
+        const desc=nombreInsumo(ins)||cod;
+        if(!map.has(cod)||map.get(cod)===cod)map.set(cod,desc);
+      });
+    });
+    return [{value:"todos",label:"Todos"},...Array.from(map.entries()).sort((a,b)=>String(a[0]).localeCompare(String(b[0]),"es",{numeric:true})).map(([cod,desc])=>({value:cod,label:`${cod} — ${desc}`}))];
+  },[rma15,datosEquiposDesde,datosEquiposHasta,datosEquiposProyectos,datosEquiposCodigosPermitidos,proyectoRegistro,equipoDatosDesdeRegistro,codigoInsumo,nombreInsumo,multiSelecciona]);
+  useEffect(()=>{
+    const valid=new Set(datosEquiposCategoriaOpts.map(x=>x.value));
+    if(Array.isArray(datosEquiposCategorias)){const next=datosEquiposCategorias.filter(x=>valid.has(x));if(next.length!==datosEquiposCategorias.length)setDatosEquiposCategorias(next.length?next:"todos");}
+  },[datosEquiposCategoriaOpts]);
+  useEffect(()=>{
+    const valid=new Set(datosEquiposEquipoOpts.map(x=>x.value));
+    if(Array.isArray(datosEquiposEquipos)){const next=datosEquiposEquipos.filter(x=>valid.has(x));if(next.length!==datosEquiposEquipos.length)setDatosEquiposEquipos(next.length?next:"todos");}
+  },[datosEquiposEquipoOpts]);
+  useEffect(()=>{
+    const valid=new Set(datosEquiposInsumoOpts.map(x=>x.value));
+    if(Array.isArray(datosEquiposInsumos)){const next=datosEquiposInsumos.filter(x=>valid.has(x));if(next.length!==datosEquiposInsumos.length)setDatosEquiposInsumos(next.length?next:"todos");}
+  },[datosEquiposInsumoOpts]);
+
+  const horasCombustiblePorEquipo=useMemo(()=>{
+    const out=new Map();
+    (rop02All||[]).forEach(r=>{
+      if(!dentroPeriodo(r)||!multiSelecciona(datosEquiposProyectos,proyectoRegistro(r)))return;
+      const equipoMeta=equipoDatosDesdeRegistro(r);
+      const codigo=equipoMeta?.codigo||"";
+      if(!codigo||!datosEquiposCodigosPermitidos.has(codigo))return;
+      const horas=n(r?.horas??r?.hs??r?.Hs??r?.["Hs"]??r?.["HORAS"]??r?.cantidadHoras??0);
+      const combustible=n(r?.combustible??r?.Combustible??r?.litros??r?.Litros??r?.["COMBUSTIBLE"]??0);
+      if(horas<=0&&combustible<=0)return;
+      const acc=out.get(codigo)||{horas:0,combustible:0};
+      acc.horas+=Math.max(0,horas);acc.combustible+=Math.max(0,combustible);out.set(codigo,acc);
+    });
+    return out;
+  },[rop02All,equipoDatosDesdeRegistro,datosEquiposDesde,datosEquiposHasta,datosEquiposProyectos,datosEquiposCodigosPermitidos,proyectoRegistro,multiSelecciona]);
+
+  // Reproduce el costo horario que alimenta Resumen por equipo:
+  // promedio mensual de mantenimiento + mano de obra distribuida, dividido por
+  // las horas efectivas de referencia del proyecto. Incluye equipos y camiones.
+  const mantenimientoHorarioPorEquipo=useMemo(()=>{
+    const rate=Math.max(0.000001,n(usdRate)||n(costosMantConfig?.usdRate2)||1);
+    const monthKey=(r)=>String(fechaRegistro(r)||"").slice(0,7);
+    const bySectionEquipmentMonth=new Map();
+    (rma15||[]).forEach(r=>{
+      if(!dentroPeriodo(r)||!multiSelecciona(datosEquiposProyectos,proyectoRegistro(r)))return;
+      const equipoMeta=equipoDatosDesdeRegistro(r);
+      const codigo=equipoMeta?.codigo||"";
+      if(!codigo||!datosEquiposCodigosPermitidos.has(codigo))return;
+      const meta=equipoMeta;
+      if(!meta)return;
+      const proyecto=proyectoRegistro(r);
+      const section=(proyecto.includes("JOSE")||proyecto==="JM"||proyecto.includes("JOSE MARIA"))?"JM":"FS";
+      const month=monthKey(r);if(!month)return;
+      const insumosFila=Array.isArray(r?.insumos)?r.insumos:[];
+      const insumosElegidos=insumosFila.filter(ins=>multiSelecciona(datosEquiposInsumos,codigoInsumo(ins)));
+      const costo=insumosElegidos.reduce((sum,i)=>sum+n(i?.costoTotal||n(i?.cantidad)*n(i?.costoUnitario)),0);
+      const key=`${section}__${codigo}__${month}`;
+      bySectionEquipmentMonth.set(key,(bySectionEquipmentMonth.get(key)||0)+Math.max(0,costo)/rate);
+    });
+    const monthlyBySectionEquipment=new Map();
+    bySectionEquipmentMonth.forEach((value,key)=>{
+      const [section,codigo]=key.split("__");const k=`${section}__${codigo}`;
+      if(!monthlyBySectionEquipment.has(k))monthlyBySectionEquipment.set(k,[]);
+      if(value>0)monthlyBySectionEquipment.get(k).push(value);
+    });
+    const avgMaint=new Map();
+    monthlyBySectionEquipment.forEach((vals,key)=>avgMaint.set(key,vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0));
+    const totals={JM:0,FS:0};avgMaint.forEach((v,key)=>{const section=key.slice(0,2);totals[section]=(totals[section]||0)+v;});
+    const subtotal={
+      JM:(n(costosMantConfig?.mecJM)||8)*(n(costosMantConfig?.costMec)||2390.27)+(n(costosMantConfig?.ctaMecJM)||2)*(n(costosMantConfig?.costCTA)||3000),
+      FS:(n(costosMantConfig?.mecFS)||8)*(n(costosMantConfig?.costMec)||2390.27)+(n(costosMantConfig?.ctaMecFS)||1)*(n(costosMantConfig?.costCTA)||3000),
+    };
+    const hs={JM:Math.max(1,n(costosMantConfig?.hsEfJM)||180),FS:Math.max(1,n(costosMantConfig?.hsEfFS)||180)};
+    const out=new Map();
+    avgMaint.forEach((maint,key)=>{
+      const [section,codigo]=key.split("__");
+      const mo=totals[section]>0?subtotal[section]*(maint/totals[section]):0;
+      const usdHora=(maint+mo)/hs[section];
+      out.set(codigo,(out.get(codigo)||0)+usdHora);
+    });
+    return out;
+  },[rma15,usdRate,costosMantConfig,datosEquiposCatalogoFiltrado,datosEquiposCodigosPermitidos,equipoDatosDesdeRegistro,datosEquiposDesde,datosEquiposHasta,datosEquiposProyectos,datosEquiposInsumos,proyectoRegistro,codigoInsumo,multiSelecciona]);
+
+  const datosEquiposRows=useMemo(()=>{
+    const groups=new Map();
+    datosEquiposCatalogoFiltrado.forEach(eq=>{
+      // En esta vista solo se muestran equipos con mantenimiento real registrado
+      // dentro del período y los filtros seleccionados. No se inventan ni se
+      // heredan costos desde otra categoría/modelo.
+      const mant=mantenimientoHorarioPorEquipo.get(eq.codigo)||0;
+      if(!(mant>0))return;
+      const cat=normTxt(eq.categoria);if(!cat)return;
+      if(!groups.has(cat))groups.set(cat,{categoria:cat,equipos:[],adqSum:0,adqCount:0,vidaSum:0,vidaCount:0,horas:0,combustible:0,mantVals:[]});
+      const g=groups.get(cat);g.equipos.push(eq);
+      if(eq.adquisicion>0){g.adqSum+=eq.adquisicion;g.adqCount++;}
+      if(eq.vidaLista>0){g.vidaSum+=eq.vidaLista;g.vidaCount++;}
+      const fuel=horasCombustiblePorEquipo.get(eq.codigo)||{horas:0,combustible:0};g.horas+=fuel.horas;g.combustible+=fuel.combustible;
+      g.mantVals.push(mant);
+    });
+    return Array.from(groups.values()).map(g=>{
+      const vidaDefault=g.vidaCount?g.vidaSum/g.vidaCount:8000;
+      const vidaUtil=Math.max(1,n(datosEquiposVida[g.categoria])||vidaDefault);
+      const costoAdquisicionPromedio=g.adqCount?g.adqSum/g.adqCount:0;
+      const amortizacion=costoAdquisicionPromedio/vidaUtil;
+      const consumo=g.horas>0?g.combustible/g.horas:0;
+      const mantenimiento=g.mantVals.length?g.mantVals.reduce((a,b)=>a+b,0)/g.mantVals.length:0;
+      const modelos=new Map();g.equipos.forEach(eq=>{const key=[eq.marca,eq.modelo].filter(Boolean).join(" ")||eq.modelo;modelos.set(key,(modelos.get(key)||0)+1);});
+      return {...g,vidaDefault,vidaUtil,costoAdquisicionPromedio,amortizacion,consumo,mantenimiento,modelos:Array.from(modelos.entries()).map(([nombre,cantidad])=>({nombre,cantidad}))};
+    }).sort((a,b)=>a.categoria.localeCompare(b.categoria,"es"));
+  },[datosEquiposCatalogoFiltrado,horasCombustiblePorEquipo,mantenimientoHorarioPorEquipo,datosEquiposVida]);
+  const setVidaCategoria=(categoria,value)=>setDatosEquiposVida(prev=>({...prev,[categoria]:Math.max(1,n(value)||1)}));
+  const exportDatosEquipos=()=>{
+    const rows=datosEquiposRows.map(g=>({Periodo:`${datosEquiposDesde||"Inicio"} a ${datosEquiposHasta||"Hoy"}`,Categoria:g.categoria,"Cantidad de equipos":g.equipos.length,"Equipos y modelos":g.modelos.map(m=>`${m.nombre} (${m.cantidad})`).join("; "),"Combustible total L":g.combustible,"Horas totales":g.horas,"Consumo combustible L/h":g.consumo,"Vida útil h":g.vidaUtil,"Costo adquisición promedio USD":g.costoAdquisicionPromedio,"Amortización USD/h":g.amortizacion,"Mantenimiento USD/h":g.mantenimiento,"Costo total equipo USD/h (sin combustible)":g.amortizacion+g.mantenimiento}));
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Datos Equipos");XLSX.writeFile(wb,"Datos_Equipos_Licitaciones.xlsx");
+  };
+
   const laborRate=(conv="AOMA")=>{const rows=tender.manoObra?.[conv]||[];return rows.length?rows.reduce((s,r)=>s+n(r.costoHora),0)/rows.length:0;};
   const leerInformeResumen=()=>{try{const x=JSON.parse(localStorage.getItem("dm_costos_resumen_equipos")||"[]");return Array.isArray(x)?x:[];}catch(_){return[];}};
   const informeResumen=leerInformeResumen();
@@ -446,7 +725,7 @@ function LicitacionesView({listaEquipos=[],initialTab="nueva"}){
     </tr>)}</tbody></table></div>;
   };
   return <div style={{display:"grid",gap:14,minWidth:0,paddingBottom:30}}>
-    <div style={{...panel,display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+    {tab!=="datosEquipos"&&<div style={{...panel,display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
       <label style={{display:"grid",gap:5,fontSize:10,color:C.textMuted,fontWeight:800}}>LICITACIÓN<select value={tender.id} onChange={e=>setActiveId(e.target.value)} style={{minWidth:260,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text}}>{licitaciones.map(x=><option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label>
       <button onClick={addTender} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>+ Nueva</button>
       <button onClick={duplicate} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.blue}66`,background:`${C.blue}18`,color:C.blue,fontWeight:900,cursor:"pointer"}}>Duplicar</button>
@@ -454,7 +733,7 @@ function LicitacionesView({listaEquipos=[],initialTab="nueva"}){
       <button onClick={()=>guardarLicitacion(tender)} disabled={licitacionesSaving} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.accent}66`,background:C.accentDim,color:C.accent,fontWeight:900,cursor:licitacionesSaving?"wait":"pointer"}}>{licitacionesSaving?"Guardando...":"Guardar en Google Sheets"}</button>
       <span style={{fontSize:11,fontWeight:800,color:licitacionesError?C.red:C.textMuted}}>{licitacionesError?`Error: ${licitacionesError}`:(licitacionesReady?"Base compartida conectada":"Conectando...")}</span>
       <button onClick={exportExcel} style={{marginLeft:"auto",padding:"9px 13px",borderRadius:8,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>Descargar Excel</button>
-    </div>
+    </div>}
     {tab==="nueva"&&<div style={{display:"grid",gap:14}}>
       <div style={panel}>
         <h3 style={{margin:"0 0 14px",color:C.text}}>Datos generales</h3>
@@ -550,6 +829,39 @@ function LicitacionesView({listaEquipos=[],initialTab="nueva"}){
         <div style={{fontSize:12,fontWeight:900,color:C.blue,margin:"0 0 8px"}}>Contrato 2 · {horasContrato2.toLocaleString("es-AR")} horas</div>
         {renderEquiposTable(2)}
       </div>}
+    </div>}
+    {tab==="datosEquipos"&&<div style={{display:"grid",gap:14}}>
+      <div style={panel}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
+          <div><h3 style={{margin:0,color:C.text}}>Datos Equipos</h3><div style={{fontSize:11,color:C.textMuted,marginTop:4}}>Vista directa de las categorías y del costo horario calculados por Informe de Costos → Amortización / Resumen por equipo. Incluye únicamente equipos y camiones.</div></div>
+          <div style={{display:"flex",gap:8}}><button onClick={()=>setCostosMantConfig(readCostosMantConfig())} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.blue}55`,background:`${C.blue}18`,color:C.blue,fontWeight:900,cursor:"pointer"}}>Actualizar categorías</button><button onClick={exportDatosEquipos} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.green}55`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>Exportar Excel</button></div>
+        </div>
+        <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap",padding:"12px 14px",borderRadius:10,border:`1px solid ${C.border}`,background:"rgba(0,0,0,.18)",marginBottom:12}}>
+          <label style={{display:"grid",gap:5,fontSize:10,color:C.textMuted,fontWeight:850}}>DESDE<input type="date" value={datosEquiposDesde} onChange={e=>setDatosEquiposDesde(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",color:C.text}}/></label>
+          <label style={{display:"grid",gap:5,fontSize:10,color:C.textMuted,fontWeight:850}}>HASTA<input type="date" value={datosEquiposHasta} onChange={e=>setDatosEquiposHasta(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",color:C.text}}/></label>
+          <button onClick={()=>{setDatosEquiposDesde(`${new Date().getFullYear()}-01-01`);setDatosEquiposHasta(new Date().toISOString().slice(0,10));}} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.border}`,background:"rgba(255,255,255,.04)",color:C.textSub,fontWeight:900,cursor:"pointer"}}>Año actual</button>
+          <MultiSel label="Proyecto" value={datosEquiposProyectos} onChange={setDatosEquiposProyectos} options={datosEquiposProyectoOpts} commitOnClose/>
+          <MultiSel label="Categoría" value={datosEquiposCategorias} onChange={setDatosEquiposCategorias} options={datosEquiposCategoriaOpts} commitOnClose/>
+          <MultiSel label="Equipo" value={datosEquiposEquipos} onChange={setDatosEquiposEquipos} options={datosEquiposEquipoOpts} commitOnClose/>
+          <MultiSel label="Insumo RMA15" value={datosEquiposInsumos} onChange={setDatosEquiposInsumos} options={datosEquiposInsumoOpts} commitOnClose/>
+          <button onClick={()=>{setDatosEquiposProyectos("todos");setDatosEquiposCategorias("todos");setDatosEquiposEquipos("todos");setDatosEquiposInsumos("todos");}} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,fontWeight:850,cursor:"pointer"}}>Limpiar filtros</button>
+        </div>
+        <div style={{padding:"10px 12px",borderRadius:9,border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.textSub,fontSize:11,marginBottom:12}}>El consumo se calcula como combustible total cargado ÷ horas totales del período. Se muestra como dato informativo y <b>no se suma</b> al costo horario total.</div>
+        <div style={{overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:1450}}><thead><tr>{["Categoría","Cantidad","Equipos y modelos incluidos","Consumo combustible (L/h)","Vida útil elegida (h)","Costo adquisición promedio","Amortización (USD/h)","Mantenimiento (USD/h)","Total equipo (USD/h)"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+          {datosEquiposRows.map(g=><tr key={g.categoria}>
+            <td style={{...td,fontWeight:950,color:C.accent,whiteSpace:"nowrap"}}>{g.categoria}</td>
+            <td style={{...td,textAlign:"center",fontWeight:900}}>{g.equipos.length}</td>
+            <td style={{...td,minWidth:360}}><div style={{display:"grid",gap:4}}>{g.modelos.map(m=><div key={m.nombre} style={{display:"flex",justifyContent:"space-between",gap:12}}><span>{m.nombre}</span><span style={{color:C.textMuted,fontWeight:800}}>× {m.cantidad}</span></div>)}</div></td>
+            <td style={{...td,textAlign:"right",fontWeight:900,color:C.blue}}>{g.consumo>0?<><div>{g.consumo.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})} L/h</div><div style={{fontSize:9,color:C.textMuted,marginTop:3}}>{g.combustible.toLocaleString("es-AR",{maximumFractionDigits:1})} L ÷ {g.horas.toLocaleString("es-AR",{maximumFractionDigits:1})} h</div></>:"—"}</td>
+            <td style={{...td,textAlign:"center"}}><input type="number" min="1" step="100" value={Math.round(g.vidaUtil)} onChange={e=>setVidaCategoria(g.categoria,e.target.value)} style={{width:120,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 8px",color:C.text,textAlign:"right",fontWeight:900}}/><div style={{fontSize:9,color:C.textMuted,marginTop:3}}>Lista: {Math.round(g.vidaDefault).toLocaleString("es-AR")} h</div></td>
+            <td style={{...td,textAlign:"right"}}>{g.costoAdquisicionPromedio>0?`USD ${g.costoAdquisicionPromedio.toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
+            <td style={{...td,textAlign:"right",fontWeight:900,color:C.yellow}}>{g.amortizacion>0?`USD ${g.amortizacion.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
+            <td style={{...td,textAlign:"right",fontWeight:900,color:C.purple}}>{g.mantenimiento>0?`USD ${g.mantenimiento.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
+            <td style={{...td,textAlign:"right",fontWeight:950,color:C.green}}>{(g.amortizacion+g.mantenimiento)>0?`USD ${(g.amortizacion+g.mantenimiento).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
+          </tr>)}
+          {!datosEquiposRows.length&&<tr><td colSpan={9} style={{...td,textAlign:"center",padding:28,color:C.textMuted}}>No se encontraron equipos o camiones con mantenimiento registrado en el período y filtros seleccionados.</td></tr>}
+        </tbody></table></div>
+      </div>
     </div>}
 
 

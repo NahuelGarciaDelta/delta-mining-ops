@@ -87,5 +87,6 @@ export const ABASTECIMIENTO_DEPS = Object.freeze({
 });
 
 export const LICITACIONES_DEPS = Object.freeze({
-  APPS_SCRIPT_URL, C, Icon, Spinner, appAlert, appConfirm, dmNormKey,
+  APPS_SCRIPT_URL, C, Icon, Spinner, MultiSel, multiIsAll, appAlert, appConfirm, dmNormKey,
+  canonicalEquivalentMachineCode, cleanMachine, mainMachineCode,
 });

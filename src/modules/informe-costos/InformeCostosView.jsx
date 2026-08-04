@@ -372,7 +372,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
     // Guardado breve y diferido: mantiene fluidez, pero no pierde el último cambio.
     if(saveCostosMantRef.current)window.clearTimeout(saveCostosMantRef.current);
     saveCostosMantRef.current=window.setTimeout(()=>{
-      const guardar=()=>{try{window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify(costosMantSnapshotRef.current));}catch(_){}};
+      const guardar=()=>{try{window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify(costosMantSnapshotRef.current));window.dispatchEvent(new CustomEvent("dm-costos-mant-state-updated"));}catch(_){}};
       if(typeof window.requestIdleCallback==="function")window.requestIdleCallback(guardar,{timeout:1200});
       else guardar();
     },450);
@@ -391,7 +391,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   // Al salir de Informe de Costos, guardar inmediatamente el último estado de todos los filtros.
   React.useEffect(()=>()=>{
     if(saveCostosMantRef.current)window.clearTimeout(saveCostosMantRef.current);
-    try{window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify(costosMantSnapshotRef.current));}catch(_){}
+    try{window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify(costosMantSnapshotRef.current));window.dispatchEvent(new CustomEvent("dm-costos-mant-state-updated"));}catch(_){}
   },[]);
 
   const hastaCostoMensual=fechaH||"";

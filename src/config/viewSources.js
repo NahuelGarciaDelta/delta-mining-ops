@@ -19,4 +19,9 @@ export const VIEW_SOURCES = Object.freeze({
   costosUnitarios:["insumos","rma15_fs","rma15_jm"],
   listaEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
   tallerCentral:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
+  licitaciones:["lista_equipos"],
+  licitacionesNueva:["lista_equipos"],
+  licitacionesControl:["lista_equipos"],
+  licitacionesEquipos:["lista_equipos","rma15_fs","rma15_jm","insumos"],
+  licitacionesDatosEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rma15_fs","rma15_jm","insumos"],
 });
