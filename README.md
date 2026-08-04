@@ -1,22 +1,35 @@
-# Delta Mining OPS
+# Delta Mining OPS V3 RC
 
 Aplicación web React/Vite conectada a Google Sheets mediante Google Apps Script.
+
+## Estructura
+
+- `src/App.jsx`: orquestación general, sesión, carga de datos y navegación.
+- `src/modules/`: módulos funcionales (Oficina Técnica, Mantenimiento, Abastecimiento, Licitaciones e Informe de Costos).
+- `src/components/`: componentes reutilizables.
+- `src/shared/`: normalización, formatos, reglas de equipos y utilidades de dominio.
+- `src/services/`: API de Apps Script, caché, diálogos y escrituras.
+- `src/config/`: configuración y dependencias de módulos.
+- `src/workers/`: cálculos pesados del Informe de Costos.
+- `backend/AppsScript.gs`: backend que debe copiarse al proyecto de Google Apps Script.
 
 ## Ejecutar localmente
 
 ```bash
 npm install
+npm run validate
+npm run build
 npm run dev
 ```
 
-Luego abrir la URL que muestra Vite, normalmente `http://localhost:5173`.
+## Configuración
 
-## Publicar en Vercel
+Copiar `.env.example` como `.env` y completar `VITE_APPS_SCRIPT_URL` cuando se necesite usar otra implementación de Apps Script.
 
-1. Subir este proyecto a GitHub.
-2. Importar el repositorio en Vercel.
-3. Framework: Vite.
-4. Build Command: `npm run build`.
-5. Output Directory: `dist`.
+## Publicar
 
-La URL del Apps Script está configurada dentro de `src/App.jsx` en la constante `APPS_SCRIPT_URL`.
+```bash
+npm run build
+```
+
+La carpeta de salida es `dist`.

@@ -1,13 +1,14 @@
 {
   "name": "delta-mining-web",
-  "version": "2.0.0",
+  "version": "3.0.0-rc.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "node --check src/workers/informeCostos.worker.js && node --check src/modules/informe-costos/engine/InformeCostosEngine.js"
+    "check": "node --check src/workers/informeCostos.worker.js && node --check src/modules/informe-costos/engine/InformeCostosEngine.js",
+    "validate": "node scripts/validate-local-imports.mjs && node --check src/workers/informeCostos.worker.js && node --check src/modules/informe-costos/engine/InformeCostosEngine.js"
   },
   "dependencies": {
     "react": "18.3.1",
