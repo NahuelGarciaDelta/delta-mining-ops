@@ -1,11 +1,13 @@
-# Informe de Costos
+# Módulo Informe de Costos
 
-El módulo separa el motor de cálculo del hilo principal de React.
+Este módulo contiene la vista, motor, Worker persistente, cliente y hooks del Informe de Costos.
 
-- `engine/InformeCostosEngine.js`: cálculos puros y caché en memoria.
-- `workers/informeCostos.worker.js`: router mínimo del Web Worker.
-- `services/informeCostosWorkerClient.js`: Worker persistente y correlación de respuestas.
-- `hooks/useLatestWorkerRequest.js`: descarta respuestas obsoletas al cambiar filtros.
+## Estructura
 
-React no importa el motor directamente. Toda operación pesada debe enviarse por
-`informeCostosCommand`, evitando volver a serializar las fuentes al cambiar de pestaña.
+- `InformeCostosView.jsx`: interfaz completa extraída de `App.jsx`.
+- `engine/InformeCostosEngine.js`: motor de cálculo fuera de React.
+- `services/informeCostosWorkerClient.js`: cliente singleton del Worker.
+- `hooks/useLatestWorkerRequest.js`: control de solicitudes obsoletas.
+- `../../workers/informeCostos.worker.js`: router del Worker.
+
+Durante la Etapa 1, las dependencias visuales y utilitarias compartidas se reciben mediante `deps`. En las siguientes etapas se moverán a módulos compartidos y se eliminará gradualmente ese puente.

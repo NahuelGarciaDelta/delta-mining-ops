@@ -1,3 +1,4 @@
+import { diagCount, diagEvent, diagTiming } from "./informeCostosDiagnostics.js";
 let worker = null;
 let requestId = 0;
 const pending = new Map();
@@ -19,6 +20,14 @@ export function getInformeCostosWorker() {
     const request = pending.get(data?.requestId);
     if (!request) return;
     pending.delete(data.requestId);
+    const roundTripMs = performance.now() - request.startedAt;
+    diagTiming(`Worker · ${request.type}`, roundTripMs, {
+      workerMs: Number(data?.perf?.workerMs || 0),
+      payloadBytes: request.payloadBytes,
+    });
+    if (data?.perf?.workerMs != null) {
+      diagTiming(`Motor · ${request.type}`, Number(data.perf.workerMs), { requestId: data.requestId });
+    }
     if (data.ok) request.resolve(data.result);
     else request.reject(new Error(data.error || "Error del motor de Informe de Costos"));
   };
@@ -38,7 +47,11 @@ export function informeCostosCommand(type, payload = {}, transfer = []) {
   const currentRequestId = ++requestId;
 
   return new Promise((resolve, reject) => {
-    pending.set(currentRequestId, { resolve, reject, type });
+    let payloadBytes = 0;
+    try { payloadBytes = JSON.stringify(payload).length; } catch (_) {}
+    pending.set(currentRequestId, { resolve, reject, type, startedAt: performance.now(), payloadBytes });
+    diagCount(`Solicitudes Worker · ${type}`);
+    diagEvent(`Enviado al Worker · ${type}`, { payloadBytes });
     currentWorker.postMessage(
       { requestId: currentRequestId, type, payload },
       transfer,
