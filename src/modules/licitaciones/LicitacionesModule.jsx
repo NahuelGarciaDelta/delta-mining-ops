@@ -22,7 +22,7 @@ function AcquisitionCostSelector({ C, value, onChange, averageCost, equipmentOpt
     return()=>document.removeEventListener("mousedown",close);
   },[open]);
   const selected=value==="promedio"?null:equipmentOptions.find(eq=>(eq.selectionId||eq.codigo)===value)||equipmentOptions.find(eq=>eq.codigo===value);
-  const selectedCost=selected?.costo??averageCost??0;
+  const selectedCost=Number(selected?.adquisicion??selected?.costo??averageCost??0);
   const money=(n)=>Number(n||0).toLocaleString("es-AR",{maximumFractionDigits:0});
   const selectedTitle=selected?selected.label:`PROMEDIO DE LA CATEGORÍA — USD ${money(averageCost)}`;
   return <div ref={rootRef} style={{position:"relative",width:"100%",minWidth:170}} title={selectedTitle}>
@@ -311,6 +311,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
   },[listaEquipos]);
 
   const COSTOS_MANT_STATE_KEY="delta_costos_mant_state_v1";
+  const AMORT_CATEGORIES_KEY="dm_amortization_categories_v2";
   const DATOS_EQUIPOS_VIDA_KEY="dm_licitaciones_datos_equipos_vida_v1";
   const DATOS_EQUIPOS_ADQ_KEY="dm_licitaciones_datos_equipos_adquisicion_v1";
   const AMORTIZACION_GRUPOS_DEFAULT=useMemo(()=>[
@@ -324,7 +325,18 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
     {tipo:"RETROPALA",equipos:["RTP-0016","RTP-0011","RTP-0024","RTP-0018","RTP-0030"],prefixes:["RTP"]},
     {tipo:"TOPADORA",equipos:["TOP-0032","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0058"],prefixes:["TOP"]},
   ],[]);
-  const readCostosMantConfig=useCallback(()=>{try{const x=JSON.parse(localStorage.getItem(COSTOS_MANT_STATE_KEY)||"{}");return x&&typeof x==="object"?x:{};}catch(_){return{};}},[]);
+  const readCostosMantConfig=useCallback(()=>{
+    try{
+      const x=JSON.parse(localStorage.getItem(COSTOS_MANT_STATE_KEY)||"{}");
+      const base=x&&typeof x==="object"?x:{};
+      const saved=JSON.parse(localStorage.getItem(AMORT_CATEGORIES_KEY)||"{}");
+      if(saved&&typeof saved==="object"){
+        if(saved.assignments&&typeof saved.assignments==="object")base.amortizacionCategorias=saved.assignments;
+        if(Array.isArray(saved.categories))base.amortizacionCategoriasLista=saved.categories;
+      }
+      return base;
+    }catch(_){return{};}
+  },[]);
   const[costosMantConfig,setCostosMantConfig]=useState(readCostosMantConfig);
   const[datosEquiposVida,setDatosEquiposVida]=useState(()=>{try{const x=JSON.parse(localStorage.getItem(DATOS_EQUIPOS_VIDA_KEY)||"{}");return x&&typeof x==="object"?x:{};}catch(_){return{};}});
   const[datosEquiposAdquisicion,setDatosEquiposAdquisicion]=useState(()=>{try{const x=JSON.parse(localStorage.getItem(DATOS_EQUIPOS_ADQ_KEY)||"{}");return x&&typeof x==="object"?x:{};}catch(_){return{};}});
@@ -362,11 +374,12 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
   const nombreInsumo=useCallback((ins)=>String(ins?.nombre??ins?.descripcion??ins?.insumo??ins?.["Descripción"]??ins?.["Descripcion"]??"").trim(),[]);
   useEffect(()=>{
     const refresh=()=>setCostosMantConfig(readCostosMantConfig());
-    const onStorage=e=>{if(!e?.key||e.key===COSTOS_MANT_STATE_KEY||e.key==="dm_costos_resumen_equipos")refresh();};
+    const onStorage=e=>{if(!e?.key||e.key===COSTOS_MANT_STATE_KEY||e.key===AMORT_CATEGORIES_KEY||e.key==="dm_costos_resumen_equipos")refresh();};
     window.addEventListener("storage",onStorage);
     window.addEventListener("focus",refresh);
     window.addEventListener("dm-costos-mant-state-updated",refresh);
-    return()=>{window.removeEventListener("storage",onStorage);window.removeEventListener("focus",refresh);window.removeEventListener("dm-costos-mant-state-updated",refresh);};
+    window.addEventListener("dm-amortization-categories-updated",refresh);
+    return()=>{window.removeEventListener("storage",onStorage);window.removeEventListener("focus",refresh);window.removeEventListener("dm-costos-mant-state-updated",refresh);window.removeEventListener("dm-amortization-categories-updated",refresh);};
   },[readCostosMantConfig]);
   useEffect(()=>{try{localStorage.setItem(DATOS_EQUIPOS_VIDA_KEY,JSON.stringify(datosEquiposVida));}catch(_){}},[datosEquiposVida]);
   useEffect(()=>{try{localStorage.setItem(DATOS_EQUIPOS_ADQ_KEY,JSON.stringify(datosEquiposAdquisicion));}catch(_){}},[datosEquiposAdquisicion]);

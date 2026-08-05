@@ -67,14 +67,26 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   // Persistencia local para que los filtros no se pierdan al salir y volver a entrar
   // a la pestaña Costo de Mantenimientos.
   const COSTOS_MANT_STATE_KEY="delta_costos_mant_state_v1";
-  const readCostosMantState=React.useCallback(()=>{
+  const AMORT_CATEGORIES_KEY="dm_amortization_categories_v2";
+  const readAmortizationConfig=React.useCallback(()=>{
     try{
-      const raw=window.localStorage.getItem(COSTOS_MANT_STATE_KEY);
+      const raw=window.localStorage.getItem(AMORT_CATEGORIES_KEY);
       if(!raw)return{};
       const parsed=JSON.parse(raw);
       return parsed&&typeof parsed==="object"?parsed:{};
     }catch(_){return{};}
   },[]);
+  const readCostosMantState=React.useCallback(()=>{
+    try{
+      const raw=window.localStorage.getItem(COSTOS_MANT_STATE_KEY);
+      const parsed=raw?JSON.parse(raw):{};
+      const base=parsed&&typeof parsed==="object"?parsed:{};
+      const amort=readAmortizationConfig();
+      if(amort.assignments&&typeof amort.assignments==="object")base.amortizacionCategorias=amort.assignments;
+      if(Array.isArray(amort.categories))base.amortizacionCategoriasLista=amort.categories;
+      return base;
+    }catch(_){return{};}
+  },[readAmortizationConfig]);
   const initialCostosMantState=React.useMemo(()=>readCostosMantState(),[readCostosMantState]);
   const readSavedNumber=React.useCallback((key,fallback)=>{
     const n=Number(initialCostosMantState?.[key]);
@@ -98,6 +110,21 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   const [nuevaCategoriaAmortizacion,setNuevaCategoriaAmortizacion]=React.useState("");
   const [categoriaAmortizacionDrafts,setCategoriaAmortizacionDrafts]=React.useState({});
   const [categoriaAmortizacionReasignacion,setCategoriaAmortizacionReasignacion]=React.useState({});
+  const persistAmortizationConfig=React.useCallback((assignments,categories)=>{
+    try{
+      const payload={
+        assignments:assignments&&typeof assignments==="object"?assignments:{},
+        categories:Array.isArray(categories)?categories:null,
+        updatedAt:new Date().toISOString()
+      };
+      window.localStorage.setItem(AMORT_CATEGORIES_KEY,JSON.stringify(payload));
+      window.dispatchEvent(new CustomEvent("dm-amortization-categories-updated",{detail:payload}));
+      window.dispatchEvent(new CustomEvent("dm-costos-mant-state-updated"));
+    }catch(err){console.error("No se pudieron guardar las categorías de amortización",err);}
+  },[]);
+  React.useEffect(()=>{
+    persistAmortizationConfig(amortizacionCategorias,amortizacionCategoriasLista);
+  },[amortizacionCategorias,amortizacionCategoriasLista,persistAmortizationConfig]);
   // Cambio directo de pestaña: primero responde el click y después se cargan/calculan datos.
   // No usar startTransition acá: bajo carga de datos React puede demorar el cambio visual.
   const costosRenderTab=tab;
