@@ -1,10 +1,11 @@
 import React, {useMemo, useState, useEffect} from "react";
 import * as XLSX from "xlsx";
+import { C as UI_C } from "../../components/ui/index.jsx";
 
-let C, Icon, Spinner, Badge, StatCard, Card, Table, Sel, MultiSel, DateIn, PeriodMonthYear, TabBtn, AlertBanner, HelpTip;
+let C=UI_C, Icon, Spinner, Badge, StatCard, Card, Table, Sel, MultiSel, DateIn, PeriodMonthYear, TabBtn, AlertBanner, HelpTip;
 let fmtNum, fmtFecha, uniq, normDate, cleanMachine, canonicalEquivalentMachineCode, isRop02ControlMachineExcluded, dmMatchTipoMaquinaSeleccion, dmTipoMaquinaOptions, matchMulti, multiIsAll, multiIncludes, normalizeMachineCode, getMachineType, isExcluded, excelFromCols, proyColor, semaforo, appAlert;
 function applyDeps(deps={}){
- ({C,Icon,Spinner,Badge,StatCard,Card,Table,Sel,MultiSel,DateIn,PeriodMonthYear,TabBtn,AlertBanner,HelpTip,fmtNum,fmtFecha,uniq,normDate,cleanMachine,canonicalEquivalentMachineCode,isRop02ControlMachineExcluded,dmMatchTipoMaquinaSeleccion,dmTipoMaquinaOptions,matchMulti,multiIsAll,multiIncludes,normalizeMachineCode,getMachineType,isExcluded,excelFromCols,proyColor,semaforo,appAlert}=deps);
+ ({C:C=UI_C,Icon,Spinner,Badge,StatCard,Card,Table,Sel,MultiSel,DateIn,PeriodMonthYear,TabBtn,AlertBanner,HelpTip,fmtNum,fmtFecha,uniq,normDate,cleanMachine,canonicalEquivalentMachineCode,isRop02ControlMachineExcluded,dmMatchTipoMaquinaSeleccion,dmTipoMaquinaOptions,matchMulti,multiIsAll,multiIncludes,normalizeMachineCode,getMachineType,isExcluded,excelFromCols,proyColor,semaforo,appAlert}=deps);
 }
 function BtnExcel({onClick}){
   return(

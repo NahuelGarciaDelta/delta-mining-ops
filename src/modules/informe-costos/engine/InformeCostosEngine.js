@@ -84,34 +84,39 @@ function processAmortizationRows(payload){
     filtered.push({...row,amort:amortEfectiva,pctMant:pct,totalUSDhs:amortEfectiva+(Number(row.hhHombreVestido)||0)+mant});
   }
 
-  const sums=new Map();
-  for(const row of filtered){
-    const key=String(row.tipo||"");
+  // La categoría de amortización es la única clave de agrupación. Se usa la
+  // versión normalizada para evitar que diferencias de mayúsculas, tildes o
+  // espacios separen equipos que pertenecen a la misma categoría.
+  const categoryMeta=new Map();
+  for(let index=0;index<filtered.length;index++){
+    const row=filtered[index];
+    const key=norm(row.tipo||"S/D")||"S/D";
+    if(!categoryMeta.has(key))categoryMeta.set(key,{display:String(row.tipo||"S/D").trim()||"S/D",firstIndex:index,sum:0,count:0,rows:[]});
+    const item=categoryMeta.get(key);
     const value=Number(row.pctMant);
-    if(!Number.isFinite(value)||value<=0)continue;
-    const item=sums.get(key)||{sum:0,count:0};
-    item.sum+=value;item.count++;
-    sums.set(key,item);
+    if(Number.isFinite(value)&&value>0){item.sum+=value;item.count++;}
+    item.rows.push(row);
   }
-  const withAverage=filtered.map(row=>{
-    const item=sums.get(String(row.tipo||""));
-    return {...row,promTipo:item&&item.count?item.sum/item.count:0};
-  });
 
   const sort=payload.sort;
-  if(sort?.key){
-    const dir=sort.dir==="desc"?-1:1;
-    withAverage.sort((a,b)=>dir*compare(a?.[sort.key],b?.[sort.key]));
-  }
-
-  const out=withAverage.map((row,index,all)=>{
-    const first=index===0||String(all[index-1]?.tipo||"")!==String(row.tipo||"");
-    let size=1;
-    if(first){
-      for(let j=index+1;j<all.length&&String(all[j]?.tipo||"")===String(row.tipo||"");j++)size++;
-    }
-    return {...row,_firstTipoDisplay:first,_grupoSizeDisplay:size};
+  const dir=sort?.dir==="desc"?-1:1;
+  const groups=[...categoryMeta.entries()].map(([key,item])=>{
+    const prom=item.count?item.sum/item.count:0;
+    const rows=item.rows.map(row=>({...row,tipo:item.display,promTipo:prom}));
+    // El orden solicitado se aplica dentro de cada categoría. Nunca se mezclan
+    // filas de categorías diferentes, porque el rowSpan de “Promedio por tipo”
+    // depende de que el grupo sea contiguo.
+    if(sort?.key&&sort.key!=="tipo")rows.sort((a,b)=>dir*compare(a?.[sort.key],b?.[sort.key]));
+    return {key,...item,rows};
   });
+
+  if(sort?.key==="tipo")groups.sort((a,b)=>dir*compare(a.display,b.display));
+  else groups.sort((a,b)=>a.firstIndex-b.firstIndex||compare(a.display,b.display));
+
+  const out=[];
+  for(const group of groups){
+    group.rows.forEach((row,index)=>out.push({...row,_firstTipoDisplay:index===0,_grupoSizeDisplay:index===0?group.rows.length:0}));
+  }
   return {rows:out};
 }
 

@@ -2155,6 +2155,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
 
     const out=base.sort((a,b)=>
       a._grupoIndex-b._grupoIndex ||
+      normalizarCategoriaTexto(a.tipo).localeCompare(normalizarCategoriaTexto(b.tipo),"es") ||
       a._ordenGrupo-b._ordenGrupo ||
       a.equipo.localeCompare(b.equipo)
     );
@@ -2203,29 +2204,37 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   const rowsAmortizacionOrdenadas=React.useMemo(()=>{
     if(!amortizacionCalcActive)return rowsAmortizacionOrdCacheRef.current||[];
     // Recalcular promTipo usando el pctMant final (post HH / no-Delta)
-    const gruposConHH={};
-    (rowsAmortizacionConHH||[]).forEach(x=>{(gruposConHH[x.tipo]=gruposConHH[x.tipo]||[]).push(x);});
-    const promTipoPorTipo={};
-    Object.entries(gruposConHH).forEach(([tipo,arr])=>{
-      const vals=arr.map(x=>Number(x.pctMant)||0).filter(v=>v>0);
-      promTipoPorTipo[tipo]=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+    const categoriaKey=(v)=>normalizarCategoriaTexto(v||"S/D")||"S/D";
+    const gruposConHH=new Map();
+    (rowsAmortizacionConHH||[]).forEach((x,index)=>{
+      const key=categoriaKey(x.tipo);
+      if(!gruposConHH.has(key))gruposConHH.set(key,{display:String(x.tipo||"S/D").trim()||"S/D",firstIndex:index,rows:[]});
+      gruposConHH.get(key).rows.push(x);
     });
-    const rowsConProm=(rowsAmortizacionConHH||[]).map(x=>({...x,promTipo:promTipoPorTipo[x.tipo]||0}));
 
-    const sorted=sortRowsForTable(rowsConProm,costosMantSorts.amortizacion,{
-      equipo:r=>r.equipo,propiedad:r=>r.propiedad,tipo:r=>r.tipo,modelo:r=>r.modelo,adq:r=>r.adq,vida:r=>r.vida,amort:r=>r.amort,hhHombreVestido:r=>r.hhHombreVestido,mantUSDhs:r=>r.mantUSDhs,totalUSDhs:r=>r.totalUSDhs,pctMant:r=>r.pctMant,promTipo:r=>r.promTipo
-    });
-    const out=(sorted||[]).map((x,i,arr)=>{
-      const first=i===0||String(arr[i-1]?.tipo||'')!==String(x.tipo||'');
-      let size=1;
-      if(first){
-        for(let j=i+1;j<arr.length&&String(arr[j]?.tipo||'')===String(x.tipo||'');j++)size++;
+    const grupos=[...gruposConHH.values()].map(g=>{
+      const vals=g.rows.map(x=>Number(x.pctMant)||0).filter(v=>v>0);
+      const prom=vals.length?vals.reduce((s,v)=>s+v,0)/vals.length:0;
+      let rows=g.rows.map(x=>({...x,tipo:g.display,promTipo:prom}));
+      const sort=costosMantSorts.amortizacion;
+      if(sort?.key&&sort.key!=="tipo"){
+        rows=sortRowsForTable(rows,sort,{
+          equipo:r=>r.equipo,propiedad:r=>r.propiedad,tipo:r=>r.tipo,modelo:r=>r.modelo,adq:r=>r.adq,vida:r=>r.vida,amort:r=>r.amort,hhHombreVestido:r=>r.hhHombreVestido,mantUSDhs:r=>r.mantUSDhs,totalUSDhs:r=>r.totalUSDhs,pctMant:r=>r.pctMant,promTipo:r=>r.promTipo
+        });
       }
-      return {...x,_firstTipoDisplay:first,_grupoSizeDisplay:size};
+      return {...g,rows};
     });
+    const sort=costosMantSorts.amortizacion;
+    if(sort?.key==="tipo"){
+      const dir=sort.dir==="desc"?-1:1;
+      grupos.sort((a,b)=>dir*a.display.localeCompare(b.display,"es",{sensitivity:"base"}));
+    }else grupos.sort((a,b)=>a.firstIndex-b.firstIndex||a.display.localeCompare(b.display,"es",{sensitivity:"base"}));
+
+    const out=[];
+    grupos.forEach(g=>g.rows.forEach((x,i)=>out.push({...x,_firstTipoDisplay:i===0,_grupoSizeDisplay:i===0?g.rows.length:0})));
     rowsAmortizacionOrdCacheRef.current=out;
     return out;
-  },[amortizacionCalcActive,rowsAmortizacionConHH,costosMantSorts.amortizacion]);
+  },[amortizacionCalcActive,rowsAmortizacionConHH,costosMantSorts.amortizacion,normalizarCategoriaTexto]);
 
 
   const filtrosAmortizacion=getCostosFiltrosTabla("t5");

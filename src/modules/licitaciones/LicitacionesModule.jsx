@@ -12,6 +12,30 @@ import {
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 let __deps = {};
 
+function AcquisitionCostSelector({ C, value, onChange, averageCost, equipmentOptions=[] }){
+  const [open,setOpen]=useState(false);
+  const rootRef=useRef(null);
+  useEffect(()=>{
+    if(!open)return undefined;
+    const close=(event)=>{if(rootRef.current&&!rootRef.current.contains(event.target))setOpen(false);};
+    document.addEventListener("mousedown",close);
+    return()=>document.removeEventListener("mousedown",close);
+  },[open]);
+  const selected=value==="promedio"?null:equipmentOptions.find(eq=>(eq.selectionId||eq.codigo)===value)||equipmentOptions.find(eq=>eq.codigo===value);
+  const selectedCost=selected?.costo??averageCost??0;
+  const money=(n)=>Number(n||0).toLocaleString("es-AR",{maximumFractionDigits:0});
+  const selectedTitle=selected?selected.label:`PROMEDIO DE LA CATEGORÍA — USD ${money(averageCost)}`;
+  return <div ref={rootRef} style={{position:"relative",width:"100%",minWidth:170}} title={selectedTitle}>
+    <button type="button" onClick={()=>setOpen(v=>!v)} aria-expanded={open} style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",color:C.text,fontWeight:900,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+      <span>USD {money(selectedCost)}</span><span style={{fontSize:10,color:C.textMuted}}>▼</span>
+    </button>
+    {open&&<div style={{position:"absolute",zIndex:5000,top:"calc(100% + 5px)",left:0,right:0,maxHeight:260,overflowY:"auto",background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 14px 35px rgba(0,0,0,.55)",padding:5}}>
+      <button type="button" onClick={()=>{onChange("promedio");setOpen(false);}} style={{width:"100%",textAlign:"left",padding:"9px 10px",border:0,borderRadius:6,background:value==="promedio"?`${C.blue}22`:"transparent",color:C.text,fontWeight:850,cursor:"pointer"}}>PROMEDIO DE LA CATEGORÍA — USD {money(averageCost)}</button>
+      {equipmentOptions.map(eq=>{const optionValue=eq.selectionId||eq.codigo;return <button key={optionValue} type="button" onClick={()=>{onChange(optionValue);setOpen(false);}} style={{width:"100%",textAlign:"left",padding:"9px 10px",border:0,borderRadius:6,background:value===optionValue?`${C.blue}22`:"transparent",color:C.text,fontWeight:800,cursor:"pointer"}}>{eq.label}</button>;})}
+    </div>}
+  </div>;
+}
+
 function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initialTab="nueva"}){
   const { APPS_SCRIPT_URL, C, Icon, Spinner, MultiSel, multiIsAll, appAlert, appConfirm, dmNormKey, canonicalEquivalentMachineCode, cleanMachine, mainMachineCode } = __deps;
   const STORAGE_KEY="dm_licitaciones_v1";
@@ -288,6 +312,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
 
   const COSTOS_MANT_STATE_KEY="delta_costos_mant_state_v1";
   const DATOS_EQUIPOS_VIDA_KEY="dm_licitaciones_datos_equipos_vida_v1";
+  const DATOS_EQUIPOS_ADQ_KEY="dm_licitaciones_datos_equipos_adquisicion_v1";
   const AMORTIZACION_GRUPOS_DEFAULT=useMemo(()=>[
     {tipo:"MOTONIVELADORA 1",equipos:["MOT-0014","MOT-0047","MOT-0049","MOT-0051","MOT-0069"],prefixes:["MOT"]},
     {tipo:"MINICARGADORA",equipos:["MCA-0005","MNC-0001","MNC-001"],prefixes:["MCA","MNC"]},
@@ -302,6 +327,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
   const readCostosMantConfig=useCallback(()=>{try{const x=JSON.parse(localStorage.getItem(COSTOS_MANT_STATE_KEY)||"{}");return x&&typeof x==="object"?x:{};}catch(_){return{};}},[]);
   const[costosMantConfig,setCostosMantConfig]=useState(readCostosMantConfig);
   const[datosEquiposVida,setDatosEquiposVida]=useState(()=>{try{const x=JSON.parse(localStorage.getItem(DATOS_EQUIPOS_VIDA_KEY)||"{}");return x&&typeof x==="object"?x:{};}catch(_){return{};}});
+  const[datosEquiposAdquisicion,setDatosEquiposAdquisicion]=useState(()=>{try{const x=JSON.parse(localStorage.getItem(DATOS_EQUIPOS_ADQ_KEY)||"{}");return x&&typeof x==="object"?x:{};}catch(_){return{};}});
   const hoyIso=new Date().toISOString().slice(0,10);
   const[datosEquiposDesde,setDatosEquiposDesde]=useState(()=>`${new Date().getFullYear()}-01-01`);
   const[datosEquiposHasta,setDatosEquiposHasta]=useState(hoyIso);
@@ -343,6 +369,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
     return()=>{window.removeEventListener("storage",onStorage);window.removeEventListener("focus",refresh);window.removeEventListener("dm-costos-mant-state-updated",refresh);};
   },[readCostosMantConfig]);
   useEffect(()=>{try{localStorage.setItem(DATOS_EQUIPOS_VIDA_KEY,JSON.stringify(datosEquiposVida));}catch(_){}},[datosEquiposVida]);
+  useEffect(()=>{try{localStorage.setItem(DATOS_EQUIPOS_ADQ_KEY,JSON.stringify(datosEquiposAdquisicion));}catch(_){}},[datosEquiposAdquisicion]);
   const rawMachineCode=useCallback((value)=>{
     return cleanMachine?cleanMachine(mainMachineCode?mainMachineCode(value):value):String(value||"").trim().toUpperCase();
   },[cleanMachine,mainMachineCode]);
@@ -550,16 +577,39 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       const vidaDefault=g.vidaCount?g.vidaSum/g.vidaCount:8000;
       const vidaUtil=Math.max(1,n(datosEquiposVida[g.categoria])||vidaDefault);
       const costoAdquisicionPromedio=g.adqCount?g.adqSum/g.adqCount:0;
-      const amortizacion=costoAdquisicionPromedio/vidaUtil;
+      const equiposConPrecio=g.equipos.filter(eq=>n(eq.adquisicion)>0).map((eq,index)=>{
+        const adquisicion=n(eq.adquisicion);
+        // La clave incluye unidad, modelo y precio. No usamos solo el interno porque
+        // las equivalencias históricas pueden hacer que dos filas terminen con el
+        // mismo código canónico y el selector vuelva accidentalmente al promedio.
+        const selectionId=[eq.codigo,normTxt(eq.marca),normTxt(eq.modelo),adquisicion,index].join("|||");
+        return{
+          selectionId,
+          codigo:eq.codigo,
+          marca:eq.marca||"",
+          modelo:eq.modelo||"",
+          adquisicion,
+          label:[eq.codigo,[eq.marca,eq.modelo].filter(Boolean).join(" "),`USD ${adquisicion.toLocaleString("es-AR",{maximumFractionDigits:0})}`].filter(Boolean).join(" — ")
+        };
+      }).sort((a,b)=>a.label.localeCompare(b.label,"es",{numeric:true}));
+      const seleccionGuardada=String(datosEquiposAdquisicion[g.categoria]||"promedio");
+      // Compatibilidad con selecciones antiguas que guardaban solamente el interno.
+      const equipoSeleccionado=equiposConPrecio.find(eq=>eq.selectionId===seleccionGuardada)
+        ||equiposConPrecio.find(eq=>eq.codigo===seleccionGuardada)
+        ||null;
+      const seleccionAdquisicion=equipoSeleccionado?equipoSeleccionado.selectionId:"promedio";
+      const costoAdquisicionSeleccionado=equipoSeleccionado?equipoSeleccionado.adquisicion:costoAdquisicionPromedio;
+      const amortizacion=costoAdquisicionSeleccionado/vidaUtil;
       const consumo=g.horas>0?g.combustible/g.horas:0;
       const mantenimiento=g.mantVals.length?g.mantVals.reduce((a,b)=>a+b,0)/g.mantVals.length:0;
       const modelos=new Map();g.equipos.forEach(eq=>{const key=[eq.marca,eq.modelo].filter(Boolean).join(" ")||eq.modelo;modelos.set(key,(modelos.get(key)||0)+1);});
-      return {...g,vidaDefault,vidaUtil,costoAdquisicionPromedio,amortizacion,consumo,mantenimiento,modelos:Array.from(modelos.entries()).map(([nombre,cantidad])=>({nombre,cantidad}))};
+      return {...g,vidaDefault,vidaUtil,costoAdquisicionPromedio,costoAdquisicionSeleccionado,seleccionAdquisicion,equipoSeleccionado,equiposConPrecio,amortizacion,consumo,mantenimiento,modelos:Array.from(modelos.entries()).map(([nombre,cantidad])=>({nombre,cantidad}))};
     }).sort((a,b)=>a.categoria.localeCompare(b.categoria,"es"));
-  },[datosEquiposCatalogoFiltrado,horasCombustiblePorEquipo,mantenimientoHorarioPorEquipo,datosEquiposVida]);
+  },[datosEquiposCatalogoFiltrado,horasCombustiblePorEquipo,mantenimientoHorarioPorEquipo,datosEquiposVida,datosEquiposAdquisicion]);
   const setVidaCategoria=(categoria,value)=>setDatosEquiposVida(prev=>({...prev,[categoria]:Math.max(1,n(value)||1)}));
+  const setAdquisicionCategoria=(categoria,value)=>setDatosEquiposAdquisicion(prev=>({...prev,[categoria]:String(value||"promedio")}));
   const exportDatosEquipos=()=>{
-    const rows=datosEquiposRows.map(g=>({Periodo:`${datosEquiposDesde||"Inicio"} a ${datosEquiposHasta||"Hoy"}`,Categoria:g.categoria,"Cantidad de equipos":g.equipos.length,"Equipos y modelos":g.modelos.map(m=>`${m.nombre} (${m.cantidad})`).join("; "),"Combustible total L":g.combustible,"Horas totales":g.horas,"Consumo combustible L/h":g.consumo,"Vida útil h":g.vidaUtil,"Costo adquisición promedio USD":g.costoAdquisicionPromedio,"Amortización USD/h":g.amortizacion,"Mantenimiento USD/h":g.mantenimiento,"Costo total equipo USD/h (sin combustible)":g.amortizacion+g.mantenimiento}));
+    const rows=datosEquiposRows.map(g=>({Periodo:`${datosEquiposDesde||"Inicio"} a ${datosEquiposHasta||"Hoy"}`,Categoria:g.categoria,"Cantidad de equipos":g.equipos.length,"Equipos y modelos":g.modelos.map(m=>`${m.nombre} (${m.cantidad})`).join("; "),"Combustible total L":g.combustible,"Horas totales":g.horas,"Consumo combustible L/h":g.consumo,"Vida útil h":g.vidaUtil,"Equipo/costo de adquisición seleccionado":g.equipoSeleccionado?g.equipoSeleccionado.label:"PROMEDIO DE LA CATEGORÍA","Costo adquisición seleccionado USD":g.costoAdquisicionSeleccionado,"Amortización USD/h":g.amortizacion,"Mantenimiento USD/h":g.mantenimiento,"Costo total equipo USD/h (sin combustible)":g.amortizacion+g.mantenimiento}));
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Datos Equipos");XLSX.writeFile(wb,"Datos_Equipos_Licitaciones.xlsx");
   };
 
@@ -847,14 +897,14 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
           <button onClick={()=>{setDatosEquiposProyectos("todos");setDatosEquiposCategorias("todos");setDatosEquiposEquipos("todos");setDatosEquiposInsumos("todos");}} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,fontWeight:850,cursor:"pointer"}}>Limpiar filtros</button>
         </div>
         <div style={{padding:"10px 12px",borderRadius:9,border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.textSub,fontSize:11,marginBottom:12}}>El consumo se calcula como combustible total cargado ÷ horas totales del período. Se muestra como dato informativo y <b>no se suma</b> al costo horario total.</div>
-        <div style={{overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:1450}}><thead><tr>{["Categoría","Cantidad","Equipos y modelos incluidos","Consumo combustible (L/h)","Vida útil elegida (h)","Costo adquisición promedio","Amortización (USD/h)","Mantenimiento (USD/h)","Total equipo (USD/h)"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+        <div style={{overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:1450}}><thead><tr>{["Categoría","Cantidad","Equipos y modelos incluidos","Consumo combustible (L/h)","Vida útil elegida (h)","Equipo / costo de adquisición","Amortización (USD/h)","Mantenimiento (USD/h)","Total equipo (USD/h)"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
           {datosEquiposRows.map(g=><tr key={g.categoria}>
             <td style={{...td,fontWeight:950,color:C.accent,whiteSpace:"nowrap"}}>{g.categoria}</td>
             <td style={{...td,textAlign:"center",fontWeight:900}}>{g.equipos.length}</td>
             <td style={{...td,minWidth:360}}><div style={{display:"grid",gap:4}}>{g.modelos.map(m=><div key={m.nombre} style={{display:"flex",justifyContent:"space-between",gap:12}}><span>{m.nombre}</span><span style={{color:C.textMuted,fontWeight:800}}>× {m.cantidad}</span></div>)}</div></td>
             <td style={{...td,textAlign:"right",fontWeight:900,color:C.blue}}>{g.consumo>0?<><div>{g.consumo.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})} L/h</div><div style={{fontSize:9,color:C.textMuted,marginTop:3}}>{g.combustible.toLocaleString("es-AR",{maximumFractionDigits:1})} L ÷ {g.horas.toLocaleString("es-AR",{maximumFractionDigits:1})} h</div></>:"—"}</td>
             <td style={{...td,textAlign:"center"}}><input type="number" min="1" step="100" value={Math.round(g.vidaUtil)} onChange={e=>setVidaCategoria(g.categoria,e.target.value)} style={{width:120,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 8px",color:C.text,textAlign:"right",fontWeight:900}}/><div style={{fontSize:9,color:C.textMuted,marginTop:3}}>Lista: {Math.round(g.vidaDefault).toLocaleString("es-AR")} h</div></td>
-            <td style={{...td,textAlign:"right"}}>{g.costoAdquisicionPromedio>0?`USD ${g.costoAdquisicionPromedio.toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
+            <td style={{...td,minWidth:190}}>{g.equiposConPrecio.length?<AcquisitionCostSelector C={C} value={g.seleccionAdquisicion} onChange={value=>setAdquisicionCategoria(g.categoria,value)} averageCost={g.costoAdquisicionPromedio} equipmentOptions={g.equiposConPrecio}/>:"—"}</td>
             <td style={{...td,textAlign:"right",fontWeight:900,color:C.yellow}}>{g.amortizacion>0?`USD ${g.amortizacion.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
             <td style={{...td,textAlign:"right",fontWeight:900,color:C.purple}}>{g.mantenimiento>0?`USD ${g.mantenimiento.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
             <td style={{...td,textAlign:"right",fontWeight:950,color:C.green}}>{(g.amortizacion+g.mantenimiento)>0?`USD ${(g.amortizacion+g.mantenimiento).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>

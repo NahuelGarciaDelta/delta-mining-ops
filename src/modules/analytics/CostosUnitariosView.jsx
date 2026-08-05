@@ -1,14 +1,15 @@
 import React, {useState,useRef,useEffect,useMemo,useCallback} from "react";
 import ReactDOM from "react-dom";
 import * as XLSX from "xlsx";
+import { C as UI_C } from "../../components/ui/index.jsx";
 
-let C, Card, Icon, Spinner, Badge, StatCard, Table, SortableTH, Sel, MultiSel, DateIn, TabBtn, AlertBanner, HelpTip;
+let C=UI_C, Card, Icon, Spinner, Badge, StatCard, Table, SortableTH, Sel, MultiSel, DateIn, TabBtn, AlertBanner, HelpTip;
 let fmtNum, fmtFecha, fmtARS, fmtUSD, uniq, normDate, normalizeInsumoCode, normalizeInflatedMoneyValue, toMoneyNumber, getExactValue, getInsumoExtra, getValue, cleanKey, toNumber, multiIsAll, matchMulti, dmNormKey, canonicalEquivalentMachineCode, tipoEquipoCosto, esMaquinaCosto, excelFromCols, generarExcelCodigosSinPrecio;
 
 function BtnExcel({onClick}){return <button onClick={onClick} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.green}44`,background:C.greenDim,color:C.green,cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"Inter"}}>⬇ Excel</button>;}
 
 function applyDeps(deps={}){
-  ({C,Card,Icon,Spinner,Badge,StatCard,Table,SortableTH,Sel,MultiSel,DateIn,TabBtn,AlertBanner,HelpTip,fmtNum,fmtFecha,fmtARS,fmtUSD,uniq,normDate,normalizeInsumoCode,normalizeInflatedMoneyValue,toMoneyNumber,getExactValue,getInsumoExtra,getValue,cleanKey,toNumber,multiIsAll,matchMulti,dmNormKey,canonicalEquivalentMachineCode,tipoEquipoCosto,esMaquinaCosto,excelFromCols,generarExcelCodigosSinPrecio}=deps);
+  ({C:C=UI_C,Card,Icon,Spinner,Badge,StatCard,Table,SortableTH,Sel,MultiSel,DateIn,TabBtn,AlertBanner,HelpTip,fmtNum,fmtFecha,fmtARS,fmtUSD,uniq,normDate,normalizeInsumoCode,normalizeInflatedMoneyValue,toMoneyNumber,getExactValue,getInsumoExtra,getValue,cleanKey,toNumber,multiIsAll,matchMulti,dmNormKey,canonicalEquivalentMachineCode,tipoEquipoCosto,esMaquinaCosto,excelFromCols,generarExcelCodigosSinPrecio}=deps);
 }
 function ParamInput({value,set,style}){
   const[local,setLocal]=React.useState(String(value??''));
