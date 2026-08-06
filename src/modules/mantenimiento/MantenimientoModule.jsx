@@ -826,7 +826,7 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
         <Card title={`Gastos excesivos por máquina (${gastosExcesivosFiltrados.length} ítems)`} action={
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
             <span style={{fontSize:11,color:C.textMuted}}>Top 5 insumos agrupados por código y máquina según el filtro aplicado</span>
-            <CodeMultiSearch value={codigoGastoFiltro} onChange={setCodigoGastoFiltro} options={[{value:"todos",label:"Todos"},...codigosGastosExcesivos]}/>
+            <MultiSel label="Código" value={codigoGastoFiltro} onChange={setCodigoGastoFiltro} options={[{value:"todos",label:"Todos"},...codigosGastosExcesivos]}/>
           </div>
         }>
           <div data-gastos-wrap="true" style={{position:"relative"}}>

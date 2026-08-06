@@ -1,0 +1,10 @@
+Corrección aplicada en src/modules/analytics/CostosUnitariosView.jsx
+
+Causa:
+CodeMultiSearch renderizaba el componente <Icon name="chevronDown" />, pero Icon podía llegar undefined en las dependencias de la vista. React intentaba renderizar un componente inexistente y cerraba Gastos excesivos.
+
+Solución:
+Se reemplazó esa dependencia por un indicador visual nativo (▼) con rotación mediante CSS. CodeMultiSearch ya no depende de Icon para abrirse.
+
+Validación:
+npm run validate -> OK (53 archivos JS/JSX e imports locales resueltos).

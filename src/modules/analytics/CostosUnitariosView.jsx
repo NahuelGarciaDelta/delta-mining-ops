@@ -367,7 +367,7 @@ function CodeMultiSearch({value,onChange,options,label="Código"}){
     <div ref={ref} style={{position:"relative",minWidth:230}}>
       <button ref={btnRef} type="button" onClick={()=>{if(open){setOpen(false);return;}const next=updatePos();if(next)setOpen(true);}} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:C.surface,border:`1px solid ${isAll?C.border:C.blue+"88"}`,borderRadius:8,color:isAll?C.textSub:C.blue,padding:"8px 10px",fontSize:12,fontWeight:700,fontFamily:"Inter",cursor:"pointer"}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}: {selectedText}</span>
-        <Icon name="chevronDown" size={14} color={isAll?C.textMuted:C.blue}/>
+        <span aria-hidden="true" style={{fontSize:12,lineHeight:1,color:isAll?C.textMuted:C.blue,transform:open?"rotate(180deg)":"rotate(0deg)",transition:"transform .16s ease",flex:"0 0 auto"}}>▼</span>
       </button>
       {menu}
     </div>
