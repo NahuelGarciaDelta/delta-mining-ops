@@ -1493,6 +1493,20 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   // Indica si un equipo es propiedad de DELTA (comparación estricta normalizada).
   const esDelta=React.useCallback((maquina)=>esEquipoPropioDelta(propiedadEquipo(maquina)),[propiedadEquipo]);
 
+  const getCostoAdqAlquilerEquipo=React.useCallback((maquina)=>{
+    const costoInfo=getCostoHorarioAmortizacionOAlquiler({
+      propiedad:propiedadEquipo(maquina),
+      costoAdquisicion:getCostoLocalUSDEquipo(maquina),
+      vidaUtil:1,
+      tarifaMensual:getTarifaAlquilerEquipo(maquina),
+      horasMensuales:1,
+    });
+    // Esta columna muestra la base económica: adquisición para equipos Delta
+    // y tarifa mensual para equipos alquilados. El costo horario se calcula
+    // exclusivamente en getCostoHorarioAmortizacionOAlquiler.
+    return Number(costoInfo.base)||0;
+  },[propiedadEquipo,getCostoLocalUSDEquipo,getTarifaAlquilerEquipo]);
+
   const getHorasMensualesEquipo=React.useCallback((maquina)=>{
     const eq=getEquipoListaMaestra(maquina);
     if(!eq)return 200;

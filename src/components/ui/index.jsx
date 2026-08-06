@@ -62,25 +62,129 @@ export function Icon({name,size=18,color="currentColor",style}){
 export function LoadingMotoniveladora({size=72,label=""}){return <div style={{display:"inline-flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}><img src="/loader.gif" alt="Cargando" style={{width:size,height:"auto",maxWidth:"82vw",maxHeight:"58vh",objectFit:"contain",display:"block"}}/>{label?<div style={{color:C.text,fontSize:13,fontWeight:900,textAlign:"center"}}>{label}</div>:null}</div>;}
 export function Spinner({size=24}){return <LoadingMotoniveladora size={Math.max(28,size)}/>;}
 export function Badge({children,color=C.accent}){return<span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:600,color,background:color+"22",border:`1px solid ${color}33`}}>{children}</span>;}
-export function StatCard({icon,value,label,sub,color=C.accent,valueColor,small}){
-  const valCol=valueColor||color;
+const CARD_HELP_EXACT={
+  "Cobertura con base":"Porcentaje de equipos activos que tienen cargados el último PM y el intervalo necesario para calcular su estado. Una cobertura baja indica que faltan datos en Configuración.",
+  "Cumplimiento PM del mes":"Porcentaje de mantenimientos programados del mes que fueron realizados dentro del período seleccionado. Un valor alto indica mejor cumplimiento del plan preventivo.",
+  "Atraso promedio":"Promedio de horas de atraso de los equipos que ya superaron su próximo PM. No incluye equipos al día ni próximos.",
+  "Atraso máximo":"Mayor cantidad de horas de atraso registrada entre los equipos filtrados. Permite identificar la situación más crítica.",
+  "Disponibilidad repuestos":"Porcentaje de repuestos configurados cuya existencia actual alcanza la cantidad mínima requerida para realizar el PM.",
+  "Alertas activas":"Cantidad de situaciones críticas o de alta prioridad detectadas con los filtros actuales, incluyendo PM atrasados, urgentes y programaciones vencidas.",
+  "PM programados":"Cantidad de mantenimientos que ya tienen fecha y asignación registradas y todavía no fueron cerrados como realizados.",
+  "PM atrasados":"Equipos que superaron el límite de horas definido para ejecutar el mantenimiento programado.",
+  "PM urgentes":"Equipos que alcanzaron el intervalo objetivo o están muy cerca del límite de atraso y requieren programación prioritaria.",
+  "PM próximos":"Equipos que ingresaron al umbral de aviso, pero todavía no alcanzaron el intervalo objetivo.",
+  "Equipos al día":"Equipos con información base válida y horas desde el último PM por debajo del umbral de aviso.",
+  "Equipos activos en el período":"Cantidad de equipos que registraron actividad ROP02 dentro del período y filtros seleccionados.",
+  "PM realizados en el mes":"Cantidad de mantenimientos programados registrados como realizados en el mes seleccionado.",
+  "Promedio de horas entre PM":"Promedio de horas transcurridas entre mantenimientos programados consecutivos registrados.",
+  "Estado de PM":"Distribución de los equipos según su situación actual: al día, próximo, urgente, atrasado o sin base.",
+  "PM por proyecto":"Distribución de equipos con seguimiento de mantenimiento programado agrupados por proyecto.",
+  "Horas desde el último PM por equipo":"Compara las horas acumuladas desde el último mantenimiento programado de cada equipo.",
+  "PM previstos para el próximo turno":"Equipos que podrían alcanzar el intervalo de PM durante el próximo turno según su uso proyectado.",
+  "Alertas automáticas":"Listado de situaciones que requieren atención, ordenadas por severidad para facilitar la toma de decisiones.",
+  "Planificador semanal de PM":"Organiza los mantenimientos previstos por fecha estimada, prioridad, proyecto y disponibilidad de recursos.",
+  "Repuestos mínimos por PM":"Permite definir la cantidad mínima necesaria de cada repuesto y compararla con el stock disponible.",
+  "Exportación profesional":"Genera una salida del análisis filtrado para Excel o PDF, respetando el período y los filtros activos.",
+  "Estado de mantenimiento programado":"Detalle por equipo del horómetro actual, último PM, horas acumuladas, próximo PM y estado calculado.",
+  "Historial completo por equipo":"Resume la situación actual y todos los mantenimientos programados registrados para el equipo seleccionado.",
+  "Distribución de mantenimientos":"Muestra cómo se distribuyen los mantenimientos registrados según fecha, tipo, proyecto o equipo.",
+  "Costo total USD":"Suma de los costos de mantenimiento convertidos o registrados en dólares dentro de los filtros aplicados.",
+  "Costo total ARS":"Suma de los costos de mantenimiento registrados en pesos dentro de los filtros aplicados.",
+  "Total OTs":"Cantidad total de órdenes de trabajo incluidas en el período y filtros seleccionados.",
+  "Preventivos":"Cantidad de órdenes de trabajo clasificadas como mantenimiento preventivo.",
+  "Correctivos":"Cantidad de órdenes de trabajo clasificadas como mantenimiento correctivo.",
+  "Ratio C/P":"Relación entre mantenimientos correctivos y preventivos. Un valor alto puede indicar menor efectividad preventiva.",
+  "Días entre mantenimientos":"Promedio de días transcurridos entre intervenciones registradas para los equipos analizados.",
+  "Lista Maestra de Equipos":"Base central con identificación, características, propiedad, costos y parámetros técnicos de cada equipo.",
+  "Resumen por equipo":"Consolida los principales resultados, horas y costos calculados para cada equipo.",
+  "Mano de Obra":"Detalle de costos y horas de personal utilizados en los cálculos del informe.",
+  "Costos unitarios":"Presenta costos por unidad de producción para comparar tareas, equipos o períodos.",
+  "Estado de fuentes":"Indica qué fuentes de datos fueron cargadas correctamente y cuáles presentan errores o faltantes.",
+  "Próximo cambio":"Muestra la próxima fecha de cambio de turno y los grupos involucrados.",
+  "Grupo trabajando hoy":"Identifica el grupo o supervisores asignados al turno vigente según la configuración de cambio de turno.",
+  "Calendario de cambios de turno":"Visualiza la secuencia de grupos entrantes y salientes durante el período seleccionado."
+};
+
+function cleanCardTitle(value){
+  return String(value??"")
+    .replace(/\([^)]*\)/g," ")
+    .replace(/\$\{[^}]+\}/g," ")
+    .replace(/[—–-]\s*\d.*$/," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+export function getCardHelpText(title){
+  const raw=cleanCardTitle(title);
+  if(!raw)return "Esta tarjeta resume información calculada con los datos y filtros actualmente seleccionados.";
+  if(CARD_HELP_EXACT[raw])return CARD_HELP_EXACT[raw];
+  const t=raw.toLowerCase();
+  if(t.includes("cumplimiento"))return `Indica el nivel de cumplimiento de ${raw.replace(/cumplimiento/ig,"").trim()||"la condición evaluada"} según los datos y filtros seleccionados.`;
+  if(t.includes("costo")||t.includes("gasto"))return `Muestra ${raw.toLowerCase()} calculado con los registros incluidos en el período y filtros activos.`;
+  if(t.includes("hora")||t.includes("horómetro")||t.includes("horometro"))return `Resume ${raw.toLowerCase()} utilizando los registros válidos disponibles para el período seleccionado.`;
+  if(t.includes("equipo")||t.includes("máquina")||t.includes("maquina")||t.includes("vehículo")||t.includes("vehiculo"))return `Muestra ${raw.toLowerCase()} dentro del alcance definido por los filtros actuales.`;
+  if(t.includes("distribución")||t.includes("por proyecto")||t.includes("por tipo")||t.includes("ranking")||t.includes("top "))return `Compara ${raw.toLowerCase()} para identificar concentración, diferencias y elementos destacados.`;
+  if(t.includes("alerta")||t.includes("error")||t.includes("problema")||t.includes("inconsistencia")||t.includes("sin "))return `Señala ${raw.toLowerCase()} que requieren revisión. El contenido responde a los datos y filtros actuales.`;
+  if(t.includes("registro")||t.includes("historial")||t.includes("orden")||t.includes("ot"))return `Presenta ${raw.toLowerCase()} incluidos en el período y filtros seleccionados.`;
+  if(t.includes("producción")||t.includes("productiv"))return `Resume ${raw.toLowerCase()} a partir de los partes y registros de producción disponibles.`;
+  if(t.includes("combustible")||t.includes("litros")||t.includes("consumo"))return `Resume ${raw.toLowerCase()} según las cargas y horas registradas en el período seleccionado.`;
+  if(t.includes("stock")||t.includes("artículo")||t.includes("articulo")||t.includes("insumo")||t.includes("repuesto"))return `Muestra ${raw.toLowerCase()} para controlar disponibilidad, consumo y necesidades de reposición.`;
+  return `Esta tarjeta muestra ${raw.toLowerCase()} calculado con los datos disponibles y los filtros actualmente aplicados.`;
+}
+
+export function HelpTip({text,ariaLabel="Ayuda"}){
+  const[open,setOpen]=useState(false);
+  const[anchor,setAnchor]=useState(null);
+  const ref=useRef(null);
+  const show=()=>{
+    if(ref.current)setAnchor(ref.current.getBoundingClientRect());
+    setOpen(true);
+  };
+  const hide=()=>setOpen(false);
+  const W=300;
+  let left=anchor?anchor.left+anchor.width/2-W/2:12;
+  left=Math.max(12,Math.min(left,typeof window!=="undefined"?window.innerWidth-W-12:left));
+  let top=anchor?anchor.bottom+9:12;
+  const estimatedH=110;
+  if(anchor&&typeof window!=="undefined"&&top+estimatedH>window.innerHeight-12)top=Math.max(12,anchor.top-estimatedH-9);
   return(
-    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:small?"12px 14px":"16px 18px",display:"flex",flexDirection:"column",gap:5,position:"relative",overflow:"hidden",boxShadow:`0 0 24px ${color}0d`}}>
-      <div style={{position:"absolute",top:-8,right:-8,width:56,height:56,background:color+"15",borderRadius:"50%"}}/>
-      <div style={{display:"flex",alignItems:"center",gap:7}}>
+    <span ref={ref} tabIndex={0} role="button" aria-label={ariaLabel}
+      onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}
+      style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:18,height:18,borderRadius:"50%",background:"#171717",border:"1px solid #343434",color:"#a1a1a1",fontSize:11,fontWeight:900,cursor:"help",userSelect:"none",flex:"0 0 auto",outline:"none"}}>
+      ?
+      {open&&anchor&&ReactDOM.createPortal(
+        <div role="tooltip" style={{position:"fixed",left,top,zIndex:2147483647,width:W,maxWidth:"calc(100vw - 24px)",padding:"11px 13px",background:"rgba(23,23,23,.98)",border:"1px solid #3a3a3a",borderRadius:7,boxShadow:"0 12px 34px rgba(0,0,0,.58)",fontSize:11,lineHeight:1.5,fontWeight:400,color:"#a9a9a9",whiteSpace:"normal",pointerEvents:"none",textAlign:"left"}}>{text}</div>,
+        document.body
+      )}
+    </span>
+  );
+}
+
+export function StatCard({icon,value,label,sub,color=C.accent,valueColor,small,tooltip}){
+  const valCol=valueColor||color;
+  const help=tooltip||getCardHelpText(label);
+  return(
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:small?"12px 14px":"16px 18px",display:"flex",flexDirection:"column",gap:5,position:"relative",overflow:"visible",boxShadow:`0 0 24px ${color}0d`}}>
+      <div style={{position:"absolute",top:-8,right:-8,width:56,height:56,background:color+"15",borderRadius:"50%",pointerEvents:"none"}}/>
+      <div style={{display:"flex",alignItems:"center",gap:7,position:"relative",zIndex:1}}>
         <div style={{background:color+"20",borderRadius:7,padding:5,display:"flex"}}><Icon name={icon} size={14} color={color}/></div>
         <span style={{fontSize:12,color:C.textSub,fontWeight:600}}>{label}</span>
+        <HelpTip text={help} ariaLabel={`Ayuda: ${label}`}/>
       </div>
-      <div style={{fontFamily:"Inter,sans-serif",fontSize:small?26:34,fontWeight:800,color:valCol,lineHeight:1,letterSpacing:"-0.02em"}}>{value}</div>
-      {sub&&<div style={{fontSize:11,color:C.textMuted}}>{sub}</div>}
+      <div style={{fontFamily:"Inter,sans-serif",fontSize:small?26:34,fontWeight:800,color:valCol,lineHeight:1,letterSpacing:"-0.02em",position:"relative",zIndex:1}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:C.textMuted,position:"relative",zIndex:1}}>{sub}</div>}
     </div>
   );
 }
-export function Card({children,style,title,action}){
+export function Card({children,style,title,action,tooltip,hideHelp=false}){
+  const help=tooltip||getCardHelpText(title);
   return(
     <div style={{background:"rgba(28,28,28,0.82)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",border:`1px solid ${C.border}55`,borderRadius:12,overflow:"visible",...style}}>
       {title&&<div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
-        <span style={{fontFamily:"Inter",fontWeight:700,fontSize:13,color:C.text}}>{title}</span>
+        <span style={{fontFamily:"Inter",fontWeight:700,fontSize:13,color:C.text,display:"inline-flex",alignItems:"center",gap:7}}>
+          <span>{title}</span>
+          {!hideHelp?<HelpTip text={help} ariaLabel={`Ayuda: ${cleanCardTitle(title)}`}/>:null}
+        </span>
         {action}
       </div>}
       {children}
@@ -664,50 +768,5 @@ export function AlertBanner({type="warn",children}){
   const m={warn:[C.yellow,C.yellowDim],error:[C.red,C.redDim],success:[C.green,C.greenDim],info:[C.blue,C.blueDim]};
   const[col,bg]=m[type]||m.warn;
   return<div style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 14px",background:bg,border:`1px solid ${col}44`,borderRadius:9,fontSize:12,color:C.text}}><Icon name="warn" size={14} color={col} style={{flexShrink:0,marginTop:1}}/><span>{children}</span></div>;
-}
-// ─── HelpTip ──────────────────────────────────────────────────────────────────
-// Ícono "?" con tooltip explicativo, para desambiguar siglas (ROP02, ROP05,
-// RMA15, ICHC, TD/TN, etc.) a usuarios nuevos sin necesidad de manual.
-export function HelpTip({text}){
-  const[open,setOpen]=useState(false);
-  const[pos,setPos]=useState({x:0,y:0});
-  const W=300;
-  const H=150;
-  const move=e=>setPos({x:e.clientX,y:e.clientY});
-  const left=Math.max(12,Math.min((pos.x||0)+12,window.innerWidth-W-12));
-  const top=Math.max(12,Math.min((pos.y||0)+12,window.innerHeight-H-12));
-
-  return(
-    <span style={{position:"relative",display:"inline-flex",alignItems:"center"}}
-      onMouseEnter={e=>{setOpen(true);move(e);}}
-      onMouseMove={move}
-      onMouseLeave={()=>setOpen(false)}>
-      <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:16,height:16,borderRadius:"50%",background:C.surface,border:`1px solid ${C.border}`,color:C.textMuted,fontSize:10,fontWeight:700,cursor:"help",userSelect:"none"}}>?</span>
-      {open&&ReactDOM.createPortal(
-        <div style={{
-          position:"fixed",
-          left,
-          top,
-          zIndex:2147483647,
-          width:W,
-          maxWidth:"calc(100vw - 24px)",
-          padding:"10px 12px",
-          background:C.card,
-          border:`1px solid ${C.border}`,
-          borderRadius:8,
-          boxShadow:"0 12px 36px rgba(0,0,0,0.65)",
-          fontSize:11,
-          fontWeight:400,
-          lineHeight:1.5,
-          color:C.textSub,
-          whiteSpace:"normal",
-          pointerEvents:"none"
-        }}>
-          {text}
-        </div>,
-        document.body
-      )}
-    </span>
-  );
 }
 // ─── Fetch Google Apps Script: carga liviana y bajo demanda ──────────────────

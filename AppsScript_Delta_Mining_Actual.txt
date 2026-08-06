@@ -317,6 +317,12 @@ function doPost(e) {
     if (action === "registrar_pm_realizado") {
       return buildResponse(handleRegistrarPMRealizado_(payload.registro || {}));
     }
+    if (action === "save_pm_programacion") {
+      return buildResponse(handleSavePMProgramacion_(payload.programacion || {}));
+    }
+    if (action === "save_pm_repuesto") {
+      return buildResponse(handleSavePMRepuesto_(payload.repuesto || {}));
+    }
 
     return buildResponse({
       ok: false,
@@ -3597,6 +3603,14 @@ function getPMDatabase_() {
       "ID_PM", "INTERNO", "EQUIPO", "PROYECTO", "FECHA", "HOROMETRO",
       "TIPO_PM", "TECNICO", "N_OT", "OBSERVACIONES", "ESTADO",
       "USUARIO_CARGA", "FECHA_CARGA"
+    ],
+    PM_PROGRAMACION: [
+      "ID", "INTERNO", "EQUIPO", "PROYECTO", "FECHA", "TURNO", "TECNICO",
+      "DURACION_HS", "UBICACION", "OBSERVACIONES", "ESTADO", "USUARIO", "FECHA_MODIFICACION"
+    ],
+    PM_REPUESTOS: [
+      "ID", "CODIGO", "DESCRIPCION", "TIPO_PM", "CANTIDAD_MINIMA", "STOCK_ACTUAL",
+      "PROYECTO", "OBSERVACIONES", "USUARIO", "FECHA_MODIFICACION"
     ]
   };
   var out = {};
@@ -3696,6 +3710,12 @@ function handleGetMantenimientoProgramado_() {
   var db = getPMDatabase_();
   var config = pmReadRows_(db.PM_CONFIG).map(pmConfigToClient_);
   var registros = pmReadRows_(db.PM_REGISTROS).map(pmRegistroToClient_);
+  var programaciones = pmReadRows_(db.PM_PROGRAMACION).map(function(row) {
+    return { id:String(row.ID||""), interno:String(row.INTERNO||""), equipo:String(row.EQUIPO||""), proyecto:String(row.PROYECTO||""), fecha:String(row.FECHA||"").slice(0,10), turno:String(row.TURNO||"TURNO DIA"), tecnico:String(row.TECNICO||""), duracionHs:Number(row.DURACION_HS||0), ubicacion:String(row.UBICACION||""), observaciones:String(row.OBSERVACIONES||""), estado:String(row.ESTADO||"PROGRAMADO") };
+  });
+  var repuestos = pmReadRows_(db.PM_REPUESTOS).map(function(row) {
+    return { id:String(row.ID||""), codigo:String(row.CODIGO||""), descripcion:String(row.DESCRIPCION||""), tipoPM:String(row.TIPO_PM||"PM 250"), cantidadMinima:Number(row.CANTIDAD_MINIMA||0), stockActual:Number(row.STOCK_ACTUAL||0), proyecto:String(row.PROYECTO||"TODOS"), observaciones:String(row.OBSERVACIONES||"") };
+  });
   registros.sort(function(a, b) {
     return String(b.fecha || "").localeCompare(String(a.fecha || "")) || Number(b.horometro || 0) - Number(a.horometro || 0);
   });
@@ -3704,6 +3724,8 @@ function handleGetMantenimientoProgramado_() {
     action: "mantenimiento_programado",
     config: config,
     registros: registros,
+    programaciones: programaciones,
+    repuestos: repuestos,
     defaults: { intervalo: 250, alertaDesde: 200, atrasadoDesde: 350 },
     spreadsheetId: PM_DB_ID_,
     fetchedAt: new Date().toISOString()
@@ -4227,4 +4249,32 @@ function diagnosticoActualizacionAutomaticaPM() {
       catch (e) { return []; }
     })()
   };
+}
+
+
+function pmUpsertGeneric_(target, id, data, fieldMap) {
+  var idIdx = pmIndex_(target.headers, "ID");
+  var rowNum = -1;
+  if (idIdx >= 0 && target.sheet.getLastRow() > 1) {
+    var ids = target.sheet.getRange(2, idIdx + 1, target.sheet.getLastRow() - 1, 1).getDisplayValues();
+    for (var i = 0; i < ids.length; i++) if (String(ids[i][0] || "") === id) { rowNum = i + 2; break; }
+  }
+  var row = rowNum > 0 ? target.sheet.getRange(rowNum,1,1,target.headers.length).getValues()[0] : new Array(target.headers.length).fill("");
+  Object.keys(fieldMap).forEach(function(header){ var idx=pmIndex_(target.headers,header); if(idx>=0) row[idx]=fieldMap[header](data); });
+  var u=pmIndex_(target.headers,"USUARIO"); if(u>=0) row[u]=pmUser_();
+  var f=pmIndex_(target.headers,"FECHA_MODIFICACION"); if(f>=0) row[f]=new Date();
+  if(rowNum>0) target.sheet.getRange(rowNum,1,1,row.length).setValues([row]); else { rowNum=Math.max(2,target.sheet.getLastRow()+1); target.sheet.getRange(rowNum,1,1,row.length).setValues([row]); }
+  return rowNum;
+}
+function handleSavePMProgramacion_(p) {
+  p=p||{}; if(!String(p.interno||"").trim()||!String(p.fecha||"").trim()) return {ok:false,error:{code:"PM_PROGRAMACION_INVALID",message:"Falta equipo o fecha."}};
+  var id=String(p.id||("PROG-"+new Date().getTime())); var db=getPMDatabase_();
+  var row=pmUpsertGeneric_(db.PM_PROGRAMACION,id,p,{"ID":function(){return id;},"INTERNO":function(x){return x.interno||"";},"EQUIPO":function(x){return x.equipo||"";},"PROYECTO":function(x){return x.proyecto||"";},"FECHA":function(x){return parseDateRABA03_(x.fecha);},"TURNO":function(x){return x.turno||"TURNO DIA";},"TECNICO":function(x){return x.tecnico||"";},"DURACION_HS":function(x){return Number(x.duracionHs||0);},"UBICACION":function(x){return x.ubicacion||"";},"OBSERVACIONES":function(x){return x.observaciones||"";},"ESTADO":function(x){return x.estado||"PROGRAMADO";}});
+  SpreadsheetApp.flush(); return {ok:true,id:id,rowNumber:row,message:"Programación PM guardada."};
+}
+function handleSavePMRepuesto_(r) {
+  r=r||{}; if(!String(r.codigo||"").trim()||!String(r.descripcion||"").trim()) return {ok:false,error:{code:"PM_REPUESTO_INVALID",message:"Falta código o descripción."}};
+  var id=String(r.id||("REP-"+new Date().getTime())); var db=getPMDatabase_();
+  var row=pmUpsertGeneric_(db.PM_REPUESTOS,id,r,{"ID":function(){return id;},"CODIGO":function(x){return x.codigo||"";},"DESCRIPCION":function(x){return x.descripcion||"";},"TIPO_PM":function(x){return x.tipoPM||"PM 250";},"CANTIDAD_MINIMA":function(x){return Number(x.cantidadMinima||0);},"STOCK_ACTUAL":function(x){return Number(x.stockActual||0);},"PROYECTO":function(x){return x.proyecto||"TODOS";},"OBSERVACIONES":function(x){return x.observaciones||"";}});
+  SpreadsheetApp.flush(); return {ok:true,id:id,rowNumber:row,message:"Repuesto PM guardado."};
 }
