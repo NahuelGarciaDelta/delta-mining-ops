@@ -267,6 +267,16 @@ function InsumoSearch({value,onChange,opciones}){
 
 
 function CodeMultiSearch({value,onChange,options,label="Código"}){
+  // Este componente se reutiliza fuera de Costos Unitarios (por ejemplo, en
+  // Mantenimiento → Gastos excesivos). Debe ser autocontenido y no depender
+  // de applyDeps(), que solo se ejecuta cuando se monta ViewCostosUnitarios.
+  const normalizeSearchText=useCallback((input)=>String(input??"")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g," ")
+    .replace(/\s+/g," ")
+    .trim(),[]);
   const[open,setOpen]=useState(false);
   const[search,setSearch]=useState("");
   const[pos,setPos]=useState({top:0,left:0,width:310,ready:false});
@@ -276,10 +286,10 @@ function CodeMultiSearch({value,onChange,options,label="Código"}){
   const isAll=!Array.isArray(value)||selected.length===0||value==="todos";
   const realOptions=(options||[]).filter(o=>o.value!=="todos");
   const filteredOptions=useMemo(()=>{
-    const q=cleanKey(search);
+    const q=normalizeSearchText(search);
     if(!q)return realOptions;
-    return realOptions.filter(o=>cleanKey(o.value).includes(q)||cleanKey(o.label).includes(q));
-  },[realOptions,search]);
+    return realOptions.filter(o=>normalizeSearchText(o.value).includes(q)||normalizeSearchText(o.label).includes(q));
+  },[realOptions,search,normalizeSearchText]);
 
   const updatePos=useCallback(()=>{
     const el=btnRef.current;
