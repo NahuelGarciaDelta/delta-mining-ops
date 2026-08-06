@@ -2345,7 +2345,7 @@ function rop05YearOptions(rows){
     const y=Number(f.slice(0,4));
     if(Number.isFinite(y)&&y>2000){years.add(y);years.add(y-1);}
   });
-  years.add(new Date().getFullYear());
+  [2026,2027,2028].forEach(y=>years.add(y));
   return Array.from(years).sort((a,b)=>b-a).map(y=>({value:String(y),label:String(y)}));
 }
 function rop05Between(row,desde,hasta){
@@ -3594,7 +3594,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     return{fechaD,fechaH,label:`01/${mes}/${y} → ${String(ultimoDia).padStart(2,"0")}/${mes}/${y}`};
   },[año,mesIdx]);
   const años=useMemo(()=>{
-    const ys=new Set([String(hoy.getFullYear())]);
+    const ys=new Set(["2026","2027","2028"]);
     rop02ControlRows.forEach(r=>{if(r.fecha)ys.add(r.fecha.slice(0,4));});
     return[...ys].sort();
   },[rop02ControlRows]);
@@ -3737,7 +3737,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   },[año,mesIdx]);
 
   const años=useMemo(()=>{
-    const ys=new Set([String(hoy.getFullYear())]);
+    const ys=new Set(["2026","2027","2028"]);
     rop02ControlRows.forEach(r=>{if(r.fecha)ys.add(r.fecha.slice(0,4));});
     return [...ys].sort();
   },[rop02ControlRows]);
@@ -4074,7 +4074,7 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
   },[año,mesIdx]);
 
   const años=useMemo(()=>{
-    const ys=new Set([String(hoy.getFullYear())]);
+    const ys=new Set(["2026","2027","2028"]);
     (rma15||[]).forEach(r=>{if(r.fecha)ys.add(String(r.fecha).slice(0,4));});
     return [...ys].sort();
   },[rma15]);
@@ -5162,7 +5162,7 @@ function ViewCHC({rop02All,extState,setExtState}){
 
   // Años disponibles a partir de los datos
   const años=useMemo(()=>{
-    const ys=new Set(["2025","2026"]); // años mínimos garantizados
+    const ys=new Set(["2025","2026","2027","2028"]); // años mínimos garantizados
     rop02All.forEach(r=>{if(r.fecha)ys.add(r.fecha.slice(0,4));});
     return [...ys].sort();
   },[rop02All]);

@@ -222,6 +222,7 @@ export default function App(){
       control:"OFICINA TÉCNICA",
       mant:"MANTENIMIENTO",
       distMant:"MANTENIMIENTO",
+      pmProgramado:"MANTENIMIENTO",
       rma15CtrlEquipo:"MANTENIMIENTO",
       costosMant:"MANTENIMIENTO",
       costosUnitarios:"MANTENIMIENTO",
@@ -750,19 +751,27 @@ export default function App(){
     };
   },[view,loadSources,loadInitial]);
 
-  // ─── Auto-refresh: recarga los datos del sheet cada 15 minutos ──────────────
+  // ─── Auto-refresh global: recarga la vista activa cada 5 minutos ─────────────
   // Llama a loadData (mismo comportamiento que el botón "Actualizar", con force)
   // para las fuentes de la vista actual. Si la pestaña del navegador está oculta,
   // no refresca (para no gastar cuota del Apps Script); al volver a la pestaña,
-  // refresca automáticamente si pasaron más de 15 minutos desde la última carga.
+  // refresca automáticamente si pasaron más de 5 minutos desde la última carga.
   const lastAutoRefreshRef=useRef(Date.now());
   useEffect(()=>{
     if(view==="bienvenida")return;
     const AUTO_REFRESH_MS=5*60*1000; // 5 minutos
 
     const doRefresh=()=>{
-      lastAutoRefreshRef.current=Date.now();
-      loadSources(VIEW_SOURCES[view]||[]);
+      const refreshedAt=Date.now();
+      lastAutoRefreshRef.current=refreshedAt;
+      // Fuerza la lectura de las fuentes de la vista actual, igual que el botón
+      // Actualizar, y avisa a los módulos que usan endpoints propios (PM, etc.).
+      loadSources(VIEW_SOURCES[view]||[],{force:true,background:true});
+      try{
+        window.dispatchEvent(new CustomEvent("delta-mining:auto-refresh",{
+          detail:{view,refreshedAt,intervalMs:AUTO_REFRESH_MS}
+        }));
+      }catch(_){ }
     };
 
     const id=setInterval(()=>{
@@ -844,7 +853,7 @@ export default function App(){
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",pmProgramado:"Mantenimiento Programado",pmDashboard:"Mantenimiento Programado — Dashboard",pmPanel:"Mantenimiento Programado — Panel",pmRealizado:"Mantenimiento Programado — Registro realizado",pmConfig:"Mantenimiento Programado — Configuración",pmHistorial:"Mantenimiento Programado — Historial",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
   const titleHelp={
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
@@ -860,6 +869,7 @@ export default function App(){
     chc:"ICHC = Indicador de Control de Horas Contratadas: compara las horas efectivamente trabajadas contra las horas pactadas por contrato (180 hs/mes por equipo).",
     mant:"RMA15 = Registro de Mantenimiento: órdenes de trabajo (OT), insumos y costos de mantenimiento de cada equipo.",
     distMant:"Calendario mensual de mantenimientos preventivos y correctivos por equipo. Incluye KPI de correctivos realizados pocos días después de un preventivo.",
+    pmProgramado:"Controla el ciclo de mantenimiento programado por horómetro, con alerta de PM próximo desde 200 hs y PM atrasado después de 350 hs.",
     rma15CtrlEquipo:"Ficha por equipo de RMA15: muestra día por turno el tipo de mantenimiento, km/hs, reparación, estado operativo, observaciones e insumos utilizados.",
     costosMant:"Resume los costos de mantenimiento, mano de obra y amortización. Permite analizar costos mensuales acumulados y obtener costos por hora en USD por equipo.",
     costosUnitarios:"Listado de artículos de la Base de datos costos: código, artículo y precio unitario usado para valorizar insumos de mantenimiento.",
@@ -918,6 +928,13 @@ export default function App(){
           {id:"rma15CtrlEquipo",icon:"hardHat",label:"Control por Equipo"},
           {id:"costosMant",icon:"fileBarChart",label:"Informe de Costos"},
           {id:"costosUnitarios",icon:"badgeDollarSign",label:"Costos Unitarios",badge:costosUnitariosBadge>0?costosUnitariosBadge:null},
+        ]},
+        {id:"grp_pm_programado",icon:"hours",label:"Mantenimiento Programado",type:"group",color:C.accent,children:[
+          {id:"pmDashboard",icon:"dashboard",label:"Dashboard"},
+          {id:"pmPanel",icon:"clipboardCheck",label:"Panel"},
+          {id:"pmRealizado",icon:"check",label:"Registro realizado"},
+          {id:"pmConfig",icon:"gear",label:"Configuración"},
+          {id:"pmHistorial",icon:"clipboardList",label:"Historial"},
         ]},
       ];
     }
@@ -1144,6 +1161,7 @@ export default function App(){
                 {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ViewRankingOperarios deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>:<BlockingDataLoader label="Cargando Ranking..." />)}
                 {view==="mant"&&(viewDataReady?<MantenimientoRoute mode="mantenimiento" deps={MANTENIMIENTO_DEPS} rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
                 {view==="distMant"&&(dataHydrated&&rma15.length>0?<MantenimientoRoute mode="distribucion" deps={MANTENIMIENTO_DEPS} rma15={rma15}/>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
+                {["pmProgramado","pmDashboard","pmPanel","pmRealizado","pmConfig","pmHistorial"].includes(view)&&(dataHydrated&&listaEquipos.length>0?<MantenimientoRoute mode="programado" deps={MANTENIMIENTO_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} initialTab={({pmProgramado:"dashboard",pmDashboard:"dashboard",pmPanel:"panel",pmRealizado:"realizado",pmConfig:"config",pmHistorial:"historial"})[view]} onTabChange={tab=>navigateToView(({dashboard:"pmDashboard",panel:"pmPanel",realizado:"pmRealizado",config:"pmConfig",historial:"pmHistorial"})[tab]||"pmDashboard")}/>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
                 {view==="costosMant"&&(dataHydrated&&rma15.length>0?<InformeCostosRoute rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate} deps={INFORME_COSTOS_DEPS}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios deps={COSTOS_UNITARIOS_DEPS} insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<AbastecimientoRoute deps={ABASTECIMIENTO_DEPS} readOnly={!dmCanEditArea("ABASTECIMIENTO")} assignedProject={proyectoUsuario} initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoEnviosSinSolicitud:"enviosSinSolicitud",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/>) }

@@ -110,8 +110,8 @@ const AmortRow=React.memo(function AmortRow({x,i,useListaVidaUtil,vidaUtilOverri
 
   // Recalcular amortización en tiempo real con el override actual del estado
   // (x.amort viene del useMemo que solo se actualiza en onBlur, esto se actualiza en cada render)
-  const vidaEfectiva=x._esDelta?(usaLista?vidaLM:(override>0?override:vidaLM)):x._hsEf;
-  const amort=vidaEfectiva>0?x.adq/vidaEfectiva:x.amort;
+  const vidaEfectiva=x._esDelta?(usaLista?vidaLM:(override>0?override:vidaLM)):(x.horasMensuales||200);
+  const amort=x._esDelta?(vidaEfectiva>0?x.adq/vidaEfectiva:x.amort):x.amort;
   const totalUSDhs=amort+x.hhHombreVestido+x.mantUSDhs;
   const pctMant=amort>0?x.mantUSDhs/amort:x.pctMant;
 
@@ -152,12 +152,12 @@ const AmortRow=React.memo(function AmortRow({x,i,useListaVidaUtil,vidaUtilOverri
           </div>
         ):(
           <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
-            <span style={{color:C.teal,fontWeight:700,fontSize:12}}>{x._hsEf>0?fmtNum(Math.round(x._hsEf)):"—"}</span>
-            <span style={{fontSize:9,color:C.textMuted,whiteSpace:"nowrap"}}>hs param</span>
+            <span style={{color:C.teal,fontWeight:700,fontSize:12}}>{vidaEfectiva>0?fmtNum(Math.round(vidaEfectiva)):"—"}</span>
+            <span style={{fontSize:9,color:C.textMuted,whiteSpace:"nowrap"}}>hs/mes</span>
           </div>
         )}
       </td>
-      <td style={{...tdS,color:C.yellow,fontWeight:700}}>{amort>0?"U$S "+fmtNum(Math.round(amort)):"—"}</td>
+      <td style={{...tdS,color:C.yellow,fontWeight:700}}><div>{amort>0?"U$S "+Number(amort).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}</div><div style={{fontSize:9,color:C.textMuted,fontWeight:500,marginTop:2,whiteSpace:"normal"}}>{x.costoCapitalDetalle||""}</div></td>
       <td style={{...tdS,color:C.teal,fontWeight:700}}>{x.hhHombreVestido>0?"U$S "+fmtNum(Math.round(x.hhHombreVestido)):"—"}</td>
       <td style={{...tdS,color:C.purple,fontWeight:700}}>{x.mantUSDhs>0?"U$S "+fmtNum(Math.round(x.mantUSDhs)):"—"}</td>
       <td style={{...tdS,color:C.accent,fontWeight:800}}>{totalUSDhs>0?"U$S "+fmtNum(Math.round(totalUSDhs)):"—"}</td>

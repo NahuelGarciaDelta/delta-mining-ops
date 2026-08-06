@@ -1,0 +1,27 @@
+ARCHIVOS MODIFICADOS
+- src/App.jsx
+  - Nueva subpestaña Dashboard dentro de Mantenimiento Programado.
+  - Rutas y títulos para Dashboard, Panel, Registrar realizado, Configuración e Historial.
+- src/modules/mantenimiento/MantenimientoProgramadoView.jsx
+  - Dashboard PM completo con indicadores, alertas urgentes, proyección 80-120 h, cambio de turno y gráficos.
+  - Nuevo estado PM URGENTE.
+  - Actualización manual y automática silenciosa cada 5 minutos.
+- src/modules/analytics/OperationalAnalytics.jsx
+  - Se exportó la función existente rangoTurnoPorFecha para reutilizar exactamente la misma lógica de cambio de turno.
+- src/modules/informe-costos/utils/amortizationCost.js
+  - Nueva función central getCostoHorarioAmortizacionOAlquiler.
+- src/modules/informe-costos/InformeCostosView.jsx
+  - Lectura flexible de propiedad, tarifa mensual, horas mensuales, adquisición y vida útil.
+  - Equipos no Delta usan exclusivamente tarifa mensual / horas mensuales (respaldo 200 h).
+  - Tabla, totales, resumen y exportación reflejan Amortización / Alquiler.
+- src/modules/informe-costos/engine/InformeCostosEngine.js
+  - El motor y Worker consumen la función central de cálculo.
+- src/modules/analytics/CostosUnitariosView.jsx
+  - La fila de Amortización muestra el cálculo aplicado y evita recalcular alquiler con adquisición.
+
+VALIDACIONES
+- npm run validate: OK (imports locales y archivos JS del motor/worker).
+- Prueba alquiler: USD 31.900 / 200 h = USD 159,50/h.
+- Prueba propio Delta: USD 800.000 / 8.000 h = USD 100,00/h.
+- npm install no pudo completarse por indisponibilidad/time-out del registro npm del entorno.
+- npm run build no pudo ejecutarse porque Vite no quedó instalado en este entorno.

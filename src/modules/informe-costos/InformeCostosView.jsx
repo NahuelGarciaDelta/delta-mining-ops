@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
 import { diagCount, diagEvent, diagGauge, diagReset, diagSnapshot, diagTiming, subscribeDiagnostics } from "./services/informeCostosDiagnostics.js";
 import CostosTabPanel from "./components/CostosTabPanel.jsx";
+import { getCostoHorarioAmortizacionOAlquiler, esEquipoPropioDelta } from "./utils/amortizationCost.js";
 
 function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   const [snapshot,setSnapshot]=React.useState(()=>diagSnapshot());
@@ -1489,21 +1490,20 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
     return toNumber(k?eq[k]:0);
   },[getEquipoListaMaestra]);
 
-  // Indica si un equipo es propiedad de DELTA
-  const esDelta=React.useCallback((maquina)=>{
-    const prop=propiedadEquipo(maquina);
-    return String(prop||"").toUpperCase().includes("DELTA");
-  },[propiedadEquipo]);
+  // Indica si un equipo es propiedad de DELTA (comparación estricta normalizada).
+  const esDelta=React.useCallback((maquina)=>esEquipoPropioDelta(propiedadEquipo(maquina)),[propiedadEquipo]);
 
-  // Devuelve el valor de adquisición/alquiler según propiedad
-  const getCostoAdqAlquilerEquipo=React.useCallback((maquina)=>{
-    if(esDelta(maquina)){
-      return getCostoLocalUSDEquipo(maquina);
-    }else{
-      const tarifa=getTarifaAlquilerEquipo(maquina);
-      return tarifa>0?tarifa:getCostoLocalUSDEquipo(maquina);
-    }
-  },[esDelta,getCostoLocalUSDEquipo,getTarifaAlquilerEquipo]);
+  const getHorasMensualesEquipo=React.useCallback((maquina)=>{
+    const eq=getEquipoListaMaestra(maquina);
+    if(!eq)return 200;
+    const keys=Object.keys(eq||{});
+    const k=findColumnKey(keys,"Horas trabajadas por mes",[
+      "Horas trab. por mes","HORAS TRAB. POR MES","Horas trabajadas por mes","HORAS TRABAJADAS POR MES",
+      "Horas mensuales","HORAS MENSUALES","Hs mensuales","HS MENSUALES","Horas por mes","HORAS POR MES"
+    ]);
+    const valor=toNumber(k?eq[k]:0);
+    return valor>0?valor:200;
+  },[getEquipoListaMaestra]);
 
   const getCostoLocalUSDFromListaRow=React.useCallback((eq)=>{
     const keys=Object.keys(eq||{});
@@ -2146,10 +2146,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
     const base=Object.values(byEquipo).map(e=>{
       const eq=getEquipoListaMaestra(e.equipo);
       const prop=propiedadEquipo(e.equipo);
-      const adq=getCostoAdqAlquilerEquipo(e.equipo);
+      const costoAdquisicion=getCostoLocalUSDEquipo(e.equipo);
+      const tarifaMensual=getTarifaAlquilerEquipo(e.equipo);
+      const horasMensuales=getHorasMensualesEquipo(e.equipo);
       const vidaListaMaestra=getVidaUtilListaMaestra(e.equipo);
       const vida=getVidaUtilEquipo(e.equipo);
-      const amort=vida>0?adq/vida:0;
+      const costoCapital=getCostoHorarioAmortizacionOAlquiler({propiedad:prop,costoAdquisicion,vidaUtil:vida,tarifaMensual,horasMensuales});
+      const adq=costoCapital.base;
+      const amort=costoCapital.costoHorario;
       const mantUSDhs=e.mantUSDhsTotal;
       const totalUSDhs=amort+mantUSDhs;
       const g=amortizacionGrupoInfo(e.equipo);
@@ -2162,6 +2166,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
         tipo:g.grupo,
         modelo:getValue(eq||{},["Modelo","MODELO","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"",
         adq,vida,vidaListaMaestra,amort,mantUSDhs,totalUSDhs,
+        costoAdquisicion,tarifaMensual,horasMensuales,costoCapitalTipo:costoCapital.tipo,costoCapitalDetalle:costoCapital.detalle,
         pctMant,
         promTipo:0,
         _firstTipo:false,
@@ -2204,7 +2209,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
       if(cnt===0){hs=(Number(hsEfJM)||0)+(Number(hsEfFS)||0);cnt=2;}
       const hsPorProyecto=cnt>0?hs/cnt:0;
 
-      const esDeltaEq=String(x.propiedad||"").toUpperCase().includes("DELTA");
+      const esDeltaEq=esEquipoPropioDelta(x.propiedad);
       // Hs paramétricas por propiedad:
       // - Equipos Delta: Hs Eq. Propios
       // - Equipos no Delta / arrendados: Hs Eq. Arrendados
@@ -2215,13 +2220,17 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
       // vidaBase: la vida sin override (de lista maestra). Para Delta es x.vida que viene de getVidaUtilEquipo
       // pero como getVidaUtilEquipo ya usa refs, necesitamos la vida de lista maestra pura para el display
       const vidaBase=x.vida; // vida que viene de rowsAmortizacion (puede ser override via ref)
-      const vidaFinal=esDeltaEq?x.vida:hsEf;
-      const amortFinal=vidaFinal>0?x.adq/vidaFinal:0;
+      const vidaFinal=esDeltaEq?x.vida:(Number(x.horasMensuales)||200);
+      const costoCapital=getCostoHorarioAmortizacionOAlquiler({
+        propiedad:x.propiedad,costoAdquisicion:x.costoAdquisicion,vidaUtil:vidaFinal,
+        tarifaMensual:x.tarifaMensual,horasMensuales:vidaFinal
+      });
+      const amortFinal=costoCapital.costoHorario;
 
       const hhHombreVestido=hsEf>0?(Number(hombreVestido)||0)/hsEf:0;
       const totalUSDhs=amortFinal+hhHombreVestido+x.mantUSDhs;
       const pctMant=amortFinal>0?x.mantUSDhs/amortFinal:0;
-      return {...x,vida:vidaFinal,vidaBase:x.vidaListaMaestra||x.vidaBase||vidaFinal,amort:amortFinal,hhHombreVestido,totalUSDhs,pctMant,_esDelta:esDeltaEq,_hsEf:hsEf};
+      return {...x,vida:vidaFinal,vidaBase:x.vidaListaMaestra||x.vidaBase||vidaFinal,amort:amortFinal,costoCapitalTipo:costoCapital.tipo,costoCapitalDetalle:costoCapital.detalle,hhHombreVestido,totalUSDhs,pctMant,_esDelta:esDeltaEq,_hsEf:hsEf};
     });
     rowsAmortizacionHHCacheRef.current=out;
     return out;
@@ -2323,7 +2332,8 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
     Modelo:x.modelo||"",
     "Costo de Adquisición/Alquiler (USD)":Math.round(x.adq||0),
     "Vida Útil (Hs) / Hs Mensuales":Math.round(x.vida||0),
-    "Amortiz. (USD/hs)":Math.round(x.amort||0),
+    "Amortización / Alquiler (USD/h)":Number((x.amort||0).toFixed(2)),
+    "Cálculo aplicado":x.costoCapitalDetalle||"",
     "HH (Hombre Vestido/hs)":Math.round(x.hhHombreVestido||0),
     "Mant. (USD/hs)":Math.round(x.mantUSDhs||0),
     "Total (USD/hs)":Math.round(x.totalUSDhs||0),
@@ -3372,7 +3382,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
                       </label>
                     </div>
                   </SortableTH>
-                  {sortableCostHead("amortizacion","amort","Amortiz. (USD/hs)",thS)}
+                  {sortableCostHead("amortizacion","amort","Amortización / Alquiler (USD/h)",thS)}
                   {sortableCostHead("amortizacion","hhHombreVestido","HH (Hombre Vestido/hs)",thS)}
                   {sortableCostHead("amortizacion","mantUSDhs","Mant. (USD/hs)",thS)}
                   {sortableCostHead("amortizacion","totalUSDhs","Total (USD/hs)",thS)}

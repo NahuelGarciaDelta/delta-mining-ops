@@ -14,6 +14,7 @@ export const VIEW_SOURCES = Object.freeze({
   control:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
   mant:["insumos","rma15_fs","rma15_jm"],
   distMant:["rma15_fs","rma15_jm"],
+  pmProgramado:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   rma15CtrlEquipo:["insumos","rma15_fs","rma15_jm"],
   costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos"],
   costosUnitarios:["insumos","rma15_fs","rma15_jm"],

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
+import MantenimientoProgramadoView from "./MantenimientoProgramadoView.jsx";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine, LineChart, Line } from "recharts";
 
@@ -38,7 +39,7 @@ function ViewDistribucionMantenimientos({rma15}){
   },[anio,mesIdx]);
 
   const anios=useMemo(()=>{
-    const ys=new Set([String(hoy.getFullYear())]);
+    const ys=new Set(["2026","2027","2028"]);
     (rma15||[]).forEach(r=>{const f=normDate(r?.fecha);if(f)ys.add(f.slice(0,4));});
     return [...ys].sort();
   },[rma15]);
@@ -1440,9 +1441,9 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
 export function MantenimientoModule({mode="mantenimiento", deps={}, ...props}) {
   __deps = deps || {};
   Object.assign(globalThis.__DM_MANT_DEPS__ || (globalThis.__DM_MANT_DEPS__ = {}), __deps);
-  return mode === "distribucion"
-    ? <ViewDistribucionMantenimientos {...props} />
-    : <ViewMantenimiento {...props} />;
+  if(mode === "distribucion") return <ViewDistribucionMantenimientos {...props} />;
+  if(mode === "programado") return <MantenimientoProgramadoView deps={__deps} {...props} />;
+  return <ViewMantenimiento {...props} />;
 }
 
 export default MantenimientoModule;

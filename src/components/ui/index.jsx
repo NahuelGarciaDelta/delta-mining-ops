@@ -623,7 +623,7 @@ export const MONTH_OPTIONS=[
   {value:"07",label:"Julio"},{value:"08",label:"Agosto"},{value:"09",label:"Septiembre"},
   {value:"10",label:"Octubre"},{value:"11",label:"Noviembre"},{value:"12",label:"Diciembre"},
 ];
-export const YEAR_OPTIONS=(()=>{const y=new Date().getFullYear();const arr=[{value:"",label:"Año"}];for(let yy=y-4;yy<=y+2;yy++)arr.push({value:String(yy),label:String(yy)});return arr;})();
+export const YEAR_OPTIONS=[{value:"",label:"Año"},{value:"2026",label:"2026"},{value:"2027",label:"2027"},{value:"2028",label:"2028"}];
 export function PeriodMonthYear({fechaD,fechaH,setFechaD,setFechaH}){
   const sameMonth=fechaD&&fechaH&&fechaD.slice(0,7)===fechaH.slice(0,7);
   const selectedMonth=sameMonth?String(fechaD).slice(5,7):"";

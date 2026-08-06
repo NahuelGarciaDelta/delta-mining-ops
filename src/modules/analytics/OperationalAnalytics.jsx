@@ -203,7 +203,7 @@ function grupoPorFecha(date){
   const bloque=Math.floor(diff/CAMBIOS_TURNO_DIAS);
   return CAMBIOS_TURNO_GRUPOS[indiceGrupoTurno(bloque)];
 }
-function rangoTurnoPorFecha(date){
+export function rangoTurnoPorFecha(date){
   const base=turnoDateFromISO(CAMBIOS_TURNO_BASE);
   const diff=diffTurnoDays(date,base);
   const bloque=Math.floor(diff/CAMBIOS_TURNO_DIAS);
@@ -446,7 +446,7 @@ function ViewCambiosTurnoInner({rop02All=[]}){
         <div style={{padding:14,display:"flex",flexDirection:"column",gap:12}}>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             <Sel label="Mes" value={filtroMesHoras} onChange={setFiltroMesHoras} options={MESES_TURNO.map((m,i)=>({value:String(i),label:m}))}/>
-            <Sel label="Año" value={filtroAnioHoras} onChange={setFiltroAnioHoras} options={uniq([String(hoy.getFullYear()),...((rop02All||[]).map(r=>(normDate(r.fecha)||String(r.fecha||"")).slice(0,4)).filter(Boolean))]).sort((a,b)=>Number(b)-Number(a)).map(y=>({value:y,label:y}))}/>
+            <Sel label="Año" value={filtroAnioHoras} onChange={setFiltroAnioHoras} options={uniq(["2026","2027","2028",...((rop02All||[]).map(r=>(normDate(r.fecha)||String(r.fecha||"")).slice(0,4)).filter(Boolean))]).sort((a,b)=>Number(b)-Number(a)).map(y=>({value:y,label:y}))}/>
             <MultiSel label="Proyecto" value={filtroProyectoHoras} onChange={v=>{setFiltroProyectoHoras(v);setFiltroEquipoHoras("todas");}} options={[{value:"todos",label:"Todos"},...opcionesProyectoHoras.map(p=>({value:p,label:p}))]}/>
             <MultiSel label="Equipo" value={filtroEquipoHoras} onChange={setFiltroEquipoHoras} options={[{value:"todas",label:"Todos"},...opcionesEquipoHoras.map(e=>({value:e,label:e}))]}/>
             <MultiSel label="Tipo de Máquina" value={filtroTipoHoras} onChange={v=>{setFiltroTipoHoras(v);setFiltroEquipoHoras("todas");}} options={[{value:"todos",label:"Todos"},...opcionesTipoHoras.map(t=>({value:t,label:t}))]}/>

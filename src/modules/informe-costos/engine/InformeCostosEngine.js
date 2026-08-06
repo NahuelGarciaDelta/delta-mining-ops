@@ -1,3 +1,4 @@
+import { getCostoHorarioAmortizacionOAlquiler } from "../utils/amortizationCost.js";
 const norm=(v)=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
 
 function setModelCategory(payload){
@@ -77,11 +78,18 @@ function processAmortizationRows(payload){
     const vidaLM=Number(row.vidaListaMaestra||row.vidaBase||row.vida||8000);
     const override=Number(overrides[row.equipo])||0;
     const usaLista=useLista[row.equipo]!==false;
-    const vidaEfectiva=row._esDelta?(usaLista?vidaLM:(override>0?override:vidaLM)):Number(row._hsEf)||0;
-    const amortEfectiva=vidaEfectiva>0?(Number(row.adq)||0)/vidaEfectiva:Number(row.amort)||0;
+    const vidaEfectiva=row._esDelta?(usaLista?vidaLM:(override>0?override:vidaLM)):(Number(row.horasMensuales)||Number(row._hsEf)||200);
+    const costoInfo=getCostoHorarioAmortizacionOAlquiler({
+      propiedad:row.propiedad,
+      costoAdquisicion:row.costoAdquisicion??row.adq,
+      vidaUtil:vidaEfectiva,
+      tarifaMensual:row.tarifaMensual??row.adq,
+      horasMensuales:vidaEfectiva
+    });
+    const amortEfectiva=costoInfo.costoHorario;
     const mant=Number(row.mantUSDhs)||0;
     const pct=amortEfectiva>0?mant/amortEfectiva:0;
-    filtered.push({...row,amort:amortEfectiva,pctMant:pct,totalUSDhs:amortEfectiva+(Number(row.hhHombreVestido)||0)+mant});
+    filtered.push({...row,vida:vidaEfectiva,amort:amortEfectiva,costoCapitalTipo:costoInfo.tipo,costoCapitalDetalle:costoInfo.detalle,pctMant:pct,totalUSDhs:amortEfectiva+(Number(row.hhHombreVestido)||0)+mant});
   }
 
   // La categoría de amortización es la única clave de agrupación. Se usa la

@@ -31,6 +31,14 @@ var SHEETS_CONFIG = {
     proyecto: "FILO SUR",
     headerRow: 4
   },
+  rop02_zorro: {
+    id: "1HUSJBcMgOkSnMxul5QHWruIS3Jwx2Oyenf6VFWma4YI",
+    gid: "967767400",
+    sheet: "R_OP02_EL_ZORRO",
+    label: "Partes — El Zorro",
+    proyecto: "EL ZORRO",
+    headerRow: 4
+  },
   rma15_fs: {
     id: "1WZEwuUTE8r-wUgTKeMsr1tsV1Ylq8fMULQjE-omCMOU",
     gid: "1444625212",
@@ -64,6 +72,15 @@ var SHEETS_CONFIG = {
     headerRow: 6,
     autoHeader: false
   },
+  remitos_cargados: {
+    id: "1CYXvmXk7XknGWq4TUJyTAaXz_TH1JOWcl2Zm7XurFTI",
+    gid: "58335550",
+    sheet: "Remitos cargados",
+    label: "Remitos cargados — RABA08",
+    proyecto: null,
+    headerRow: 1,
+    autoHeader: false
+  },
   lista_equipos: {
     id: "1cEbCIkt0GM4EPU86CluvDyRzAN2c1K8tfG9TXLFzQc4",
     gid: "952415879",
@@ -71,6 +88,33 @@ var SHEETS_CONFIG = {
     label: "Lista Maestra de Equipos",
     proyecto: null,
     headerRow: 5
+  },
+  licitaciones_db: {
+    id: "1F3pPrhKSKQHHPln8o5n-M1NuHhZA--LKj93wa596_sk",
+    gid: "1690860578",
+    sheet: "LICITACIONES",
+    label: "Base compartida — Licitaciones",
+    proyecto: null,
+    headerRow: 4,
+    autoHeader: false
+  },
+  licitacion_hitos_db: {
+    id: "1F3pPrhKSKQHHPln8o5n-M1NuHhZA--LKj93wa596_sk",
+    gid: "",
+    sheet: "HITOS",
+    label: "Base compartida — Hitos de licitaciones",
+    proyecto: null,
+    headerRow: 4,
+    autoHeader: false
+  },
+  licitacion_equipos_db: {
+    id: "1F3pPrhKSKQHHPln8o5n-M1NuHhZA--LKj93wa596_sk",
+    gid: "",
+    sheet: "EQUIPOS",
+    label: "Base compartida — Equipos de licitaciones",
+    proyecto: null,
+    headerRow: 4,
+    autoHeader: false
   },
   pm_config: {
     id: "1jmTZ2_aJai-t1uj-sZB8MK1a6J47oXeiG5GIO_Gk6u4",
@@ -117,9 +161,20 @@ function doGet(e) {
     if (action === "sync" || action === "versions") return buildResponse(handleSyncVersions_());
     if (action === "usuarios" || action === "users" || action === "auth_users") return buildResponse(handleUsuariosAutorizados_());
     if (action === "mantenimiento_programado" || action === "pm_programado") return buildResponse(handleGetMantenimientoProgramado_());
+    if (action === "estados_solicitudes") return buildResponse(handleGetEstadosSolicitudes_());
+    if (action === "licitaciones_compartidas" || action === "cargar_licitaciones") {
+      return buildResponse(handleGetLicitacionesCompartidas_());
+    }
 
     if (action === "all") {
       return buildResponse(handleAll(p));
+    }
+
+    // Remitos siempre se leen en tiempo real para que todas las PCs vean lo mismo.
+    if (action === "remitos_cargados") {
+      p.force = "1";
+      p.limit = "all";
+      return buildResponse(handleSingle("remitos_cargados", p));
     }
 
     if (SHEETS_CONFIG[action]) {
@@ -199,6 +254,30 @@ function doPost(e) {
       return buildResponse(handleAddRABA03Rows_APPEND_ONLY_(payload.rows || []));
     }
 
+    if (action === "save_remito_cargado") {
+      return buildResponse(handleSaveRemitoCargado_(payload.remito || {}));
+    }
+
+    if (action === "delete_remito_cargado") {
+      return buildResponse(handleDeleteRemitoCargado_(payload.idRemito || payload.id || ""));
+    }
+
+    if (action === "save_estado_solicitud") {
+      return buildResponse(handleSaveEstadoSolicitud_(payload.estado || payload.row || {}));
+    }
+
+    if (action === "save_estados_solicitudes_bulk") {
+      return buildResponse(handleSaveEstadosSolicitudesBulk_(payload.estados || payload.rows || []));
+    }
+
+    if (action === "delete_estado_solicitud") {
+      return buildResponse(handleDeleteEstadoSolicitud_(payload.clave || payload.key || ""));
+    }
+
+    if (action === "delete_estados_solicitudes_bulk") {
+      return buildResponse(handleDeleteEstadosSolicitudesBulk_(payload.claves || payload.keys || []));
+    }
+
     if (action === "save_raba03_cant_enviada") {
       return buildResponse(handleSaveRABA03CantEnviada_(payload.rows || []));
     }
@@ -207,12 +286,28 @@ function doPost(e) {
       return buildResponse(handleSaveRABA03Codigos_(payload.rows || []));
     }
 
+    if (action === "authenticate_user") {
+      return buildResponse(handleAuthenticateUser_(payload.email || "", payload.password || ""));
+    }
+
+    if (action === "update_user_profile") {
+      return buildResponse(handleUpdateUserProfile_(payload || {}));
+    }
+
     if (action === "upsert_raba03_rows_safe_v2") {
       return buildResponse(handleAddRABA03Rows_SAFE_V2_(payload.rows || []));
     }
 
     if (action === "add_raba03_rows" || action === "upsert_raba03_rows") {
       return buildResponse(handleAddRABA03Rows_SAFE_V2_(payload.rows || []));
+    }
+
+    if (action === "guardar_licitacion" || action === "save_licitacion") {
+      return buildResponse(handleSaveLicitacionCompartida_(payload.licitacion || payload.tender || {}));
+    }
+
+    if (action === "eliminar_licitacion" || action === "delete_licitacion") {
+      return buildResponse(handleDeleteLicitacionCompartida_(payload.idLicitacion || payload.id || ""));
     }
 
     if (action === "save_pm_config") {
@@ -367,6 +462,8 @@ function fetchSheetData(config, options) {
   try {
     var ss = SpreadsheetApp.openById(config.id);
     var sheet = findSheetByGidOrName(ss, config.gid, config.sheet);
+
+    if (sheet && config.sheet === "Seguimiento Compra") ensureRABA03SolicitudPedidoSchema_(sheet);
 
     if (!sheet) {
       return {
@@ -879,6 +976,93 @@ function clearAllCache_() {
 }
 
 
+
+function normUsuarioHeader_(v) {
+  return String(v || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function getUsuariosSheetInfo_() {
+  var config = SHEETS_CONFIG.usuarios;
+  if (!config) throw new Error("No está configurada la hoja de usuarios.");
+  var ss = SpreadsheetApp.openById(config.id);
+  var sheet = findSheetByGidOrName(ss, config.gid, config.sheet);
+  if (!sheet) throw new Error("No se encontró la hoja de usuarios.");
+  var headerRow = Number(config.headerRow || 1);
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var headers = sheet.getRange(headerRow, 1, 1, lastCol).getValues()[0].map(function(h){return String(h||"").trim();});
+  function find(candidates) {
+    var wanted = candidates.map(normUsuarioHeader_);
+    for (var i=0;i<headers.length;i++) {
+      var h=normUsuarioHeader_(headers[i]);
+      for (var j=0;j<wanted.length;j++) if(h===wanted[j]) return i;
+    }
+    return -1;
+  }
+  function ensure(title,candidates){
+    var idx=find(candidates);
+    if(idx>=0)return idx;
+    idx=headers.length;
+    sheet.getRange(headerRow,idx+1).setValue(title);
+    headers.push(title);
+    return idx;
+  }
+  return {sheet:sheet,headerRow:headerRow,headers:headers,emailIdx:ensure("Email",["Email","Mail","Correo"]),rolIdx:ensure("Rol",["Rol","Role"]),proyectoIdx:ensure("Proyecto",["Proyecto","Obra"]),activoIdx:ensure("Activo",["Activo","Habilitado"]),nombreIdx:ensure("Nombre",["Nombre","Name"]),passwordIdx:ensure("Contraseña",["Contraseña","Contrasena","Password","Clave"]),areaIdx:ensure("Area",["Area","Área","Sector"])};
+}
+
+function findUsuarioRowByEmail_(info,email){
+  var lastRow=info.sheet.getLastRow();
+  if(lastRow<=info.headerRow)return -1;
+  var vals=info.sheet.getRange(info.headerRow+1,info.emailIdx+1,lastRow-info.headerRow,1).getDisplayValues();
+  var wanted=String(email||"").trim().toLowerCase();
+  for(var i=0;i<vals.length;i++)if(String(vals[i][0]||"").trim().toLowerCase()===wanted)return info.headerRow+1+i;
+  return -1;
+}
+
+function usuarioActivoValor_(v){
+  var a=String(v==null?"SI":v).trim().toUpperCase()||"SI";
+  return !(a==="NO"||a==="FALSE"||a==="0"||a==="INACTIVO"||a==="BAJA");
+}
+
+function handleAuthenticateUser_(email,password){
+  var info=getUsuariosSheetInfo_();
+  var rowNum=findUsuarioRowByEmail_(info,email);
+  if(rowNum<0)return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
+  var row=info.sheet.getRange(rowNum,1,1,info.headers.length).getDisplayValues()[0];
+  if(!usuarioActivoValor_(row[info.activoIdx]))return {ok:false,error:{code:"AUTH_INACTIVE",message:"El usuario no está habilitado."}};
+  var stored=String(row[info.passwordIdx]||"");
+  var expected=stored||"DELTA.MINING.APP";
+  if(String(password||"")!==expected)return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
+  var user={email:String(row[info.emailIdx]||"").trim().toLowerCase(),rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),nombre:String(row[info.nombreIdx]||"").trim(),area:String(row[info.areaIdx]||"").trim()};
+  return {ok:true,user:user,mustChangePassword:!stored};
+}
+
+function handleUpdateUserProfile_(payload){
+  var lock=LockService.getScriptLock();
+  lock.waitLock(20000);
+  try{
+    var info=getUsuariosSheetInfo_();
+    var rowNum=findUsuarioRowByEmail_(info,payload.email);
+    if(rowNum<0)return {ok:false,error:{code:"USER_NOT_FOUND",message:"No se encontró el usuario."}};
+    var row=info.sheet.getRange(rowNum,1,1,info.headers.length).getDisplayValues()[0];
+    if(!usuarioActivoValor_(row[info.activoIdx]))return {ok:false,error:{code:"USER_INACTIVE",message:"El usuario no está habilitado."}};
+    var stored=String(row[info.passwordIdx]||"");
+    var newPassword=String(payload.newPassword||"");
+    if(newPassword){
+      var expected=stored||"DELTA.MINING.APP";
+      if(String(payload.currentPassword||"")!==expected)return {ok:false,error:{code:"CURRENT_PASSWORD_INVALID",message:"La contraseña actual es incorrecta."}};
+      info.sheet.getRange(rowNum,info.passwordIdx+1).setNumberFormat("@").setValue(newPassword);
+    } else if(!stored) {
+      return {ok:false,error:{code:"PASSWORD_REQUIRED",message:"Debe crear una contraseña personal para continuar."}};
+    }
+    var nombre=String(payload.nombre||"").trim();
+    var area=String(payload.area||"").trim().toUpperCase();
+    if(nombre)info.sheet.getRange(rowNum,info.nombreIdx+1).setValue(nombre);
+    info.sheet.getRange(rowNum,info.areaIdx+1).setValue(area);
+    SpreadsheetApp.flush();
+    return {ok:true,user:{email:String(row[info.emailIdx]||"").trim().toLowerCase(),rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),nombre:nombre||String(row[info.nombreIdx]||"").trim(),area:area}};
+  } finally { lock.releaseLock(); }
+}
+
 function handleUsuariosAutorizados_() {
   var VERSION = "USUARIOS_AUTORIZADOS_V34";
   var config = SHEETS_CONFIG.usuarios;
@@ -963,6 +1147,8 @@ function handleUsuariosAutorizados_() {
   var rolIdx = findIdx(["Rol", "Role", "Permiso", "Perfil"], 1);
   var proyectoIdx = findIdx(["Proyecto", "Centro de costo", "Centro de Costo", "Obra"], 2);
   var activoIdx = findIdx(["Activo", "Habilitado", "Estado", "Acceso"], 3);
+  var nombreIdx = findIdx(["Nombre", "Name", "Nombres", "Usuario nombre"], 4);
+  var areaIdx = findIdx(["Area", "Área", "Sector"], 6);
 
   var values = sheet.getRange(headerRow + 1, 1, lastRow - headerRow, lastCol).getValues();
   var data = [];
@@ -996,12 +1182,23 @@ function handleUsuariosAutorizados_() {
       ? String(row[proyectoIdx] || "TODOS").trim().toUpperCase()
       : "TODOS";
 
+    var nombre = nombreIdx >= 0 && nombreIdx < row.length
+      ? String(row[nombreIdx] || "").trim()
+      : "";
+
+    var area = areaIdx >= 0 && areaIdx < row.length
+      ? String(row[areaIdx] || "").trim().toUpperCase()
+      : "";
+
     data.push({
       email: email,
       rol: rol,
       role: rol,          // alias para compatibilidad con React
       proyecto: proyecto,
       project: proyecto,  // alias para compatibilidad con React
+      nombre: nombre,
+      name: nombre,       // alias para compatibilidad con React
+      area: area,
       activo: activoNorm
     });
   });
@@ -1409,6 +1606,538 @@ function uniqueArray_(arr) {
     if (v && out.indexOf(v) === -1) out.push(v);
   });
   return out;
+}
+
+
+/*******************************************************
+ * ABASTECIMIENTO — REMITOS CARGADOS COMPARTIDOS
+ * Hoja: Remitos cargados
+ *******************************************************/
+
+function getRemitosCargadosSheet_() {
+  var config = SHEETS_CONFIG.remitos_cargados;
+  var ss = SpreadsheetApp.openById(config.id);
+  var sheet = findSheetByGidOrName(ss, config.gid, config.sheet);
+  if (!sheet) {
+    throw new Error("No se encontró la hoja 'Remitos cargados'.");
+  }
+  return { sheet: sheet, config: config };
+}
+
+function getRemitosCargadosHeaders_(sheet, config) {
+  var expected = [
+    "ID_REMITO", "N_REMITO", "FECHA_REMITO", "ORIGEN", "DESTINO", "PROYECTO",
+    "OBSERVACIONES", "CODIGO_ARTICULO", "DESCRIPCION", "CANTIDAD_ENVIADA",
+    "FECHA_CARGA_APP", "USUARIO_CARGA"
+  ];
+
+  if (sheet.getLastRow() < config.headerRow || sheet.getLastColumn() < expected.length) {
+    sheet.getRange(config.headerRow, 1, 1, expected.length).setValues([expected]);
+  }
+
+  var lastCol = Math.max(sheet.getLastColumn(), expected.length);
+  var headers = sheet.getRange(config.headerRow, 1, 1, lastCol).getValues()[0].map(function(h, idx) {
+    return String(h || "").trim() || ("col_" + (idx + 1));
+  });
+
+  expected.forEach(function(h) {
+    if (headerIndex_(headers, h) === -1) {
+      headers.push(h);
+      sheet.getRange(config.headerRow, headers.length).setValue(h);
+    }
+  });
+
+  return sheet.getRange(config.headerRow, 1, 1, sheet.getLastColumn()).getValues()[0].map(function(h, idx) {
+    return String(h || "").trim() || ("col_" + (idx + 1));
+  });
+}
+
+function setByHeaderRemito_(values, headers, header, value) {
+  var idx = headerIndex_(headers, header);
+  if (idx === -1) idx = findHeaderIndexFlexible_(headers, header);
+  if (idx !== -1) values[idx] = normalizeWriteValue_(value);
+}
+
+
+/*******************************************************
+ * ABASTECIMIENTO — ESTADOS COMPARTIDOS DE SOLICITUDES
+ * Guarda cierres manuales y rechazos para todas las PCs.
+ * La hoja se crea automáticamente dentro de la planilla RABA03.
+ *******************************************************/
+function getEstadosSolicitudesSheet_() {
+  var ss = SpreadsheetApp.openById(SHEETS_CONFIG.raba03.id);
+  var name = "Estados solicitudes";
+  var sheet = ss.getSheetByName(name);
+  var headers = [
+    "CLAVE_SOLICITUD","ESTADO","OBSERVACION","N_SOLICITUD",
+    "CODIGO_ARTICULO","DESCRIPCION","FECHA_SOLICITUD","FECHA","USUARIO"
+  ];
+  if (!sheet) sheet = ss.insertSheet(name);
+  if (sheet.getLastRow() < 1 || sheet.getLastColumn() < headers.length) {
+    sheet.getRange(1,1,1,headers.length).setValues([headers]);
+  } else {
+    var current = sheet.getRange(1,1,1,headers.length).getValues()[0];
+    var mismatch = headers.some(function(h,i){ return String(current[i]||"").trim() !== h; });
+    if (mismatch) sheet.getRange(1,1,1,headers.length).setValues([headers]);
+  }
+  return {sheet:sheet, headers:headers};
+}
+
+function handleGetEstadosSolicitudes_() {
+  var target = getEstadosSolicitudesSheet_();
+  var sheet = target.sheet;
+  var headers = target.headers;
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return {ok:true, action:"estados_solicitudes", data:[], rows:0, fetchedAt:new Date().toISOString()};
+  var values = sheet.getRange(2,1,lastRow-1,headers.length).getValues();
+  var data = values.filter(function(r){ return String(r[0]||"").trim(); }).map(function(r){
+    var o={};
+    headers.forEach(function(h,i){
+      var v=r[i];
+      o[h]=v instanceof Date ? v.toISOString() : (v===null||v===undefined?"":String(v).trim());
+    });
+    return o;
+  });
+  return {ok:true, action:"estados_solicitudes", data:data, rows:data.length, fetchedAt:new Date().toISOString()};
+}
+
+function handleSaveEstadoSolicitud_(estado) {
+  estado = estado || {};
+  var clave = String(estado.clave || estado.CLAVE_SOLICITUD || "").trim();
+  var tipo = String(estado.estado || estado.ESTADO || "").trim().toUpperCase();
+  if (!clave || !tipo) return {ok:false,error:{code:"STATE_REQUIRED",message:"Falta clave o estado de la solicitud."}};
+  var lock=LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    var target=getEstadosSolicitudesSheet_(), sheet=target.sheet, headers=target.headers;
+    var lastRow=sheet.getLastRow(), rowNum=0;
+    if(lastRow>1){
+      var keys=sheet.getRange(2,1,lastRow-1,1).getValues();
+      for(var i=0;i<keys.length;i++) if(String(keys[i][0]||"").trim()===clave){rowNum=i+2;break;}
+    }
+    var usuario=String(estado.usuario||estado.USUARIO||"").trim();
+    if(!usuario){try{usuario=Session.getActiveUser().getEmail()||"APP";}catch(e){usuario="APP";}}
+    var row=[
+      clave,tipo,String(estado.observacion||estado.OBSERVACION||"").trim(),
+      String(estado.nSolicitud||estado.N_SOLICITUD||"").trim(),
+      String(estado.codigoArticulo||estado.CODIGO_ARTICULO||"").trim(),
+      String(estado.descripcion||estado.DESCRIPCION||"").trim(),
+      String(estado.fechaSolicitud||estado.FECHA_SOLICITUD||"").trim(),new Date(),usuario
+    ];
+    if(rowNum) sheet.getRange(rowNum,1,1,headers.length).setValues([row]);
+    else sheet.getRange(Math.max(sheet.getLastRow()+1,2),1,1,headers.length).setValues([row]);
+    SpreadsheetApp.flush();
+    return {ok:true,action:"save_estado_solicitud",clave:clave,estado:tipo};
+  } finally {try{lock.releaseLock();}catch(e){}}
+}
+
+function handleSaveEstadosSolicitudesBulk_(estados) {
+  estados = Array.isArray(estados) ? estados : [];
+  if (!estados.length) {
+    return {ok:false,error:{code:"NO_STATES",message:"No llegaron solicitudes para cerrar."}};
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var target = getEstadosSolicitudesSheet_();
+    var sheet = target.sheet;
+    var headers = target.headers;
+    var lastRow = sheet.getLastRow();
+    var existing = {};
+
+    if (lastRow > 1) {
+      var existingKeys = sheet.getRange(2,1,lastRow-1,1).getValues();
+      for (var i=0;i<existingKeys.length;i++) {
+        var k = String(existingKeys[i][0] || "").trim();
+        if (k) existing[k] = i + 2;
+      }
+    }
+
+    var updates = [];
+    var appends = [];
+    var now = new Date();
+
+    estados.forEach(function(estado){
+      estado = estado || {};
+      var clave = String(estado.clave || estado.CLAVE_SOLICITUD || "").trim();
+      var tipo = String(estado.estado || estado.ESTADO || "").trim().toUpperCase();
+      if (!clave || !tipo) return;
+
+      var usuario = String(estado.usuario || estado.USUARIO || "").trim();
+      if (!usuario) {
+        try { usuario = Session.getActiveUser().getEmail() || "APP"; }
+        catch(e) { usuario = "APP"; }
+      }
+
+      var row = [
+        clave, tipo, String(estado.observacion || estado.OBSERVACION || "").trim(),
+        String(estado.nSolicitud || estado.N_SOLICITUD || "").trim(),
+        String(estado.codigoArticulo || estado.CODIGO_ARTICULO || "").trim(),
+        String(estado.descripcion || estado.DESCRIPCION || "").trim(),
+        String(estado.fechaSolicitud || estado.FECHA_SOLICITUD || "").trim(),
+        now, usuario
+      ];
+
+      if (existing[clave]) updates.push({rowNumber:existing[clave], values:row});
+      else {
+        appends.push(row);
+        existing[clave] = true;
+      }
+    });
+
+    updates.forEach(function(item){
+      sheet.getRange(item.rowNumber,1,1,headers.length).setValues([item.values]);
+    });
+
+    if (appends.length) {
+      var startRow = Math.max(sheet.getLastRow()+1,2);
+      sheet.getRange(startRow,1,appends.length,headers.length).setValues(appends);
+    }
+
+    SpreadsheetApp.flush();
+    return {
+      ok:true,
+      action:"save_estados_solicitudes_bulk",
+      updatedRows:updates.length,
+      insertedRows:appends.length,
+      total:updates.length+appends.length
+    };
+  } finally {
+    try { lock.releaseLock(); } catch(e) {}
+  }
+}
+
+function handleDeleteEstadoSolicitud_(clave) {
+  clave=String(clave||"").trim();
+  if(!clave)return {ok:false,error:{code:"KEY_REQUIRED",message:"Falta la clave de la solicitud."}};
+  var lock=LockService.getScriptLock(); lock.waitLock(30000);
+  try{
+    var target=getEstadosSolicitudesSheet_(),sheet=target.sheet,lastRow=sheet.getLastRow(),deleted=0;
+    if(lastRow>1){
+      var keys=sheet.getRange(2,1,lastRow-1,1).getValues();
+      for(var i=keys.length-1;i>=0;i--)if(String(keys[i][0]||"").trim()===clave){sheet.deleteRow(i+2);deleted++;}
+    }
+    SpreadsheetApp.flush();
+    return {ok:true,action:"delete_estado_solicitud",clave:clave,deletedRows:deleted};
+  } finally {try{lock.releaseLock();}catch(e){}}
+}
+
+function handleDeleteEstadosSolicitudesBulk_(claves) {
+  claves = Array.isArray(claves) ? claves.map(function(v){ return String(v || "").trim(); }).filter(Boolean) : [];
+  if (!claves.length) return {ok:false,error:{code:"KEYS_REQUIRED",message:"Faltan las claves de las solicitudes."}};
+
+  var wanted = {};
+  claves.forEach(function(k){ wanted[k] = true; });
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var target = getEstadosSolicitudesSheet_();
+    var sheet = target.sheet;
+    var lastRow = sheet.getLastRow();
+    var rowsToDelete = [];
+
+    if (lastRow > 1) {
+      var keys = sheet.getRange(2,1,lastRow-1,1).getValues();
+      for (var i = 0; i < keys.length; i++) {
+        var key = String(keys[i][0] || "").trim();
+        if (wanted[key]) rowsToDelete.push(i + 2);
+      }
+    }
+
+    // Borrar desde abajo evita que cambien los números de las filas pendientes.
+    rowsToDelete.sort(function(a,b){ return b-a; }).forEach(function(rowNumber){
+      sheet.deleteRow(rowNumber);
+    });
+
+    SpreadsheetApp.flush();
+    return {
+      ok:true,
+      action:"delete_estados_solicitudes_bulk",
+      requested:claves.length,
+      deletedRows:rowsToDelete.length
+    };
+  } finally {
+    try { lock.releaseLock(); } catch(e) {}
+  }
+}
+
+function normalizeProyectoRemito_(v) {
+  var t = normalizeText_(v);
+  if (!t) return "";
+  if (t.indexOf("jose maria") !== -1 || t.indexOf("josemaria") !== -1 || t === "jm") return "JOSE MARIA";
+  if (t.indexOf("filo del sol") !== -1 || t.indexOf("filodelsol") !== -1 || t.indexOf("filo") !== -1 || t === "fs" || t === "fds") return "FILO DEL SOL";
+  if (t.indexOf("oficina") !== -1 || t.indexOf("deposito") !== -1 || t.indexOf("admin") !== -1) return "OFICINA";
+  return String(v || "").trim().toUpperCase();
+}
+
+
+
+/*******************************************************
+ * CIERRE AUTOMÁTICO DE SOLICITUDES POR REMITOS
+ * Recalcula los artículos enviados desde "Remitos cargados" y registra
+ * en "Estados solicitudes" las filas cuya cantidad solicitada quedó cubierta.
+ * Los cierres manuales y rechazos existentes se conservan.
+ *******************************************************/
+function normalizeCodeSolicitud_(v) {
+  return String(v || "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]+/g, "")
+    .trim();
+}
+
+function dateKeySolicitud_(v) {
+  var d = parseDateRABA03_(v);
+  if (d instanceof Date && !isNaN(d.getTime())) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  var txt = String(v || "").trim();
+  var m = txt.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
+  if (m) {
+    var y = Number(m[3]);
+    if (y < 100) y += 2000;
+    return String(y).padStart(4,"0") + "-" + String(Number(m[2])).padStart(2,"0") + "-" + String(Number(m[1])).padStart(2,"0");
+  }
+  return "";
+}
+
+function buildSolicitudStableKeyServer_(nSolicitud, codigo, fechaSolicitud) {
+  return [normalizeCodeSolicitud_(nSolicitud), normalizeCodeSolicitud_(codigo), dateKeySolicitud_(fechaSolicitud)].join("|");
+}
+
+function syncEstadosSolicitudesDesdeRemitos_(usuarioFallback) {
+  var rabaCfg = SHEETS_CONFIG.raba03;
+  var remCfg = SHEETS_CONFIG.remitos_cargados;
+  var ss = SpreadsheetApp.openById(rabaCfg.id);
+  var rabaSheet = findSheetByGidOrName(ss, rabaCfg.gid, rabaCfg.sheet);
+  var remSheet = findSheetByGidOrName(ss, remCfg.gid, remCfg.sheet);
+  if (!rabaSheet || !remSheet) return {closedRows:0, removedAutomaticRows:0};
+
+  ensureRABA03SolicitudPedidoSchema_(rabaSheet);
+
+  // 1) Total enviado por código y proyecto, siguiendo exactamente la lógica de la app.
+  var sent = {};
+  var remHeaders = getRemitosCargadosHeaders_(remSheet, remCfg);
+  var remLast = remSheet.getLastRow();
+  if (remLast > remCfg.headerRow) {
+    var remData = remSheet.getRange(remCfg.headerRow + 1, 1, remLast - remCfg.headerRow, remHeaders.length).getValues();
+    var codeIdx = findHeaderIndexFlexible_(remHeaders, "CODIGO_ARTICULO");
+    var qtyIdx = findHeaderIndexFlexible_(remHeaders, "CANTIDAD_ENVIADA");
+    var projectIdx = findHeaderIndexFlexible_(remHeaders, "PROYECTO");
+    var obsIdx = findHeaderIndexFlexible_(remHeaders, "OBSERVACIONES");
+    var destIdx = findHeaderIndexFlexible_(remHeaders, "DESTINO");
+    var origIdx = findHeaderIndexFlexible_(remHeaders, "ORIGEN");
+    remData.forEach(function(r){
+      var code = normalizeCodeSolicitud_(codeIdx >= 0 ? r[codeIdx] : "");
+      var qty = parseNumberRABA03_(qtyIdx >= 0 ? r[qtyIdx] : 0);
+      if (!code || qty <= 0) return;
+      var rawProject = projectIdx >= 0 ? r[projectIdx] : "";
+      if (!String(rawProject || "").trim()) {
+        rawProject = [obsIdx>=0?r[obsIdx]:"", destIdx>=0?r[destIdx]:"", origIdx>=0?r[origIdx]:""].join(" ");
+      }
+      var project = normalizeCentroCostoRABA03_(normalizeProyectoRemito_(rawProject));
+      var key = code + "__" + (project || "*");
+      sent[key] = (sent[key] || 0) + qty;
+    });
+  }
+
+  // 2) Leer solicitudes y detectar cuáles quedaron cubiertas.
+  var headerRow = rabaCfg.headerRow || 6;
+  var rabaLast = rabaSheet.getLastRow();
+  var rabaLastCol = rabaSheet.getLastColumn();
+  var automaticStates = [];
+  if (rabaLast > headerRow) {
+    var headers = rabaSheet.getRange(headerRow,1,1,rabaLastCol).getValues()[0].map(function(v){return String(v||"").trim();});
+    var data = rabaSheet.getRange(headerRow+1,1,rabaLast-headerRow,rabaLastCol).getValues();
+    var pedidoIdx = findHeaderIndexByCandidatesRABA03_(headers,["N° de pedido","Nº de pedido","N de pedido","Numero de pedido","Número de pedido","Pedido"]);
+    var solicitudIdx = findHeaderIndexByCandidatesRABA03_(headers,["N° de solicitud","Nº de solicitud","N de solicitud","Numero de solicitud","Número de solicitud","Solicitud"]);
+    var codeRIdx = findHeaderIndexByCandidatesRABA03_(headers,["Código de articulo","Código de artículo","Codigo de articulo","Codigo de artículo","Código","Codigo"]);
+    var descIdx = findHeaderIndexByCandidatesRABA03_(headers,["Descripción de lo que se pidio","Descripción de lo que se pidió","Descripcion de lo que se pidio","Descripcion de lo que se pidió","Descripción","Descripcion"]);
+    var fechaIdx = findHeaderIndexByCandidatesRABA03_(headers,["Fecha de solicitud","Fecha solicitud"]);
+    var projectRIdx = findHeaderIndexByCandidatesRABA03_(headers,["Centro de Costo","Centro de costo","Proyecto","CC"]);
+    var qtySolIdx = findHeaderIndexByCandidatesRABA03_(headers,["Cant.Solicitada","Cant. Solicitada","Cantidad solicitada","Cantidad"]);
+
+    data.forEach(function(r, i){
+      var codeRaw = codeRIdx>=0 ? r[codeRIdx] : "";
+      var code = normalizeCodeSolicitud_(codeRaw);
+      var requested = parseNumberRABA03_(qtySolIdx>=0 ? r[qtySolIdx] : 0);
+      if (!code || requested <= 0) return;
+      var project = normalizeCentroCostoRABA03_(projectRIdx>=0 ? r[projectRIdx] : "");
+      var delivered = (sent[code + "__" + (project || "*")] || 0) + (project ? (sent[code + "__*"] || 0) : 0);
+      if (delivered + 1e-9 < requested) return;
+
+      var nPedido = pedidoIdx>=0 ? r[pedidoIdx] : "";
+      var nSolicitud = solicitudIdx>=0 ? r[solicitudIdx] : "";
+      var stableNumber = String(nPedido || nSolicitud || (i+1)).trim();
+      var fechaSolicitud = fechaIdx>=0 ? r[fechaIdx] : "";
+      automaticStates.push({
+        clave: buildSolicitudStableKeyServer_(stableNumber, codeRaw, fechaSolicitud),
+        estado: "CERRADA_REMITO",
+        observacion: "Cierre automático por cantidad cubierta con remitos cargados",
+        nSolicitud: stableNumber,
+        codigoArticulo: String(codeRaw || "").trim(),
+        descripcion: descIdx>=0 ? String(r[descIdx] || "").trim() : "",
+        fechaSolicitud: fechaSolicitud,
+        usuario: usuarioFallback || "APP"
+      });
+    });
+  }
+
+  // 3) Eliminar solo cierres automáticos anteriores y reinsertar el cálculo actual.
+  var target = getEstadosSolicitudesSheet_();
+  var stateSheet = target.sheet, stateHeaders = target.headers;
+  var stateLast = stateSheet.getLastRow();
+  var preserved = [];
+  var removed = 0;
+  if (stateLast > 1) {
+    var old = stateSheet.getRange(2,1,stateLast-1,stateHeaders.length).getValues();
+    old.forEach(function(r){
+      if (String(r[1] || "").trim().toUpperCase() === "CERRADA_REMITO") removed++;
+      else preserved.push(r);
+    });
+    stateSheet.getRange(2,1,stateLast-1,stateHeaders.length).clearContent();
+  }
+
+  var now = new Date();
+  var autoRows = automaticStates.map(function(e){
+    return [e.clave,e.estado,e.observacion,e.nSolicitud,e.codigoArticulo,e.descripcion,
+      dateKeySolicitud_(e.fechaSolicitud),now,e.usuario];
+  });
+  var allRows = preserved.concat(autoRows);
+  if (allRows.length) stateSheet.getRange(2,1,allRows.length,stateHeaders.length).setValues(allRows);
+  SpreadsheetApp.flush();
+  return {closedRows:autoRows.length, removedAutomaticRows:removed};
+}
+
+function handleSaveRemitoCargado_(remito) {
+  var VERSION = "REMITOS_CARGADOS_V1";
+  remito = remito || {};
+  var items = remito.items || [];
+
+  if (!Array.isArray(items) || items.length === 0) {
+    return { ok: false, version: VERSION, error: { code: "NO_ITEMS", message: "El remito no tiene artículos para guardar." } };
+  }
+
+  var idRemito = String(remito.id || remito.ID_REMITO || "").trim();
+  if (!idRemito) idRemito = "raba08-" + new Date().getTime();
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    var target = getRemitosCargadosSheet_();
+    var sheet = target.sheet;
+    var config = target.config;
+    var headers = getRemitosCargadosHeaders_(sheet, config);
+    var lastCol = headers.length;
+
+    // Si el mismo remito ya existía, se reemplaza para evitar duplicados.
+    var idIdx = headerIndex_(headers, "ID_REMITO");
+    if (idIdx !== -1 && sheet.getLastRow() > config.headerRow) {
+      var numRows = sheet.getLastRow() - config.headerRow;
+      var ids = sheet.getRange(config.headerRow + 1, idIdx + 1, numRows, 1).getValues();
+      for (var i = ids.length - 1; i >= 0; i--) {
+        if (String(ids[i][0] || "").trim() === idRemito) {
+          sheet.deleteRow(config.headerRow + 1 + i);
+        }
+      }
+    }
+
+    var usuario = String(remito.usuarioCarga || remito.usuario || "").trim();
+    if (!usuario) {
+      try { usuario = Session.getActiveUser().getEmail() || "APP"; } catch (e) { usuario = "APP"; }
+    }
+
+    var proyecto = String(remito.proyecto || "").trim();
+    if (!proyecto) proyecto = normalizeProyectoRemito_([remito.observaciones, remito.destino, remito.origen].join(" "));
+
+    var rows = [];
+    items.forEach(function(item) {
+      var codigo = String(item.codigo || item.CODIGO_ARTICULO || item.codigoArticulo || "").trim();
+      var cantidad = item.cantidad !== undefined ? item.cantidad : (item.CANTIDAD_ENVIADA !== undefined ? item.CANTIDAD_ENVIADA : item.cantidadEnviada);
+      if (!codigo && (cantidad === null || cantidad === undefined || cantidad === "")) return;
+
+      var values = new Array(lastCol).fill("");
+      setByHeaderRemito_(values, headers, "ID_REMITO", idRemito);
+      setByHeaderRemito_(values, headers, "N_REMITO", remito.comprobante || remito.nRemito || remito.N_REMITO || "S/N");
+      setByHeaderRemito_(values, headers, "FECHA_REMITO", parseDateRABA03_(remito.fecha || remito.FECHA_REMITO || ""));
+      setByHeaderRemito_(values, headers, "ORIGEN", remito.origen || remito.ORIGEN || "");
+      setByHeaderRemito_(values, headers, "DESTINO", remito.destino || remito.DESTINO || "");
+      setByHeaderRemito_(values, headers, "PROYECTO", proyecto);
+      setByHeaderRemito_(values, headers, "OBSERVACIONES", remito.observaciones || remito.OBSERVACIONES || "");
+      setByHeaderRemito_(values, headers, "CODIGO_ARTICULO", codigo);
+      setByHeaderRemito_(values, headers, "DESCRIPCION", item.descripcion || item.DESCRIPCION || "");
+      setByHeaderRemito_(values, headers, "CANTIDAD_ENVIADA", cantidad || 0);
+      setByHeaderRemito_(values, headers, "FECHA_CARGA_APP", new Date());
+      setByHeaderRemito_(values, headers, "USUARIO_CARGA", usuario);
+      rows.push(values);
+    });
+
+    if (!rows.length) {
+      return { ok: false, version: VERSION, error: { code: "NO_VALID_ITEMS", message: "No se encontraron artículos válidos para guardar." } };
+    }
+
+    var startRow = Math.max(sheet.getLastRow() + 1, config.headerRow + 1);
+    sheet.getRange(startRow, 1, rows.length, lastCol).setValues(rows);
+    SpreadsheetApp.flush();
+
+    var cierreSync = syncEstadosSolicitudesDesdeRemitos_(usuario);
+    try { clearAllCache_(); bumpDatasetVersion_("remitos_cargados"); bumpDatasetVersion_("raba03"); } catch (e) {}
+
+    return {
+      ok: true,
+      version: VERSION,
+      action: "save_remito_cargado",
+      idRemito: idRemito,
+      insertedRows: rows.length,
+      solicitudesCerradas: cierreSync.closedRows || 0,
+      message: "Remito guardado en hoja compartida. " + (cierreSync.closedRows || 0) + " solicitudes figuran cerradas por remitos."
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function handleDeleteRemitoCargado_(idRemito) {
+  var VERSION = "REMITOS_CARGADOS_DELETE_V1";
+  idRemito = String(idRemito || "").trim();
+  if (!idRemito) {
+    return { ok: false, version: VERSION, error: { code: "ID_REQUIRED", message: "Falta ID_REMITO para eliminar." } };
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+
+  try {
+    var target = getRemitosCargadosSheet_();
+    var sheet = target.sheet;
+    var config = target.config;
+    var headers = getRemitosCargadosHeaders_(sheet, config);
+    var idIdx = headerIndex_(headers, "ID_REMITO");
+    if (idIdx === -1 || sheet.getLastRow() <= config.headerRow) {
+      return { ok: true, version: VERSION, deletedRows: 0 };
+    }
+
+    var numRows = sheet.getLastRow() - config.headerRow;
+    var ids = sheet.getRange(config.headerRow + 1, idIdx + 1, numRows, 1).getValues();
+    var deleted = 0;
+    for (var i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0] || "").trim() === idRemito) {
+        sheet.deleteRow(config.headerRow + 1 + i);
+        deleted++;
+      }
+    }
+
+    SpreadsheetApp.flush();
+    var cierreSync = syncEstadosSolicitudesDesdeRemitos_("APP");
+    try { clearAllCache_(); bumpDatasetVersion_("remitos_cargados"); bumpDatasetVersion_("raba03"); } catch (e) {}
+
+    return { ok: true, version: VERSION, action: "delete_remito_cargado", deletedRows: deleted, solicitudesCerradas: cierreSync.closedRows || 0 };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
 }
 
 /*******************************************************
@@ -1945,6 +2674,58 @@ function handleAddRABA03Rows_SAFE_V2_(rows) {
  * - save_raba03_cant_enviada: guarda Cant. enviada en RABA03 base.
  *******************************************************/
 
+
+function ensureRABA03SolicitudPedidoSchema_(sheet) {
+  if (!sheet) return;
+  var headerRow = 6;
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var headers = sheet.getRange(headerRow, 1, 1, lastCol).getValues()[0].map(function(v){ return String(v || "").trim(); });
+  var first = normalizeHeaderText_(headers[0] || "");
+  var second = normalizeHeaderText_(headers[1] || "");
+
+  // Migración única: la columna A anterior era el correlativo interno. Ahora se llama N° de pedido
+  // y se agrega a su izquierda el N° de solicitud leído desde C3 del Excel.
+  if (first.indexOf("solicitud") !== -1 && second.indexOf("pedido") === -1) {
+    sheet.insertColumnBefore(1);
+    sheet.getRange(headerRow, 1).setValue("N° de solicitud");
+    sheet.getRange(headerRow, 2).setValue("N° de pedido");
+  } else {
+    if (first !== "n de solicitud" && first.indexOf("solicitud") === -1) {
+      sheet.insertColumnBefore(1);
+      sheet.getRange(headerRow, 1).setValue("N° de solicitud");
+    }
+    var h2 = normalizeHeaderText_(sheet.getRange(headerRow, 2).getValue());
+    if (h2.indexOf("pedido") === -1) sheet.getRange(headerRow, 2).setValue("N° de pedido");
+  }
+
+  // Completar las solicitudes históricas indicadas por fecha.
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= headerRow) return;
+  var currentHeaders = sheet.getRange(headerRow, 1, 1, sheet.getLastColumn()).getValues()[0].map(function(v){ return String(v || "").trim(); });
+  var fechaIdx = findHeaderIndexByCandidatesRABA03_(currentHeaders, ["Fecha de solicitud", "Fecha solicitud", "Fecha de so"]);
+  if (fechaIdx === -1) return;
+  var count = lastRow - headerRow;
+  var solicitudes = sheet.getRange(headerRow + 1, 1, count, 1).getValues();
+  var fechas = sheet.getRange(headerRow + 1, fechaIdx + 1, count, 1).getValues();
+  var changed = false;
+  for (var i = 0; i < count; i++) {
+    if (String(solicitudes[i][0] || "").trim()) continue;
+    var d = parseDateRABA03_(fechas[i][0]);
+    var day = null, month = null;
+    if (d instanceof Date && !isNaN(d.getTime())) { day = d.getDate(); month = d.getMonth() + 1; }
+    else {
+      var m = String(fechas[i][0] || "").match(/^(\d{1,2})[\/-](\d{1,2})[\/-]/);
+      if (m) { day = Number(m[1]); month = Number(m[2]); }
+    }
+    var numero = "";
+    if (day === 6 && month === 7) numero = "226";
+    if (day === 7 && month === 7) numero = "137";
+    if (day === 14 && month === 7) numero = "138";
+    if (numero) { solicitudes[i][0] = numero; changed = true; }
+  }
+  if (changed) sheet.getRange(headerRow + 1, 1, count, 1).setValues(solicitudes);
+}
+
 function handleAddRABA03Rows_APPEND_ONLY_(rows) {
   var VERSION = "RABA03_APPEND_ONLY_V22";
   rows = rows || [];
@@ -1963,6 +2744,7 @@ function handleAddRABA03Rows_APPEND_ONLY_(rows) {
   if (!sheet) {
     return { ok: false, version: VERSION, error: { code: "SHEET_NOT_FOUND", message: "No se encontró la hoja RABA03." } };
   }
+  ensureRABA03SolicitudPedidoSchema_(sheet);
 
   var headerRow = 6;
   var firstDataRow = 7;
@@ -1978,21 +2760,23 @@ function handleAddRABA03Rows_APPEND_ONLY_(rows) {
   }
 
   var idx = {
-    nSolicitud: hidx(["N° de solicitud", "Nº de solicitud", "N de solicitud", "Numero de solicitud", "Número de solicitud", "Solicitud"], 0),
-    empresa: hidx(["Empresa"], 1),
-    fechaSolicitud: hidx(["Fecha de solicitud", "Fecha solicitud", "Fecha de so"], 2),
-    fechaRequerida: hidx(["Fecha requerida del producto", "Fecha requerida", "Fecha reque"], 3),
-    pedidoPor: hidx(["Pedido por", "Autorizado por", "Autorizado por:"], 4),
-    centroCosto: hidx(["Centro de Costo", "Centro de costo", "Centro Costo", "Proyecto"], 5),
-    codigoArticulo: hidx(["Código de articulo", "Código de artículo", "Codigo de articulo", "Codigo de artículo", "Código artículo", "Codigo articulo", "Código", "Codigo"], 6),
-    descripcion: hidx(["Descripción de lo que se pidio", "Descripción de lo que se pidió", "Descripcion de lo que se pidio", "Descripcion de lo que se pidió", "Descripción", "Descripcion"], 7),
-    cantidadSolicitada: hidx(["Cant.Solicitada", "Cant. Solicitada", "Cantidad solicitada", "Cant Solicitada", "Cantidad"], 8),
-    cantidadEnviada: hidx(["Cant. Enviada", "Cant Enviada", "Cantidad enviada", "Cantidad Enviada"], 9)
+    numeroSolicitud: hidx(["N° de solicitud", "Nº de solicitud", "N de solicitud", "Numero de solicitud", "Número de solicitud"], 0),
+    nSolicitud: hidx(["N° de pedido", "Nº de pedido", "N de pedido", "Numero de pedido", "Número de pedido", "Pedido"], 1),
+    empresa: hidx(["Empresa"], 2),
+    fechaSolicitud: hidx(["Fecha de solicitud", "Fecha solicitud", "Fecha de so"], 3),
+    fechaRequerida: hidx(["Fecha requerida del producto", "Fecha requerida", "Fecha reque"], 4),
+    pedidoPor: hidx(["Pedido por", "Autorizado por", "Autorizado por:"], 5),
+    centroCosto: hidx(["Centro de Costo", "Centro de costo", "Centro Costo", "Proyecto"], 6),
+    codigoArticulo: hidx(["Código de articulo", "Código de artículo", "Codigo de articulo", "Codigo de artículo", "Código artículo", "Codigo articulo", "Código", "Codigo"], 7),
+    descripcion: hidx(["Descripción de lo que se pidio", "Descripción de lo que se pidió", "Descripcion de lo que se pidio", "Descripcion de lo que se pidió", "Descripción", "Descripcion"], 8),
+    cantidadSolicitada: hidx(["Cant.Solicitada", "Cant. Solicitada", "Cantidad solicitada", "Cant Solicitada", "Cantidad"], 9),
+    cantidadEnviada: hidx(["Cant. Enviada", "Cant Enviada", "Cantidad enviada", "Cantidad Enviada"], 10)
   };
 
   function readInput(row) {
     row = row || {};
     return {
+      numeroSolicitud: getFlexibleValueRABA03_(row, ["numeroSolicitud", "N° de solicitud", "Nº de solicitud", "Numero de solicitud", "Número de solicitud"]),
       empresa: getFlexibleValueRABA03_(row, ["empresa", "Empresa"]),
       fechaSolicitud: getFlexibleValueRABA03_(row, ["fechaSolicitud", "Fecha de solicitud", "Fecha solicitud"]),
       fechaRequerida: getFlexibleValueRABA03_(row, ["fechaRequerida", "Fecha requerida del producto", "Fecha requerida"]),
@@ -2062,6 +2846,7 @@ function handleAddRABA03Rows_APPEND_ONLY_(rows) {
   prepared.forEach(function (x, i) {
     var r = x.row;
     var vals = new Array(lastCol).fill("");
+    vals[idx.numeroSolicitud] = normalizeWriteValue_(r.numeroSolicitud);
     vals[idx.nSolicitud] = nextNumber + i;
     vals[idx.empresa] = normalizeWriteValue_(r.empresa);
     vals[idx.fechaSolicitud] = normalizeWriteValue_(parseDateRABA03_(r.fechaSolicitud));
@@ -2114,6 +2899,7 @@ function handleSaveRABA03CantEnviada_(rows) {
     return { ok: false, version: VERSION, error: { code: "SHEET_NOT_FOUND", message: "No se encontró la hoja RABA03." } };
   }
 
+  ensureRABA03SolicitudPedidoSchema_(sheet);
   var headerRow = 6;
   var firstDataRow = 7;
   var lastRow = sheet.getLastRow();
@@ -2126,16 +2912,16 @@ function handleSaveRABA03CantEnviada_(rows) {
     return String(h || "").trim() || ("col_" + (idx + 1));
   });
 
-  var nIdx = findHeaderIndexByCandidatesRABA03_(headers, ["N° de solicitud", "Nº de solicitud", "N de solicitud", "Numero de solicitud", "Número de solicitud", "Solicitud"]);
+  var nIdx = findHeaderIndexByCandidatesRABA03_(headers, ["N° de pedido", "Nº de pedido", "N de pedido", "Numero de pedido", "Número de pedido", "Pedido"]);
   var enviadaIdx = findHeaderIndexByCandidatesRABA03_(headers, ["Cant. Enviada", "Cant Enviada", "Cantidad enviada", "Cantidad Enviada"]);
 
   // Fallbacks por posición fija de la planilla base:
   // A = N° solicitud, J = Cant. enviada, L = Nº Remito, M = Fecha de salida, N = Cantidad.
-  if (nIdx === -1) nIdx = 0;
-  if (enviadaIdx === -1) enviadaIdx = 9;
-  var remitoIdx = 11;
-  var fechaSalidaIdx = 12;
-  var cantidadRemitoIdx = 13;
+  if (nIdx === -1) nIdx = 1;
+  if (enviadaIdx === -1) enviadaIdx = 10;
+  var remitoIdx = 12;
+  var fechaSalidaIdx = 13;
+  var cantidadRemitoIdx = 14;
 
   var data = sheet.getRange(firstDataRow, 1, lastRow - headerRow, lastCol).getValues();
   var rowBySolicitud = {};
@@ -2211,6 +2997,7 @@ function handleSaveRABA03Codigos_(rows) {
     return { ok: false, version: VERSION, error: { code: "SHEET_NOT_FOUND", message: "No se encontró la hoja RABA03." } };
   }
 
+  ensureRABA03SolicitudPedidoSchema_(sheet);
   var headerRow = 6;
   var firstDataRow = 7;
   var lastRow = sheet.getLastRow();
@@ -2223,13 +3010,13 @@ function handleSaveRABA03Codigos_(rows) {
     return String(h || "").trim() || ("col_" + (idx + 1));
   });
 
-  var nIdx = findHeaderIndexByCandidatesRABA03_(headers, ["N° de solicitud", "Nº de solicitud", "N de solicitud", "Numero de solicitud", "Número de solicitud", "Solicitud"]);
+  var nIdx = findHeaderIndexByCandidatesRABA03_(headers, ["N° de pedido", "Nº de pedido", "N de pedido", "Numero de pedido", "Número de pedido", "Pedido"]);
   var codigoIdx = findHeaderIndexByCandidatesRABA03_(headers, ["Código de articulo", "Código de artículo", "Codigo de articulo", "Codigo de artículo", "Código artículo", "Codigo articulo", "Código", "Codigo"]);
 
   // Fallbacks por posición fija de la planilla base:
   // A = N° solicitud, G = Código de artículo.
-  if (nIdx === -1) nIdx = 0;
-  if (codigoIdx === -1) codigoIdx = 6;
+  if (nIdx === -1) nIdx = 1;
+  if (codigoIdx === -1) codigoIdx = 7;
 
   var data = sheet.getRange(firstDataRow, 1, lastRow - headerRow, lastCol).getValues();
   var rowBySolicitud = {};
@@ -2268,6 +3055,527 @@ function handleSaveRABA03Codigos_(rows) {
 }
 
 
+
+
+/*******************************************************
+ * SINCRONIZACIÓN POR VERSIONES + TRIGGERS
+ *******************************************************/
+function getDatasetVersion_(key) {
+  var props = PropertiesService.getScriptProperties();
+  var n = Number(props.getProperty("DM_VERSION_" + key) || 1);
+  return isNaN(n) || n < 1 ? 1 : n;
+}
+
+function bumpDatasetVersion_(key) {
+  if (!SHEETS_CONFIG[key]) return null;
+
+  var lock = LockService.getScriptLock();
+  var locked = false;
+
+  try {
+    locked = lock.tryLock(5000);
+    if (!locked) throw new Error("No se pudo obtener el bloqueo para actualizar la versión de " + key + ".");
+
+    var props = PropertiesService.getScriptProperties();
+    var current = Number(props.getProperty("DM_VERSION_" + key) || 1);
+    if (isNaN(current) || current < 1) current = 1;
+
+    var next = current + 1;
+    var values = {};
+    values["DM_VERSION_" + key] = String(next);
+    values["DM_UPDATED_" + key] = new Date().toISOString();
+    props.setProperties(values, false);
+
+    return next;
+  } finally {
+    if (locked) {
+      try { lock.releaseLock(); } catch (releaseErr) {}
+    }
+  }
+}
+
+function bumpAllDatasetVersions_() {
+  Object.keys(SHEETS_CONFIG).forEach(function (key) {
+    bumpDatasetVersion_(key);
+  });
+}
+
+function handleSyncVersions_() {
+  var props = PropertiesService.getScriptProperties();
+  var versions = {};
+  var updatedAt = {};
+
+  Object.keys(SHEETS_CONFIG).forEach(function (key) {
+    versions[key] = getDatasetVersion_(key);
+    updatedAt[key] = props.getProperty("DM_UPDATED_" + key) || null;
+  });
+
+  return {
+    ok: true,
+    versions: versions,
+    updatedAt: updatedAt,
+    serverTime: new Date().toISOString()
+  };
+}
+
+function datasetKeysForSpreadsheetId_(spreadsheetId) {
+  return Object.keys(SHEETS_CONFIG).filter(function (key) {
+    return String(SHEETS_CONFIG[key].id) === String(spreadsheetId);
+  });
+}
+
+function onDatasetSheetChange_(e) {
+  try {
+    var spreadsheetId = e && e.source ? e.source.getId() : "";
+    var keys = datasetKeysForSpreadsheetId_(spreadsheetId);
+
+    keys.forEach(function (key) {
+      bumpDatasetVersion_(key);
+    });
+
+    clearAllCache_();
+  } catch (err) {
+    console.error("Error actualizando versiones:", err);
+  }
+}
+
+function setupSyncTriggers_() {
+  var handler = "onDatasetSheetChange_";
+
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === handler) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  var spreadsheetIds = {};
+  Object.keys(SHEETS_CONFIG).forEach(function (key) {
+    spreadsheetIds[SHEETS_CONFIG[key].id] = true;
+  });
+
+  var created = [];
+  var errors = [];
+
+  Object.keys(spreadsheetIds).forEach(function (id) {
+    try {
+      ScriptApp.newTrigger(handler)
+        .forSpreadsheet(id)
+        .onEdit()
+        .create();
+
+      ScriptApp.newTrigger(handler)
+        .forSpreadsheet(id)
+        .onChange()
+        .create();
+
+      created.push(id);
+    } catch (err) {
+      errors.push({ spreadsheetId: id, message: err.message });
+    }
+  });
+
+  bumpAllDatasetVersions_();
+  clearAllCache_();
+
+  return {
+    ok: errors.length === 0,
+    created: created,
+    errors: errors,
+    message: errors.length === 0
+      ? "Triggers de edición y cambio instalados correctamente."
+      : "Se instalaron algunos triggers, pero hubo errores."
+  };
+}
+
+
+// ============================================================
+// LICITACIONES COMPARTIDAS
+// Base: 1F3pPrhKSKQHHPln8o5n-M1NuHhZA--LKj93wa596_sk
+// ============================================================
+var LICITACIONES_DB_ID_ = "1F3pPrhKSKQHHPln8o5n-M1NuHhZA--LKj93wa596_sk";
+
+function getLicitacionesDbSheets_() {
+  var ss = SpreadsheetApp.openById(LICITACIONES_DB_ID_);
+  var defs = {
+    LICITACIONES: ["ID_LICITACION","NOMBRE","CLIENTE","PROYECTO","FECHA","ESTADO","RESULTADO","HORAS_CONTRATO_1","HORAS_CONTRATO_2","USAR_SEGUNDO_CONTRATO","NOTAS","CREADO_POR","FECHA_CREACION","MODIFICADO_POR","FECHA_MODIFICACION","ACTIVO","JSON_DATA"],
+    HITOS: ["ID_HITO","ID_LICITACION","FECHA","DESCRIPCION","ORDEN","COMPLETADO","CREADO_POR","FECHA_CREACION","MODIFICADO_POR","FECHA_MODIFICACION","JSON_DATA"],
+    EQUIPOS: ["ID_EQUIPO_LICITACION","ID_LICITACION","ORDEN","EQUIPO_PEDIDO","EQUIPO_PROPUESTO","FAMILIA","MARCA","MODELO","CANTIDAD","COSTO_ADQUISICION_USD","VIDA_UTIL_HORAS","AMORTIZACION_USD_H","COSTO_MANTENIMIENTO_USD_H","COSTO_HORA_TOTAL_USD","MANTENIMIENTO_ADOPTADO_PCT","MANTENIMIENTO_ADOPTADO_USD_H","COSTO_HORA_ADOPTADO_USD","COSTO_ARRENDADO_USD_H","COMPARACION_PCT","COMPARACION_TEXTO","TOTAL_CONTRATO_1_USD","TOTAL_CONTRATO_2_USD","OBSERVACIONES","CREADO_POR","FECHA_CREACION","MODIFICADO_POR","FECHA_MODIFICACION","JSON_DATA"]
+  };
+  var out = {};
+  Object.keys(defs).forEach(function(name){
+    var sh = ss.getSheetByName(name);
+    if (!sh) sh = ss.insertSheet(name);
+    var headers = defs[name];
+    if (sh.getMaxRows() < 5) sh.insertRowsAfter(sh.getMaxRows(), 5 - sh.getMaxRows());
+    if (sh.getMaxColumns() < headers.length) sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
+    var current = sh.getRange(4,1,1,headers.length).getValues()[0];
+    var mismatch = headers.some(function(h,i){ return String(current[i]||"").trim() !== h; });
+    if (mismatch) sh.getRange(4,1,1,headers.length).setValues([headers]);
+    out[name] = {sheet:sh, headers:headers};
+  });
+  return out;
+}
+
+function licSafeJsonParse_(v, fallback) {
+  try { return JSON.parse(String(v || "")); } catch (e) { return fallback; }
+}
+function licIsoDate_(v) {
+  if (!v) return "";
+  if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone() || "America/Argentina/Buenos_Aires", "yyyy-MM-dd");
+  var s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  return s;
+}
+function licNum_(v) { var n = Number(v); return isNaN(n) ? 0 : n; }
+function licBool_(v) { return v === true || String(v).toLowerCase() === "true" || String(v) === "1" || String(v).toUpperCase() === "SI"; }
+function licUser_() { try { return Session.getActiveUser().getEmail() || "APP"; } catch(e) { return "APP"; } }
+
+function handleGetLicitacionesCompartidas_() {
+  var db = getLicitacionesDbSheets_();
+  var main = db.LICITACIONES.sheet;
+  var last = main.getLastRow();
+  if (last < 5) return {ok:true, action:"licitaciones_compartidas", data:[], rows:0, fetchedAt:new Date().toISOString()};
+  var values = main.getRange(5,1,last-4,db.LICITACIONES.headers.length).getValues();
+  var ids = {};
+  var tenders = values.filter(function(r){ return String(r[0]||"").trim() && !([false,"FALSE",0,"0"].indexOf(r[15]) >= 0); }).map(function(r){
+    var raw = licSafeJsonParse_(r[16], {});
+    var id = String(r[0]||raw.id||"").trim();
+    ids[id] = true;
+    return Object.assign({}, raw, {
+      id:id,
+      nombre:String(r[1]||raw.nombre||"Nueva Licitación"),
+      cliente:String(r[2]||raw.cliente||""),
+      proyecto:String(r[3]||raw.proyecto||""),
+      fecha:licIsoDate_(r[4]||raw.fecha),
+      estado:String(r[5]||raw.estado||"EN CURSO").toUpperCase(),
+      resultado:String(r[6]||raw.resultado||"PENDIENTE").toUpperCase(),
+      horasContrato1:licNum_(r[7] !== "" ? r[7] : raw.horasContrato1),
+      horasContrato2:licNum_(r[8] !== "" ? r[8] : raw.horasContrato2),
+      usarSegundoContrato:licBool_(r[9] !== "" ? r[9] : raw.usarSegundoContrato),
+      notas:String(r[10]||raw.notas||""),
+      fechas:[], equipos:[]
+    });
+  });
+  var byId = {}; tenders.forEach(function(t){ byId[t.id]=t; });
+
+  var hitSh=db.HITOS.sheet, hitLast=hitSh.getLastRow();
+  if(hitLast>=5){
+    hitSh.getRange(5,1,hitLast-4,db.HITOS.headers.length).getValues().forEach(function(r){
+      var tender=byId[String(r[1]||"").trim()]; if(!tender)return;
+      var raw=licSafeJsonParse_(r[10],{});
+      tender.fechas.push(Object.assign({},raw,{id:String(r[0]||raw.id||""),fecha:licIsoDate_(r[2]||raw.fecha),descripcion:String(r[3]||raw.descripcion||"")}));
+    });
+  }
+  var eqSh=db.EQUIPOS.sheet, eqLast=eqSh.getLastRow();
+  if(eqLast>=5){
+    eqSh.getRange(5,1,eqLast-4,db.EQUIPOS.headers.length).getValues().forEach(function(r){
+      var tender=byId[String(r[1]||"").trim()]; if(!tender)return;
+      var raw=licSafeJsonParse_(r[27],{});
+      tender.equipos.push(Object.assign({},raw,{id:String(r[0]||raw.id||""),equipoPedido:String(r[3]||raw.equipoPedido||""),tipo:String(r[5]||raw.tipo||""),marca:String(r[6]||raw.marca||""),modelo:String(r[7]||raw.modelo||""),cantidad:licNum_(r[8]!==""?r[8]:raw.cantidad),costoAdquisicion:licNum_(r[9]!==""?r[9]:raw.costoAdquisicion),vidaUtil:licNum_(r[10]!==""?r[10]:raw.vidaUtil),mantAdoptado:r[14]!==""?licNum_(r[14]):raw.mantAdoptado,costoArrendado:licNum_(r[17]!==""?r[17]:raw.costoArrendado)}));
+    });
+  }
+  tenders.forEach(function(t){ t.fechas.sort(function(a,b){return String(a.fecha||"").localeCompare(String(b.fecha||""));}); });
+  return {ok:true, action:"licitaciones_compartidas", data:tenders, rows:tenders.length, fetchedAt:new Date().toISOString()};
+}
+
+function deleteRowsByTenderId_(sheet, idCol, idValue, headerRow) {
+  var last=sheet.getLastRow(); if(last<=headerRow)return 0;
+  var vals=sheet.getRange(headerRow+1,idCol,last-headerRow,1).getValues();
+  var deleted=0;
+  for(var i=vals.length-1;i>=0;i--){ if(String(vals[i][0]||"").trim()===idValue){ sheet.deleteRow(headerRow+1+i); deleted++; } }
+  return deleted;
+}
+
+function handleSaveLicitacionCompartida_(t) {
+  t=t||{}; var id=String(t.id||"").trim();
+  if(!id)return {ok:false,error:{code:"LIC_ID_REQUIRED",message:"La licitación no tiene ID."}};
+  var lock=LockService.getScriptLock(); lock.waitLock(30000);
+  try{
+    var db=getLicitacionesDbSheets_(), now=new Date(), user=licUser_();
+    var sh=db.LICITACIONES.sheet, last=sh.getLastRow(), rowNum=0, createdAt=now, createdBy=user;
+    if(last>=5){
+      var ids=sh.getRange(5,1,last-4,1).getValues();
+      for(var i=0;i<ids.length;i++)if(String(ids[i][0]||"").trim()===id){rowNum=i+5;break;}
+      if(rowNum){ createdBy=sh.getRange(rowNum,12).getValue()||user; createdAt=sh.getRange(rowNum,13).getValue()||now; }
+    }
+    var mainRow=[id,String(t.nombre||"Nueva Licitación"),String(t.cliente||""),String(t.proyecto||""),licIsoDate_(t.fecha),String(t.estado||"EN CURSO").toUpperCase(),String(t.resultado||"PENDIENTE").toUpperCase(),licNum_(t.horasContrato1),licNum_(t.horasContrato2),!!t.usarSegundoContrato,String(t.notas||""),createdBy,createdAt,user,now,true,JSON.stringify(t)];
+    if(rowNum)sh.getRange(rowNum,1,1,mainRow.length).setValues([mainRow]); else sh.appendRow(mainRow);
+
+    deleteRowsByTenderId_(db.HITOS.sheet,2,id,4);
+    var hitRows=(Array.isArray(t.fechas)?t.fechas:[]).map(function(f,idx){return [String(f.id||("HIT-"+new Date().getTime()+"-"+idx)),id,licIsoDate_(f.fecha),String(f.descripcion||""),idx+1,!!f.completado,user,now,user,now,JSON.stringify(f)];});
+    if(hitRows.length)db.HITOS.sheet.getRange(db.HITOS.sheet.getLastRow()+1,1,hitRows.length,db.HITOS.headers.length).setValues(hitRows);
+
+    deleteRowsByTenderId_(db.EQUIPOS.sheet,2,id,4);
+    var eqRows=(Array.isArray(t.equipos)?t.equipos:[]).map(function(e,idx){
+      var amort=licNum_(e.amortizacion||e.amortizacionUsdH), mant=licNum_(e.mantenimiento||e.costoMantenimientoUsdH), total=licNum_(e.costoHoraTotal), mantPct=e.mantAdoptado===null||e.mantAdoptado===undefined?"":licNum_(e.mantAdoptado), mantUsd=licNum_(e.mantAdoptadoUsd), adoptado=licNum_(e.costoHoraAdoptado||e.costoHora), arr=licNum_(e.costoArrendado), comp=licNum_(e.comparacion), total1=licNum_(e.total), total2=licNum_(e.total2);
+      return [String(e.id||("LEQ-"+new Date().getTime()+"-"+idx)),id,idx+1,String(e.equipoPedido||""),String(e.equipoPropuesto||[e.tipo,e.marca,e.modelo].filter(Boolean).join(" — ")),String(e.tipo||e.familia||""),String(e.marca||""),String(e.modelo||""),licNum_(e.cantidad),licNum_(e.costoAdquisicion),licNum_(e.vidaUtil),amort,mant,total,mantPct,mantUsd,adoptado,arr,comp,String(e.comparacionTexto||""),total1,total2,String(e.observaciones||""),user,now,user,now,JSON.stringify(e)];
+    });
+    if(eqRows.length)db.EQUIPOS.sheet.getRange(db.EQUIPOS.sheet.getLastRow()+1,1,eqRows.length,db.EQUIPOS.headers.length).setValues(eqRows);
+    SpreadsheetApp.flush();
+    try{bumpDatasetVersion_("licitaciones_db");bumpDatasetVersion_("licitacion_hitos_db");bumpDatasetVersion_("licitacion_equipos_db");}catch(e){}
+    return {ok:true,action:"guardar_licitacion",idLicitacion:id,hitos:hitRows.length,equipos:eqRows.length,savedAt:now.toISOString()};
+  }finally{lock.releaseLock();}
+}
+
+function handleDeleteLicitacionCompartida_(id) {
+  id=String(id||"").trim(); if(!id)return {ok:false,error:{code:"LIC_ID_REQUIRED",message:"Falta ID de licitación."}};
+  var lock=LockService.getScriptLock(); lock.waitLock(30000);
+  try{
+    var db=getLicitacionesDbSheets_();
+    var deleted={licitaciones:deleteRowsByTenderId_(db.LICITACIONES.sheet,1,id,4),hitos:deleteRowsByTenderId_(db.HITOS.sheet,2,id,4),equipos:deleteRowsByTenderId_(db.EQUIPOS.sheet,2,id,4)};
+    SpreadsheetApp.flush();
+    return {ok:true,action:"eliminar_licitacion",idLicitacion:id,deleted:deleted};
+  }finally{lock.releaseLock();}
+}
+
+/*******************************************************
+ * RMA15 — ALERTA AUTOMÁTICA DE EQUIPOS NO OPERATIVOS
+ * Función ejecutada por el activador basado en tiempo:
+ * revisarEquiposNoOperativos
+ *
+ * Destinatarios:
+ * 1) Propiedad del script ALERTAS_RMA15_DESTINATARIOS
+ *    (varios correos separados por coma), o
+ * 2) correo del usuario propietario que ejecuta el script.
+ *******************************************************/
+function revisarEquiposNoOperativos() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
+
+  try {
+    var proyectos = ["rma15_fs", "rma15_jm"];
+    var destinatarios = obtenerDestinatariosAlertasRMA15_();
+    var totalAvisos = 0;
+    var errores = [];
+
+    proyectos.forEach(function(key) {
+      try {
+        totalAvisos += revisarHojaRMA15NoOperativos_(key, destinatarios);
+      } catch (err) {
+        errores.push(key + ": " + err.message);
+      }
+    });
+
+    if (errores.length) {
+      console.error("Errores al revisar RMA15: " + errores.join(" | "));
+    }
+
+    console.log("Revisión RMA15 finalizada. Avisos enviados: " + totalAvisos);
+    return {
+      ok: errores.length === 0,
+      avisosEnviados: totalAvisos,
+      errores: errores
+    };
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+function revisarHojaRMA15NoOperativos_(configKey, destinatarios) {
+  var config = SHEETS_CONFIG[configKey];
+  if (!config) throw new Error("No existe la configuración " + configKey + ".");
+
+  var ss = SpreadsheetApp.openById(config.id);
+  var sheet = findSheetByGidOrName(ss, config.gid, config.sheet);
+  if (!sheet) throw new Error("No se encontró la hoja '" + config.sheet + "'.");
+
+  var headerRow = Number(config.headerRow || 5);
+  var lastRow = sheet.getLastRow();
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  if (lastRow <= headerRow) return 0;
+
+  var headers = sheet.getRange(headerRow, 1, 1, lastCol).getDisplayValues()[0];
+
+  var idxFecha = buscarIndiceHeaderRMA15_(headers, ["Fecha OT", "Fecha de OT", "Fecha"]);
+  var idxProyecto = buscarIndiceHeaderRMA15_(headers, ["Proyecto/Lugar", "Proyecto", "Lugar"]);
+  var idxTipo = buscarIndiceHeaderRMA15_(headers, ["Tipo mant.", "Tipo mantenimiento", "Tipo de mantenimiento"]);
+  var idxEquipo = buscarIndiceHeaderRMA15_(headers, ["Equipo", "Descripción equipo", "Descripcion equipo"]);
+  var idxCodigo = buscarIndiceHeaderRMA15_(headers, ["Código interno", "Codigo interno", "Interno"]);
+  var idxKmHs = buscarIndiceHeaderRMA15_(headers, ["Km/hs", "Km / hs", "Kilómetros/Horas", "Kilometros/Horas", "Horómetro", "Horometro"]);
+  var idxIntervencion = buscarIndiceHeaderRMA15_(headers, ["Intervención", "Intervencion", "Trabajo realizado", "Descripción intervención", "Descripcion intervencion"]);
+  var idxOperativo = buscarIndiceHeaderRMA15_(headers, ["¿EQUIPO QUEDO OPERATIVO?", "EQUIPO QUEDO OPERATIVO", "Equipo quedó operativo", "Equipo quedo operativo", "Operativo"]);
+  var idxObservaciones = buscarIndiceHeaderRMA15_(headers, ["Observaciones", "Observación", "Observacion"]);
+  var idxAvisado = buscarIndiceHeaderRMA15_(headers, ["MAIL AVISADO", "Mail avisado", "Correo avisado", "Avisado"]);
+
+  if (idxOperativo === -1) {
+    throw new Error("No se encontró la columna '¿EQUIPO QUEDO OPERATIVO?'.");
+  }
+
+  if (idxAvisado === -1) {
+    idxAvisado = lastCol;
+    sheet.getRange(headerRow, idxAvisado + 1).setValue("MAIL AVISADO");
+    headers.push("MAIL AVISADO");
+    lastCol++;
+  }
+
+  var rowCount = lastRow - headerRow;
+  var values = sheet.getRange(headerRow + 1, 1, rowCount, lastCol).getDisplayValues();
+  var celdasAvisadas = [];
+  var celdasAReiniciar = [];
+  var avisosEnviados = 0;
+
+  values.forEach(function(row, offset) {
+    var fila = headerRow + 1 + offset;
+    var operativo = normalizarValorRMA15_(row[idxOperativo]);
+    var avisado = normalizarValorRMA15_(row[idxAvisado]);
+
+    var esNoOperativo = operativo === "NO" ||
+      operativo === "NO OPERATIVO" ||
+      operativo === "FUERA DE SERVICIO" ||
+      operativo === "FALSE" ||
+      operativo === "0";
+
+    var yaAvisado = avisado === "SI" ||
+      avisado === "SÍ" ||
+      avisado === "ENVIADO" ||
+      avisado === "AVISADO" ||
+      avisado.indexOf("ENVIADO") !== -1;
+
+    // Al volver a quedar operativo, se limpia la marca para permitir
+    // una nueva alerta si en otra intervención vuelve a quedar en NO.
+    if (!esNoOperativo) {
+      if (String(row[idxAvisado] || "").trim()) {
+        celdasAReiniciar.push(sheet.getRange(fila, idxAvisado + 1));
+      }
+      return;
+    }
+
+    if (yaAvisado) return;
+
+    var proyecto = valorFilaRMA15_(row, idxProyecto) || config.proyecto || config.label;
+    var codigo = valorFilaRMA15_(row, idxCodigo);
+    var equipo = valorFilaRMA15_(row, idxEquipo);
+    var identificacion = [codigo, equipo].filter(Boolean).join(" — ") || "Equipo sin identificar";
+    var asunto = "ALERTA RMA15 — EQUIPO NO OPERATIVO — " + identificacion;
+
+    var cuerpo = [
+      "Se registró un equipo que quedó NO OPERATIVO en RMA15.",
+      "",
+      "Proyecto/Lugar: " + proyecto,
+      "Fecha OT: " + (valorFilaRMA15_(row, idxFecha) || "Sin informar"),
+      "Equipo: " + (equipo || "Sin informar"),
+      "Código interno: " + (codigo || "Sin informar"),
+      "Tipo de mantenimiento: " + (valorFilaRMA15_(row, idxTipo) || "Sin informar"),
+      "Km/hs: " + (valorFilaRMA15_(row, idxKmHs) || "Sin informar"),
+      "Intervención: " + (valorFilaRMA15_(row, idxIntervencion) || "Sin informar"),
+      "Observaciones: " + (valorFilaRMA15_(row, idxObservaciones) || "Sin observaciones"),
+      "",
+      "Planilla: " + config.label,
+      "Fila: " + fila,
+      "Fecha del aviso: " + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "America/Argentina/Buenos_Aires", "dd/MM/yyyy HH:mm:ss")
+    ].join("\n");
+
+    if (!destinatarios) {
+      throw new Error("No hay destinatarios configurados para las alertas RMA15.");
+    }
+
+    MailApp.sendEmail({
+      to: destinatarios,
+      subject: asunto,
+      body: cuerpo,
+      name: "Delta Mining OPS — RMA15"
+    });
+
+    celdasAvisadas.push({
+      range: sheet.getRange(fila, idxAvisado + 1),
+      value: "ENVIADO " + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "America/Argentina/Buenos_Aires", "dd/MM/yyyy HH:mm")
+    });
+    avisosEnviados++;
+  });
+
+  celdasAReiniciar.forEach(function(range) {
+    range.clearContent();
+  });
+
+  celdasAvisadas.forEach(function(item) {
+    item.range.setValue(item.value);
+  });
+
+  if (celdasAReiniciar.length || celdasAvisadas.length) SpreadsheetApp.flush();
+  return avisosEnviados;
+}
+
+function buscarIndiceHeaderRMA15_(headers, candidatos) {
+  var normalizados = (candidatos || []).map(normalizarHeaderRMA15_);
+
+  for (var i = 0; i < headers.length; i++) {
+    var actual = normalizarHeaderRMA15_(headers[i]);
+    for (var j = 0; j < normalizados.length; j++) {
+      if (actual === normalizados[j]) return i;
+    }
+  }
+
+  for (var a = 0; a < headers.length; a++) {
+    var header = normalizarHeaderRMA15_(headers[a]);
+    for (var b = 0; b < normalizados.length; b++) {
+      var buscado = normalizados[b];
+      if (header && buscado && (header.indexOf(buscado) !== -1 || buscado.indexOf(header) !== -1)) return a;
+    }
+  }
+
+  return -1;
+}
+
+function normalizarHeaderRMA15_(v) {
+  return String(v || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizarValorRMA15_(v) {
+  return String(v || "")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function valorFilaRMA15_(row, index) {
+  if (index === -1 || index === null || index === undefined) return "";
+  return String(row[index] || "").trim();
+}
+
+function obtenerDestinatariosAlertasRMA15_() {
+  var props = PropertiesService.getScriptProperties();
+  var configurados = String(props.getProperty("ALERTAS_RMA15_DESTINATARIOS") || "").trim();
+  if (configurados) return configurados;
+
+  try {
+    var emailEfectivo = String(Session.getEffectiveUser().getEmail() || "").trim();
+    if (emailEfectivo) return emailEfectivo;
+  } catch (e) {}
+
+  try {
+    var emailActivo = String(Session.getActiveUser().getEmail() || "").trim();
+    if (emailActivo) return emailActivo;
+  } catch (e2) {}
+
+  return "";
+}
+
+// Ejecutar manualmente una sola vez si necesitás crear nuevamente
+// el activador automático cada 5 minutos.
+function configurarActivadorRevisarEquiposNoOperativos() {
+  var nombreFuncion = "revisarEquiposNoOperativos";
+
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === nombreFuncion) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  ScriptApp.newTrigger(nombreFuncion)
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+
+  return "Activador creado correctamente para ejecutar cada 5 minutos.";
+}
 
 
 /*******************************************************
@@ -2384,70 +3692,8 @@ function pmRegistroToClient_(row) {
   };
 }
 
-
-function pmInitialSeed_() {
-  return [{"interno":"EXC-0005","equipo":"EXCAVADORA PC200","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-14","horometroUltimoPM":7593.0},{"interno":"EXC-0034","equipo":"EXCAVADORA PC350","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-12","horometroUltimoPM":5911.0},{"interno":"EXC-0048","equipo":"EXCAVADORA PC210","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-07-01","horometroUltimoPM":4915.0},{"interno":"CFN-0017","equipo":"CARGADORA WA320","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-26","horometroUltimoPM":9361.0},{"interno":"PCA-0081","equipo":"CARGADORA WA320","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-07-01","horometroUltimoPM":2055.0},{"interno":"PCA-0093","equipo":"CARGADORA WA320","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-05-11","horometroUltimoPM":1351.0},{"interno":"PCA-0095","equipo":"CARGADORA WA320","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-30","horometroUltimoPM":1618.0},{"interno":"MOT-0014","equipo":"MOTONIVELADORA GD655","proyecto":"BAJA","fechaUltimoPM":"2026-04-10","horometroUltimoPM":7062.0},{"interno":"MOT-0047","equipo":"MOTONIVELADORA GD655","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-07-02","horometroUltimoPM":4417.0},{"interno":"MOT-0079","equipo":"MOTONIVELADORA GD656","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-24","horometroUltimoPM":451.0},{"interno":"TOP-0032","equipo":"TOPADORA D155AX","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-28","horometroUltimoPM":7141.0},{"interno":"TOP-0022","equipo":"TOPADORA D155AX","proyecto":"BAJA","fechaUltimoPM":"2026-01-31","horometroUltimoPM":3734.0},{"interno":"ROD-0001","equipo":"VIBRO AMMANN","proyecto":"BAJA","fechaUltimoPM":"2026-01-03","horometroUltimoPM":2634.0},{"interno":"RCP-0039","equipo":"VIBRO VOLVO","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-05-19","horometroUltimoPM":537.0},{"interno":"RTP-0020","equipo":"RETROPALA JD310P","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-03","horometroUltimoPM":2552.0},{"interno":"RTP-0016","equipo":"RETROPALA JD310P","proyecto":"BAJA","fechaUltimoPM":"2026-04-20","horometroUltimoPM":2755.0},{"interno":"RTP-0024","equipo":"RETROPALA JD310P","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-05-05","horometroUltimoPM":1803.0},{"interno":"EXC-0055","equipo":"EXCAVADORA PC210","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-05-18","horometroUltimoPM":2606.0},{"interno":"MCA-0005","equipo":"MINICARGADORA L330","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-07-06","horometroUltimoPM":4853.0},{"interno":"MOT-0049","equipo":"MOTONIVELADORA 670G","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-04-21","horometroUltimoPM":3319.0},{"interno":"MOT-0051","equipo":"MOTONIVELADORA 670G","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-05-11","horometroUltimoPM":5321.0},{"interno":"MOT-0069","equipo":"MOTONIVELADORA 670P","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-07-05","horometroUltimoPM":1708.0},{"interno":"PCA-0021","equipo":"CAGADORA WA320","proyecto":"PREDIO","fechaUltimoPM":"2026-01-29","horometroUltimoPM":8135.0},{"interno":"PCA-0051","equipo":"CARGADORA WA320","proyecto":"BAJA","fechaUltimoPM":"2026-03-11","horometroUltimoPM":4734.0},{"interno":"PCA-0070","equipo":"CAGADORA WA320","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-17","horometroUltimoPM":3100.0},{"interno":"PCA-0074","equipo":"CAGADORA WA320","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-16","horometroUltimoPM":2320.0},{"interno":"PCA-0101","equipo":"CARGADORA WA320","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-07-06","horometroUltimoPM":1175.0},{"interno":"RCP-0016","equipo":"VIBRO AMMANN","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-05-25","horometroUltimoPM":2955.0},{"interno":"RCP-0036","equipo":"VIBRO AMMANN","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-07-05","horometroUltimoPM":1480.0},{"interno":"RTP-0018","equipo":"RETROPALA CAT416","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-07","horometroUltimoPM":4421.0},{"interno":"RTP-0030","equipo":"RETROAPALA CAT416","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-07-01","horometroUltimoPM":1441.0},{"interno":"TOP-0048","equipo":"TOPADORA D155AX","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-25","horometroUltimoPM":3206.0},{"interno":"TOP-0051","equipo":"TOPADORA D155AX","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-26","horometroUltimoPM":2124.0},{"interno":"TOP-0058","equipo":"TOPADORA D155AX","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-05-09","horometroUltimoPM":3871.0},{"interno":"G1","equipo":"GENERADOR CAT","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-23","horometroUltimoPM":6604.0},{"interno":"CTA-0805","equipo":"AF374DO","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-05-27","horometroUltimoPM":159000.0},{"interno":"CTA-0888","equipo":"AH619FB","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-05-22","horometroUltimoPM":43295.0},{"interno":"CTA-0848","equipo":"AH045UV","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-05-30","horometroUltimoPM":64414.0},{"interno":"CTA-0746","equipo":"AG575LI","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-03-31","horometroUltimoPM":105478.0},{"interno":"CTA-0745","equipo":"AG575LJ","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-04-19","horometroUltimoPM":97430.0},{"interno":"CAC-0027","equipo":"AG815QB","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-20","horometroUltimoPM":3500.0},{"interno":"CAC-0023","equipo":"AG661LL","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-05-19","horometroUltimoPM":5964.0},{"interno":"CTA-1131","equipo":"AG770BO","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-07-03","horometroUltimoPM":69246.0},{"interno":"CAT-0073","equipo":"AE823BH","proyecto":"PREDIO","fechaUltimoPM":"2026-01-04","horometroUltimoPM":3117.0},{"interno":"CTA-0787","equipo":"AG201HX","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-05-01","horometroUltimoPM":105008.0},{"interno":"CTA-0825","equipo":"AG319QB","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-04-28","horometroUltimoPM":112883.0},{"interno":"CTA-1410","equipo":"AH619FA","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-30","horometroUltimoPM":38596.0},{"interno":"CTA-1411","equipo":"AH452VY","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-27","horometroUltimoPM":51566.0},{"interno":"CTA-0788","equipo":"AG201HO","proyecto":"FILO SUR","fechaUltimoPM":"2026-05-07","horometroUltimoPM":108110.0},{"interno":"CTA-1418","equipo":"AH589MH","proyecto":"GOMERIA","fechaUltimoPM":"2026-05-01","horometroUltimoPM":16035.0},{"interno":"CTA-1267","equipo":"AH106YK","proyecto":"FILO DEL SOL","fechaUltimoPM":"2026-06-13","horometroUltimoPM":78646.0},{"interno":"CTA-1067","equipo":"AG746DF","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-09","horometroUltimoPM":107768.0},{"interno":"CTA-0879","equipo":"AG469HA","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-05-07","horometroUltimoPM":108471.0},{"interno":"CAV-0114","equipo":"AH574ZG","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-05-11","horometroUltimoPM":1044.0},{"interno":"CAR-0089","equipo":"AG661LM","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-05-01","horometroUltimoPM":3122.0},{"interno":"CAA-0002","equipo":"AE450BP","proyecto":"JOSE MARIA","fechaUltimoPM":"2026-06-04","horometroUltimoPM":9690.0}];
-}
-
-function ensurePMInitialSeed_(db, force) {
-  var props = PropertiesService.getScriptProperties();
-  var seedVersion = "PM_INITIAL_SEED_ULTIMOS_PM_V3";
-
-  var rows = pmInitialSeed_();
-  var inserted = 0;
-  var updated = 0;
-  var skipped = 0;
-
-  rows.forEach(function(item) {
-    var rowNum = pmFindConfigRow_(db.PM_CONFIG, item.interno);
-    if (rowNum > 0) {
-      var current = db.PM_CONFIG.sheet.getRange(rowNum, 1, 1, db.PM_CONFIG.headers.length).getValues()[0];
-      var currentObj = {};
-      db.PM_CONFIG.headers.forEach(function(h, i) { currentObj[h] = pmCellValue_(current[i]); });
-      var cfg = pmConfigToClient_(currentObj);
-      if (Number(cfg.horometroUltimoPM || 0) > 0 && !force) { skipped++; return; }
-      pmUpsertConfigUnlocked_(db.PM_CONFIG, {
-        interno: item.interno,
-        equipo: cfg.equipo || item.equipo,
-        proyecto: cfg.proyecto || item.proyecto,
-        intervalo: Number(cfg.intervalo || 250),
-        alertaDesde: Number(cfg.alertaDesde || 200),
-        atrasadoDesde: Number(cfg.atrasadoDesde || 350),
-        horometroUltimoPM: Number(item.horometroUltimoPM || 0),
-        fechaUltimoPM: item.fechaUltimoPM || "",
-        tipoUltimoPM: cfg.tipoUltimoPM || "PM 250",
-        horometroActualManual: Number(cfg.horometroActualManual || 0),
-        activo: cfg.activo || "SI",
-        observaciones: cfg.observaciones || "Importado desde Ultimos_PM_Equipos.xlsx"
-      });
-      updated++;
-    } else {
-      pmUpsertConfigUnlocked_(db.PM_CONFIG, {
-        interno: item.interno,
-        equipo: item.equipo,
-        proyecto: item.proyecto,
-        intervalo: 250,
-        alertaDesde: 200,
-        atrasadoDesde: 350,
-        horometroUltimoPM: Number(item.horometroUltimoPM || 0),
-        fechaUltimoPM: item.fechaUltimoPM || "",
-        tipoUltimoPM: "PM 250",
-        horometroActualManual: 0,
-        activo: "SI",
-        observaciones: "Importado desde Ultimos_PM_Equipos.xlsx"
-      });
-      inserted++;
-    }
-  });
-
-  props.setProperty(seedVersion, "1");
-  SpreadsheetApp.flush();
-  return { inserted: inserted, updated: updated, skipped: skipped };
-}
-
 function handleGetMantenimientoProgramado_() {
   var db = getPMDatabase_();
-  ensurePMInitialSeed_(db, false);
   var config = pmReadRows_(db.PM_CONFIG).map(pmConfigToClient_);
   var registros = pmReadRows_(db.PM_REGISTROS).map(pmRegistroToClient_);
   registros.sort(function(a, b) {
@@ -2614,20 +3860,371 @@ function handleRegistrarPMRealizado_(registro) {
 /** Ejecutar una vez manualmente para crear y formatear PM_CONFIG y PM_REGISTROS. */
 function setupMantenimientoProgramado_() {
   var db = getPMDatabase_();
-  var seed = ensurePMInitialSeed_(db, false);
   SpreadsheetApp.flush();
   return {
     ok: true,
     spreadsheetId: PM_DB_ID_,
     sheets: Object.keys(db),
-    seed: seed,
-    message: "Base de Mantenimiento Programado configurada y últimos PM importados correctamente."
+    message: "Base de Mantenimiento Programado configurada correctamente."
   };
 }
 
-/** Reimporta únicamente filas sin base. Usar manualmente si fuera necesario. */
-function importarUltimosPMIniciales_() {
-  var db = getPMDatabase_();
-  PropertiesService.getScriptProperties().deleteProperty("PM_INITIAL_SEED_ULTIMOS_PM_V3");
-  return ensurePMInitialSeed_(db, false);
+
+/*******************************************************
+ * MANTENIMIENTO PROGRAMADO — ACTUALIZACIÓN AUTOMÁTICA
+ * - Lee ROP02 de todos los proyectos configurados.
+ * - Considera únicamente actividad de los últimos 7 días.
+ * - Toma el mayor/último HF por interno.
+ * - Actualiza HOROMETRO_ACTUAL_MANUAL en PM_CONFIG.
+ * - Preparado para activador cada 5 minutos.
+ *******************************************************/
+
+function pmParseDateFlexible_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+
+  var text = String(value || "").trim();
+  if (!text) return null;
+
+  var iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  }
+
+  var dmy = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2}|\d{4})/);
+  if (dmy) {
+    var year = Number(dmy[3]);
+    if (year < 100) year += 2000;
+    return new Date(year, Number(dmy[2]) - 1, Number(dmy[1]));
+  }
+
+  var parsed = new Date(text);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function pmNumberFlexible_(value) {
+  if (typeof value === "number") return isFinite(value) ? value : 0;
+
+  var text = String(value || "").trim().replace(/\s+/g, "");
+  if (!text) return 0;
+
+  if (text.indexOf(",") !== -1 && text.indexOf(".") !== -1) {
+    text = text.replace(/\./g, "").replace(",", ".");
+  } else if (text.indexOf(",") !== -1) {
+    text = text.replace(",", ".");
+  }
+
+  var n = Number(text);
+  return isNaN(n) ? 0 : n;
+}
+
+function pmFindHeaderIndexByCandidates_(headers, candidates) {
+  var normalizedHeaders = (headers || []).map(function(header) {
+    return normalizeHeaderText_(header);
+  });
+
+  for (var c = 0; c < candidates.length; c++) {
+    var wanted = normalizeHeaderText_(candidates[c]);
+
+    for (var i = 0; i < normalizedHeaders.length; i++) {
+      if (normalizedHeaders[i] === wanted) return i;
+    }
+  }
+
+  for (var c2 = 0; c2 < candidates.length; c2++) {
+    var partial = normalizeHeaderText_(candidates[c2]);
+
+    for (var j = 0; j < normalizedHeaders.length; j++) {
+      var current = normalizedHeaders[j];
+      if (current && partial && (current.indexOf(partial) !== -1 || partial.indexOf(current) !== -1)) {
+        return j;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function pmReadLatestHorometersFromROP02_(daysBack) {
+  daysBack = Math.max(1, Number(daysBack || 7));
+
+  var cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - (daysBack - 1));
+
+  var sourceKeys = Object.keys(SHEETS_CONFIG).filter(function(key) {
+    return key.indexOf("rop02_") === 0;
+  });
+
+  var latestByInternal = {};
+  var sourceErrors = [];
+
+  sourceKeys.forEach(function(key) {
+    var config = SHEETS_CONFIG[key];
+
+    try {
+      var ss = SpreadsheetApp.openById(config.id);
+      var sheet = findSheetByGidOrName(ss, config.gid, config.sheet);
+
+      if (!sheet) {
+        sourceErrors.push({ source: key, error: "No se encontró la hoja." });
+        return;
+      }
+
+      var lastRow = sheet.getLastRow();
+      var lastCol = sheet.getLastColumn();
+      var headerRow = Number(config.headerRow || 1);
+
+      if (lastRow <= headerRow || lastCol <= 0) return;
+
+      var headers = sheet.getRange(headerRow, 1, 1, lastCol).getValues()[0];
+      var rows = sheet.getRange(headerRow + 1, 1, lastRow - headerRow, lastCol).getValues();
+
+      var dateIdx = pmFindHeaderIndexByCandidates_(headers, [
+        "Fecha", "Fecha del Parte Diario", "Fecha Parte", "Día"
+      ]);
+      var internalIdx = pmFindHeaderIndexByCandidates_(headers, [
+        "Interno", "Código Interno del Equipo", "Codigo Interno del Equipo",
+        "Código Interno", "Codigo Interno", "Código Int", "Codigo Int", "Máquina", "Maquina"
+      ]);
+      var hfIdx = pmFindHeaderIndexByCandidates_(headers, [
+        "HF", "Horómetro Final", "Horometro Final", "H.F.", "Horómetro fin", "Horometro fin"
+      ]);
+      var equipmentIdx = pmFindHeaderIndexByCandidates_(headers, [
+        "Equipo", "Tipo de Equipo", "Tipo Equipo", "Máquina", "Maquina"
+      ]);
+      var projectIdx = pmFindHeaderIndexByCandidates_(headers, [
+        "Proyecto", "Project", "Centro de Costo", "Centro Costo"
+      ]);
+
+      if (dateIdx < 0 || internalIdx < 0 || hfIdx < 0) {
+        sourceErrors.push({
+          source: key,
+          error: "Faltan columnas requeridas (Fecha, Interno o HF).",
+          headers: headers.map(function(h) { return String(h || "").trim(); })
+        });
+        return;
+      }
+
+      rows.forEach(function(row) {
+        var date = pmParseDateFlexible_(row[dateIdx]);
+        if (!date || date < cutoff) return;
+
+        var internalRaw = String(row[internalIdx] || "").trim();
+        var internalNorm = normalizeMachineCode_(internalRaw);
+        var hf = pmNumberFlexible_(row[hfIdx]);
+
+        if (!internalNorm || hf <= 0) return;
+
+        var current = latestByInternal[internalNorm];
+        var shouldReplace = !current || date > current.date || (date.getTime() === current.date.getTime() && hf > current.horometer);
+
+        if (shouldReplace) {
+          latestByInternal[internalNorm] = {
+            internal: internalRaw,
+            internalNorm: internalNorm,
+            equipment: equipmentIdx >= 0 ? String(row[equipmentIdx] || "").trim() : "",
+            project: projectIdx >= 0 && String(row[projectIdx] || "").trim()
+              ? String(row[projectIdx] || "").trim()
+              : String(config.proyecto || "").trim(),
+            horometer: hf,
+            date: date,
+            source: key
+          };
+        }
+      });
+
+    } catch (error) {
+      sourceErrors.push({ source: key, error: error.message });
+    }
+  });
+
+  return {
+    latestByInternal: latestByInternal,
+    sourceErrors: sourceErrors,
+    cutoff: cutoff,
+    sourceKeys: sourceKeys
+  };
+}
+
+function actualizarMantenimientoProgramadoDesdeROP02() {
+  var lock = LockService.getScriptLock();
+
+  // Si ya existe otra actualización en curso, salir sin marcar error en el activador.
+  if (!lock.tryLock(20000)) {
+    return {
+      ok: true,
+      skipped: true,
+      message: "Se omitió la ejecución porque ya había otra actualización PM en curso."
+    };
+  }
+
+  try {
+    var readResult = pmReadLatestHorometersFromROP02_(7);
+    var latestByInternal = readResult.latestByInternal;
+    var db = getPMDatabase_();
+    var target = db.PM_CONFIG;
+    var now = new Date();
+
+    var existingRows = pmReadRows_(target);
+    var existingByInternal = {};
+
+    existingRows.forEach(function(row) {
+      var norm = normalizeMachineCode_(row.INTERNO);
+      if (norm) existingByInternal[norm] = pmConfigToClient_(row);
+    });
+
+    var inserted = 0;
+    var updated = 0;
+    var unchanged = 0;
+
+    Object.keys(latestByInternal).forEach(function(norm) {
+      var latest = latestByInternal[norm];
+      var current = existingByInternal[norm] || {};
+      var previousCurrent = Number(current.horometroActualManual || 0);
+      var nextCurrent = Math.max(previousCurrent, Number(latest.horometer || 0));
+
+      var config = {
+        interno: latest.internal || current.interno || norm,
+        equipo: latest.equipment || current.equipo || "",
+        proyecto: latest.project || current.proyecto || "",
+        intervalo: Number(current.intervalo || 250),
+        alertaDesde: Number(current.alertaDesde || 200),
+        atrasadoDesde: Number(current.atrasadoDesde || 350),
+        horometroUltimoPM: Number(current.horometroUltimoPM || 0),
+        fechaUltimoPM: current.fechaUltimoPM || "",
+        tipoUltimoPM: current.tipoUltimoPM || "PM 250",
+        horometroActualManual: nextCurrent,
+        activo: current.activo || "SI",
+        observaciones: current.observaciones || ""
+      };
+
+      var existed = !!existingByInternal[norm];
+      var changed = !existed ||
+        nextCurrent !== previousCurrent ||
+        String(config.equipo || "") !== String(current.equipo || "") ||
+        String(config.proyecto || "") !== String(current.proyecto || "");
+
+      if (!changed) {
+        unchanged++;
+        return;
+      }
+
+      pmUpsertConfigUnlocked_(target, config);
+      if (existed) updated++;
+      else inserted++;
+    });
+
+    PropertiesService.getScriptProperties().setProperties({
+      PM_AUTO_LAST_RUN: now.toISOString(),
+      PM_AUTO_LAST_OK: "true",
+      PM_AUTO_LAST_INSERTED: String(inserted),
+      PM_AUTO_LAST_UPDATED: String(updated),
+      PM_AUTO_LAST_ACTIVE_EQUIPMENT: String(Object.keys(latestByInternal).length),
+      PM_AUTO_LAST_SOURCE_ERRORS: JSON.stringify(readResult.sourceErrors || [])
+    }, false);
+
+    SpreadsheetApp.flush();
+
+    try {
+      bumpDatasetVersion_("pm_config");
+      clearAllCache_();
+    } catch (versionError) {}
+
+    return {
+      ok: true,
+      action: "actualizar_mantenimiento_programado_desde_rop02",
+      daysBack: 7,
+      activeEquipment: Object.keys(latestByInternal).length,
+      inserted: inserted,
+      updated: updated,
+      unchanged: unchanged,
+      sourceErrors: readResult.sourceErrors,
+      executedAt: now.toISOString()
+    };
+
+  } catch (error) {
+    PropertiesService.getScriptProperties().setProperties({
+      PM_AUTO_LAST_RUN: new Date().toISOString(),
+      PM_AUTO_LAST_OK: "false",
+      PM_AUTO_LAST_ERROR: String(error && error.stack ? error.stack : error)
+    }, false);
+    throw error;
+
+  } finally {
+    try { lock.releaseLock(); } catch (releaseError) {}
+  }
+}
+
+/**
+ * Ejecutar UNA SOLA VEZ manualmente.
+ * Borra únicamente los triggers anteriores de esta función y crea uno nuevo cada 5 minutos.
+ */
+function configurarActualizacionAutomaticaPMCada5Minutos() {
+  var handler = "actualizarMantenimientoProgramadoDesdeROP02";
+  var deleted = 0;
+
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === handler) {
+      ScriptApp.deleteTrigger(trigger);
+      deleted++;
+    }
+  });
+
+  var trigger = ScriptApp.newTrigger(handler)
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+
+  // Ejecutar inmediatamente para no esperar los primeros 5 minutos.
+  var firstRun = actualizarMantenimientoProgramadoDesdeROP02();
+
+  return {
+    ok: true,
+    handler: handler,
+    triggerId: trigger.getUniqueId(),
+    deletedPreviousTriggers: deleted,
+    frequencyMinutes: 5,
+    firstRun: firstRun,
+    message: "Actualización automática de PM configurada cada 5 minutos."
+  };
+}
+
+function eliminarActualizacionAutomaticaPM() {
+  var handler = "actualizarMantenimientoProgramadoDesdeROP02";
+  var deleted = 0;
+
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === handler) {
+      ScriptApp.deleteTrigger(trigger);
+      deleted++;
+    }
+  });
+
+  return {
+    ok: true,
+    deleted: deleted,
+    message: deleted + " activador(es) de PM eliminados."
+  };
+}
+
+function diagnosticoActualizacionAutomaticaPM() {
+  var props = PropertiesService.getScriptProperties();
+  var triggers = ScriptApp.getProjectTriggers().filter(function(trigger) {
+    return trigger.getHandlerFunction() === "actualizarMantenimientoProgramadoDesdeROP02";
+  });
+
+  return {
+    ok: true,
+    triggerCount: triggers.length,
+    lastRun: props.getProperty("PM_AUTO_LAST_RUN") || null,
+    lastOk: props.getProperty("PM_AUTO_LAST_OK") || null,
+    lastError: props.getProperty("PM_AUTO_LAST_ERROR") || null,
+    lastInserted: props.getProperty("PM_AUTO_LAST_INSERTED") || "0",
+    lastUpdated: props.getProperty("PM_AUTO_LAST_UPDATED") || "0",
+    lastActiveEquipment: props.getProperty("PM_AUTO_LAST_ACTIVE_EQUIPMENT") || "0",
+    sourceErrors: (function() {
+      try { return JSON.parse(props.getProperty("PM_AUTO_LAST_SOURCE_ERRORS") || "[]"); }
+      catch (e) { return []; }
+    })()
+  };
 }
