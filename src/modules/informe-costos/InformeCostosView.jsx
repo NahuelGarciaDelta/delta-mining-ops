@@ -2234,17 +2234,21 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
       // vidaBase: la vida sin override (de lista maestra). Para Delta es x.vida que viene de getVidaUtilEquipo
       // pero como getVidaUtilEquipo ya usa refs, necesitamos la vida de lista maestra pura para el display
       const vidaBase=x.vida; // vida que viene de rowsAmortizacion (puede ser override via ref)
-      const vidaFinal=esDeltaEq?x.vida:(Number(x.horasMensuales)||200);
+      // Para equipos arrendados, el divisor del alquiler NO sale de la Lista Maestra.
+      // Debe usar el parámetro global “Hs Eq. Arr.” de Horas de referencia.
+      // Si ese parámetro no es válido, se conserva el respaldo de 200 h/mes.
+      const horasArrendadoReferencia=(Number(hsArrendados)||0)>0?(Number(hsArrendados)||0):200;
+      const vidaFinal=esDeltaEq?x.vida:horasArrendadoReferencia;
       const costoCapital=getCostoHorarioAmortizacionOAlquiler({
         propiedad:x.propiedad,costoAdquisicion:x.costoAdquisicion,vidaUtil:vidaFinal,
-        tarifaMensual:x.tarifaMensual,horasMensuales:vidaFinal
+        tarifaMensual:x.tarifaMensual,horasMensuales:horasArrendadoReferencia
       });
       const amortFinal=costoCapital.costoHorario;
 
       const hhHombreVestido=hsEf>0?(Number(hombreVestido)||0)/hsEf:0;
       const totalUSDhs=amortFinal+hhHombreVestido+x.mantUSDhs;
       const pctMant=amortFinal>0?x.mantUSDhs/amortFinal:0;
-      return {...x,vida:vidaFinal,vidaBase:x.vidaListaMaestra||x.vidaBase||vidaFinal,amort:amortFinal,costoCapitalTipo:costoCapital.tipo,costoCapitalDetalle:costoCapital.detalle,hhHombreVestido,totalUSDhs,pctMant,_esDelta:esDeltaEq,_hsEf:hsEf};
+      return {...x,vida:vidaFinal,horasMensuales:esDeltaEq?x.horasMensuales:horasArrendadoReferencia,vidaBase:x.vidaListaMaestra||x.vidaBase||vidaFinal,amort:amortFinal,costoCapitalTipo:costoCapital.tipo,costoCapitalDetalle:costoCapital.detalle,hhHombreVestido,totalUSDhs,pctMant,_esDelta:esDeltaEq,_hsEf:hsEf};
     });
     rowsAmortizacionHHCacheRef.current=out;
     return out;
