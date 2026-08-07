@@ -12,14 +12,22 @@ import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcur
 import { appAlert, appConfirm } from "./services/dialogService.js";
 import { APP_FILTERS_STATE_KEY, readSavedAppFilters, readSavedDataSources, saveDataSourcesToStorage, getCachedSourceTimestamp, mergeIncrementalSource, readCachedSourceRecords, readCachedSource, writeCachedSource } from "./services/appCache.js";
 import { useGlobalThreeStateTableSort } from "./hooks/useGlobalThreeStateTableSort.js";
+import { useGlobalEquipmentProfileLinks } from "./hooks/useGlobalEquipmentProfileLinks.js";
 import { usePwaInstall } from "./app/usePwaInstall.js";
 import { useAppDialog } from "./app/useAppDialog.js";
 import { createSavedFilterReader } from "./app/stateUtils.js";
 import { getRequiredAreaForView } from "./app/viewAccess.js";
 import ErrorScreen from "./components/ErrorScreen.jsx";
+import ModuleErrorBoundary from "./components/ModuleErrorBoundary.jsx";
+import OfflineBanner from "./components/OfflineBanner.jsx";
+import { useOnlineStatus } from "./hooks/useOnlineStatus.js";
+import { runRefreshTasks } from "./services/refreshManager.js";
+import { can, getPermissionSnapshot } from "./services/permissionService.js";
+import { APP_BUILD_LABEL } from "./app/version.js";
+import { EquipmentProfileView } from "./modules/equipment/index.js";
 import { Login } from "./modules/auth/index.js";
 import { ViewBienvenida } from "./modules/home/index.js";
-import { dmNormalizeArea, dmCanEditArea } from "./shared/access.js";
+import { dmNormalizeArea } from "./shared/access.js";
 import { ViewCostosUnitarios, ViewRankingOperarios, ViewCambiosTurno } from "./modules/analytics/index.js";
 import ReactDOM from "react-dom";
 import * as XLSX from "xlsx";
@@ -148,6 +156,8 @@ import { ABASTECIMIENTO_DEPS, COSTOS_UNITARIOS_DEPS, INFORME_COSTOS_DEPS, LICITA
 
 export default function App(){
   useGlobalThreeStateTableSort();
+  useGlobalEquipmentProfileLinks();
+  const online=useOnlineStatus();
   const { pwaInstallAvailable, installPwa } = usePwaInstall();
   const { appDialog, closeAppDialog } = useAppDialog();
   const savedAppFilters=readSavedAppFilters();
@@ -168,12 +178,15 @@ export default function App(){
   const proyectoUsuario=useMemo(()=>dmNormalizeAssignedProject(sessionStorage.getItem("dm_project")||"TODO"),[auth]);
   const areaUsuario=useMemo(()=>String(sessionStorage.getItem("dm_area")||"").trim(),[auth,profileRevision]);
   const areaNormalizada=useMemo(()=>dmNormalizeArea(areaUsuario),[areaUsuario]);
+  const permissionSnapshot=useMemo(()=>getPermissionSnapshot({role:rolUsuario,area:areaUsuario,project:proyectoUsuario,email:sessionStorage.getItem("dm_user")||""}),[rolUsuario,areaUsuario,proyectoUsuario]);
+  useEffect(()=>{window.dmPermissionSnapshot=permissionSnapshot;},[permissionSnapshot]);
   const proyectoRestringido=proyectoUsuario!=="TODO";
   const esAdministrativo=rolUsuario==="ADMINISTRATIVO";
   const[view,setView]=useState("bienvenida");
   const[activeModule,setActiveModule]=useState("home");
+  const[selectedEquipmentCode,setSelectedEquipmentCode]=useState(()=>sessionStorage.getItem("dm_selected_equipment")||"");
   const areaRequeridaVista=useMemo(()=>getRequiredAreaForView(view),[view]);
-  const puedeEditarVista=!areaRequeridaVista||dmCanEditArea(areaRequeridaVista);
+  const puedeEditarVista=!areaRequeridaVista||can("edit",areaRequeridaVista);
   const[loading,setLoading]=useState(false);
   const[syncing,setSyncing]=useState(false);
   const[rop02All,setRop02All]=useState([]);
@@ -208,6 +221,16 @@ export default function App(){
   const[dataHydrated,setDataHydrated]=useState(false);
   useEffect(()=>{loadedSourcesRef.current=loadedSources;},[loadedSources]);
   useEffect(()=>{rawSourcesRef.current=rawSources;},[rawSources]);
+  useEffect(()=>{
+    const openProfile=(event)=>{
+      const code=String(event?.detail?.code||"").trim();
+      if(code){setSelectedEquipmentCode(code);sessionStorage.setItem("dm_selected_equipment",code);}
+      setActiveModule("oficina");setSidebarOpen(true);setView("equipmentProfile");
+    };
+    window.addEventListener("dm-open-equipment-profile",openProfile);
+    return()=>window.removeEventListener("dm-open-equipment-profile",openProfile);
+  },[]);
+
 
   // Precarga silenciosa desde caché local: al abrir la app, las vistas ya tienen
   // datos disponibles antes de consultar Google Sheets. La sincronización real
@@ -280,7 +303,7 @@ export default function App(){
 
   // Tipo de cambio: se pide recién cuando una vista de costos/mantenimiento lo necesita.
   useEffect(()=>{
-    const needsUsd=["mant","costosMant","costosUnitarios"].includes(view);
+    const needsUsd=["mant","costosMant","costosUnitarios","equipmentProfile"].includes(view);
     if(!needsUsd||usdRate)return;
     let alive=true;
     fetch("https://api.exchangerate-api.com/v4/latest/USD")
@@ -578,103 +601,29 @@ export default function App(){
     }
   },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
 
-  const loadData=useCallback(async()=>{
-    const emitModuleRefresh=async()=>{
-      const tasks=[];
-      try{
-        window.dispatchEvent(new CustomEvent("delta-mining:auto-refresh",{
-          detail:{view,refreshedAt:Date.now(),reason:"manual",tasks}
-        }));
-      }catch(_){ }
-      if(tasks.length)await Promise.allSettled(tasks);
-    };
-
-    // Abastecimiento mantiene RABA03, remitos y estados compartidos con endpoints
-    // propios. El botón global debe refrescar esas mismas fuentes y no disparar
-    // loadInitial(), que además de ser más pesado no actualiza el estado interno
-    // del módulo.
-    if(String(view||"").startsWith("abastecimiento")){
-      setLoading(true);
-      try{
-        await emitModuleRefresh();
-        setLastUpdate(new Date());
-      }finally{
-        setLoading(false);
-      }
-      return;
-    }
-
+  const refreshCurrentView=useCallback(async({background=false,reason="manual"}={})=>{
+    const refreshedAt=Date.now();
     const sources=VIEW_SOURCES[view]||[];
-    if(sources.length) await loadSources(sources,{force:true,background:false});
-    else await loadInitial();
-    await emitModuleRefresh();
+    if(!background)setLoading(true);
+    try{
+      if(sources.length)await loadSources(sources,{force:true,background});
+      else if(view==="bienvenida")await loadInitial();
+
+      // Único motor de actualización: los módulos con endpoints propios registran
+      // tareas en refreshManager y el botón global espera a que todas finalicen.
+      await runRefreshTasks(view,{reason,refreshedAt});
+      setLastUpdate(new Date());
+    }finally{if(!background)setLoading(false);}
   },[view,loadSources,loadInitial]);
 
+  const loadData=useCallback(()=>refreshCurrentView({background:false,reason:"manual"}),[refreshCurrentView]);
 
-  // Precarga silenciosa en Bienvenida.
-  // Versión liviana: sólo calienta la caché local/remota, pero NO mete todas las
-  // fuentes en el estado de React mientras estás en la portada. Eso evita que un
-  // click a cualquier módulo tenga que competir contra renders/cálculos enormes.
-  useEffect(()=>{
-    if(view!=="bienvenida"||welcomePreloadStartedRef.current)return;
-    welcomePreloadStartedRef.current=true;
-    let cancelled=false;
 
-    const stopPreload=()=>{cancelled=true;};
-    window.addEventListener("pointerdown",stopPreload,{once:true,passive:true});
-    window.addEventListener("keydown",stopPreload,{once:true});
-
-    const preloadSources=[...new Set([
-      "lista_equipos",
-      "insumos",
-      "rma15_fs",
-      "rma15_jm",
-      "rop02_fs",
-      "rop02_jm",
-      "rop02_filosur",
-      "rop02_zorro",
-      "rop05",
-      "raba03",
-      "remitos_cargados"
-    ].filter(Boolean))];
-
-    const run=async()=>{
-      try{
-        const cacheRecords=await hydrateSourcesFromCache(preloadSources).catch(()=>({}));
-        if(cancelled)return;
-
-        let serverVersions={};
-        try{
-          const syncInfo=await fetchSyncVersions(APPS_SCRIPT_URL);
-          serverVersions=syncInfo?.versions||{};
-        }catch(_){serverVersions={};}
-
-        // Una fuente por vez y con pausa: no actualiza UI, sólo deja la caché lista.
-        for(let i=0;i<preloadSources.length&&!cancelled;i++){
-          const key=preloadSources[i];
-          try{await fetchOneSource(key,{force:false,serverVersions,cacheRecords});}catch(_){}
-          await new Promise(resolve=>setTimeout(resolve,350));
-        }
-      }catch(_){
-        // Silencioso: si falla la precarga, no interrumpe ni muestra errores.
-      }
-    };
-
-    const id=typeof window.requestIdleCallback==="function"
-      ?window.requestIdleCallback(run,{timeout:1800})
-      :window.setTimeout(run,900);
-
-    return()=>{
-      cancelled=true;
-      window.removeEventListener("pointerdown",stopPreload);
-      window.removeEventListener("keydown",stopPreload);
-      if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);
-      else window.clearTimeout(id);
-    };
-  },[view,hydrateSourcesFromCache,fetchOneSource]);
+  // Bienvenida carga sus datasets mínimos mediante VIEW_SOURCES.
+  // Se eliminó la precarga paralela para evitar solicitudes duplicadas y estados
+  // donde el resumen visual quedaba desfasado respecto del botón Actualizar.
 
   useEffect(()=>{
-    if(view==="bienvenida")return;
     if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){loadInitial();return;}
     let cancelled=false;
     const run=()=>{if(!cancelled)loadSources(VIEW_SOURCES[view]||[],{background:true});};
@@ -695,20 +644,12 @@ export default function App(){
   // refresca automáticamente si pasaron más de 5 minutos desde la última carga.
   const lastAutoRefreshRef=useRef(Date.now());
   useEffect(()=>{
-    if(view==="bienvenida")return;
     const AUTO_REFRESH_MS=5*60*1000; // 5 minutos
 
     const doRefresh=()=>{
       const refreshedAt=Date.now();
       lastAutoRefreshRef.current=refreshedAt;
-      // Fuerza la lectura de las fuentes de la vista actual, igual que el botón
-      // Actualizar, y avisa a los módulos que usan endpoints propios (PM, etc.).
-      loadSources(VIEW_SOURCES[view]||[],{force:true,background:true});
-      try{
-        window.dispatchEvent(new CustomEvent("delta-mining:auto-refresh",{
-          detail:{view,refreshedAt,intervalMs:AUTO_REFRESH_MS,reason:"auto"}
-        }));
-      }catch(_){ }
+      refreshCurrentView({background:true,reason:"auto"});
     };
 
     const id=setInterval(()=>{
@@ -730,7 +671,7 @@ export default function App(){
       document.removeEventListener("visibilitychange",onVisible);
       window.removeEventListener("online",onOnline);
     };
-  },[view,loadSources]);
+  },[view,refreshCurrentView]);
 
   const costosUnitariosBadge=useMemo(()=>{
     const m={};
@@ -762,6 +703,7 @@ export default function App(){
   const navStructure=[
     {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
     {id:"dashboard",icon:"dashboard",label:"Dashboard",type:"item",color:C.accent},
+    {id:"equipmentProfile",icon:"truck",label:"Ficha única del equipo",type:"item",color:C.teal},
     {id:"grp_rop02",icon:"fileSpreadsheet",label:"ROP02",type:"group",color:C.purple,children:[
       {id:"rop02",icon:"truck",label:"Equipos"},
       {id:"vehiculos",icon:"car",label:"Vehículos"},
@@ -790,8 +732,9 @@ export default function App(){
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",pmProgramado:"Mantenimiento Programado",pmDashboard:"Mantenimiento Programado — Dashboard",pmPlanificador:"Mantenimiento Programado — Planificador",pmProgramacion:"Mantenimiento Programado — Programación",pmPanel:"Mantenimiento Programado — Panel de flota",pmRealizado:"Mantenimiento Programado — Registrar realizado",pmRepuestos:"Mantenimiento Programado — Repuestos",pmGestion:"Mantenimiento Programado — Gestión y alertas",pmConfig:"Mantenimiento Programado — Configuración",pmHistorial:"Mantenimiento Programado — Historial",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",equipmentProfile:"Ficha única del equipo",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",pmProgramado:"Mantenimiento Programado",pmDashboard:"Mantenimiento Programado — Dashboard",pmPlanificador:"Mantenimiento Programado — Planificador",pmProgramacion:"Mantenimiento Programado — Programación",pmPanel:"Mantenimiento Programado — Panel de flota",pmRealizado:"Mantenimiento Programado — Registrar realizado",pmRepuestos:"Mantenimiento Programado — Repuestos",pmGestion:"Mantenimiento Programado — Gestión y alertas",pmConfig:"Mantenimiento Programado — Configuración",pmHistorial:"Mantenimiento Programado — Historial",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
   const titleHelp={
+    equipmentProfile:"Ficha transversal por interno: integra Lista Maestra, ROP02, ROP05, RMA15, PM, costos y estado operativo.",
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
     tallerCentral:"Dashboard y Lista Maestra de Equipos para taller central: equipos por tipo, propiedad, marca, combustible y tabla completa.",
@@ -859,6 +802,7 @@ export default function App(){
     if(activeModule==="mantenimiento"){
       return [
         {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"equipmentProfile",icon:"truck",label:"Ficha única del equipo",type:"item",color:C.teal},
         {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
           {id:"mant",icon:"wrench",label:"Mantenimiento"},
           {id:"distMant",icon:"consist",label:"Distribución de mantenimientos"},
@@ -882,12 +826,14 @@ export default function App(){
     if(activeModule==="tallerCentral"){
       return [
         {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"equipmentProfile",icon:"truck",label:"Ficha única del equipo",type:"item",color:C.teal},
         {id:"tallerCentral",icon:"database",label:"Taller Central",type:"item",color:C.teal},
       ];
     }
     if(activeModule==="licitaciones"){
       return [
         {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"equipmentProfile",icon:"truck",label:"Ficha única del equipo",type:"item",color:C.teal},
         {id:"licitacionesNueva",icon:"fileSpreadsheet",label:"Nueva Licitación",type:"item",color:C.blue},
         {id:"licitacionesControl",icon:"dashboard",label:"Control de Licitaciones",type:"item",color:C.green},
         {id:"licitacionesEquipos",icon:"truck",label:"Costos de Equipos",type:"item",color:C.accent},
@@ -898,6 +844,7 @@ export default function App(){
     if(activeModule==="abastecimiento"){
       return [
         {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"equipmentProfile",icon:"truck",label:"Ficha única del equipo",type:"item",color:C.teal},
         {id:"grp_abastecimiento",icon:"report",label:"Abastecimiento",type:"group",color:C.yellow,children:[
           {id:"abastecimientoDashboard",icon:"dashboard",label:"Dashboard"},
           {id:"abastecimientoRABA03",icon:"fileSpreadsheet",label:"RABA03"},
@@ -945,6 +892,7 @@ export default function App(){
         C={C}
         Spinner={Spinner}
         Icon={Icon}
+        permissionSnapshot={permissionSnapshot}
         open={settingsOpen||forcePasswordChange}
         forced={forcePasswordChange}
         onClose={()=>setSettingsOpen(false)}
@@ -1023,6 +971,7 @@ export default function App(){
               <Icon name="gear" size={18} color={C.textSub}/>
               {sidebarOpen&&<span style={{fontSize:12,fontWeight:700}}>Configuración</span>}
             </button>
+            {sidebarOpen&&<div style={{marginTop:8,textAlign:"center",fontSize:9,color:C.textMuted,letterSpacing:".04em"}}>{APP_BUILD_LABEL}</div>}
           </div>
         </div>
         )}
@@ -1049,6 +998,7 @@ export default function App(){
               </div>
               {syncing&&<span style={{fontSize:11,color:C.textSub,fontWeight:600}}>Actualizando datos...</span>}
               {lastUpdate&&<span style={{fontSize:10,color:C.textMuted}}>Actualizado: {lastUpdate.toLocaleTimeString("es-AR")}</span>}
+              <span title="Versión desplegada" style={{fontSize:9,color:C.textMuted,border:`1px solid ${C.border}55`,borderRadius:6,padding:"3px 6px",whiteSpace:"nowrap"}}>{APP_BUILD_LABEL.replace("Delta Mining OPS ","")}</span>
               <button onClick={loadData} disabled={loading||syncing} style={{display:"flex",alignItems:"center",gap:5,background:C.accentDim,border:`1px solid ${C.accent}44`,borderRadius:7,padding:"6px 12px",cursor:loading?"not-allowed":"pointer",color:C.accent,fontSize:12,fontWeight:600,fontFamily:"Inter",flexShrink:0}}>
                 {loading||syncing?<Spinner size={12}/>:<Icon name="refresh" size={13} color={C.accent}/>}
                 {loading||syncing?"Cargando...":"Actualizar"}
@@ -1062,6 +1012,7 @@ export default function App(){
                 Modo solo lectura. El usuario pertenece a <strong style={{color:C.text}}>{areaUsuario||"SIN ÁREA"}</strong>. Solo <strong style={{color:C.blue}}>{areaRequeridaVista}</strong> y <strong style={{color:C.accent}}>OFICINA TÉCNICA</strong> pueden realizar modificaciones en esta sección.
               </div>
             )}
+            {!online&&<OfflineBanner lastUpdate={lastUpdate}/>}
             {errors.length>0&&!fatalError&&(
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                 {errors.map((e,i)=>(
@@ -1084,8 +1035,9 @@ export default function App(){
             )}
             {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida nombreUsuario={nombreUsuario} esAdministrativo={esAdministrativo} onCambiarUsuario={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
-                {["dashboard","listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<OficinaTecnicaRoute
+                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
+                {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={selectedEquipmentCode} onSelectCode={code=>{setSelectedEquipmentCode(code);if(code)sessionStorage.setItem("dm_selected_equipment",code);}}/></ModuleErrorBoundary>}
+                {["dashboard","listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
                   view={view} deps={createOficinaTecnicaDeps(BlockingDataLoader)} dataHydrated={dataHydrated} rawSources={rawSources}
                   sourceHasData={sourceHasData} listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15}
                   control={control} dashSt={dashSt} setDashSt={setDashSt} health={health} loading={loading}
@@ -1097,16 +1049,16 @@ export default function App(){
                   stComb={stComb} setStComb={setStComb} st05={st05} setSt05={setSt05}
                   stRma15CtrlEquipo={stRma15CtrlEquipo} setStRma15CtrlEquipo={setStRma15CtrlEquipo}
                   stCHC={stCHC} setStCHC={setStCHC} stCtrl={stCtrl} setStCtrl={setStCtrl}
-                />}
-                {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/>:<BlockingDataLoader label="Cargando cambios de turno..." />)}
-                {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ViewRankingOperarios deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/>:<BlockingDataLoader label="Cargando Ranking..." />)}
-                {view==="mant"&&(viewDataReady?<MantenimientoRoute mode="mantenimiento" deps={MANTENIMIENTO_DEPS} rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/>:<BlockingDataLoader label="Cargando" />)}
-                {view==="distMant"&&(dataHydrated&&rma15.length>0?<MantenimientoRoute mode="distribucion" deps={MANTENIMIENTO_DEPS} rma15={rma15}/>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
-                {["pmProgramado","pmDashboard","pmPlanificador","pmProgramacion","pmPanel","pmRealizado","pmRepuestos","pmGestion","pmConfig","pmHistorial"].includes(view)&&(dataHydrated&&listaEquipos.length>0?<MantenimientoRoute mode="programado" deps={MANTENIMIENTO_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} initialTab={({pmProgramado:"dashboard",pmDashboard:"dashboard",pmPlanificador:"planificador",pmProgramacion:"programacion",pmPanel:"panel",pmRealizado:"realizado",pmRepuestos:"repuestos",pmGestion:"gestion",pmConfig:"config",pmHistorial:"historial"})[view]} onTabChange={tab=>navigateToView(({dashboard:"pmDashboard",planificador:"pmPlanificador",programacion:"pmProgramacion",panel:"pmPanel",realizado:"pmRealizado",repuestos:"pmRepuestos",gestion:"pmGestion",config:"pmConfig",historial:"pmHistorial"})[tab]||"pmDashboard")}/>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
-                {view==="costosMant"&&(dataHydrated&&rma15.length>0?<InformeCostosRoute rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate} deps={INFORME_COSTOS_DEPS}/>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
-                {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ViewCostosUnitarios deps={COSTOS_UNITARIOS_DEPS} insumos={insumos} rma15={rma15} usdRate={usdRate}/>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
-                {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<AbastecimientoRoute deps={ABASTECIMIENTO_DEPS} readOnly={!dmCanEditArea("ABASTECIMIENTO")} assignedProject={proyectoUsuario} initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoEnviosSinSolicitud:"enviosSinSolicitud",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/>) }
-                {["licitaciones","licitacionesNueva","licitacionesControl","licitacionesEquipos","licitacionesDatosEquipos"].includes(view)&&<LicitacionesRoute deps={LICITACIONES_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} rma15={rma15} usdRate={usdRate} initialTab={({"licitaciones":"nueva","licitacionesNueva":"nueva","licitacionesControl":"control","licitacionesEquipos":"equipos","licitacionesDatosEquipos":"datosEquipos"})[view]}/>}
+                /></ModuleErrorBoundary>}
+                {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Cambios de turno" onRetry={loadData}><ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando cambios de turno..." />)}
+                {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Ranking de Operarios" onRetry={loadData}><ViewRankingOperarios deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Ranking..." />)}
+                {view==="mant"&&(viewDataReady?<ModuleErrorBoundary name="Mantenimiento" onRetry={loadData}><MantenimientoRoute mode="mantenimiento" deps={MANTENIMIENTO_DEPS} rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando" />)}
+                {view==="distMant"&&(dataHydrated&&rma15.length>0?<ModuleErrorBoundary name="Distribución de mantenimientos" onRetry={loadData}><MantenimientoRoute mode="distribucion" deps={MANTENIMIENTO_DEPS} rma15={rma15}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
+                {["pmProgramado","pmDashboard","pmPlanificador","pmProgramacion","pmPanel","pmRealizado","pmRepuestos","pmGestion","pmConfig","pmHistorial"].includes(view)&&(dataHydrated&&listaEquipos.length>0?<ModuleErrorBoundary name="Mantenimiento Programado" onRetry={loadData}><MantenimientoRoute mode="programado" readOnly={!can("edit","MANTENIMIENTO")} deps={MANTENIMIENTO_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} initialTab={({pmProgramado:"dashboard",pmDashboard:"dashboard",pmPlanificador:"planificador",pmProgramacion:"programacion",pmPanel:"panel",pmRealizado:"realizado",pmRepuestos:"repuestos",pmGestion:"gestion",pmConfig:"config",pmHistorial:"historial"})[view]} onTabChange={tab=>navigateToView(({dashboard:"pmDashboard",planificador:"pmPlanificador",programacion:"pmProgramacion",panel:"pmPanel",realizado:"pmRealizado",repuestos:"pmRepuestos",gestion:"pmGestion",config:"pmConfig",historial:"pmHistorial"})[tab]||"pmDashboard")}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
+                {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ModuleErrorBoundary name="Informe de Costos" onRetry={loadData}><InformeCostosRoute readOnly={!can("edit","OFICINA TÉCNICA")} rma15={rma15} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate} deps={INFORME_COSTOS_DEPS}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
+                {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ModuleErrorBoundary name="Costos Unitarios" onRetry={loadData}><ViewCostosUnitarios deps={COSTOS_UNITARIOS_DEPS} insumos={insumos} rma15={rma15} usdRate={usdRate}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
+                {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<ModuleErrorBoundary name="Abastecimiento" onRetry={loadData}><AbastecimientoRoute deps={ABASTECIMIENTO_DEPS} readOnly={!can("edit","ABASTECIMIENTO")} assignedProject={proyectoUsuario} initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoEnviosSinSolicitud:"enviosSinSolicitud",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/></ModuleErrorBoundary>) }
+                {["licitaciones","licitacionesNueva","licitacionesControl","licitacionesEquipos","licitacionesDatosEquipos"].includes(view)&&<ModuleErrorBoundary name="Licitaciones" onRetry={loadData}><LicitacionesRoute readOnly={!can("edit","LICITACIONES")} canDelete={can("delete","LICITACIONES")} canExport={can("export","LICITACIONES")} deps={LICITACIONES_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} rma15={rma15} usdRate={usdRate} initialTab={({"licitaciones":"nueva","licitacionesNueva":"nueva","licitacionesControl":"control","licitacionesEquipos":"equipos","licitacionesDatosEquipos":"datosEquipos"})[view]}/></ModuleErrorBoundary>}
               </>
             )}
           </div>
