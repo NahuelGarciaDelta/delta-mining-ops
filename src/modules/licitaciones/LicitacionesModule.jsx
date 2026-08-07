@@ -450,11 +450,11 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
 
   const datosEquiposCategoriaOpts=useMemo(()=>[
     {value:"todos",label:"Todas"},
-    ...Array.from(new Set(datosEquiposCatalogo.map(x=>normTxt(x.categoria)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")).map(x=>({value:x,label:x}))
+    ...Array.from(new Set(datosEquiposCatalogo.map(x=>normTxt(x.categoria)).filter(x=>x&&x!=="OTROS"))).sort((a,b)=>a.localeCompare(b,"es")).map(x=>({value:x,label:x}))
   ],[datosEquiposCatalogo]);
   const datosEquiposEquipoOpts=useMemo(()=>[
     {value:"todos",label:"Todos"},
-    ...datosEquiposCatalogo.slice().sort((a,b)=>a.codigo.localeCompare(b.codigo,"es",{numeric:true})).map(x=>({value:x.codigo,label:`${x.codigo} — ${[x.marca,x.modelo].filter(Boolean).join(" ")}`}))
+    ...datosEquiposCatalogo.filter(x=>normTxt(x.categoria)!=="OTROS").slice().sort((a,b)=>a.codigo.localeCompare(b.codigo,"es",{numeric:true})).map(x=>({value:x.codigo,label:`${x.codigo} — ${[x.marca,x.modelo].filter(Boolean).join(" ")}`}))
   ],[datosEquiposCatalogo]);
   const datosEquiposProyectoOpts=useMemo(()=>{
     const values=new Set();
@@ -462,7 +462,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
     return [{value:"todos",label:"Todos"},...Array.from(values).sort((a,b)=>a.localeCompare(b,"es")).map(x=>({value:x,label:x}))];
   },[rma15,rop02All,datosEquiposDesde,datosEquiposHasta,proyectoRegistro]);
   const datosEquiposCatalogoFiltrado=useMemo(()=>datosEquiposCatalogo.filter(eq=>
-    multiSelecciona(datosEquiposCategorias,normTxt(eq.categoria))&&multiSelecciona(datosEquiposEquipos,eq.codigo)
+    normTxt(eq.categoria)!=="OTROS"&&multiSelecciona(datosEquiposCategorias,normTxt(eq.categoria))&&multiSelecciona(datosEquiposEquipos,eq.codigo)
   ),[datosEquiposCatalogo,datosEquiposCategorias,datosEquiposEquipos,multiSelecciona]);
   const datosEquiposCodigosPermitidos=useMemo(()=>new Set(datosEquiposCatalogoFiltrado.map(x=>x.codigo)),[datosEquiposCatalogoFiltrado]);
   // Relación estricta entre los códigos realmente declarados para cada unidad en
@@ -523,9 +523,10 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
     return out;
   },[rop02All,equipoDatosDesdeRegistro,datosEquiposDesde,datosEquiposHasta,datosEquiposProyectos,datosEquiposCodigosPermitidos,proyectoRegistro,multiSelecciona]);
 
-  // Reproduce el costo horario que alimenta Resumen por equipo:
-  // promedio mensual de mantenimiento + mano de obra distribuida, dividido por
-  // las horas efectivas de referencia del proyecto. Incluye equipos y camiones.
+  // Desagrega el costo horario de mantenimiento en dos componentes auditables:
+  // 1) insumos reales de RMA15, y 2) mano de obra mecánica distribuida.
+  // La suma de ambos coincide exactamente con Mantenimiento (USD/h).
+  // Este análisis se limita a camiones y equipos y excluye la categoría OTROS.
   const mantenimientoHorarioPorEquipo=useMemo(()=>{
     const rate=Math.max(0.000001,n(usdRate)||n(costosMantConfig?.usdRate2)||1);
     const monthKey=(r)=>String(fechaRegistro(r)||"").slice(0,7);
@@ -536,7 +537,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       const codigo=equipoMeta?.codigo||"";
       if(!codigo||!datosEquiposCodigosPermitidos.has(codigo))return;
       const meta=equipoMeta;
-      if(!meta)return;
+      if(!meta||normTxt(meta.categoria)==="OTROS")return;
       const proyecto=proyectoRegistro(r);
       const section=(proyecto.includes("JOSE")||proyecto==="JM"||proyecto.includes("JOSE MARIA"))?"JM":"FS";
       const month=monthKey(r);if(!month)return;
@@ -552,20 +553,30 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       if(!monthlyBySectionEquipment.has(k))monthlyBySectionEquipment.set(k,[]);
       if(value>0)monthlyBySectionEquipment.get(k).push(value);
     });
-    const avgMaint=new Map();
-    monthlyBySectionEquipment.forEach((vals,key)=>avgMaint.set(key,vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0));
-    const totals={JM:0,FS:0};avgMaint.forEach((v,key)=>{const section=key.slice(0,2);totals[section]=(totals[section]||0)+v;});
+    const avgInsumosMensual=new Map();
+    monthlyBySectionEquipment.forEach((vals,key)=>avgInsumosMensual.set(key,vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0));
+
+    // La mano de obra se distribuye entre los equipos de cada proyecto en la misma
+    // proporción que sus costos mensuales promedio de insumos, replicando la lógica
+    // del Informe de Costos pero conservando ambos componentes por separado.
+    const totals={JM:0,FS:0};
+    avgInsumosMensual.forEach((v,key)=>{const section=key.slice(0,2);totals[section]=(totals[section]||0)+v;});
     const subtotal={
       JM:(n(costosMantConfig?.mecJM)||8)*(n(costosMantConfig?.costMec)||2390.27)+(n(costosMantConfig?.ctaMecJM)||2)*(n(costosMantConfig?.costCTA)||3000),
       FS:(n(costosMantConfig?.mecFS)||8)*(n(costosMantConfig?.costMec)||2390.27)+(n(costosMantConfig?.ctaMecFS)||1)*(n(costosMantConfig?.costCTA)||3000),
     };
     const hs={JM:Math.max(1,n(costosMantConfig?.hsEfJM)||180),FS:Math.max(1,n(costosMantConfig?.hsEfFS)||180)};
     const out=new Map();
-    avgMaint.forEach((maint,key)=>{
+    avgInsumosMensual.forEach((insumosMensual,key)=>{
       const [section,codigo]=key.split("__");
-      const mo=totals[section]>0?subtotal[section]*(maint/totals[section]):0;
-      const usdHora=(maint+mo)/hs[section];
-      out.set(codigo,(out.get(codigo)||0)+usdHora);
+      const manoObraMensual=totals[section]>0?subtotal[section]*(insumosMensual/totals[section]):0;
+      const costoInsumosHora=insumosMensual/hs[section];
+      const costoManoObraHora=manoObraMensual/hs[section];
+      const actual=out.get(codigo)||{costoInsumosHora:0,costoManoObraHora:0,mantenimiento:0};
+      actual.costoInsumosHora+=costoInsumosHora;
+      actual.costoManoObraHora+=costoManoObraHora;
+      actual.mantenimiento+=costoInsumosHora+costoManoObraHora;
+      out.set(codigo,actual);
     });
     return out;
   },[rma15,usdRate,costosMantConfig,datosEquiposCatalogoFiltrado,datosEquiposCodigosPermitidos,equipoDatosDesdeRegistro,datosEquiposDesde,datosEquiposHasta,datosEquiposProyectos,datosEquiposInsumos,proyectoRegistro,codigoInsumo,multiSelecciona]);
@@ -576,14 +587,17 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       // En esta vista solo se muestran equipos con mantenimiento real registrado
       // dentro del período y los filtros seleccionados. No se inventan ni se
       // heredan costos desde otra categoría/modelo.
-      const mant=mantenimientoHorarioPorEquipo.get(eq.codigo)||0;
+      const desglose=mantenimientoHorarioPorEquipo.get(eq.codigo)||null;
+      const mant=n(desglose?.mantenimiento);
       if(!(mant>0))return;
-      const cat=normTxt(eq.categoria);if(!cat)return;
-      if(!groups.has(cat))groups.set(cat,{categoria:cat,equipos:[],adqSum:0,adqCount:0,vidaSum:0,vidaCount:0,horas:0,combustible:0,mantVals:[]});
+      const cat=normTxt(eq.categoria);if(!cat||cat==="OTROS")return;
+      if(!groups.has(cat))groups.set(cat,{categoria:cat,equipos:[],adqSum:0,adqCount:0,vidaSum:0,vidaCount:0,horas:0,combustible:0,insumosHoraVals:[],manoObraHoraVals:[],mantVals:[]});
       const g=groups.get(cat);g.equipos.push(eq);
       if(eq.adquisicion>0){g.adqSum+=eq.adquisicion;g.adqCount++;}
       if(eq.vidaLista>0){g.vidaSum+=eq.vidaLista;g.vidaCount++;}
       const fuel=horasCombustiblePorEquipo.get(eq.codigo)||{horas:0,combustible:0};g.horas+=fuel.horas;g.combustible+=fuel.combustible;
+      g.insumosHoraVals.push(n(desglose?.costoInsumosHora));
+      g.manoObraHoraVals.push(n(desglose?.costoManoObraHora));
       g.mantVals.push(mant);
     });
     return Array.from(groups.values()).map(g=>{
@@ -614,15 +628,17 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       const costoAdquisicionSeleccionado=equipoSeleccionado?equipoSeleccionado.adquisicion:costoAdquisicionPromedio;
       const amortizacion=costoAdquisicionSeleccionado/vidaUtil;
       const consumo=g.horas>0?g.combustible/g.horas:0;
-      const mantenimiento=g.mantVals.length?g.mantVals.reduce((a,b)=>a+b,0)/g.mantVals.length:0;
+      const costoInsumosHora=g.insumosHoraVals.length?g.insumosHoraVals.reduce((a,b)=>a+b,0)/g.insumosHoraVals.length:0;
+      const costoManoObraHora=g.manoObraHoraVals.length?g.manoObraHoraVals.reduce((a,b)=>a+b,0)/g.manoObraHoraVals.length:0;
+      const mantenimiento=costoInsumosHora+costoManoObraHora;
       const modelos=new Map();g.equipos.forEach(eq=>{const key=[eq.marca,eq.modelo].filter(Boolean).join(" ")||eq.modelo;modelos.set(key,(modelos.get(key)||0)+1);});
-      return {...g,vidaDefault,vidaUtil,costoAdquisicionPromedio,costoAdquisicionSeleccionado,seleccionAdquisicion,equipoSeleccionado,equiposConPrecio,amortizacion,consumo,mantenimiento,modelos:Array.from(modelos.entries()).map(([nombre,cantidad])=>({nombre,cantidad}))};
+      return {...g,vidaDefault,vidaUtil,costoAdquisicionPromedio,costoAdquisicionSeleccionado,seleccionAdquisicion,equipoSeleccionado,equiposConPrecio,amortizacion,consumo,costoInsumosHora,costoManoObraHora,mantenimiento,modelos:Array.from(modelos.entries()).map(([nombre,cantidad])=>({nombre,cantidad}))};
     }).sort((a,b)=>a.categoria.localeCompare(b.categoria,"es"));
   },[datosEquiposCatalogoFiltrado,horasCombustiblePorEquipo,mantenimientoHorarioPorEquipo,datosEquiposVida,datosEquiposAdquisicion]);
   const setVidaCategoria=(categoria,value)=>setDatosEquiposVida(prev=>({...prev,[categoria]:Math.max(1,n(value)||1)}));
   const setAdquisicionCategoria=(categoria,value)=>setDatosEquiposAdquisicion(prev=>({...prev,[categoria]:String(value||"promedio")}));
   const exportDatosEquipos=()=>{
-    const rows=datosEquiposRows.map(g=>({Periodo:`${datosEquiposDesde||"Inicio"} a ${datosEquiposHasta||"Hoy"}`,Categoria:g.categoria,"Cantidad de equipos":g.equipos.length,"Equipos y modelos":g.modelos.map(m=>`${m.nombre} (${m.cantidad})`).join("; "),"Combustible total L":g.combustible,"Horas totales":g.horas,"Consumo combustible L/h":g.consumo,"Vida útil h":g.vidaUtil,"Equipo/costo de adquisición seleccionado":g.equipoSeleccionado?g.equipoSeleccionado.label:"PROMEDIO DE LA CATEGORÍA","Costo adquisición seleccionado USD":g.costoAdquisicionSeleccionado,"Amortización USD/h":g.amortizacion,"Mantenimiento USD/h":g.mantenimiento,"Costo total equipo USD/h (sin combustible)":g.amortizacion+g.mantenimiento}));
+    const rows=datosEquiposRows.map(g=>({Periodo:`${datosEquiposDesde||"Inicio"} a ${datosEquiposHasta||"Hoy"}`,Categoria:g.categoria,"Cantidad de equipos":g.equipos.length,"Equipos y modelos":g.modelos.map(m=>`${m.nombre} (${m.cantidad})`).join("; "),"Combustible total L":g.combustible,"Horas totales":g.horas,"Consumo combustible L/h":g.consumo,"Vida útil h":g.vidaUtil,"Equipo/costo de adquisición seleccionado":g.equipoSeleccionado?g.equipoSeleccionado.label:"PROMEDIO DE LA CATEGORÍA","Costo adquisición seleccionado USD":g.costoAdquisicionSeleccionado,"Amortización USD/h":g.amortizacion,"Costo de insumos USD/h":g.costoInsumosHora,"Costo de mano de obra USD/h":g.costoManoObraHora,"Mantenimiento USD/h":g.mantenimiento,"Costo total equipo USD/h (sin combustible)":g.amortizacion+g.mantenimiento}));
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Datos Equipos");XLSX.writeFile(wb,"Datos_Equipos_Licitaciones.xlsx");
   };
 
@@ -896,7 +912,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
     {tab==="datosEquipos"&&<div style={{display:"grid",gap:14}}>
       <div style={panel}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
-          <div><h3 style={{margin:0,color:C.text}}>Datos Equipos</h3><div style={{fontSize:11,color:C.textMuted,marginTop:4}}>Vista directa de las categorías y del costo horario calculados por Informe de Costos → Amortización / Resumen por equipo. Incluye únicamente equipos y camiones.</div></div>
+          <div><h3 style={{margin:0,color:C.text}}>Datos Equipos</h3><div style={{fontSize:11,color:C.textMuted,marginTop:4}}>Vista directa de las categorías y del costo horario calculados por Informe de Costos → Amortización / Resumen por equipo. Incluye únicamente camiones y equipos; la categoría OTROS queda excluida.</div></div>
           <div style={{display:"flex",gap:8}}><button onClick={()=>setCostosMantConfig(readCostosMantConfig())} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.blue}55`,background:`${C.blue}18`,color:C.blue,fontWeight:900,cursor:"pointer"}}>Actualizar categorías</button><button onClick={exportDatosEquipos} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.green}55`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>Exportar Excel</button></div>
         </div>
         <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap",padding:"12px 14px",borderRadius:10,border:`1px solid ${C.border}`,background:"rgba(0,0,0,.18)",marginBottom:12}}>
@@ -909,20 +925,24 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
           <MultiSel label="Insumo RMA15" value={datosEquiposInsumos} onChange={setDatosEquiposInsumos} options={datosEquiposInsumoOpts} commitOnClose/>
           <button onClick={()=>{setDatosEquiposProyectos("todos");setDatosEquiposCategorias("todos");setDatosEquiposEquipos("todos");setDatosEquiposInsumos("todos");}} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,fontWeight:850,cursor:"pointer"}}>Limpiar filtros</button>
         </div>
-        <div style={{padding:"10px 12px",borderRadius:9,border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.textSub,fontSize:11,marginBottom:12}}>El consumo se calcula como combustible total cargado ÷ horas totales del período. Se muestra como dato informativo y <b>no se suma</b> al costo horario total.</div>
-        <div style={{overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:1450}}><thead><tr>{["Categoría","Cantidad","Equipos y modelos incluidos","Consumo combustible (L/h)","Vida útil elegida (h)","Equipo / costo de adquisición","Amortización (USD/h)","Mantenimiento (USD/h)","Total equipo (USD/h)"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead><tbody>
+        <div style={{padding:"10px 12px",borderRadius:9,border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.textSub,fontSize:11,marginBottom:12}}>El mantenimiento se desagrega en <b>insumos por hora</b> + <b>mano de obra por hora</b>; ambas columnas suman exactamente Mantenimiento (USD/h). El consumo se muestra como dato informativo y <b>no se suma</b> al costo horario total. La categoría OTROS queda excluida.</div>
+        <div style={{overflowX:"auto",overflowY:"visible"}}><table style={{width:"100%",borderCollapse:"collapse",minWidth:1485,tableLayout:"fixed"}}><colgroup>
+          <col style={{width:120}}/><col style={{width:60}}/><col style={{width:220}}/><col style={{width:130}}/><col style={{width:120}}/><col style={{width:170}}/><col style={{width:120}}/><col style={{width:145}}/><col style={{width:155}}/><col style={{width:125}}/><col style={{width:120}}/>
+        </colgroup><thead><tr>{["Categoría","Cantidad","Equipos y modelos incluidos","Consumo combustible (L/h)","Vida útil elegida (h)","Equipo / costo de adquisición","Amortización (USD/h)","Costo de insumos por h (USD/h)","Costo de mano de obra por h (USD/h)","Mantenimiento (USD/h)","Total equipo (USD/h)"].map(h=><th key={h} style={{...th,padding:"9px 7px",fontSize:9,whiteSpace:"normal",lineHeight:1.15}}>{h}</th>)}</tr></thead><tbody>
           {datosEquiposRows.map(g=><tr key={g.categoria}>
             <td style={{...td,fontWeight:950,color:C.accent,whiteSpace:"nowrap"}}>{g.categoria}</td>
             <td style={{...td,textAlign:"center",fontWeight:900}}>{g.equipos.length}</td>
-            <td style={{...td,minWidth:360}}><div style={{display:"grid",gap:4}}>{g.modelos.map(m=><div key={m.nombre} style={{display:"flex",justifyContent:"space-between",gap:12}}><span>{m.nombre}</span><span style={{color:C.textMuted,fontWeight:800}}>× {m.cantidad}</span></div>)}</div></td>
+            <td style={{...td,padding:"8px 7px"}}><div style={{display:"grid",gap:3}}>{g.modelos.map(m=><div key={m.nombre} style={{display:"flex",alignItems:"center",justifyContent:"flex-start",gap:6,minWidth:0}}><span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={m.nombre}>{m.nombre}</span><span style={{color:C.textMuted,fontWeight:800,flex:"0 0 auto",whiteSpace:"nowrap"}}>× {m.cantidad}</span></div>)}</div></td>
             <td style={{...td,textAlign:"right",fontWeight:900,color:C.blue}}>{g.consumo>0?<><div>{g.consumo.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})} L/h</div><div style={{fontSize:9,color:C.textMuted,marginTop:3}}>{g.combustible.toLocaleString("es-AR",{maximumFractionDigits:1})} L ÷ {g.horas.toLocaleString("es-AR",{maximumFractionDigits:1})} h</div></>:"—"}</td>
-            <td style={{...td,textAlign:"center"}}><input type="number" min="1" step="100" value={Math.round(g.vidaUtil)} onChange={e=>setVidaCategoria(g.categoria,e.target.value)} style={{width:120,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 8px",color:C.text,textAlign:"right",fontWeight:900}}/><div style={{fontSize:9,color:C.textMuted,marginTop:3}}>Lista: {Math.round(g.vidaDefault).toLocaleString("es-AR")} h</div></td>
-            <td style={{...td,minWidth:190}}>{g.equiposConPrecio.length?<AcquisitionCostSelector C={C} value={g.seleccionAdquisicion} onChange={value=>setAdquisicionCategoria(g.categoria,value)} averageCost={g.costoAdquisicionPromedio} equipmentOptions={g.equiposConPrecio}/>:"—"}</td>
+            <td style={{...td,textAlign:"center"}}><input type="number" min="1" step="100" value={Math.round(g.vidaUtil)} onChange={e=>setVidaCategoria(g.categoria,e.target.value)} style={{width:102,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 8px",color:C.text,textAlign:"right",fontWeight:900}}/><div style={{fontSize:9,color:C.textMuted,marginTop:3}}>Lista: {Math.round(g.vidaDefault).toLocaleString("es-AR")} h</div></td>
+            <td style={{...td,padding:"8px 7px"}}>{g.equiposConPrecio.length?<AcquisitionCostSelector C={C} value={g.seleccionAdquisicion} onChange={value=>setAdquisicionCategoria(g.categoria,value)} averageCost={g.costoAdquisicionPromedio} equipmentOptions={g.equiposConPrecio}/>:"—"}</td>
             <td style={{...td,textAlign:"right",fontWeight:900,color:C.yellow}}>{g.amortizacion>0?`USD ${g.amortizacion.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
+            <td style={{...td,textAlign:"right",fontWeight:900,color:C.blue}}>{g.costoInsumosHora>0?`USD ${g.costoInsumosHora.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
+            <td style={{...td,textAlign:"right",fontWeight:900,color:C.orange||"#ff8c32"}}>{g.costoManoObraHora>0?`USD ${g.costoManoObraHora.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
             <td style={{...td,textAlign:"right",fontWeight:900,color:C.purple}}>{g.mantenimiento>0?`USD ${g.mantenimiento.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
             <td style={{...td,textAlign:"right",fontWeight:950,color:C.green}}>{(g.amortizacion+g.mantenimiento)>0?`USD ${(g.amortizacion+g.mantenimiento).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
           </tr>)}
-          {!datosEquiposRows.length&&<tr><td colSpan={9} style={{...td,textAlign:"center",padding:28,color:C.textMuted}}>No se encontraron equipos o camiones con mantenimiento registrado en el período y filtros seleccionados.</td></tr>}
+          {!datosEquiposRows.length&&<tr><td colSpan={11} style={{...td,textAlign:"center",padding:28,color:C.textMuted}}>No se encontraron equipos o camiones con mantenimiento registrado en el período y filtros seleccionados.</td></tr>}
         </tbody></table></div>
       </div>
     </div>}

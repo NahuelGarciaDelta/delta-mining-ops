@@ -1,0 +1,33 @@
+CAMBIOS - DATOS EQUIPOS / DESGLOSE DE MANTENIMIENTO
+
+1. Se agregaron dos columnas nuevas:
+   - Costo de insumos por h (USD/h)
+   - Costo de mano de obra por h (USD/h)
+
+2. Mantenimiento (USD/h) ahora se calcula y muestra explícitamente como:
+   Costo de insumos por h + Costo de mano de obra por h
+
+3. Costo de insumos por h:
+   - Parte de los insumos reales cargados en RMA15.
+   - Convierte el costo a USD usando el tipo de cambio configurado.
+   - Calcula el promedio mensual por equipo.
+   - Divide por las horas efectivas de referencia del proyecto (JM o FS).
+
+4. Costo de mano de obra por h:
+   - Parte del costo mensual configurado de mecánicos + CTA mecánicos por proyecto.
+   - Se distribuye entre equipos según la participación de cada equipo en el costo promedio mensual de insumos.
+   - Se divide por las horas efectivas de referencia del proyecto.
+
+5. La suma de ambos componentes coincide exactamente con Mantenimiento (USD/h).
+
+6. La categoría OTROS queda completamente excluida:
+   - No aparece en la tabla.
+   - No aparece en el filtro Categoría.
+   - Sus equipos no aparecen en el filtro Equipo.
+   - No participa en la distribución de costos de mano de obra.
+
+7. La exportación Excel incluye las dos nuevas columnas y mantiene el total del equipo como:
+   Amortización + Mantenimiento
+
+Archivo principal modificado:
+src/modules/licitaciones/LicitacionesModule.jsx
