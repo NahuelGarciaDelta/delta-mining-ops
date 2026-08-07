@@ -1,0 +1,36 @@
+DELTA MINING OPS v3.9.3
+
+CORRECCIONES
+
+1. Ficha única del equipo — códigos con sufijo -JM
+- RPC-0016-JM y RPC-0016 se consideran el mismo equipo.
+- La regla se aplica a Lista Maestra, ROP02, ROP05, RMA15 y PM.
+- El selector muestra un solo interno unificado y no duplica la variante -JM.
+- Se eliminó la coincidencia parcial peligrosa: PCA-0070 ya no puede confundirse con PCA-007.
+- Se agregó src/modules/equipment/equipmentCode.js como única lógica de normalización.
+- Se agregaron tests automáticos para la regla -JM.
+
+2. Ficha única del equipo — rendimiento
+- ROP02, ROP05, RMA15 y PM se indexan por interno una sola vez por actualización de datos.
+- Cambiar de equipo dejó de recorrer completos todos los datasets.
+- El selector reutiliza esos índices para no volver a recorrer miles de registros.
+- React.useDeferredValue permite que el selector responda primero y los gráficos/tablas se actualicen después.
+- Filas de historial y columnas están memoizadas.
+- La ficha completa está envuelta en React.memo.
+
+3. Informe de Costos — fluidez
+- Se eliminó el comportamiento por el cual una pestaña pesada quedaba activada para siempre.
+- Ahora sólo se recalcula el motor correspondiente a la pestaña visible.
+- Tabla/Top 3 sólo recalculan su bloque cuando están visibles.
+- Costo mensual/Mano de Obra/Amortización/Resumen sólo ejecutan el Worker cuando alguna de esas vistas está visible.
+- Amortización sólo recalcula mientras Amortización o Resumen están visibles.
+- Los filtros generales de Proyecto/Insumos usan 280 ms de debounce.
+- Las fechas usan 320 ms de debounce para permitir seleccionar el período sin congelar la UI.
+- Los resultados anteriores se conservan en caché mientras llega el nuevo cálculo.
+
+VALIDACIONES
+- npm run validate: OK.
+- 14/14 tests: OK.
+- Security audit: OK.
+- Parse completo JS/JSX con TypeScript: OK.
+- npm run build no pudo ejecutarse en este entorno porque node_modules/Vite no están instalados.

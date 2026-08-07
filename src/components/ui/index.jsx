@@ -162,7 +162,7 @@ export function HelpTip({text,ariaLabel="Ayuda"}){
   );
 }
 
-export function StatCard({icon,value,label,sub,color=C.accent,valueColor,small,tooltip}){
+export function StatCard({icon,value,label,sub,color=C.accent,valueColor,small,tooltip,valueStyle}){
   const valCol=valueColor||color;
   const help=tooltip||getCardHelpText(label);
   return(
@@ -173,7 +173,7 @@ export function StatCard({icon,value,label,sub,color=C.accent,valueColor,small,t
         <span style={{fontSize:12,color:C.textSub,fontWeight:600}}>{label}</span>
         <HelpTip text={help} ariaLabel={`Ayuda: ${label}`}/>
       </div>
-      <div style={{fontFamily:"Inter,sans-serif",fontSize:small?26:34,fontWeight:800,color:valCol,lineHeight:1,letterSpacing:"-0.02em",position:"relative",zIndex:1}}>{value}</div>
+      <div style={{fontFamily:"Inter,sans-serif",fontSize:small?26:34,fontWeight:800,color:valCol,lineHeight:1,letterSpacing:"-0.02em",position:"relative",zIndex:1,...valueStyle}}>{value}</div>
       {sub&&<div style={{fontSize:11,color:C.textMuted,position:"relative",zIndex:1}}>{sub}</div>}
     </div>
   );
@@ -247,8 +247,19 @@ function TableRowTooltip({ tip, pinned = false }) {
   );
 }
 
-export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disableTooltip=false}){
-  const ROW_H=36;
+export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disableTooltip=false,advanced=true,tableId=""}){
+  const storageKey=useMemo(()=>`dm_table_prefs_${tableId||cols.map(c=>c.key||c.label||"").join("_").slice(0,80)}`,[tableId,cols]);
+  const readPrefs=useCallback(()=>{try{return JSON.parse(localStorage.getItem(storageKey)||"{}")||{}}catch(_){return{}}},[storageKey]);
+  const[density,setDensity]=useState(()=>{try{return localStorage.getItem("dm_table_density")||"normal"}catch(_){return"normal"}});
+  const ROW_H=density==="compact"?30:density==="comfortable"?44:36;
+  const[tableSearch,setTableSearch]=useState("");
+  const[showColumns,setShowColumns]=useState(false);
+  const[showColumnFilters,setShowColumnFilters]=useState(false);
+  const[columnFilters,setColumnFilters]=useState({});
+  const[hiddenColumns,setHiddenColumns]=useState(()=>new Set(readPrefs().hiddenColumns||[]));
+  const[pinnedFirstCol,setPinnedFirstCol]=useState(()=>readPrefs().pinnedFirstCol??stickyFirst);
+  const[colWidths,setColWidths]=useState(()=>readPrefs().colWidths||{});
+  useEffect(()=>{try{localStorage.setItem(storageKey,JSON.stringify({hiddenColumns:[...hiddenColumns],pinnedFirstCol,colWidths}))}catch(_){}},[storageKey,hiddenColumns,pinnedFirstCol,colWidths]);
   const[scrollTop,setScrollTop]=useState(0);
   const[sortKey,setSortKey]=useState(null);
   const[sortDir,setSortDir]=useState("asc");
@@ -262,7 +273,8 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   // final del scroll, React recalculaba spacer + ancho de scrollbar y la tabla
   // empezaba a moverse de izquierda a derecha. Para tablas con texto multilínea
   // se desactiva la virtualización y se deja el layout estable.
-  const hasWrappedCols=useMemo(()=>cols.some(c=>c.wrap),[cols]);
+  const visibleCols=useMemo(()=>cols.filter((c,i)=>!hiddenColumns.has(c.key||c.label||String(i))),[cols,hiddenColumns]);
+  const hasWrappedCols=useMemo(()=>visibleCols.some(c=>c.wrap),[visibleCols]);
   const useVirtual=rows.length>250&&!hasWrappedCols;
   const onScroll=useCallback(e=>{
     if(useVirtual)setScrollTop(e.target.scrollTop);
@@ -307,7 +319,7 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   },[]);
 
   const detectInitialDir=useCallback((key)=>{
-    const sortCol=cols.find((c,i)=>colSortId(c,i)===key);
+    const sortCol=visibleCols.find((c,i)=>colSortId(c,i)===key);
     if(!sortCol)return"asc";
     const getSV=(row)=>{
       if(typeof sortCol.sortValue==="function")return sortCol.sortValue(row);
@@ -319,7 +331,7 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
     if(!first)return"asc";
     normalizeSortValue(getSV(first));
     return "asc";
-  },[cols,rows,colSortId,normalizeSortValue]);
+  },[visibleCols,rows,colSortId,normalizeSortValue]);
   const handleSort=useCallback((key)=>{
     if(sortKey===key){
       if(sortDir==="asc")setSortDir("desc");
@@ -327,17 +339,31 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
     }else{setSortKey(key);setSortDir(detectInitialDir(key));}
   },[sortKey,sortDir,detectInitialDir]);
 
+  const searchedRows=useMemo(()=>{
+    const q=String(tableSearch||"").trim().toLowerCase();
+    return rows.filter(r=>{
+      if(q&&!Object.values(r||{}).some(v=>v!==null&&v!==undefined&&typeof v!=="object"&&String(v).toLowerCase().includes(q)))return false;
+      for(const c of visibleCols){
+        const key=c.key||c.label; const fq=String(columnFilters[key]||"").trim().toLowerCase();
+        if(!fq)continue;
+        const value=typeof c.exportValue==="function"?c.exportValue(r):r?.[c.key];
+        if(!String(value??"").toLowerCase().includes(fq))return false;
+      }
+      return true;
+    });
+  },[rows,tableSearch,columnFilters,visibleCols]);
+
   const sortedRows=useMemo(()=>{
-    if(!sortKey)return rows;
-    const sortCol=cols.find((c,i)=>colSortId(c,i)===sortKey);
-    if(!sortCol)return rows;
+    if(!sortKey)return searchedRows;
+    const sortCol=visibleCols.find((c,i)=>colSortId(c,i)===sortKey);
+    if(!sortCol)return searchedRows;
     const getSortValue=(row)=>{
       if(typeof sortCol.sortValue==="function")return sortCol.sortValue(row);
       if(sortCol.sortKey&&row[sortCol.sortKey]!==undefined)return row[sortCol.sortKey];
       if(sortCol.key&&row[sortCol.key]!==undefined)return row[sortCol.key];
       return "";
     };
-    return [...rows].sort((a,b)=>{
+    return [...searchedRows].sort((a,b)=>{
       const av=normalizeSortValue(getSortValue(a));
       const bv=normalizeSortValue(getSortValue(b));
       if(av.type==="empty"&&bv.type!=="empty")return 1;
@@ -347,7 +373,7 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
       else cmp=String(av.value).localeCompare(String(bv.value),"es-AR",{sensitivity:"base"});
       return sortDir==="asc"?cmp:-cmp;
     });
-  },[rows,cols,sortKey,sortDir,colSortId,normalizeSortValue]);
+  },[searchedRows,visibleCols,sortKey,sortDir,colSortId,normalizeSortValue]);
 
   const bufferRows=8;
   const visibleCount=Math.ceil(maxH/ROW_H);
@@ -360,28 +386,54 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
     <div style={{padding:"28px",textAlign:"center",color:C.textMuted,fontSize:12}}>{emptyMsg}</div>
   );
 
-  const tableMinWidth=cols.reduce((sum,c)=>{
-    const raw=c.width||c.minWidth||c.maxWidth||(c.wrap?140:120);
+  const tableMinWidth=visibleCols.reduce((sum,c,i)=>{
+    const raw=colWidths[c.key||c.label||String(i)]||c.width||c.minWidth||c.maxWidth||(c.wrap?140:120);
     const n=typeof raw==="number"?raw:parseFloat(String(raw),10);
     return sum+(Number.isFinite(n)?n:120);
   },0);
 
+  const exportFiltered=()=>{
+    const esc=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+    const header=visibleCols.map(c=>esc(c.label||c.key||"")).join(",");
+    const body=sortedRows.map(r=>visibleCols.map(c=>esc(typeof c.exportValue==="function"?c.exportValue(r):r?.[c.key])).join(",")).join("\n");
+    const blob=new Blob(["\ufeff"+header+"\n"+body],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`${tableId||"tabla"}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  };
+  const startResize=(e,c,i)=>{
+    e.preventDefault();e.stopPropagation();
+    const key=c.key||c.label||String(i);const startX=e.clientX;const base=Number(colWidths[key]||c.width||c.minWidth||120)||120;
+    const onMove=ev=>setColWidths(prev=>({...prev,[key]:Math.max(60,base+(ev.clientX-startX))}));
+    const onUp=()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
+    window.addEventListener("mousemove",onMove);window.addEventListener("mouseup",onUp);
+  };
+
   return(
     <>
+      {advanced&&<div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap",padding:"7px 8px",borderBottom:`1px solid ${C.border}66`,background:"rgba(0,0,0,.12)"}}>
+        <input value={tableSearch} onChange={e=>setTableSearch(e.target.value)} placeholder="Buscar en tabla..." style={{minWidth:180,flex:"1 1 220px",maxWidth:320,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"6px 9px",fontSize:11,outline:"none"}}/>
+        <div style={{position:"relative"}}><button type="button" onClick={()=>setShowColumns(v=>!v)} style={{padding:"6px 9px",borderRadius:7,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:"pointer",fontSize:11}}>Columnas</button>{showColumns&&<div style={{position:"absolute",right:0,top:"calc(100% + 5px)",zIndex:1000,width:230,maxHeight:280,overflow:"auto",padding:7,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,boxShadow:"0 12px 30px rgba(0,0,0,.5)"}}>{cols.map((c,i)=>{const key=c.key||c.label||String(i);const checked=!hiddenColumns.has(key);return <label key={key} style={{display:"flex",gap:7,alignItems:"center",padding:"5px 3px",fontSize:11,color:C.textSub,cursor:"pointer"}}><input type="checkbox" checked={checked} onChange={()=>setHiddenColumns(prev=>{const n=new Set(prev);checked?n.add(key):n.delete(key);return n})}/>{c.label||c.key}</label>})}</div>}</div>
+        <select value={density} onChange={e=>{setDensity(e.target.value);try{localStorage.setItem("dm_table_density",e.target.value)}catch(_){}}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"6px 7px",fontSize:11}}><option value="compact">Compacta</option><option value="normal">Normal</option><option value="comfortable">Cómoda</option></select>
+        <button type="button" onClick={()=>setShowColumnFilters(v=>!v)} style={{padding:"6px 9px",borderRadius:7,border:`1px solid ${showColumnFilters?C.blue:C.border}`,background:showColumnFilters?C.blueDim:C.surface,color:showColumnFilters?C.blue:C.textSub,cursor:"pointer",fontSize:11}}>Filtros por columna</button>
+        <button type="button" onClick={()=>setPinnedFirstCol(v=>!v)} style={{padding:"6px 9px",borderRadius:7,border:`1px solid ${pinnedFirstCol?C.blue:C.border}`,background:pinnedFirstCol?C.blueDim:C.surface,color:pinnedFirstCol?C.blue:C.textSub,cursor:"pointer",fontSize:11}}>Fijar 1ª</button>
+        <button type="button" onClick={exportFiltered} style={{padding:"6px 9px",borderRadius:7,border:`1px solid ${C.green}55`,background:C.greenDim,color:C.green,cursor:"pointer",fontSize:11,fontWeight:700}}>Exportar filtrado</button>
+        <span style={{marginLeft:"auto",fontSize:10,color:C.textMuted}}>{sortedRows.length.toLocaleString("es-AR")} filas</span>
+      </div>}
       <div className="dm-table-scroll" onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH,scrollbarGutter:"stable",overscrollBehavior:"contain",contain:"layout paint",transform:"translateZ(0)"}}>
         <table style={{width:"100%",minWidth:tableMinWidth,borderCollapse:"separate",borderSpacing:0,fontSize:12,tableLayout:"fixed"}}>
-          <thead><tr>{cols.map((c,i)=>{
-            const sticky=stickyFirst&&i===0;
+          <thead><tr>{visibleCols.map((c,i)=>{
+            const sticky=pinnedFirstCol&&i===0;
+            const colKey=c.key||c.label||String(i);
+            const effectiveWidth=colWidths[colKey]||c.width||c.minWidth||(c.wrap?140:undefined);
             const sKey=colSortId(c,i);
             return(
             <th key={i} data-dm-managed-sort="true" onClick={()=>handleSort(sKey)}
-              style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?4:3,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===sKey?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:c.width||c.maxWidth||(c.wrap?140:undefined),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),lineHeight:1.3,cursor:"pointer",userSelect:"none",boxShadow:sticky?`1px 0 0 ${C.border}`:undefined}}>
-              {c.label}{sortKey===sKey?(sortDir==="asc"?" ↑":" ↓"):""}
+              style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?4:3,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===sKey?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:effectiveWidth||c.maxWidth||(c.wrap?140:undefined),minWidth:effectiveWidth,width:effectiveWidth,lineHeight:1.3,cursor:"pointer",userSelect:"none",boxShadow:sticky?`1px 0 0 ${C.border}`:undefined}}>
+              {c.label}{sortKey===sKey?(sortDir==="asc"?" ↑":" ↓"):""}<span onMouseDown={e=>startResize(e,c,i)} onClick={e=>e.stopPropagation()} title="Arrastrar para redimensionar" style={{position:"absolute",right:0,top:0,width:6,height:"100%",cursor:"col-resize"}}/>
             </th>
             );
-          })}</tr></thead>
+          })}</tr>{showColumnFilters&&<tr>{visibleCols.map((c,i)=>{const key=c.key||c.label||String(i);return <th key={`filter-${key}`} style={{position:"sticky",top:35,zIndex:3,background:C.surface,padding:"4px 5px",borderBottom:`1px solid ${C.border}`}}><input value={columnFilters[key]||""} onChange={e=>setColumnFilters(prev=>({...prev,[key]:e.target.value}))} placeholder="Filtrar..." onClick={e=>e.stopPropagation()} style={{width:"100%",minWidth:0,background:"rgba(0,0,0,.28)",border:`1px solid ${C.border}`,borderRadius:5,color:C.text,padding:"4px 6px",fontSize:9,outline:"none"}}/></th>})}</tr>}</thead>
           <tbody>
-            {offsetY>0&&<tr style={{height:offsetY}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
+            {offsetY>0&&<tr style={{height:offsetY}}><td colSpan={visibleCols.length} style={{padding:0,border:"none"}}/></tr>}
             {visibleRows.map((r,i)=>{
               const absI=startIdx+i;
               const customTooltip=typeof r._rowTooltipHtml==="function"?r._rowTooltipHtml(r):r._rowTooltipHtml;
@@ -418,16 +470,22 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
                     setPinnedTip(current=>current?.key===tooltipKey?null:makeTip(e));
                   }}
                 >
-                  {cols.map((c,j)=>{
-                    const sticky=stickyFirst&&j===0;
+                  {visibleCols.map((c,j)=>{
+                    const sticky=pinnedFirstCol&&j===0;
+                    const colKey=c.key||c.label||String(j);
+                    const effectiveWidth=colWidths[colKey]||c.width||c.minWidth||(c.wrap?140:undefined);
+                    const rawCell=r[c.key];
+                    const cellContent=c.render?c.render(rawCell,r):(rawCell??"—");
+                    const linkLabel=String(c.label||c.key||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+                    const equipmentLink=!c.render&&(linkLabel.includes("interno")||linkLabel.includes("codigo int"))&&String(rawCell||"").trim();
                     return(
-                    <td key={j} style={{padding:c.compact?"8px 6px":"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",textAlign:c.align||"left",maxWidth:c.maxWidth||(c.wrap?undefined:300),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),position:sticky?"sticky":undefined,left:sticky?0:undefined,zIndex:sticky?2:undefined,background:sticky?C.card:(c.color?c.color+"0a":undefined),boxShadow:sticky?`1px 0 0 ${C.border}`:undefined,verticalAlign:"top",lineHeight:1.25}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>
+                    <td key={j} style={{padding:c.compact?"8px 6px":"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",textAlign:c.align||"left",maxWidth:c.maxWidth||(c.wrap?undefined:300),minWidth:effectiveWidth,width:effectiveWidth,position:sticky?"sticky":undefined,left:sticky?0:undefined,zIndex:sticky?2:undefined,background:sticky?C.card:(c.color?c.color+"0a":undefined),boxShadow:sticky?`1px 0 0 ${C.border}`:undefined,verticalAlign:"top",lineHeight:1.25}}>{equipmentLink?<button type="button" title="Abrir ficha única del equipo" onClick={e=>{e.stopPropagation();window.dispatchEvent(new CustomEvent("dm-open-equipment-profile",{detail:{code:String(rawCell).trim()}}));}} style={{background:"none",border:"none",padding:0,color:C.blue,font:"inherit",fontWeight:800,cursor:"pointer",textDecoration:"underline",textDecorationColor:C.blue+"66"}}>{cellContent}</button>:cellContent}</td>
                     );
                   })}
                 </tr>
               );
             })}
-            {useVirtual&&endIdx<sortedRows.length&&<tr style={{height:(sortedRows.length-endIdx)*ROW_H}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
+            {useVirtual&&endIdx<sortedRows.length&&<tr style={{height:(sortedRows.length-endIdx)*ROW_H}}><td colSpan={visibleCols.length} style={{padding:0,border:"none"}}/></tr>}
           </tbody>
         </table>
       </div>

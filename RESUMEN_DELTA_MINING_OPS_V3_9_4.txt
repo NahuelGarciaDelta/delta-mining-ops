@@ -1,0 +1,29 @@
+Delta Mining OPS v3.9.4 — Fluidez Ficha Única + Informe de Costos
+
+1. Ficha única del equipo
+- Se eliminó useDeferredValue para la selección del interno.
+- El selector cambia visualmente de inmediato y la ficha se actualiza en el siguiente frame.
+- La selección ya no fuerza un rerender completo de App en cada cambio.
+- La persistencia del interno se hace directamente en sessionStorage.
+- Se mantiene la equivalencia de códigos con sufijo -JM (ej. RPC-0016-JM = RPC-0016).
+- El historial RMA15 visible se limita a 80 filas para evitar montar una tabla pesada en cada cambio.
+
+2. Informe de Costos
+- El diagnóstico suministrado mostró que el cuello de botella era el DOM/render, no el Worker:
+  * Worker PROCESS_AMORTIZATION_ROWS: ~20–30 ms normalmente.
+  * commits de React: picos de 2,5–5,5 s.
+  * pintado de tabla t5: ~10,1 s.
+- Amortización ahora virtualiza tablas desde 19 filas, no recién desde 81.
+- En una tabla de 58 filas sólo se montan aproximadamente las filas visibles + overscan.
+- Se eliminó rowSpan del promedio por tipo para que la virtualización sea estable; el promedio se muestra por fila.
+- Se fijó la altura de fila y se truncó el detalle secundario para mantener virtualización de altura constante.
+- Los filtros de Amortización usan debounce determinista (220 ms) en vez de useDeferredValue.
+- Los resultados del Worker se aplican inmediatamente al finalizar, evitando starvation de startTransition.
+- Proyecto/Insumos y fechas generales agrupan cambios rápidos antes de recalcular.
+
+3. Validaciones
+- 73 archivos JS/JSX e imports locales: OK.
+- Security audit: OK.
+- Tests: 14/14 OK.
+- Parse completo JS/JSX con TypeScript: OK.
+- npm run build no pudo ejecutarse porque este entorno no tiene Vite/node_modules instalado.

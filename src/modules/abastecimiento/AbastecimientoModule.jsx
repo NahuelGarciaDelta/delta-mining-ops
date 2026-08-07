@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import ReactDOM from "react-dom";
+import { registerRefreshTask } from "../../services/refreshManager.js";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
 
@@ -822,23 +823,14 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     loadRaba03();
   },[loadRaba03]);
 
-  // Unifica el botón Actualizar global con las fuentes propias de Abastecimiento.
-  // En actualización manual App espera estas tareas; en auto-refresh se ejecutan
-  // silenciosamente sin bloquear la interfaz.
-  useEffect(()=>{
-    const onGlobalRefresh=(event)=>{
-      const detail=event?.detail||{};
-      if(detail.view&&!String(detail.view).startsWith("abastecimiento"))return;
-      const task=Promise.allSettled([
-        loadRaba03({silent:true}),
-        loadRemitosCompartidos({silent:true}),
-        loadEstadosSolicitudesCompartidos({silent:true})
-      ]);
-      if(Array.isArray(detail.tasks))detail.tasks.push(task);
-    };
-    window.addEventListener("delta-mining:auto-refresh",onGlobalRefresh);
-    return()=>window.removeEventListener("delta-mining:auto-refresh",onGlobalRefresh);
-  },[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
+  // Registro en el motor único de actualización de la aplicación.
+  useEffect(()=>registerRefreshTask("abastecimiento",async()=>{
+    await Promise.allSettled([
+      loadRaba03({silent:true}),
+      loadRemitosCompartidos({silent:true}),
+      loadEstadosSolicitudesCompartidos({silent:true})
+    ]);
+  },{views:["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"],priority:20}),[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
 
   // Cuando cambian los remitos compartidos, recalcular cantidades/estados usando la
   // copia de RABA03 ya cargada, sin nueva consulta y sin mostrar ningún loader.

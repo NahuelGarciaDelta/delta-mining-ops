@@ -4,6 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import { diagCount, diagEvent, diagGauge, diagReset, diagSnapshot, diagTiming, subscribeDiagnostics } from "./services/informeCostosDiagnostics.js";
 import CostosTabPanel from "./components/CostosTabPanel.jsx";
 import { getCostoHorarioAmortizacionOAlquiler, esEquipoPropioDelta } from "./utils/amortizationCost.js";
+import ComparisonStrip from "../../components/ComparisonStrip.jsx";
+import { previousComparablePeriod } from "../../shared/periodCompare.js";
 
 function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   const [snapshot,setSnapshot]=React.useState(()=>diagSnapshot());
@@ -53,10 +55,11 @@ function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   </div>;
 }
 
-function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
+function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}){
   const {
-    AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn, HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput, PeriodMonthYear, SortableTH, appAlert, appConfirm, buildMonthKeysCosto, byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand, esMaquinaCosto, findColumnKey, fmtNum, getMachineType, getValue, mainMachineCode, matchMulti, monthKeyCosto, monthLabelCosto, multiIsAll, normalizeInsumoCode, normalizeMachineCode, normalizeMultiValue, positionTip, proyColor, sortRowsForTable, tipoEquipoCosto, toNumber, uniq
+    AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn, HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput:BaseParamInput, PeriodMonthYear, SortableTH, appAlert, appConfirm, buildMonthKeysCosto, byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand, esMaquinaCosto, findColumnKey, fmtNum, getMachineType, getValue, mainMachineCode, matchMulti, monthKeyCosto, monthLabelCosto, multiIsAll, normalizeInsumoCode, normalizeMachineCode, normalizeMultiValue, positionTip, proyColor, sortRowsForTable, tipoEquipoCosto, toNumber, uniq
   } = deps;
+  const ParamInput=React.useCallback((props)=><BaseParamInput {...props} set={readOnly?(()=>{}):props.set} disabled={readOnly||props.disabled}/>,[BaseParamInput,readOnly]);
   const [diagnosticoAbierto,setDiagnosticoAbierto]=React.useState(false);
   React.useEffect(()=>{
     diagGauge("RMA15",rma15?.length||0);
@@ -177,11 +180,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   };
   // Ventana virtual para tablas pesadas: React sólo crea las filas visibles.
   // Los cálculos y exportaciones siguen usando la colección completa.
-  const useFixedVirtualRows=(rows,active=true,rowHeight=46,viewportHeight=520,overscan=8)=>{
+  const useFixedVirtualRows=(rows,active=true,rowHeight=46,viewportHeight=520,overscan=6,minRows=18)=>{
     const safeRows=rows||[];
     const [scrollTop,setScrollTop]=React.useState(0);
     React.useEffect(()=>{ setScrollTop(0); },[safeRows,active]);
-    const enabled=active&&safeRows.length>80;
+    // Virtualizar incluso tablas medianas. El diagnóstico real mostró que 58 filas
+    // de Amortización generaban ~1.400 nodos y commits de 2,5–5,5 s, mientras el
+    // Worker tardaba sólo ~20–30 ms. El cuello estaba en pintar el DOM, no calcular.
+    const enabled=active&&safeRows.length>minRows;
     const visibleCount=Math.ceil(viewportHeight/rowHeight);
     const startIndex=enabled?Math.max(0,Math.floor(scrollTop/rowHeight)-overscan):0;
     const endIndex=enabled?Math.min(safeRows.length,startIndex+visibleCount+overscan*2):safeRows.length;
@@ -288,23 +294,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   const isCostosTabAmortizacion=costosRenderTab==="t5";
   const isCostosTabResumen=costosRenderTab==="t8";
 
-  // Las pestañas pesadas quedan activadas después de la primera visita. Esto evita
-  // que salir y volver a entrar cambie los flags de cálculo y reconstruya las tablas.
-  const [costosTabsActivadas,setCostosTabsActivadas]=React.useState(()=>new Set([tab||"t1"]));
-  React.useEffect(()=>{
-    setCostosTabsActivadas(prev=>{
-      if(prev.has(costosRenderTab))return prev;
-      const next=new Set(prev);
-      next.add(costosRenderTab);
-      return next;
-    });
-  },[costosRenderTab]);
-  const tabFueActivada=React.useCallback(id=>costosTabsActivadas.has(id),[costosTabsActivadas]);
-
-  // La primera apertura activa el bloque. Las siguientes reutilizan estado y caché.
-  const calcTablaCostos=isCostosTabTabla||isCostosTabTop3||tabFueActivada("t1")||tabFueActivada("t7");
-  const calcCostoMensual=isCostosTabAcumulado||isCostosTabManoObra||isCostosTabAmortizacion||isCostosTabResumen||tabFueActivada("t6")||tabFueActivada("t4")||tabFueActivada("t5")||tabFueActivada("t8");
-  const calcManoObra=isCostosTabManoObra||isCostosTabAmortizacion||isCostosTabResumen||tabFueActivada("t4")||tabFueActivada("t5")||tabFueActivada("t8");
+  // Sólo se recalcula el motor que necesita la pestaña visible. Los resultados de
+  // las demás pestañas permanecen en sus caches y se refrescan al volver a ellas.
+  // Antes, una pestaña quedaba "activada" para siempre y cada cambio de filtro
+  // recalculaba simultáneamente Tabla, Costo mensual, Mano de Obra, Amortización y
+  // Resumen, que era la principal causa de congelamientos del Informe de Costos.
+  const calcTablaCostos=isCostosTabTabla||isCostosTabTop3;
+  const calcCostoMensual=isCostosTabAcumulado||isCostosTabManoObra||isCostosTabAmortizacion||isCostosTabResumen;
+  const calcManoObra=isCostosTabManoObra||isCostosTabAmortizacion||isCostosTabResumen;
   const costosBaseCalcReady=calcTablaCostos||calcCostoMensual;
   const needsManoObraCostos=calcManoObra;
   const filtrosCostosActivos=getCostosFiltrosTabla(activeCostosFiltroKey);
@@ -316,9 +313,14 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   // El selector cambia al instante y los cálculos pesados se actualizan un momento después.
   const dFMaquinas=useCostoDebouncedValue(fMaquinas,180);
   const dFTipoEquipo=useCostoDebouncedValue(fTipoEquipo,180);
-  const dFProyecto=useCostoDebouncedValue(fProyecto,180);
-  const dFInsumos=useCostoDebouncedValue(fInsumos,180);
+  const dFProyecto=useCostoDebouncedValue(fProyecto,380);
+  const dFInsumos=useCostoDebouncedValue(fInsumos,380);
   const dFPropiedad=useCostoDebouncedValue(fPropiedad,180);
+  // Fechas diferidas: los controles responden al instante y los cálculos pesados
+  // se ejecutan cuando el usuario termina de cambiar el período.
+  const dFechaDia=useCostoDebouncedValue(fechaDia,420);
+  const dFechaD=useCostoDebouncedValue(fechaD,420);
+  const dFechaH=useCostoDebouncedValue(fechaH,420);
   const setFiltroFluido=React.useCallback((setter,value)=>{
     if(React.startTransition)React.startTransition(()=>setter(value));
     else setter(value);
@@ -422,13 +424,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
     try{window.localStorage.setItem(COSTOS_MANT_STATE_KEY,JSON.stringify(costosMantSnapshotRef.current));window.dispatchEvent(new CustomEvent("dm-costos-mant-state-updated"));}catch(_){}
   },[]);
 
-  const hastaCostoMensual=fechaH||"";
+  const hastaCostoMensual=dFechaH||"";
 
   React.useEffect(()=>{
-    setFechaHCostoMensual(fechaH||"");
-  },[fechaH]);
+    setFechaHCostoMensual(dFechaH||"");
+  },[dFechaH]);
 
-  const rma15PorFechaBase=React.useMemo(()=>byDateFilter(rma15||[],modoFecha,fechaDia,fechaD,fechaH),[rma15,modoFecha,fechaDia,fechaD,fechaH]);
+  const rma15PorFechaBase=React.useMemo(()=>byDateFilter(rma15||[],modoFecha,dFechaDia,dFechaD,dFechaH),[rma15,modoFecha,dFechaDia,dFechaD,dFechaH]);
   const rma15CostoMensualPorFechaBase=React.useMemo(()=>
     byDateFilter(rma15||[],"periodo","",fechaDCostoMensual,hastaCostoMensual),
     [rma15,fechaDCostoMensual,hastaCostoMensual]
@@ -930,6 +932,21 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
     return out;
   },[calcTablaCostos,rma15PorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
 
+  // Comparación independiente de los filtros internos de cada tabla.
+  // Antes heredaba Tipo/Equipo/Propiedad de Amortización y por eso podía mostrar 0
+  // aunque el período tuviera RMA15. Sólo respeta los filtros generales visibles.
+  const periodoAnteriorCostos=React.useMemo(()=>dFechaD&&dFechaH?previousComparablePeriod(dFechaD,dFechaH):null,[dFechaD,dFechaH]);
+  const rma15ComparacionActual=React.useMemo(()=>
+    (rma15PorFecha||[]).filter(r=>matchMulti(r.proyecto,dFProyecto,"todos")),
+    [rma15PorFecha,dFProyecto,matchMulti]
+  );
+  const rma15AnteriorCostos=React.useMemo(()=>{
+    if(!periodoAnteriorCostos)return[];
+    const dated=byDateFilter(rma15||[],"periodo","",periodoAnteriorCostos.from,periodoAnteriorCostos.to);
+    const base=prepararFilasCosto(filtrarInsumosCosto(dated,dFInsumos));
+    return base.filter(r=>matchMulti(r.proyecto,dFProyecto,"todos"));
+  },[periodoAnteriorCostos,rma15,byDateFilter,dFInsumos,filtrarInsumosCosto,prepararFilasCosto,dFProyecto,matchMulti]);
+
   const rma15CostoMensualFiltrado=[]; // Fase 3A: filtrado trasladado al Web Worker.
 
   const fmtU=v=>v==null||v===0?"—":"$"+fmtNum(Math.round(v));
@@ -974,10 +991,10 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   const mesesAcumulado=React.useMemo(()=>{
     const activeCalc=calcTablaCostos;
     if(!activeCalc)return mesesAcumuladoCacheRef.current||[];
-    const out=buildMonthKeysCosto(rma15Filtrado||[],modoFecha,fechaDia,fechaD,fechaH);
+    const out=buildMonthKeysCosto(rma15Filtrado||[],modoFecha,dFechaDia,dFechaD,dFechaH);
     mesesAcumuladoCacheRef.current=out;
     return out;
-  },[calcTablaCostos,rma15Filtrado,modoFecha,fechaDia,fechaD,fechaH]);
+  },[calcTablaCostos,rma15Filtrado,modoFecha,dFechaDia,dFechaD,dFechaH]);
 
   // Debe calcularse ANTES de acumuladoEquipos. Si queda debajo, React intenta usar
   // subtotalJM/subtotalFS antes de inicializarlos y la pestaña se pone en blanco.
@@ -1000,7 +1017,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   // únicamente cuando la pestaña visible realmente los necesita. Antes, una vez
   // habilitada, cada actualización de Mano de Obra o filtros ocultos volvía a
   // recorrer y renderizar Amortización/Resumen aunque el usuario estuviera en otra tabla.
-  const amortizacionCalcActive=amortizacionCalcEnabled&&(isCostosTabAmortizacion||isCostosTabResumen||tabFueActivada("t5")||tabFueActivada("t8"));
+  const amortizacionCalcActive=amortizacionCalcEnabled&&(isCostosTabAmortizacion||isCostosTabResumen);
 
   // Amortización se habilita sólo cuando el usuario abre Amortización o Resumen.
   // El primer frame muestra la pestaña; el cálculo comienza después, sin precargarlo
@@ -2292,9 +2309,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
 
 
   const filtrosAmortizacion=getCostosFiltrosTabla("t5");
-  const dFAmortEquipo=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.equipo):filtrosAmortizacion.equipo;
-  const dFAmortTipo=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.tipo):filtrosAmortizacion.tipo;
-  const dFAmortPropiedad=React.useDeferredValue?React.useDeferredValue(filtrosAmortizacion.propiedad):filtrosAmortizacion.propiedad;
+  // Debounce determinista en lugar de useDeferredValue. Bajo renders largos,
+  // useDeferredValue podía dejar filtros de Amortización esperando demasiado tiempo.
+  const dFAmortEquipo=useCostoDebouncedValue(filtrosAmortizacion.equipo,220);
+  const dFAmortTipo=useCostoDebouncedValue(filtrosAmortizacion.tipo,220);
+  const dFAmortPropiedad=useCostoDebouncedValue(filtrosAmortizacion.propiedad,220);
   // Fase 2 del motor: filtrado, recálculo de vida útil, promedios por categoría,
   // ordenamiento y rowSpan se procesan fuera del hilo principal.
   const [rowsAmortizacionOrdenadasFiltradas,setRowsAmortizacionOrdenadasFiltradas]=React.useState(()=>rowsAmortizacionFiltCacheRef.current||[]);
@@ -2326,7 +2345,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
       if(requestToken!==amortizacionWorkerRequestRef.current)return;
       const out=Array.isArray(result?.rows)?result.rows:[];
       rowsAmortizacionFiltCacheRef.current=out;
-      React.startTransition(()=>setRowsAmortizacionOrdenadasFiltradas(out));
+      // Con la tabla virtualizada el commit ya es liviano; actualizar de forma
+      // normal evita que React postergue indefinidamente el resultado del filtro.
+      setRowsAmortizacionOrdenadasFiltradas(out);
     }).catch(err=>{
       console.error("No se pudo procesar Amortización en el Worker",err);
     }).finally(()=>{
@@ -2569,9 +2590,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
   })),[rowsResumenPorEquipo]);
 
   const rowsManoObraRender=useProgressiveRows(rowsManoObraOrdenadas,isCostosTabManoObra,80,80);
-  const amortizacionVirtual=useFixedVirtualRows(rowsAmortizacionDeferred,isCostosTabAmortizacion&&amortizacionSubtab==="tabla",52,520,10);
+  const amortizacionVirtual=useFixedVirtualRows(rowsAmortizacionDeferred,isCostosTabAmortizacion&&amortizacionSubtab==="tabla",52,520,5,18);
   const categoriasVirtual=useFixedVirtualRows(catalogoCategoriasAmortizacion,isCostosTabAmortizacion&&amortizacionSubtab==="categorias",48,540,10);
-  const resumenVirtual=useFixedVirtualRows(rowsResumenPorEquipo,isCostosTabResumen,46,520,10);
+  const resumenVirtual=useFixedVirtualRows(rowsResumenPorEquipo,isCostosTabResumen,46,520,5,18);
 
   const costoMensualRowsPorSection=React.useCallback((section)=>
     (costoMensualAcumulado||[]).filter(x=>x.section===section),[costoMensualAcumulado]);
@@ -3046,6 +3067,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {readOnly&&<div style={{padding:"10px 13px",borderRadius:9,border:"1px solid rgba(59,130,246,.45)",background:"rgba(59,130,246,.10)",color:"#93c5fd",fontSize:12,fontWeight:800}}>Modo solo lectura: puede consultar y exportar el Informe de Costos, pero los parámetros económicos sólo pueden ser modificados por Oficina Técnica.</div>}
       <InformeCostosDiagnosticsPanel open={diagnosticoAbierto} onClose={()=>setDiagnosticoAbierto(false)} colors={C} dataCounts={{rma15:rma15?.length||0,rma15Filtrado:rma15Filtrado?.length||0,insumos:insumos?.length||0,equipos:listaEquipos?.length||0}}/>
       {/* Filtros de fecha */}
       <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"nowrap",overflowX:"auto",padding:"10px 14px",background:"rgba(28,28,28,0.82)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",borderRadius:10,border:`1px solid ${C.border}55`}}>
@@ -3061,6 +3083,13 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
         <button onClick={()=>setDiagnosticoAbierto(true)} style={{background:"rgba(59,130,246,.12)",border:"1px solid rgba(96,165,250,.65)",borderRadius:7,color:"#93c5fd",padding:"7px 10px",fontSize:12,fontWeight:800,cursor:"pointer",whiteSpace:"nowrap"}}>🧪 Diagnóstico</button>
         <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Registros RMA15 filtrados: <b style={{color:C.text}}>{rma15Filtrado.length}</b> / {rma15?.length||0}</span>
       </div>
+
+      {periodoAnteriorCostos&&<ComparisonStrip title="Comparar períodos — Costos de mantenimiento" currentLabel={`${dFechaD} → ${dFechaH}`} previousLabel={`${periodoAnteriorCostos.from} → ${periodoAnteriorCostos.to}`} metrics={[
+        {label:"OT",current:rma15ComparacionActual.length,previous:rma15AnteriorCostos.length},
+        {label:"Equipos",current:new Set(rma15ComparacionActual.map(r=>r.maquina)).size,previous:new Set(rma15AnteriorCostos.map(r=>r.maquina)).size},
+        {label:"Costo insumos",current:rma15ComparacionActual.reduce((sum,r)=>sum+(Number(r._costoTotalARS)||0),0),previous:rma15AnteriorCostos.reduce((sum,r)=>sum+(Number(r._costoTotalARS)||0),0),format:v=>"$"+Math.round(v).toLocaleString("es-AR"),lowerIsBetter:true}
+      ]}/>}
+      {multiIsAll(fProyecto,"todos")&&(()=>{const jm=rma15ComparacionActual.filter(r=>String(r.proyecto||"").toUpperCase().includes("JOSE"));const fs=rma15ComparacionActual.filter(r=>String(r.proyecto||"").toUpperCase().includes("FILO"));if(!jm.length&&!fs.length)return null;return <ComparisonStrip title="Comparar proyectos — Costos" currentLabel="José María" previousLabel="Filo del Sol" metrics={[{label:"OT",current:jm.length,previous:fs.length},{label:"Equipos",current:new Set(jm.map(r=>r.maquina)).size,previous:new Set(fs.map(r=>r.maquina)).size},{label:"Costo insumos",current:jm.reduce((a,r)=>a+(Number(r._costoTotalARS)||0),0),previous:fs.reduce((a,r)=>a+(Number(r._costoTotalARS)||0),0),format:v=>"$"+Math.round(v).toLocaleString("es-AR"),lowerIsBetter:true}]}/>})()}
 
       {/* Header parámetros */}
       <div style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:"rgba(28,28,28,0.86)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",borderRadius:12,border:`1px solid ${C.border}55`,overflow:"hidden"}}>
@@ -3361,7 +3390,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
               Cargá la <b>Lista Maestra de Equipos</b> desde el menú lateral para ver esta tabla.
             </div>
           ):(
-            <div className="dm-table-scroll" onScroll={amortizacionVirtual.onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable",contain:"layout paint",transform:"translateZ(0)"}}>
+            <div className="dm-table-scroll" onScroll={amortizacionVirtual.onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable",contain:"layout paint"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
                 <thead><tr>
                   {sortableCostHead("amortizacion","equipo","Equipo",thL)}
@@ -3504,7 +3533,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps}){
               Sin datos para mostrar. Revisá los filtros o cargá la Lista Maestra de Equipos.
             </div>
           ):(
-            <div className="dm-table-scroll" onScroll={resumenVirtual.onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable",contain:"layout paint",transform:"translateZ(0)"}}>
+            <div className="dm-table-scroll" onScroll={resumenVirtual.onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable",contain:"layout paint"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
                 <thead>
                   <tr>

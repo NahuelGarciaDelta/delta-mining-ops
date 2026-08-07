@@ -2,6 +2,8 @@ import React, { useState, useCallback, useMemo, useEffect, useRef, startTransiti
 import ReactDOM from "react-dom";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
+import ComparisonStrip from "../../components/ComparisonStrip.jsx";
+import { previousComparablePeriod } from "../../shared/periodCompare.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -2498,6 +2500,8 @@ function ViewROP05({rop05,extState,setExtState}){
   const totalHoras05=useMemo(()=>filtered.reduce((s,r)=>s+r.horas,0),[filtered]);
   const totalEquipos05=useMemo(()=>new Set(filtered.map(r=>r.maquina)).size,[filtered]);
   const filteredSorted=useMemo(()=>[...filtered].sort((a,b)=>b.fecha.localeCompare(a.fecha)),[filtered]);
+  const periodoAnteriorROP05=useMemo(()=>mode==="periodo"&&fechaD&&fechaH?previousComparablePeriod(fechaD,fechaH):null,[mode,fechaD,fechaH]);
+  const filteredAnteriorROP05=useMemo(()=>periodoAnteriorROP05?excelBaseRows.filter(r=>r.fecha>=periodoAnteriorROP05.from&&r.fecha<=periodoAnteriorROP05.to):[],[excelBaseRows,periodoAnteriorROP05]);
 
   // ── Datos para gráficos de PERÍODO (antes eran IIFEs en el JSX) ────────────
   const periodoChartData=useMemo(()=>{
@@ -2662,6 +2666,12 @@ function ViewROP05({rop05,extState,setExtState}){
           />
         ))}
       </div>
+      {periodoAnteriorROP05&&<ComparisonStrip title="Comparar períodos — Productividad" currentLabel={`${fechaD} → ${fechaH}`} previousLabel={`${periodoAnteriorROP05.from} → ${periodoAnteriorROP05.to}`} metrics={[
+        {label:"Registros",current:filtered.length,previous:filteredAnteriorROP05.length},
+        {label:"Horas",current:totalHoras05,previous:filteredAnteriorROP05.reduce((s,r)=>s+Number(r.horas||0),0)},
+        {label:"Equipos",current:totalEquipos05,previous:new Set(filteredAnteriorROP05.map(r=>r.maquina)).size}
+      ]}/>}
+      {multiIsAll(vals.proyecto,"todos")&&(()=>{const jm=filtered.filter(r=>String(r.proyecto||"").toUpperCase().includes("JOSE"));const fs=filtered.filter(r=>String(r.proyecto||"").toUpperCase().includes("FILO"));if(!jm.length&&!fs.length)return null;return <ComparisonStrip title="Comparar proyectos — Productividad" currentLabel="José María" previousLabel="Filo del Sol" metrics={[{label:"Registros",current:jm.length,previous:fs.length},{label:"Horas",current:jm.reduce((a,r)=>a+(Number(r.horas)||0),0),previous:fs.reduce((a,r)=>a+(Number(r.horas)||0),0)},{label:"Equipos",current:new Set(jm.map(r=>r.maquina)).size,previous:new Set(fs.map(r=>r.maquina)).size}]}/>})()}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12}}>
         {prodCards.map(({titulo,color,cantidad,rendimiento})=>(
           <Card key={titulo} style={{borderColor:color+"44"}}>

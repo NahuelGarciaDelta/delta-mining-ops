@@ -9,12 +9,13 @@ import {
   LICITACION_PLANILLA_FORMULAS,
 } from "./licitacionPlanillasData.js";
 import { AcquisitionCostSelector, LICITACIONES_STORAGE_KEY, createEmptyTender, loadLocalTenders, normalizeTender } from "./licitacionesState.jsx";
+import { registerRefreshTask } from "../../services/refreshManager.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 let __deps = {};
 
 
-function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initialTab="nueva"}){
+function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initialTab="nueva",readOnly=false,canDelete=false,canExport=true}){
   const { APPS_SCRIPT_URL, C, Icon, Spinner, MultiSel, multiIsAll, appAlert, appConfirm, dmNormKey, canonicalEquivalentMachineCode, cleanMachine, mainMachineCode } = __deps;
   const STORAGE_KEY=LICITACIONES_STORAGE_KEY;
   const emptyTender=createEmptyTender;
@@ -34,6 +35,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
     return json;
   },[]);
   const guardarLicitacion=useCallback(async(lic,{silent=false}={})=>{
+    if(readOnly){if(!silent)await appAlert("Modo solo lectura: no tiene permiso para modificar licitaciones.","Sin permiso");return;}
     if(!lic?.id)return;
     const signature=JSON.stringify(lic);
     if(lastSavedRef.current.get(lic.id)===signature)return;
@@ -45,30 +47,28 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       if(!silent)await appAlert("La licitación se guardó en la planilla compartida.","Guardado");
     }catch(err){setLicitacionesError(err?.message||String(err));if(!silent)await appAlert(err?.message||String(err),"No se pudo guardar");throw err;}
     finally{setLicitacionesSaving(false);}
-  },[postLicitaciones,licitaciones]);
+  },[postLicitaciones,licitaciones,readOnly]);
   useEffect(()=>{if(initialTab&&initialTab!==tab)setTab(initialTab);},[initialTab]);
-  useEffect(()=>{
-    let alive=true;
-    (async()=>{
-      try{
-        const res=await fetch(`${APPS_SCRIPT_URL}?action=licitaciones_compartidas&_=${Date.now()}`,{cache:"no-store"});
-        const json=await res.json();
-        if(!alive)return;
-        if(!json.ok)throw new Error(json?.error?.message||"No se pudieron cargar las licitaciones.");
-        const rows=Array.isArray(json.data)?json.data.map(normalizeTender):[];
-        if(rows.length){setLicitaciones(rows);setActiveId(rows[0].id);rows.forEach(x=>lastSavedRef.current.set(x.id,JSON.stringify(x)));}
-        else{const first=emptyTender();setLicitaciones([first]);setActiveId(first.id);}
-        setLicitacionesError("");
-      }catch(err){if(alive)setLicitacionesError(err?.message||String(err));}
-      finally{if(alive)setLicitacionesReady(true);}
-    })();
-    return()=>{alive=false;};
-  },[]);
+  const cargarLicitaciones=useCallback(async({silent=false}={})=>{
+    try{
+      const res=await fetch(`${APPS_SCRIPT_URL}?action=licitaciones_compartidas&_=${Date.now()}`,{cache:"no-store"});
+      const json=await res.json();
+      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron cargar las licitaciones.");
+      const rows=Array.isArray(json.data)?json.data.map(normalizeTender):[];
+      if(rows.length){setLicitaciones(rows);setActiveId(prev=>rows.some(x=>x.id===prev)?prev:rows[0].id);rows.forEach(x=>lastSavedRef.current.set(x.id,JSON.stringify(x)));}
+      else{const first=emptyTender();setLicitaciones([first]);setActiveId(first.id);}
+      setLicitacionesError("");
+      return rows;
+    }catch(err){setLicitacionesError(err?.message||String(err));if(!silent)throw err;return [];}
+    finally{setLicitacionesReady(true);}
+  },[APPS_SCRIPT_URL]);
+  useEffect(()=>{let alive=true;cargarLicitaciones().catch(()=>{});return()=>{alive=false;};},[cargarLicitaciones]);
+  useEffect(()=>registerRefreshTask("licitaciones",()=>cargarLicitaciones({silent:true}),{views:["licitaciones","licitacionesNueva","licitacionesControl","licitacionesEquipos","licitacionesDatosEquipos"],priority:20}),[cargarLicitaciones]);
   const tender=licitaciones.find(x=>x.id===activeId)||licitaciones[0];
   useEffect(()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(licitaciones));}catch(_){ }},[licitaciones]);
   useEffect(()=>{if(!licitaciones.some(x=>x.id===activeId)&&licitaciones[0])setActiveId(licitaciones[0].id);},[licitaciones,activeId]);
   useEffect(()=>{
-    if(!licitacionesReady)return;
+    if(!licitacionesReady||readOnly)return;
     licitaciones.forEach(lic=>{
       const signature=JSON.stringify(lic);
       if(lastSavedRef.current.get(lic.id)===signature)return;
@@ -77,7 +77,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       saveTimersRef.current.set(lic.id,timer);
     });
     return()=>{};
-  },[licitaciones,licitacionesReady,guardarLicitacion]);
+  },[licitaciones,licitacionesReady,guardarLicitacion,readOnly]);
   useEffect(()=>()=>{saveTimersRef.current.forEach(t=>clearTimeout(t));},[]);
   const update=(patch)=>setLicitaciones(xs=>xs.map(x=>x.id===tender.id?{...x,...patch}:x));
   const planillaName=LICITACION_PLANILLA_BY_TAB[tab]||"";
@@ -589,6 +589,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
   const setVidaCategoria=(categoria,value)=>setDatosEquiposVida(prev=>({...prev,[categoria]:Math.max(1,n(value)||1)}));
   const setAdquisicionCategoria=(categoria,value)=>setDatosEquiposAdquisicion(prev=>({...prev,[categoria]:String(value||"promedio")}));
   const exportDatosEquipos=()=>{
+    if(!canExport){appAlert("No tiene permiso para exportar licitaciones.","Sin permiso");return;}
     const rows=datosEquiposRows.map(g=>({Periodo:`${datosEquiposDesde||"Inicio"} a ${datosEquiposHasta||"Hoy"}`,Categoria:g.categoria,"Cantidad de equipos":g.equipos.length,"Equipos y modelos":g.modelos.map(m=>`${m.nombre} (${m.cantidad})`).join("; "),"Combustible total L":g.combustible,"Horas totales":g.horas,"Consumo combustible L/h":g.consumo,"Vida útil h":g.vidaUtil,"Equipo/costo de adquisición seleccionado":g.equipoSeleccionado?g.equipoSeleccionado.label:"PROMEDIO DE LA CATEGORÍA","Costo adquisición seleccionado USD":g.costoAdquisicionSeleccionado,"Amortización USD/h":g.amortizacion,"Costo de insumos USD/h":g.costoInsumosHora,"Costo de mano de obra USD/h":g.costoManoObraHora,"Mantenimiento USD/h":g.mantenimiento,"Costo total equipo USD/h (sin combustible)":g.amortizacion+g.mantenimiento}));
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Datos Equipos");XLSX.writeFile(wb,"Datos_Equipos_Licitaciones.xlsx");
   };
@@ -658,7 +659,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
   const totalFinal=subtotalEquipos+gastosMonto+gastosPct;
   const addTender=()=>{const x=emptyTender();setLicitaciones(v=>[...v,x]);setActiveId(x.id);setTab("nueva");};
   const duplicate=()=>{const x={...JSON.parse(JSON.stringify(tender)),id:`LIC-${Date.now()}`,nombre:`${tender.nombre} — Copia`};setLicitaciones(v=>[...v,x]);setActiveId(x.id);};
-  const removeTender=async()=>{if(licitaciones.length===1){await appAlert("Debe conservarse al menos una licitación.");return;}if(await appConfirm(`¿Eliminar ${tender.nombre}?`)){try{await postLicitaciones({action:"eliminar_licitacion",idLicitacion:tender.id});lastSavedRef.current.delete(tender.id);setLicitaciones(v=>v.filter(x=>x.id!==tender.id));}catch(err){await appAlert(err?.message||String(err),"No se pudo eliminar");}}};
+  const removeTender=async()=>{if(readOnly||!canDelete){await appAlert("No tiene permiso para eliminar licitaciones.","Sin permiso");return;}if(licitaciones.length===1){await appAlert("Debe conservarse al menos una licitación.");return;}if(await appConfirm(`¿Eliminar ${tender.nombre}?`)){try{await postLicitaciones({action:"eliminar_licitacion",idLicitacion:tender.id});lastSavedRef.current.delete(tender.id);setLicitaciones(v=>v.filter(x=>x.id!==tender.id));}catch(err){await appAlert(err?.message||String(err),"No se pudo eliminar");}}};
   const addEquipo=()=>update({equipos:[...tender.equipos,{id:`eq-${Date.now()}`,equipoPedido:"",equipoOptionId:"",codigo:"",tipo:"",marca:"",modelo:"",propiedad:"",costoAdquisicion:0,cantidad:1,vidaUtil:6000,mantAdoptado:null,costoArrendado:0}]});
   const updEquipo=(id,patch)=>update({equipos:tender.equipos.map(e=>e.id===id?{...e,...patch}:e)});
   const addFecha=()=>update({fechas:[...(tender.fechas||[]),{id:`f-${Date.now()}`,fecha:"",descripcion:""}]});
@@ -667,6 +668,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
   const fechasOrdenadas=useMemo(()=>[...(tender.fechas||[])].filter(f=>f.fecha||f.descripcion).sort((a,b)=>String(a.fecha||"9999-12-31").localeCompare(String(b.fecha||"9999-12-31"))),[tender.fechas]);
   const formatFechaCorta=(v)=>{if(!v)return"Sin fecha";const [y,m,d]=String(v).split("-");return d&&m&&y?`${d}/${m}/${y}`:String(v);};
   const exportExcel=()=>{
+    if(!canExport){appAlert("No tiene permiso para exportar licitaciones.","Sin permiso");return;}
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(equiposCalc.map(e=>({Equipo_Pedido:e.equipoPedido||"",Equipo_Propuesto:[e.tipo,e.marca,e.modelo].filter(Boolean).join(" — "),Tipo:e.tipo,Marca:e.marca||"",Modelo:e.modelo,Cantidad:n(e.cantidad),Horas_Contrato_1:horasContrato1,Total_Contrato_1_USD:e.total,Horas_Contrato_2:usarSegundoContrato?horasContrato2:"",Total_Contrato_2_USD:usarSegundoContrato?e.total2:"",Costo_Adquisicion_USD:n(e.costoAdquisicion),Vida_Util_h:n(e.vidaUtil),Amortizacion_USD_h:n(e.amortizacion),Costo_Hora_Mantenimiento_USD:n(e.mantenimiento),Costo_Hora_Total_USD:n(e.costoHoraTotal),Mant_Adoptado_Porcentaje:n(e.mantAdoptado),Mant_Adoptado_USD_h:n(e.mantAdoptadoUsd),Costo_Hora_Adoptado_USD:n(e.costoHoraAdoptado),Costo_Arrendado_USD_h:n(e.costoArrendado),Comparacion:e.comparacion}))),"Equipos");
     XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet((tender.gastos||[]).map(g=>({Concepto:g.concepto,Tipo:g.tipo,Valor:n(g.valor),Incidencia_USD:g.tipo==="monto"?n(g.valor):subtotalEquipos*n(g.valor)/100}))),"Gastos");
@@ -759,10 +761,10 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       <label style={{display:"grid",gap:5,fontSize:10,color:C.textMuted,fontWeight:800}}>LICITACIÓN<select value={tender.id} onChange={e=>setActiveId(e.target.value)} style={{minWidth:260,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"9px 10px",color:C.text}}>{licitaciones.map(x=><option key={x.id} value={x.id}>{x.nombre}</option>)}</select></label>
       <button onClick={addTender} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>+ Nueva</button>
       <button onClick={duplicate} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.blue}66`,background:`${C.blue}18`,color:C.blue,fontWeight:900,cursor:"pointer"}}>Duplicar</button>
-      <button onClick={removeTender} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.red}66`,background:C.redDim,color:C.red,fontWeight:900,cursor:"pointer"}}>Eliminar</button>
+      <button onClick={removeTender} disabled={!canDelete} title={!canDelete?"Requiere permiso eliminar":""} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.red}66`,background:C.redDim,color:C.red,fontWeight:900,cursor:canDelete?"pointer":"not-allowed",opacity:canDelete?1:.45}}>Eliminar</button>
       <button onClick={()=>guardarLicitacion(tender)} disabled={licitacionesSaving} style={{padding:"9px 13px",borderRadius:8,border:`1px solid ${C.accent}66`,background:C.accentDim,color:C.accent,fontWeight:900,cursor:licitacionesSaving?"wait":"pointer"}}>{licitacionesSaving?"Guardando...":"Guardar en Google Sheets"}</button>
       <span style={{fontSize:11,fontWeight:800,color:licitacionesError?C.red:C.textMuted}}>{licitacionesError?`Error: ${licitacionesError}`:(licitacionesReady?"Base compartida conectada":"Conectando...")}</span>
-      <button onClick={exportExcel} style={{marginLeft:"auto",padding:"9px 13px",borderRadius:8,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>Descargar Excel</button>
+      <button onClick={exportExcel} disabled={!canExport} style={{marginLeft:"auto",padding:"9px 13px",borderRadius:8,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:canExport?"pointer":"not-allowed",opacity:canExport?1:.45}}>Descargar Excel</button>
     </div>}
     {tab==="nueva"&&<div style={{display:"grid",gap:14}}>
       <div style={panel}>
@@ -864,7 +866,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
       <div style={panel}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",marginBottom:14}}>
           <div><h3 style={{margin:0,color:C.text}}>Datos Equipos</h3><div style={{fontSize:11,color:C.textMuted,marginTop:4}}>Vista directa de las categorías y del costo horario calculados por Informe de Costos → Amortización / Resumen por equipo. Incluye únicamente camiones y equipos; la categoría OTROS queda excluida.</div></div>
-          <div style={{display:"flex",gap:8}}><button onClick={()=>setCostosMantConfig(readCostosMantConfig())} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.blue}55`,background:`${C.blue}18`,color:C.blue,fontWeight:900,cursor:"pointer"}}>Actualizar categorías</button><button onClick={exportDatosEquipos} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.green}55`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:"pointer"}}>Exportar Excel</button></div>
+          <div style={{display:"flex",gap:8}}><button onClick={()=>setCostosMantConfig(readCostosMantConfig())} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.blue}55`,background:`${C.blue}18`,color:C.blue,fontWeight:900,cursor:"pointer"}}>Actualizar categorías</button><button onClick={exportDatosEquipos} disabled={!canExport} style={{padding:"8px 11px",borderRadius:8,border:`1px solid ${C.green}55`,background:`${C.green}18`,color:C.green,fontWeight:900,cursor:canExport?"pointer":"not-allowed",opacity:canExport?1:.45}}>Exportar Excel</button></div>
         </div>
         <div style={{display:"flex",gap:12,alignItems:"flex-end",flexWrap:"wrap",padding:"12px 14px",borderRadius:10,border:`1px solid ${C.border}`,background:"rgba(0,0,0,.18)",marginBottom:12}}>
           <label style={{display:"grid",gap:5,fontSize:10,color:C.textMuted,fontWeight:850}}>DESDE<input type="date" value={datosEquiposDesde} onChange={e=>setDatosEquiposDesde(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",color:C.text}}/></label>

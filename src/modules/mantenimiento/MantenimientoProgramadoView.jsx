@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { APPS_SCRIPT_URL as DEFAULT_APPS_SCRIPT_URL } from "../../config/app.js";
 import { PM_INITIAL_SEED } from "./pmInitialSeed.js";
 import { rangoTurnoPorFecha } from "../analytics/OperationalAnalytics.jsx";
+import { registerRefreshTask } from "../../services/refreshManager.js";
 
 const DEFAULTS = Object.freeze({ intervalo: 250, alertaDesde: 200, atrasadoDesde: 350 });
 const ALL = "todos";
@@ -129,7 +130,7 @@ async function readJsonResponse(response, context) {
   return json;
 }
 
-export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = [], rop02All = [], initialTab = "dashboard", onTabChange }) {
+export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = [], rop02All = [], initialTab = "dashboard", onTabChange, readOnly = false }) {
   const { C, Card, Badge, StatCard, MultiSel, LoadingMotoniveladora, APPS_SCRIPT_URL: injectedAppsScriptUrl, appAlert, appConfirm } = deps;
   const APPS_SCRIPT_URL = injectedAppsScriptUrl || DEFAULT_APPS_SCRIPT_URL;
   const [tab, setTab] = useState(initialTab || "dashboard");
@@ -161,13 +162,14 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   }, [onTabChange]);
 
   const post = useCallback(async payload => {
+    if (readOnly) throw new Error("Modo solo lectura: no tiene permiso para modificar Mantenimiento Programado.");
     if (!APPS_SCRIPT_URL) throw new Error("No está configurada la URL del Apps Script.");
     const body = new URLSearchParams({ payload: JSON.stringify(payload) });
     const response = await fetch(APPS_SCRIPT_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body });
     const json = await readJsonResponse(response, "Guardado PM");
     if (!json?.ok) throw new Error(json?.error?.message || "No se pudo guardar.");
     return json;
-  }, [APPS_SCRIPT_URL]);
+  }, [APPS_SCRIPT_URL, readOnly]);
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -189,16 +191,11 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
 
   useEffect(() => { load(); }, [load]);
 
-  // La app emite este evento cada 5 minutos. Se vuelve a consultar el endpoint
-  // específico de PM sin bloquear la interfaz ni mostrar el spinner principal.
-  useEffect(() => {
-    const onAutoRefresh = () => {
-      if (document.visibilityState !== "visible") return;
-      load({ silent: true });
-    };
-    window.addEventListener("delta-mining:auto-refresh", onAutoRefresh);
-    return () => window.removeEventListener("delta-mining:auto-refresh", onAutoRefresh);
-  }, [load]);
+  // Mantenimiento Programado también participa del motor único de actualización.
+  useEffect(() => registerRefreshTask("mantenimiento-programado", () => load({ silent: true }), {
+    views: ["pmProgramado","pmDashboard","pmPlanificador","pmProgramacion","pmPanel","pmRealizado","pmRepuestos","pmGestion","pmConfig","pmHistorial"],
+    priority: 20
+  }), [load]);
 
   const actividad7Dias = useMemo(() => {
     const fechasValidas = (rop02All || []).map(ropFecha).filter(Boolean);
@@ -622,6 +619,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   };
 
   return <div style={{ padding: 16 }}>
+    {readOnly && <div style={{padding:"9px 12px",marginBottom:12,borderRadius:8,border:"1px solid rgba(59,130,246,.4)",background:"rgba(59,130,246,.09)",color:"#93c5fd",fontSize:11,fontWeight:700}}>Modo solo lectura: puede consultar la planificación y el historial, pero no registrar ni modificar PM.</div>}
     {(["dashboard","panel","planificador","gestion"].includes(tab)) && <div style={{ marginBottom: 14, padding: "14px 16px", borderRadius: 12, background: "rgba(0,0,0,.55)", border: `1px solid ${C?.border || "#333"}`, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
         <label style={{ display: "grid", gap: 5, color: C?.textMuted, fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>Mes
@@ -648,7 +646,6 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
         <MultiSel label="Propiedad" value={propiedadFiltro} onChange={setPropiedadFiltro} options={[{ value: ALL, label: "Todas" }, ...propiedades.map(v => ({ value: v, label: v }))]} />
         <MultiSel label="Estado" value={estadoFiltro} onChange={setEstadoFiltro} options={[{ value: ALL, label: "Todos" }, "PM ATRASADO", "PM URGENTE", "PM PRÓXIMO", "AL DÍA", "SIN BASE"].map(v => typeof v === "string" ? ({ value: v, label: v }) : v)} />
         <button onClick={clearFilters} style={{ ...btnStyle, background: C?.surface || "#333", color: C?.textSub }}>Limpiar filtros</button>
-        <button onClick={() => load()} style={btnStyle}>Actualizar</button>
       </div>
       <div style={{ fontSize: 11, color: C?.textMuted, marginTop: 10 }}>Los indicadores, gráficos y tablas se calculan con los equipos que tuvieron actividad ROP02 dentro del período seleccionado.</div>
     </div>}

@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 
-export default function UserSettingsModal({open,forced=false,onClose,onSaved,APPS_SCRIPT_URL,C,Spinner,Icon}){
+export default function UserSettingsModal({open,forced=false,onClose,onSaved,APPS_SCRIPT_URL,C,Spinner,Icon,permissionSnapshot={}}){
   const [nombre,setNombre]=useState(()=>String(sessionStorage.getItem("dm_name")||""));
   const [area,setArea]=useState(()=>String(sessionStorage.getItem("dm_area")||""));
   const [actual,setActual]=useState("");
   const [nueva,setNueva]=useState("");
   const [repetir,setRepetir]=useState("");
   const [saving,setSaving]=useState(false);
+  const userRole=String(sessionStorage.getItem("dm_role")||"USUARIO").trim().toUpperCase();
+  const canChangeArea=userRole==="ADMIN"||userRole==="ADMINISTRADOR";
   const [error,setError]=useState("");
   useEffect(()=>{
     if(open){
@@ -64,10 +66,13 @@ export default function UserSettingsModal({open,forced=false,onClose,onSaved,APP
             <input value={nombre} onChange={e=>setNombre(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none"}}/>
           </label>
           <label style={{display:"grid",gap:6,fontSize:11,color:C.textSub,fontWeight:700}}>ÁREA
-            <select value={area} onChange={e=>setArea(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none"}}>
+            <select value={area} disabled={!canChangeArea} onChange={e=>setArea(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none",opacity:canChangeArea?1:.65,cursor:canChangeArea?"pointer":"not-allowed"}}>
               {areas.map(x=><option key={x} value={x}>{x||"SIN DEFINIR"}</option>)}
             </select>
+            {!canChangeArea&&<span style={{fontSize:10,color:C.textMuted,fontWeight:500}}>El área la administra un usuario ADMIN; no puede autoasignarse desde el perfil.</span>}
           </label>
+          <div style={{height:1,background:`${C.border}66`,margin:"2px 0"}}/>
+          {!forced&&<div style={{display:"grid",gap:7}}><div style={{fontSize:11,color:C.textSub,fontWeight:800}}>PERMISOS EFECTIVOS</div><div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:6}}>{Object.entries(permissionSnapshot||{}).map(([areaName,actions])=><div key={areaName} style={{padding:"7px 8px",borderRadius:7,border:`1px solid ${C.border}66`,background:"rgba(255,255,255,.025)"}}><div style={{fontSize:9,fontWeight:800,color:C.text}}>{areaName}</div><div style={{fontSize:9,color:C.textMuted,marginTop:3}}>{(actions||[]).join(" · ")||"solo lectura"}</div></div>)}</div></div>}
           <div style={{height:1,background:`${C.border}66`,margin:"2px 0"}}/>
           <label style={{display:"grid",gap:6,fontSize:11,color:C.textSub,fontWeight:700}}>CONTRASEÑA ACTUAL
             <input type="password" value={actual} onChange={e=>setActual(e.target.value)} placeholder={forced?"DELTA.MINING.APP":"Solo es necesaria para cambiar la contraseña"} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none"}}/>

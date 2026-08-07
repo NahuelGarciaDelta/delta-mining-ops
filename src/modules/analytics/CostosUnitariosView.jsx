@@ -11,7 +11,7 @@ function BtnExcel({onClick}){return <button onClick={onClick} style={{display:"f
 function applyDeps(deps={}){
   ({C:C=UI_C,Card,Icon,Spinner,Badge,StatCard,Table,SortableTH,Sel,MultiSel,DateIn,TabBtn,AlertBanner,HelpTip,fmtNum,fmtFecha,fmtARS,fmtUSD,uniq,normDate,normalizeInsumoCode,normalizeInflatedMoneyValue,toMoneyNumber,getExactValue,getInsumoExtra,getValue,cleanKey,toNumber,multiIsAll,matchMulti,dmNormKey,canonicalEquivalentMachineCode,tipoEquipoCosto,esMaquinaCosto,excelFromCols,generarExcelCodigosSinPrecio}=deps);
 }
-function ParamInput({value,set,style}){
+function ParamInput({value,set,style,disabled=false}){
   const[local,setLocal]=React.useState(String(value??''));
   const prevValue=React.useRef(value);
 
@@ -53,7 +53,7 @@ function ParamInput({value,set,style}){
     }
   },[commit]);
 
-  return <input type="number" value={local} onChange={handleChange} onBlur={handleBlur} onKeyDown={handleKeyDown} style={style}/>;
+  return <input type="number" value={local} disabled={disabled} onChange={handleChange} onBlur={handleBlur} onKeyDown={handleKeyDown} style={{...style,opacity:disabled?.72:1,cursor:disabled?"not-allowed":style?.cursor}}/>;
 }
 
 // Selector con estado local: el cambio visual es inmediato y el recálculo pesado
@@ -116,7 +116,7 @@ const AmortRow=React.memo(function AmortRow({x,i,useListaVidaUtil,vidaUtilOverri
   const pctMant=amort>0?x.mantUSDhs/amort:x.pctMant;
 
   return(
-    <tr style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)",borderTop:x._firstTipoDisplay?`2px solid ${C.borderLight}`:undefined}}>
+    <tr style={{height:52,background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)",borderTop:x._firstTipoDisplay?`2px solid ${C.borderLight}`:undefined}}>
       <td style={tdL}>{x.equipo}</td>
       <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:600}}>{x.propiedad||"S/D"}</td>
       <td style={{...tdS,textAlign:"left",color:C.textSub,fontWeight:700}}>{x.tipo||"S/D"}</td>
@@ -157,16 +157,14 @@ const AmortRow=React.memo(function AmortRow({x,i,useListaVidaUtil,vidaUtilOverri
           </div>
         )}
       </td>
-      <td style={{...tdS,color:C.yellow,fontWeight:700}}><div>{amort>0?"U$S "+Number(amort).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}</div><div style={{fontSize:9,color:C.textMuted,fontWeight:500,marginTop:2,whiteSpace:"normal"}}>{x.costoCapitalDetalle||""}</div></td>
+      <td style={{...tdS,color:C.yellow,fontWeight:700}}><div>{amort>0?"U$S "+Number(amort).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2}):"—"}</div><div title={x.costoCapitalDetalle||""} style={{fontSize:9,color:C.textMuted,fontWeight:500,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:185,marginLeft:"auto",marginRight:"auto"}}>{x.costoCapitalDetalle||""}</div></td>
       <td style={{...tdS,color:C.teal,fontWeight:700}}>{x.hhHombreVestido>0?"U$S "+fmtNum(Math.round(x.hhHombreVestido)):"—"}</td>
       <td style={{...tdS,color:C.purple,fontWeight:700}}>{x.mantUSDhs>0?"U$S "+fmtNum(Math.round(x.mantUSDhs)):"—"}</td>
       <td style={{...tdS,color:C.accent,fontWeight:800}}>{totalUSDhs>0?"U$S "+fmtNum(Math.round(totalUSDhs)):"—"}</td>
       <td style={{...tdS,color:C.textSub}}>{pctMant>0?(pctMant*100).toFixed(2)+"%":"—"}</td>
-      {x._firstTipoDisplay&&(
-        <td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,verticalAlign:"middle",fontSize:16,borderLeft:`2px solid ${C.blue}55`,borderBottom:`2px solid ${C.borderLight}`}}>
-          {x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"}
-        </td>
-      )}
+      <td style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,fontSize:14,borderLeft:`1px solid ${C.blue}35`}} title="Promedio de mantenimiento para el tipo de equipo">
+        {x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"}
+      </td>
     </tr>
   );
 });

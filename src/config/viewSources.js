@@ -1,4 +1,6 @@
 export const VIEW_SOURCES = Object.freeze({
+  bienvenida:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rma15_fs","rma15_jm"],
+  equipmentProfile:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"],
   dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
   rop02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   horometros:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
@@ -15,6 +17,16 @@ export const VIEW_SOURCES = Object.freeze({
   mant:["insumos","rma15_fs","rma15_jm"],
   distMant:["rma15_fs","rma15_jm"],
   pmProgramado:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmDashboard:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmPlanificador:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmProgramacion:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmPanel:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmRealizado:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmRepuestos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmGestion:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmConfig:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  pmHistorial:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+
   rma15CtrlEquipo:["insumos","rma15_fs","rma15_jm"],
   costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos"],
   costosUnitarios:["insumos","rma15_fs","rma15_jm"],

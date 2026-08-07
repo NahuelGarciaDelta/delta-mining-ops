@@ -4,6 +4,8 @@ import MantenimientoProgramadoView from "./MantenimientoProgramadoView.jsx";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine, LineChart, Line } from "recharts";
 import { escapeTooltipText as escTip } from "../../shared/safeTooltipSecurity.js";
+import ComparisonStrip from "../../components/ComparisonStrip.jsx";
+import { previousComparablePeriod } from "../../shared/periodCompare.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 let __deps = {};
@@ -539,6 +541,20 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
     return true;
   }),[rma15,proyecto,tipoMant,tipoMaquina,maquina,fechaD,fechaH,fechaDiaActiva,modo,insumoFiltro]);
 
+  const periodoAnterior=useMemo(()=>modo==="periodo"&&fechaD&&fechaH?previousComparablePeriod(fechaD,fechaH):null,[modo,fechaD,fechaH]);
+  const filteredAnterior=useMemo(()=>{
+    if(!periodoAnterior)return[];
+    return (rma15||[]).filter(r=>{
+      if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
+      if(!matchMulti(normTipo(r.tipoMant),Array.isArray(tipoMant)?tipoMant.map(normTipo):tipoMant,"todos"))return false;
+      if(!multiIsAll(tipoMaquina,"todas")&&!tipoMatchMachineROP05(tipoMaquina,r.maquina))return false;
+      if(!matchMulti(r.maquina,maquina,"todas"))return false;
+      if(r.fecha<periodoAnterior.from||r.fecha>periodoAnterior.to)return false;
+      if(!multiIsAll(insumoFiltro,"todos")&&!r.insumos.some(i=>matchMulti(String(i.codigo||""),insumoFiltro,"todos")))return false;
+      return true;
+    });
+  },[rma15,periodoAnterior,proyecto,tipoMant,tipoMaquina,maquina,insumoFiltro]);
+
   // KPIs
   const totalOTs=filtered.length;
   const preventivos=filtered.filter(r=>normTipo(r.tipoMant).includes("prev")).length;
@@ -807,6 +823,14 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
         <StatCard icon="prod" label="Costo total insumos" value={costoTotal>0?"$"+fmtNum(costoTotal):"—"} color={C.yellow} small/>
         <StatCard icon="prod" label="Costo total USD" value={fmtUSD(costoTotal,usdRate)} color={C.green} small/>
       </div>
+
+      {periodoAnterior&&<ComparisonStrip title="Comparar períodos — Mantenimiento" currentLabel={`${fechaD} → ${fechaH}`} previousLabel={`${periodoAnterior.from} → ${periodoAnterior.to}`} metrics={[
+        {label:"OT",current:filtered.length,previous:filteredAnterior.length},
+        {label:"Preventivos",current:preventivos,previous:filteredAnterior.filter(r=>normTipo(r.tipoMant).includes("prev")).length},
+        {label:"Correctivos",current:correctivos,previous:filteredAnterior.filter(r=>normTipo(r.tipoMant).includes("corr")).length,lowerIsBetter:true},
+        {label:"Costo insumos",current:costoTotal,previous:filteredAnterior.reduce((sum,r)=>sum+(Number(r.costoTotal)||0),0),format:v=>"$"+Math.round(v).toLocaleString("es-AR"),lowerIsBetter:true}
+      ]}/>}
+      {multiIsAll(proyecto,"todos")&&(()=>{const jm=filtered.filter(r=>String(r.proyecto||"").toUpperCase().includes("JOSE"));const fs=filtered.filter(r=>String(r.proyecto||"").toUpperCase().includes("FILO"));if(!jm.length&&!fs.length)return null;return <ComparisonStrip title="Comparar proyectos — Mantenimiento" currentLabel="José María" previousLabel="Filo del Sol" metrics={[{label:"OT",current:jm.length,previous:fs.length},{label:"Correctivos",current:jm.filter(r=>normTipo(r.tipoMant).includes("corr")).length,previous:fs.filter(r=>normTipo(r.tipoMant).includes("corr")).length,lowerIsBetter:true},{label:"Costo insumos",current:jm.reduce((a,r)=>a+(Number(r.costoTotal)||0),0),previous:fs.reduce((a,r)=>a+(Number(r.costoTotal)||0),0),format:v=>"$"+Math.round(v).toLocaleString("es-AR"),lowerIsBetter:true}]}/>})()}
 
       {verGastosExcesivos&&(()=>{
         const activeGastoKey=pinnedGasto||hoveredGasto;
