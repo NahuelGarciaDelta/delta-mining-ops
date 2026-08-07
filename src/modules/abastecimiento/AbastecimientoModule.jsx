@@ -822,6 +822,24 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     loadRaba03();
   },[loadRaba03]);
 
+  // Unifica el botón Actualizar global con las fuentes propias de Abastecimiento.
+  // En actualización manual App espera estas tareas; en auto-refresh se ejecutan
+  // silenciosamente sin bloquear la interfaz.
+  useEffect(()=>{
+    const onGlobalRefresh=(event)=>{
+      const detail=event?.detail||{};
+      if(detail.view&&!String(detail.view).startsWith("abastecimiento"))return;
+      const task=Promise.allSettled([
+        loadRaba03({silent:true}),
+        loadRemitosCompartidos({silent:true}),
+        loadEstadosSolicitudesCompartidos({silent:true})
+      ]);
+      if(Array.isArray(detail.tasks))detail.tasks.push(task);
+    };
+    window.addEventListener("delta-mining:auto-refresh",onGlobalRefresh);
+    return()=>window.removeEventListener("delta-mining:auto-refresh",onGlobalRefresh);
+  },[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
+
   // Cuando cambian los remitos compartidos, recalcular cantidades/estados usando la
   // copia de RABA03 ya cargada, sin nueva consulta y sin mostrar ningún loader.
   useEffect(()=>{
@@ -1318,12 +1336,12 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return;
     }
     const data=[
-      ["Código de artículo","Descripción","Cant. enviada","Fecha de envío"],
-      ...enviosSinSolicitudRows.map(r=>[r.codigoArticulo,r.descripcion,r.cantidadEnviada,formatDateLocal(r.fechaEnvio)])
+      ["Código de artículo","Descripción","Remito","Cant. enviada","Fecha de envío"],
+      ...enviosSinSolicitudRows.map(r=>[r.codigoArticulo,r.descripcion,r.numeroRemito||"",r.cantidadEnviada,formatDateLocal(r.fechaEnvio)])
     ];
     const wb=XLSX.utils.book_new();
     const ws=XLSX.utils.aoa_to_sheet(data);
-    ws["!cols"]=[{wch:18},{wch:60},{wch:16},{wch:16}];
+    ws["!cols"]=[{wch:18},{wch:52},{wch:20},{wch:16},{wch:16}];
     XLSX.utils.book_append_sheet(wb,ws,"Envíos sin solicitud");
     XLSX.writeFile(wb,`Envios_sin_solicitud_${new Date().toISOString().slice(0,10)}.xlsx`);
   },[enviosSinSolicitudRows,formatDateLocal]);
@@ -2690,10 +2708,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
 
   const renderEnviosSinSolicitud=()=>{
     const cols=[
-      {key:"codigoArticulo",label:"Código de artículo"},
-      {key:"descripcion",label:"Descripción"},
-      {key:"cantidadEnviada",label:"Cant. enviada",align:"right"},
-      {key:"fechaEnvio",label:"Fecha de envío"},
+      {key:"codigoArticulo",label:"Código de artículo",width:"16%"},
+      {key:"descripcion",label:"Descripción",width:"47%"},
+      {key:"numeroRemito",label:"Remito",width:"15%"},
+      {key:"cantidadEnviada",label:"Cant. enviada",align:"right",width:"10%"},
+      {key:"fechaEnvio",label:"Fecha de envío",width:"12%"},
     ];
     return (
       <Card>
@@ -2707,20 +2726,24 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
             <button onClick={exportarEnviosSinSolicitud} style={{height:34,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,borderRadius:10,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Excel</button>
           </div>
         </div>
-        <div style={{overflow:"auto",maxHeight:650}}>
-          <table style={{width:"100%",borderCollapse:"collapse",minWidth:760}}>
+        <div style={{overflowX:"hidden",overflowY:"auto",maxHeight:650}}>
+          <table style={{width:"100%",borderCollapse:"collapse",tableLayout:"fixed"}}>
+            <colgroup>
+              {cols.map(c=><col key={c.key} style={{width:c.width}} />)}
+            </colgroup>
             <thead style={{position:"sticky",top:0,zIndex:1,background:"rgba(16,16,16,.97)"}}>
-              <tr>{cols.map(c=><th key={c.key} style={{...thStyle,textAlign:c.align||"left",cursor:"default"}}>{c.label}</th>)}</tr>
+              <tr>{cols.map(c=><th key={c.key} style={{...thStyle,textAlign:c.align||"left",cursor:"default",whiteSpace:"normal",lineHeight:1.15,paddingLeft:10,paddingRight:10}}>{c.label}</th>)}</tr>
             </thead>
             <tbody>
               {enviosSinSolicitudRows.length?enviosSinSolicitudRows.map(r=>(
                 <tr key={r.id}>
-                  <td style={tdStyle}>{r.codigoArticulo||"S/C"}</td>
-                  <td style={tdStyle}>{r.descripcion||"—"}</td>
-                  <td style={{...tdStyle,textAlign:"right",fontWeight:900,color:C.yellow}}>{fmtNum(r.cantidadEnviada)}</td>
-                  <td style={tdStyle}>{formatDateLocal(r.fechaEnvio)||"—"}</td>
+                  <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.codigoArticulo||""}>{r.codigoArticulo||"S/C"}</td>
+                  <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.descripcion||""}>{r.descripcion||"—"}</td>
+                  <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:800}} title={r.numeroRemito||""}>{r.numeroRemito||"—"}</td>
+                  <td style={{...tdStyle,paddingLeft:10,paddingRight:10,textAlign:"right",fontWeight:900,color:C.yellow,whiteSpace:"nowrap"}}>{fmtNum(r.cantidadEnviada)}</td>
+                  <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap"}}>{formatDateLocal(r.fechaEnvio)||"—"}</td>
                 </tr>
-              )):(<tr><td colSpan={4} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>No se detectaron artículos enviados sin solicitud.</td></tr>)}
+              )):(<tr><td colSpan={5} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>No se detectaron artículos enviados sin solicitud.</td></tr>)}
             </tbody>
           </table>
         </div>
@@ -2733,7 +2756,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       {actionLoading&&ReactDOM.createPortal(
         <div style={{position:"fixed",inset:0,zIndex:999999,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.68)",backdropFilter:"blur(6px)",WebkitBackdropFilter:"blur(6px)"}}>
           <div style={{minWidth:390,background:"rgba(20,20,20,.97)",border:`1px solid ${C.border}`,borderRadius:18,padding:"22px 30px",boxShadow:"0 22px 70px rgba(0,0,0,.62)",textAlign:"center"}}>
-            <LoadingMotoniveladora size={440} label={actionLoading}/>
+            <LoadingMotoniveladora size={340} label={actionLoading}/>
           </div>
         </div>,document.body
       )}
@@ -2761,7 +2784,6 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
               📥 Cargar Excel Solicitudes
               <input type="file" accept=".xlsx,.xls" onChange={e=>{handleSolicitudesExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
             </label>)}
-            <button onClick={loadRaba03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="refresh" size={11} color={C.red}/>Actualizar</button>
             {["pendientes","parciales","cerradas","rechazadas"].includes(tab)&&(<button onClick={generarExcelEstadoRABA03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.green}66`,background:`${C.green}18`,color:C.green,cursor:"pointer",fontSize:11,fontWeight:900,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="fileSpreadsheet" size={12} color={C.green}/>Descargar Excel</button>)}
             <button onClick={tab==="editarCodigos"?guardarCodigosRABA03:guardarDatosRABA03} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.blue}44`,background:`${C.blue}16`,color:C.blue,cursor:"pointer",fontSize:11,fontWeight:800,fontFamily:"Inter",alignSelf:"flex-end"}}><Icon name="check" size={11} color={C.blue}/>Guardar datos</button>
           </>}
@@ -2784,7 +2806,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       {loading&&ReactDOM.createPortal(
         <div style={{position:"fixed",inset:0,zIndex:999990,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.62)",backdropFilter:"blur(5px)",WebkitBackdropFilter:"blur(5px)"}}>
           <div style={{background:"rgba(20,20,20,.96)",border:`1px solid ${C.border}`,borderRadius:16,padding:"20px 28px",boxShadow:"0 18px 60px rgba(0,0,0,.55)"}}>
-            <LoadingMotoniveladora size={380} label="Cargando RABA03..."/>
+            <LoadingMotoniveladora size={340} label="Cargando RABA03..."/>
           </div>
         </div>,document.body
       )}

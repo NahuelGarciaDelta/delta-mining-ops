@@ -1,4 +1,5 @@
 import React from "react";
+import { PageLoadingMotoniveladora } from "../../../components/ui/index.jsx";
 
 export class InformeCostosBoundary extends React.Component {
   constructor(props) {
@@ -45,22 +46,5 @@ export class InformeCostosBoundary extends React.Component {
 }
 
 export function InformeCostosLoading() {
-  return (
-    <div
-      style={{
-        minHeight: 240,
-        display: "grid",
-        placeItems: "center",
-        borderRadius: 12,
-        background: "rgba(28,28,28,.72)",
-      }}
-    >
-      <div style={{ textAlign: "center" }}>
-        <img src="/loader.gif" alt="Cargando" style={{ width: 74, height: "auto" }} />
-        <div style={{ marginTop: 8, fontSize: 13, fontWeight: 800, color: "#ddd" }}>
-          Preparando Informe de Costos…
-        </div>
-      </div>
-    </div>
-  );
+  return <PageLoadingMotoniveladora label="Preparando Informe de Costos..." />;
 }

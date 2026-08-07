@@ -1,4 +1,5 @@
 import React from "react";
+import { PageLoadingMotoniveladora } from "../../components/ui/index.jsx";
 
 const LazyLicitacionesModule = React.lazy(() =>
   import("./LicitacionesModule.jsx").then((module) => ({
@@ -6,17 +7,9 @@ const LazyLicitacionesModule = React.lazy(() =>
   })),
 );
 
-function LicitacionesLoading() {
-  return (
-    <div style={{ minHeight: 240, display: "grid", placeItems: "center", color: "#cbd5e1" }}>
-      Cargando Licitaciones…
-    </div>
-  );
-}
-
 export default function LicitacionesRoute(props) {
   return (
-    <React.Suspense fallback={<LicitacionesLoading />}>
+    <React.Suspense fallback={<PageLoadingMotoniveladora label="Cargando Licitaciones..."/>}>
       <LazyLicitacionesModule {...props} />
     </React.Suspense>
   );

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
-import { positionTip } from "../../shared/dom.js";
 import { ICON_PATHS } from "../../shared/icons.js";
 import { fmtNum, normDate, toNumber } from "../../shared/formatters.js";
+import { SafeTooltipHtml } from "../../shared/safeTooltip.jsx";
 
 // ─── Colores ──────────────────────────────────────────────────────────────────
 export const C={
@@ -59,7 +59,9 @@ export function Icon({name,size=18,color="currentColor",style}){
   const p=ICON_PATHS[name];if(!p)return null;
   return<svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={style}><path d={p}/></svg>;
 }
+export const PAGE_LOADER_SIZE=340;
 export function LoadingMotoniveladora({size=72,label=""}){return <div style={{display:"inline-flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}><img src="/loader.gif" alt="Cargando" style={{width:size,height:"auto",maxWidth:"82vw",maxHeight:"58vh",objectFit:"contain",display:"block"}}/>{label?<div style={{color:C.text,fontSize:13,fontWeight:900,textAlign:"center"}}>{label}</div>:null}</div>;}
+export function PageLoadingMotoniveladora({label="Cargando...",minHeight="55vh",margin=16}){return <div style={{margin,minHeight,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.62)",border:`1px solid ${C.border}`,borderRadius:16,backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)"}}><LoadingMotoniveladora size={PAGE_LOADER_SIZE} label={label}/></div>;}
 export function Spinner({size=24}){return <LoadingMotoniveladora size={Math.max(28,size)}/>;}
 export function Badge({children,color=C.accent}){return<span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,fontSize:11,fontWeight:600,color,background:color+"22",border:`1px solid ${color}33`}}>{children}</span>;}
 const CARD_HELP_EXACT={
@@ -191,12 +193,68 @@ export function Card({children,style,title,action,tooltip,hideHelp=false}){
     </div>
   );
 }
+function TableRowTooltip({ tip, pinned = false }) {
+  if (!tip || typeof document === "undefined") return null;
+  const width = 390;
+  const estimatedHeight = 190;
+  const viewportWidth = window.innerWidth || 1280;
+  const viewportHeight = window.innerHeight || 720;
+  const left = Math.max(12, Math.min(tip.x + 14, viewportWidth - width - 12));
+  const topCandidate = tip.y + 14;
+  const top = topCandidate + estimatedHeight > viewportHeight - 12
+    ? Math.max(12, tip.y - estimatedHeight - 14)
+    : topCandidate;
+
+  return ReactDOM.createPortal(
+    <div
+      role="tooltip"
+      style={{
+        position: "fixed",
+        zIndex: pinned ? 10000 : 9999,
+        left,
+        top,
+        width,
+        maxWidth: "calc(100vw - 24px)",
+        background: C.surface,
+        border: `1px solid ${pinned ? C.red : C.border}`,
+        borderRadius: 10,
+        padding: "12px 16px",
+        fontSize: 12,
+        fontFamily: "Inter,sans-serif",
+        boxShadow: pinned ? "0 10px 36px rgba(0,0,0,.65)" : "0 8px 32px rgba(0,0,0,.5)",
+        pointerEvents: pinned ? "auto" : "none",
+        color: C.text,
+        lineHeight: 1.4
+      }}
+    >
+      {tip.customHtml ? (
+        <SafeTooltipHtml html={tip.customHtml} />
+      ) : (
+        <div>
+          <span style={{ fontSize: 10, color: "#888", textTransform: "uppercase", letterSpacing: ".06em" }}>Observaciones</span>
+          <div style={{ color: tip.observaciones ? "#ccc" : "#555", marginTop: 3, fontStyle: tip.observaciones ? "normal" : "italic", whiteSpace: "pre-wrap" }}>
+            {tip.observaciones || "Sin observaciones"}
+          </div>
+        </div>
+      )}
+      {pinned ? (
+        <div style={{ marginTop: 8, paddingTop: 7, borderTop: `1px solid ${C.border}`, fontSize: 10, color: C.textMuted, fontWeight: 700 }}>
+          Click nuevamente en la fila para desfijar
+        </div>
+      ) : null}
+    </div>,
+    document.body
+  );
+}
+
 export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false,disableTooltip=false}){
   const ROW_H=36;
   const[scrollTop,setScrollTop]=useState(0);
   const[sortKey,setSortKey]=useState(null);
   const[sortDir,setSortDir]=useState("asc");
-  const pinnedTipKeyRef=useRef(null);
+  const[hoverTip,setHoverTip]=useState(null);
+  const[pinnedTip,setPinnedTip]=useState(null);
+
 
   // FIX VIBRACIÓN DE TABLAS:
   // La virtualización anterior asumía filas de 36px. Cuando una columna tenía wrap
@@ -208,15 +266,13 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   const useVirtual=rows.length>250&&!hasWrappedCols;
   const onScroll=useCallback(e=>{
     if(useVirtual)setScrollTop(e.target.scrollTop);
+    setHoverTip(null);
   },[useVirtual]);
 
   // Ordenamiento global para TODAS las tablas:
   // Primer clic = menor a mayor para números/fechas y A→Z para textos.
   const colSortId=useCallback((c,i)=>c.sortKey||c.key||`__col_${i}` ,[]);
 
-  // IMPORTANTE: esta función debe declararse ANTES de detectInitialDir.
-  // Si queda después, React evalúa el array de dependencias de detectInitialDir
-  // mientras normalizeSortValue todavía está en zona temporal muerta y la vista queda en blanco.
   const normalizeSortValue=useCallback((v)=>{
     if(v===null||v===undefined||v==="")return{type:"empty",value:""};
     if(typeof v==="number"&&Number.isFinite(v))return{type:"number",value:v};
@@ -311,76 +367,72 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   },0);
 
   return(
-    <div className="dm-table-scroll" onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH,scrollbarGutter:"stable",overscrollBehavior:"contain",contain:"layout paint",transform:"translateZ(0)"}}>
-      <table style={{width:"100%",minWidth:tableMinWidth,borderCollapse:"separate",borderSpacing:0,fontSize:12,tableLayout:"fixed"}}>
-        <thead><tr>{cols.map((c,i)=>{
-          const sticky=stickyFirst&&i===0;
-          const sKey=colSortId(c,i);
-          return(
-          <th key={i} data-dm-managed-sort="true" onClick={()=>handleSort(sKey)}
-            style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?4:3,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===sKey?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:c.width||c.maxWidth||(c.wrap?140:undefined),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),lineHeight:1.3,cursor:"pointer",userSelect:"none",boxShadow:sticky?`1px 0 0 ${C.border}`:undefined}}>
-            {c.label}{sortKey===sKey?(sortDir==="asc"?" ↑":" ↓"):""}
-          </th>
-          );
-        })}</tr></thead>
-        <tbody>
-          {offsetY>0&&<tr style={{height:offsetY}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
-          {visibleRows.map((r,i)=>{
-            const absI=startIdx+i;
-            const customTooltip=typeof r._rowTooltipHtml==="function"?r._rowTooltipHtml(r):r._rowTooltipHtml;
-            const hasTooltip=!disableTooltip&&(customTooltip||r.observaciones!==undefined);
-            const rowBg=absI%2===0?"transparent":C.surface+"66";
-            const tooltipKey=String(r._tooltipKey||r.codigo||r.id||absI);
-            const buildTooltipHtml=()=>customTooltip||("<div><span style=\"font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em\">Observaciones</span><div style=\"color:"+(r.observaciones?"#ccc":"#555")+";margin-top:3px;font-style:"+(r.observaciones?"normal":"italic")+"\">"+(r.observaciones||"Sin observaciones")+"</div></div>");
+    <>
+      <div className="dm-table-scroll" onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH,scrollbarGutter:"stable",overscrollBehavior:"contain",contain:"layout paint",transform:"translateZ(0)"}}>
+        <table style={{width:"100%",minWidth:tableMinWidth,borderCollapse:"separate",borderSpacing:0,fontSize:12,tableLayout:"fixed"}}>
+          <thead><tr>{cols.map((c,i)=>{
+            const sticky=stickyFirst&&i===0;
+            const sKey=colSortId(c,i);
             return(
-              <tr key={absI}
-                style={{background:rowBg,height:useVirtual?ROW_H:undefined,position:"relative",cursor:hasTooltip?"pointer":"default",transition:"background .1s"}}
-                onMouseEnter={e=>{
-                  e.currentTarget.dataset.bg=rowBg;
-                  e.currentTarget.style.background=C.accent+"22";
-                  if(!hasTooltip||pinnedTipKeyRef.current)return;
-                  const old=document.getElementById("row-tip-hover");if(old)old.remove();
-                  const tip=document.createElement("div");
-                  tip.id="row-tip-hover";
-                  tip.style.cssText=`position:fixed;z-index:9999;background:${C.surface};border:1px solid ${C.border};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:390px;box-shadow:0 8px 32px rgba(0,0,0,.5);pointer-events:none;visibility:hidden`;
-                  tip.innerHTML=buildTooltipHtml();
-                  positionTip(tip,e.clientX,e.clientY);
-                }}
-                onMouseLeave={e=>{
-                  e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";
-                  const t=document.getElementById("row-tip-hover");if(t)t.remove();
-                }}
-                onClick={e=>{
-                  if(!hasTooltip)return;
-                  const current=document.getElementById("row-tip-pinned");
-                  if(pinnedTipKeyRef.current===tooltipKey){
-                    if(current)current.remove();
-                    pinnedTipKeyRef.current=null;
-                    return;
-                  }
-                  if(current)current.remove();
-                  const hover=document.getElementById("row-tip-hover");if(hover)hover.remove();
-                  const tip=document.createElement("div");
-                  tip.id="row-tip-pinned";
-                  tip.style.cssText=`position:fixed;z-index:10000;background:${C.surface};border:1px solid ${C.red};border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:390px;box-shadow:0 10px 36px rgba(0,0,0,.65);pointer-events:auto;visibility:hidden`;
-                  tip.innerHTML=buildTooltipHtml()+`<div style="margin-top:8px;padding-top:7px;border-top:1px solid ${C.border};font-size:10px;color:${C.textMuted};font-weight:700">Click nuevamente en la fila para desfijar</div>`;
-                  pinnedTipKeyRef.current=tooltipKey;
-                  positionTip(tip,e.clientX,e.clientY);
-                }}
-              >
-                {cols.map((c,j)=>{
-                  const sticky=stickyFirst&&j===0;
-                  return(
-                  <td key={j} style={{padding:c.compact?"8px 6px":"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",textAlign:c.align||"left",maxWidth:c.maxWidth||(c.wrap?undefined:300),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),position:sticky?"sticky":undefined,left:sticky?0:undefined,zIndex:sticky?2:undefined,background:sticky?C.card:(c.color?c.color+"0a":undefined),boxShadow:sticky?`1px 0 0 ${C.border}`:undefined,verticalAlign:"top",lineHeight:1.25}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>
-                  );
-                })}
-              </tr>
+            <th key={i} data-dm-managed-sort="true" onClick={()=>handleSort(sKey)}
+              style={{padding:c.compact?"9px 6px":"9px 12px",textAlign:c.align||"left",position:"sticky",top:0,left:sticky?0:undefined,zIndex:sticky?4:3,background:c.headerBg||(c.color?c.color+"22":C.surface),color:sortKey===sKey?C.accent:C.textSub,fontWeight:600,fontSize:10,letterSpacing:".06em",textTransform:"uppercase",borderBottom:`2px solid ${c.color?c.color+"66":C.border}`,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:c.width||c.maxWidth||(c.wrap?140:undefined),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),lineHeight:1.3,cursor:"pointer",userSelect:"none",boxShadow:sticky?`1px 0 0 ${C.border}`:undefined}}>
+              {c.label}{sortKey===sKey?(sortDir==="asc"?" ↑":" ↓"):""}
+            </th>
             );
-          })}
-          {useVirtual&&endIdx<sortedRows.length&&<tr style={{height:(sortedRows.length-endIdx)*ROW_H}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
-        </tbody>
-      </table>
-    </div>
+          })}</tr></thead>
+          <tbody>
+            {offsetY>0&&<tr style={{height:offsetY}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
+            {visibleRows.map((r,i)=>{
+              const absI=startIdx+i;
+              const customTooltip=typeof r._rowTooltipHtml==="function"?r._rowTooltipHtml(r):r._rowTooltipHtml;
+              const hasTooltip=!disableTooltip&&(customTooltip||r.observaciones!==undefined);
+              const rowBg=absI%2===0?"transparent":C.surface+"66";
+              const tooltipKey=String(r._tooltipKey||r.codigo||r.id||absI);
+              const makeTip=(event)=>({
+                key:tooltipKey,
+                x:event.clientX,
+                y:event.clientY,
+                customHtml:customTooltip||null,
+                observaciones:String(r.observaciones??"")
+              });
+              return(
+                <tr key={absI}
+                  style={{background:rowBg,height:useVirtual?ROW_H:undefined,position:"relative",cursor:hasTooltip?"pointer":"default",transition:"background .1s"}}
+                  onMouseEnter={e=>{
+                    e.currentTarget.dataset.bg=rowBg;
+                    e.currentTarget.style.background=C.accent+"22";
+                    if(!hasTooltip||pinnedTip)return;
+                    setHoverTip(makeTip(e));
+                  }}
+                  onMouseMove={e=>{
+                    if(!hasTooltip||pinnedTip)return;
+                    setHoverTip(current=>current?{...current,x:e.clientX,y:e.clientY}:makeTip(e));
+                  }}
+                  onMouseLeave={e=>{
+                    e.currentTarget.style.background=e.currentTarget.dataset.bg||"transparent";
+                    setHoverTip(null);
+                  }}
+                  onClick={e=>{
+                    if(!hasTooltip)return;
+                    setHoverTip(null);
+                    setPinnedTip(current=>current?.key===tooltipKey?null:makeTip(e));
+                  }}
+                >
+                  {cols.map((c,j)=>{
+                    const sticky=stickyFirst&&j===0;
+                    return(
+                    <td key={j} style={{padding:c.compact?"8px 6px":"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",textAlign:c.align||"left",maxWidth:c.maxWidth||(c.wrap?undefined:300),minWidth:c.width||c.minWidth,width:c.width||c.minWidth||(c.wrap?140:undefined),position:sticky?"sticky":undefined,left:sticky?0:undefined,zIndex:sticky?2:undefined,background:sticky?C.card:(c.color?c.color+"0a":undefined),boxShadow:sticky?`1px 0 0 ${C.border}`:undefined,verticalAlign:"top",lineHeight:1.25}}>{c.render?c.render(r[c.key],r):(r[c.key]??"—")}</td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {useVirtual&&endIdx<sortedRows.length&&<tr style={{height:(sortedRows.length-endIdx)*ROW_H}}><td colSpan={cols.length} style={{padding:0,border:"none"}}/></tr>}
+          </tbody>
+        </table>
+      </div>
+      <TableRowTooltip tip={pinnedTip||hoverTip} pinned={Boolean(pinnedTip)} />
+    </>
   );
 }
 

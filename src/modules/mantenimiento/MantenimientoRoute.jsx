@@ -1,5 +1,6 @@
 import React from "react";
+import { PageLoadingMotoniveladora } from "../../components/ui/index.jsx";
 const LazyMantenimientoModule = React.lazy(() => import("./MantenimientoModule.jsx"));
 export default function MantenimientoRoute(props){
- return <React.Suspense fallback={<div style={{minHeight:240,display:"grid",placeItems:"center",color:"#cbd5e1"}}>Cargando Mantenimiento…</div>}><LazyMantenimientoModule {...props}/></React.Suspense>;
+  return <React.Suspense fallback={<PageLoadingMotoniveladora label="Cargando Mantenimiento..."/>}><LazyMantenimientoModule {...props}/></React.Suspense>;
 }

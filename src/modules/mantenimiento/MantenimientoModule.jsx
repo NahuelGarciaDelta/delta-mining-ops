@@ -3,6 +3,7 @@ import ReactDOM from "react-dom";
 import MantenimientoProgramadoView from "./MantenimientoProgramadoView.jsx";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine, LineChart, Line } from "recharts";
+import { escapeTooltipText as escTip } from "../../shared/safeTooltipSecurity.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 let __deps = {};
@@ -1247,8 +1248,8 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
                               if(!ins.length)return;
                               const tip=document.createElement("div");tip.id="mant-tip2";
                               tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
-                              tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+r.maquina+"</div>"+
-                                ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+x.codigo+"</b> — "+(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700'>x"+x.cantidad+"</span></div>").join("")+
+                              tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+escTip(r.maquina)+"</div>"+
+                                ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+escTip(x.codigo)+"</b> — "+escTip(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700'>x"+escTip(x.cantidad)+"</span></div>").join("")+
                                 (ot.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total: $"+Math.round(ot.costoTotal).toLocaleString("es-AR")+"</div>":"");
                               positionTip(tip,e.clientX,e.clientY);
                             }}
@@ -1362,8 +1363,8 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
                                   if(!otIns.length)return;
                                   const tip=document.createElement("div");tip.id="ins-tip";
                                   tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
-                                  tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Todos los insumos — "+x.maquina+"</div>"+
-                                    otIns.map(ins=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+ins.codigo+"</b> — "+(ins.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+ins.cantidad+(ins.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(ins.costoTotal).toLocaleString("es-AR")+"</span>":"")+"</span></div>").join("")+
+                                  tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Todos los insumos — "+escTip(x.maquina)+"</div>"+
+                                    otIns.map(ins=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+escTip(ins.codigo)+"</b> — "+escTip(ins.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+escTip(ins.cantidad)+(ins.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(ins.costoTotal).toLocaleString("es-AR")+"</span>":"")+"</span></div>").join("")+
                                     (ot?.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total OT: $"+Math.round(ot.costoTotal).toLocaleString("es-AR")+"</div>":"");
                                   positionTip(tip,e.clientX,e.clientY);
                                 }}
@@ -1416,8 +1417,8 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
                           if(!ins.length)return;
                           const tip=document.createElement("div");tip.id="mant-tip3";
                           tip.style.cssText=`position:fixed;z-index:9999;background:#1c1c1c;border:1px solid #333;border-radius:10px;padding:12px 16px;font-size:12px;font-family:Inter,sans-serif;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none`;
-                          tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+r.maquina+" ("+r.fecha+")</div>"+
-                            ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+x.codigo+"</b> — "+(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+x.cantidad+(x.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(x.costoTotal).toLocaleString('es-AR')+"</span>":"")+"</span></div>").join("")+
+                          tip.innerHTML="<div style='font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;font-weight:600'>Insumos — "+escTip(r.maquina)+" ("+escTip(r.fecha)+")</div>"+
+                            ins.map(x=>"<div style='padding:3px 0;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;gap:12px'><span style='color:#ccc'><b style='color:#aaa'>"+escTip(x.codigo)+"</b> — "+escTip(x.nombre||"—")+"</span><span style='color:#e8001d;font-weight:700;flex-shrink:0'>x"+escTip(x.cantidad)+(x.costoTotal>0?" <span style='color:#10b981'>$"+Math.round(x.costoTotal).toLocaleString('es-AR')+"</span>":"")+"</span></div>").join("")+
                             (r.costoTotal>0?"<div style='margin-top:8px;text-align:right;color:#10b981;font-weight:700'>Total: $"+Math.round(r.costoTotal).toLocaleString('es-AR')+"</div>":"");
                           positionTip(tip,e.clientX,e.clientY);
                         }}

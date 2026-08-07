@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
-import { C, STYLES, Icon, LoadingMotoniveladora, Spinner, Badge, StatCard, Card, Table, tableSortValue, compareTableValues, sortRowsForTable, SortableTH, Sel, multiDefault, normalizeMultiValue, multiIsAll, multiIncludes, matchMulti, multiSummary, multiSelectedLabels, dmNormalizeAssignedProject, dmAssignedProject, dmProjectMatches, MultiSel, DateIn, MONTH_OPTIONS, YEAR_OPTIONS, PeriodMonthYear, ChartTip, TabBtn, SubTab, AlertBanner, HelpTip } from "./components/ui/index.jsx";
+import { C, STYLES, Icon, LoadingMotoniveladora, PageLoadingMotoniveladora, Spinner, Badge, StatCard, Card, Table, tableSortValue, compareTableValues, sortRowsForTable, SortableTH, Sel, multiDefault, normalizeMultiValue, multiIsAll, multiIncludes, matchMulti, multiSummary, multiSelectedLabels, dmNormalizeAssignedProject, dmAssignedProject, dmProjectMatches, MultiSel, DateIn, MONTH_OPTIONS, YEAR_OPTIONS, PeriodMonthYear, ChartTip, TabBtn, SubTab, AlertBanner, HelpTip } from "./components/ui/index.jsx";
 import { InformeCostosRoute } from "./modules/informe-costos/index.js";
 import { AbastecimientoRoute } from "./modules/abastecimiento/index.js";
 import { MantenimientoRoute } from "./modules/mantenimiento/index.js";
@@ -9,9 +9,13 @@ import UserSettingsModal from "./components/UserSettingsModal.jsx";
 import { APPS_SCRIPT_URL } from "./config/app.js";
 import { VIEW_SOURCES } from "./config/viewSources.js";
 import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcurrency_ } from "./services/appsScriptApi.js";
-import { appAlert, appConfirm, setAppDialogHandler } from "./services/dialogService.js";
+import { appAlert, appConfirm } from "./services/dialogService.js";
 import { APP_FILTERS_STATE_KEY, readSavedAppFilters, readSavedDataSources, saveDataSourcesToStorage, getCachedSourceTimestamp, mergeIncrementalSource, readCachedSourceRecords, readCachedSource, writeCachedSource } from "./services/appCache.js";
 import { useGlobalThreeStateTableSort } from "./hooks/useGlobalThreeStateTableSort.js";
+import { usePwaInstall } from "./app/usePwaInstall.js";
+import { useAppDialog } from "./app/useAppDialog.js";
+import { createSavedFilterReader } from "./app/stateUtils.js";
+import { getRequiredAreaForView } from "./app/viewAccess.js";
 import ErrorScreen from "./components/ErrorScreen.jsx";
 import { Login } from "./modules/auth/index.js";
 import { ViewBienvenida } from "./modules/home/index.js";
@@ -144,46 +148,11 @@ import { ABASTECIMIENTO_DEPS, COSTOS_UNITARIOS_DEPS, INFORME_COSTOS_DEPS, LICITA
 
 export default function App(){
   useGlobalThreeStateTableSort();
-  const [pwaInstallAvailable,setPwaInstallAvailable]=useState(()=>Boolean(window.dmPwaInstallAvailable));
-  useEffect(()=>{
-    const onAvailable=()=>setPwaInstallAvailable(true);
-    const onUnavailable=()=>setPwaInstallAvailable(false);
-    window.addEventListener("dm-pwa-install-available",onAvailable);
-    window.addEventListener("dm-pwa-install-unavailable",onUnavailable);
-    setPwaInstallAvailable(Boolean(window.dmPwaInstallAvailable));
-    return()=>{
-      window.removeEventListener("dm-pwa-install-available",onAvailable);
-      window.removeEventListener("dm-pwa-install-unavailable",onUnavailable);
-    };
-  },[]);
-  const installPwa=useCallback(async()=>{
-    if(typeof window.dmInstallPWA!=="function")return;
-    const installed=await window.dmInstallPWA();
-    if(installed)setPwaInstallAvailable(false);
-  },[]);
-  const [appDialog,setAppDialog]=useState(null);
-  useEffect(()=>{
-    setAppDialogHandler((payload)=>new Promise(resolve=>{
-      setAppDialog({...payload,resolve});
-    }));
-    return()=>setAppDialogHandler(null);
-  },[]);
-  const closeAppDialog=useCallback((answer)=>{
-    setAppDialog(current=>{
-      if(current?.resolve)current.resolve(answer);
-      return null;
-    });
-  },[]);
+  const { pwaInstallAvailable, installPwa } = usePwaInstall();
+  const { appDialog, closeAppDialog } = useAppDialog();
   const savedAppFilters=readSavedAppFilters();
   const savedAppData=readSavedDataSources();
-  const normalizeSavedState=(saved,def)=>{
-    if(saved===undefined||saved===null)return def;
-    if(!def||typeof def!=="object"||Array.isArray(def))return saved;
-    const base={...def,...saved};
-    if(def.vals||saved.vals)base.vals={...(def.vals||{}),...((saved&&saved.vals)||{})};
-    return base;
-  };
-  const savedOr=(key,def)=>normalizeSavedState(savedAppFilters&&savedAppFilters[key],def);
+  const savedOr=createSavedFilterReader(savedAppFilters);
   const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
   const[profileRevision,setProfileRevision]=useState(0);
   const[settingsOpen,setSettingsOpen]=useState(false);
@@ -203,50 +172,7 @@ export default function App(){
   const esAdministrativo=rolUsuario==="ADMINISTRATIVO";
   const[view,setView]=useState("bienvenida");
   const[activeModule,setActiveModule]=useState("home");
-  const areaRequeridaVista=useMemo(()=>{
-    const map={
-      dashboard:"OFICINA TÉCNICA",
-      rop02:"OFICINA TÉCNICA",
-      horometros:"OFICINA TÉCNICA",
-      vehiculos:"OFICINA TÉCNICA",
-      combustible:"OFICINA TÉCNICA",
-      cambiosTurno:"OFICINA TÉCNICA",
-      controlROP02:"OFICINA TÉCNICA",
-      controlErrores:"OFICINA TÉCNICA",
-      ctrlEquipo:"OFICINA TÉCNICA",
-      atrasoROP02:"OFICINA TÉCNICA",
-      rop05:"OFICINA TÉCNICA",
-      rop05Discriminacion:"OFICINA TÉCNICA",
-      ranking:"OFICINA TÉCNICA",
-      chc:"OFICINA TÉCNICA",
-      control:"OFICINA TÉCNICA",
-      mant:"MANTENIMIENTO",
-      distMant:"MANTENIMIENTO",
-      pmProgramado:"MANTENIMIENTO",
-      rma15CtrlEquipo:"MANTENIMIENTO",
-      costosMant:"MANTENIMIENTO",
-      costosUnitarios:"MANTENIMIENTO",
-      listaEquipos:"TALLER CENTRAL",
-      tallerCentral:"TALLER CENTRAL",
-      abastecimiento:"ABASTECIMIENTO",
-      abastecimientoDashboard:"ABASTECIMIENTO",
-      abastecimientoPendientes:"ABASTECIMIENTO",
-      abastecimientoParciales:"ABASTECIMIENTO",
-      abastecimientoCerradas:"ABASTECIMIENTO",
-      abastecimientoRechazadas:"ABASTECIMIENTO",
-      abastecimientoRemito:"ABASTECIMIENTO",
-      abastecimientoStock:"ABASTECIMIENTO",
-      abastecimientoStockDashboard:"ABASTECIMIENTO",
-      abastecimientoRABA03:"ABASTECIMIENTO",
-      abastecimientoEditarCodigos:"ABASTECIMIENTO",
-      licitaciones:"LICITACIONES",
-      licitacionesNueva:"LICITACIONES",
-      licitacionesControl:"LICITACIONES",
-      licitacionesEquipos:"LICITACIONES",
-      licitacionesDatosEquipos:"LICITACIONES"
-    };
-    return map[view]||"";
-  },[view]);
+  const areaRequeridaVista=useMemo(()=>getRequiredAreaForView(view),[view]);
   const puedeEditarVista=!areaRequeridaVista||dmCanEditArea(areaRequeridaVista);
   const[loading,setLoading]=useState(false);
   const[syncing,setSyncing]=useState(false);
@@ -337,22 +263,7 @@ export default function App(){
   },[view,sourceHasData,rawSources]);
 
   const BlockingDataLoader=useCallback(({label="Cargando"})=>(
-    <div style={{
-      margin:16,
-      minHeight:"55vh",
-      display:"flex",
-      alignItems:"center",
-      justifyContent:"center",
-      background:"rgba(0,0,0,.62)",
-      border:`1px solid ${C.border}`,
-      borderRadius:16,
-      backdropFilter:"blur(8px)",
-      WebkitBackdropFilter:"blur(8px)"
-    }}>
-      <div style={{textAlign:"center"}}>
-        <LoadingMotoniveladora size={340} label={label}/>
-      </div>
-    </div>
+    <PageLoadingMotoniveladora label={label}/>
   ),[]);
 
 
@@ -668,9 +579,35 @@ export default function App(){
   },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
 
   const loadData=useCallback(async()=>{
+    const emitModuleRefresh=async()=>{
+      const tasks=[];
+      try{
+        window.dispatchEvent(new CustomEvent("delta-mining:auto-refresh",{
+          detail:{view,refreshedAt:Date.now(),reason:"manual",tasks}
+        }));
+      }catch(_){ }
+      if(tasks.length)await Promise.allSettled(tasks);
+    };
+
+    // Abastecimiento mantiene RABA03, remitos y estados compartidos con endpoints
+    // propios. El botón global debe refrescar esas mismas fuentes y no disparar
+    // loadInitial(), que además de ser más pesado no actualiza el estado interno
+    // del módulo.
+    if(String(view||"").startsWith("abastecimiento")){
+      setLoading(true);
+      try{
+        await emitModuleRefresh();
+        setLastUpdate(new Date());
+      }finally{
+        setLoading(false);
+      }
+      return;
+    }
+
     const sources=VIEW_SOURCES[view]||[];
     if(sources.length) await loadSources(sources,{force:true,background:false});
     else await loadInitial();
+    await emitModuleRefresh();
   },[view,loadSources,loadInitial]);
 
 
@@ -769,7 +706,7 @@ export default function App(){
       loadSources(VIEW_SOURCES[view]||[],{force:true,background:true});
       try{
         window.dispatchEvent(new CustomEvent("delta-mining:auto-refresh",{
-          detail:{view,refreshedAt,intervalMs:AUTO_REFRESH_MS}
+          detail:{view,refreshedAt,intervalMs:AUTO_REFRESH_MS,reason:"auto"}
         }));
       }catch(_){ }
     };

@@ -1,0 +1,17 @@
+CORRECCIÓN — ACTUALIZAR ABASTECIMIENTO
+
+- Se eliminó el botón Actualizar interno de la barra de filtros de Solicitudes.
+- El botón global Actualizar (arriba a la derecha) ahora refresca las mismas fuentes propias del módulo:
+  * RABA03
+  * Remitos cargados
+  * Estados compartidos de solicitudes
+- La actualización automática cada 5 minutos usa la misma lógica de refresco silencioso.
+- En vistas de Abastecimiento se evita disparar loadInitial() completo, que era pesado y no actualizaba el estado interno del módulo.
+- El botón global espera las tareas de actualización del módulo antes de finalizar su estado de carga.
+
+VALIDACIÓN
+- npm run validate: OK
+- 60 archivos JS/JSX: imports locales OK
+- auditoría de seguridad: OK
+- 7 tests: OK
+- npm run build no ejecutable en este entorno porque node_modules/Vite no están instalados.

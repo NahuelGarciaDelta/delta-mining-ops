@@ -33,3 +33,23 @@ npm run build
 ```
 
 La carpeta de salida es `dist`.
+
+## Calidad y seguridad
+
+Antes de subir cambios ejecutar:
+
+```bash
+npm install
+npm run validate
+npm run lint
+npm run format:check
+npm run build
+```
+
+- `npm run validate`: imports locales, sintaxis del motor/worker, auditoría de seguridad y tests unitarios.
+- `npm run lint`: auditoría de seguridad + ESLint.
+- `npm test`: tests de reglas críticas de costos y sanitización.
+- `npm run format`: normaliza el estilo con Prettier.
+- `npm run build`: compilación de producción con Vite.
+
+Las notas históricas de correcciones anteriores están archivadas en `docs/history/`. Para cambios nuevos usar commits descriptivos y actualizar `CHANGELOG.md` cuando corresponda.
