@@ -436,6 +436,41 @@ test("todos los registros de PCA0101 se trasladan de FS a JM y se suman al hist�
   assert.deepEqual(result.monthly[0].months["2026-04"],{prev:30,corr:0,total:30});
 });
 
+test("Costo acumulado asigna el proyecto según Lugar de alquiler de Lista Maestra", () => {
+  resetInformeCostosEngine();
+  handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
+    historicalRows:[],
+    dynamicMonthly:[
+      {maquina:"EXC-0034",proyecto:"FILO DEL SOL",mes:"2026-06",costo:40},
+      {maquina:"MOT-0014",proyecto:"JOSE MARIA",mes:"2026-06",costo:60},
+    ],
+    dynamicMO:[],
+    meta:{
+      "EXC-0034":{display:"EXC-0034",tipo:"EXCAVADORA",familia:"EXCAVADORA",lugarAlquiler:"JOSE MARIA"},
+      "MOT-0014":{display:"MOT-0014",tipo:"MOTONIVELADORA",familia:"MOTONIVELADORA",lugarAlquiler:"FILO DEL SOL"},
+    },
+  });
+  const query=filters=>handleInformeCostosCommand("QUERY_COST_MONTHLY",{
+    months:[{key:"2026-06"}],monthsAccum:[{key:"2026-06"}],rates:{"2026-06":1},baseRate:1,
+    filters,filtersMO:filters,
+  });
+  const all=query({tipo:"todos"});
+  assert.deepEqual(all.monthly.map(row=>({equipo:row.equipo,section:row.section})),[
+    {equipo:"MOT-0014",section:"FS"},{equipo:"EXC-0034",section:"JM"},
+  ]);
+  assert.deepEqual(all.acumulado.map(row=>({equipo:row.equipo,section:row.section})),[
+    {equipo:"MOT-0014",section:"FS"},{equipo:"EXC-0034",section:"JM"},
+  ]);
+  assert.deepEqual(query({proyecto:"FILO DEL SOL",tipo:"todos"}).monthly.map(row=>row.equipo),["MOT-0014"]);
+  assert.deepEqual(query({proyecto:"JOSE MARIA",tipo:"todos"}).monthly.map(row=>row.equipo),["EXC-0034"]);
+});
+
+test("Informe de Costos envía Lugar de alquiler de Lista Maestra al motor", () => {
+  const view=fs.readFileSync(new URL("../src/modules/informe-costos/InformeCostosView.jsx",import.meta.url),"utf8");
+  assert.match(view,/"Lugar de alquiler"/);
+  assert.match(view,/lugarAlquiler:m\.lugarAlquiler/);
+});
+
 test("TOTAL 2025 suma los valores mensuales redondeados mostrados", () => {
   const months=["2025-09","2025-10","2025-11","2025-12"].map(key=>({key}));
   const rowMonths={

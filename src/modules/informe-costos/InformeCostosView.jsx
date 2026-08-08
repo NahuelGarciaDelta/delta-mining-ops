@@ -736,6 +736,18 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     return familia;
   },[getEquipoListaMaestra,getValue,familiaEquipoCostoMemo]);
 
+  const lugarAlquilerEquipoCostoMemo=React.useMemo(()=>new Map(),[listaEquiposIndex]);
+  const lugarAlquilerEquipoCosto=React.useCallback((maquina)=>{
+    const cacheKey=String(maquina||"").trim().toUpperCase();
+    if(lugarAlquilerEquipoCostoMemo.has(cacheKey))return lugarAlquilerEquipoCostoMemo.get(cacheKey);
+    const eq=getEquipoListaMaestra(maquina);
+    const lugar=String(getValue(eq||{},[
+      "Lugar de alquiler","Lugar De Alquiler","LUGAR DE ALQUILER","Lugar alquiler","Lugar","Proyecto de alquiler"
+    ])||"").trim().toUpperCase();
+    lugarAlquilerEquipoCostoMemo.set(cacheKey,lugar);
+    return lugar;
+  },[getEquipoListaMaestra,getValue,lugarAlquilerEquipoCostoMemo]);
+
   const matchPropiedadEquipo=React.useCallback((maquina,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return true;
     const props=propiedadesEquipo(maquina);
@@ -755,16 +767,18 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       const props=propiedadesEquipo(r.maquina);
       const real=props.find(p=>p&&p!=="S/D");
       const familia=familiaEquipoCosto(r.maquina);
+      const lugarAlquiler=lugarAlquilerEquipoCosto(r.maquina);
       map.set(key,{
         display:equipoCostoDisplay(r.maquina),
         props,
         propiedad:real||props[0]||"S/D",
         familia,
+        lugarAlquiler,
         tipo:tipoEquipoCosto(codigoCanonicoEquipo(r.maquina),familia),
       });
     });
     return map;
-  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay,codigoCanonicoEquipo,familiaEquipoCosto,tipoEquipoCosto]);
+  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay,codigoCanonicoEquipo,familiaEquipoCosto,lugarAlquilerEquipoCosto,tipoEquipoCosto]);
 
   const metaEquipoFallbackMemo=React.useMemo(()=>new Map(),[listaEquiposIndex,identidadCanonicaEquipos]);
   const metaEquipoCosto=React.useCallback((maquina)=>{
@@ -775,16 +789,18 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     const props=propiedadesEquipo(maquina);
     const real=props.find(p=>p&&p!=="S/D");
     const familia=familiaEquipoCosto(maquina);
+    const lugarAlquiler=lugarAlquilerEquipoCosto(maquina);
     const out={
       display:equipoCostoDisplay(maquina),
       props,
       propiedad:real||props[0]||"S/D",
       familia,
+      lugarAlquiler,
       tipo:tipoEquipoCosto(codigoCanonicoEquipo(maquina),familia),
     };
     metaEquipoFallbackMemo.set(key,out);
     return out;
-  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,codigoCanonicoEquipo,familiaEquipoCosto,tipoEquipoCosto,metaEquipoFallbackMemo]);
+  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,codigoCanonicoEquipo,familiaEquipoCosto,lugarAlquilerEquipoCosto,tipoEquipoCosto,metaEquipoFallbackMemo]);
 
   const matchPropiedadMeta=React.useCallback((meta,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return true;
@@ -1354,7 +1370,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
         dynamicMO.forEach(r=>machineKeys.add(String(r.maquina||"")));
         (HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).forEach(r=>machineKeys.add(String(r.equipo||"")));
         const meta={};
-        machineKeys.forEach(k=>{const m=metaEquipoCosto(k);meta[k]={display:m.display,props:m.props,propiedad:m.propiedad,tipo:m.tipo,familia:m.familia};});
+        machineKeys.forEach(k=>{const m=metaEquipoCosto(k);meta[k]={display:m.display,props:m.props,propiedad:m.propiedad,tipo:m.tipo,familia:m.familia,lugarAlquiler:m.lugarAlquiler};});
         dmCategoriasCommand("INIT_COST_MONTHLY_ENGINE",{
           historicalRows:HIST_COSTO_MENSUAL_ACUMULADO.rows||[],dynamicMonthly,dynamicMO,meta
         }).then(()=>{

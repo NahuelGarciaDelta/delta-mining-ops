@@ -169,44 +169,47 @@ function prepareCostRows(rows){
   return (Array.isArray(rows)?rows:[]).filter(isIncludedCostRow).map(row=>{
     const rawCode=String(row.maquina||row.equipo||"");
     const resolvedCode=resolveEquipmentCodeAlias(rawCode);
-    const originalSection=row.section||((norm(row.proyecto).includes("JOSE")||norm(row.proyecto).includes("JM"))?"JM":"FS");
+    const section=row.section||((norm(row.proyecto).includes("JOSE")||norm(row.proyecto).includes("JM"))?"JM":"FS");
     const canonicalCode=canonicalEquipmentCode(resolvedCode);
-    // Correcciones confirmadas de proyecto:
-    // - TOP-0036 y TOP-0051: sólo marzo de 2026 pasa de FS a JM.
-    // - PCA-0101: todos sus registros de FS pasan a JM.
-    // Se marca el traslado para sumar los importes al histórico JM existente.
-    const moveTopMarchToJM=originalSection==="FS"&&String(row.mes||"")==="2026-03"&&
-      (canonicalCode==="TOP0036"||canonicalCode==="TOP0051");
-    const movePca0101ToJM=originalSection==="FS"&&canonicalCode==="PCA0101";
-    const moveToJM=moveTopMarchToJM||movePca0101ToJM;
-    const section=moveToJM?"JM":originalSection;
     return {
       ...row,
       ...(row.maquina!=null?{maquina:resolvedCode}:{equipo:resolvedCode}),
-      ...(moveToJM?{proyecto:"JOSE MARIA",_addHistoricalSameMonth:true}:{}),
       _canonicalCode:canonicalCode,section
     };
   });
 }
+
+function sectionFromRentalLocation(value){
+  const location=norm(value);
+  if(!location)return "";
+  const isJM=location==="JM"||location.includes("JOSE MARIA");
+  const isFS=location==="FS"||location==="FILO"||location.includes("FILO DEL SOL");
+  if(isJM===isFS)return "";
+  return isJM?"JM":"FS";
+}
+
+function assignProjectFromMasterList(row){
+  const meta=getCostMeta(row);
+  let targetSection=sectionFromRentalLocation(meta.lugarAlquiler||meta.rentalLocation);
+  // Respaldo de las correcciones ya confirmadas cuando Lugar de alquiler está vacío.
+  if(!targetSection){
+    const code=row._canonicalCode;
+    const moveTopMarch=String(row.mes||"")==="2026-03"&&(code==="TOP0036"||code==="TOP0051");
+    if(moveTopMarch||code==="PCA0101")targetSection="JM";
+  }
+  if(!targetSection||targetSection===row.section)return row;
+  const code=row._canonicalCode;
+  const addExistingHistorical=(String(row.mes||"")==="2026-03"&&(code==="TOP0036"||code==="TOP0051"))||code==="PCA0101";
+  return {
+    ...row,
+    section:targetSection,
+    proyecto:targetSection==="JM"?"JOSE MARIA":"FILO DEL SOL",
+    ...(addExistingHistorical?{_addHistoricalSameMonth:true}:{}),
+  };
+}
 function initCostMonthlyEngine(payload){
   const preparedDynamicMonthly=prepareCostRows(payload.dynamicMonthly);
   const preparedDynamicMO=prepareCostRows(payload.dynamicMO);
-  // Un equipo se considera vigente si tiene al menos un registro en 2026. Una
-  // vez vigente, se conservan también sus movimientos de 2025 para TOTAL 2025.
-  // Así el histórico no revive equipos dados de baja, pero tampoco se pierde el
-  // costo anterior de los equipos que siguen activos.
-  const activeEquipmentCodes=new Set(
-    [...preparedDynamicMonthly,...preparedDynamicMO]
-      .filter(row=>String(row.mes||"").startsWith("2026-"))
-      .map(row=>row._canonicalCode)
-      .filter(Boolean)
-  );
-  costEngine.dynamicMonthly=preparedDynamicMonthly
-    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
-  costEngine.dynamicMO=preparedDynamicMO
-    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
-  costEngine.historicalRows=prepareCostRows(payload.historicalRows)
-    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
   costEngine.meta={};
   costEngine.metaCanonical=new Map();
   Object.entries(payload.meta||{}).forEach(([code,meta])=>{
@@ -217,6 +220,25 @@ function initCostMonthlyEngine(payload){
     const key=canonicalEquipmentCode(resolvedCode);
     if(key&&!costEngine.metaCanonical.has(key))costEngine.metaCanonical.set(key,normalizedMeta);
   });
+  const assignedDynamicMonthly=preparedDynamicMonthly.map(assignProjectFromMasterList);
+  const assignedDynamicMO=preparedDynamicMO.map(assignProjectFromMasterList);
+  // Un equipo se considera vigente si tiene al menos un registro en 2026. Una
+  // vez vigente, se conservan también sus movimientos de 2025 para TOTAL 2025.
+  // Así el histórico no revive equipos dados de baja, pero tampoco se pierde el
+  // costo anterior de los equipos que siguen activos.
+  const activeEquipmentCodes=new Set(
+    [...assignedDynamicMonthly,...assignedDynamicMO]
+      .filter(row=>String(row.mes||"").startsWith("2026-"))
+      .map(row=>row._canonicalCode)
+      .filter(Boolean)
+  );
+  costEngine.dynamicMonthly=assignedDynamicMonthly
+    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
+  costEngine.dynamicMO=assignedDynamicMO
+    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
+  costEngine.historicalRows=prepareCostRows(payload.historicalRows)
+    .map(assignProjectFromMasterList)
+    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
   costEngine.queryCache.clear();
   return {ready:true,counts:{historical:costEngine.historicalRows.length,monthly:costEngine.dynamicMonthly.length,mo:costEngine.dynamicMO.length}};
 }
