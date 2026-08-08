@@ -1,5 +1,5 @@
 import { getCostoHorarioAmortizacionOAlquiler } from "../utils/amortizationCost.js";
-import { canonicalEquipmentCode, isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine } from "../../equipment/equipmentCode.js";
+import { canonicalEquipmentCode, isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine, isMaintenanceCostTruck } from "../../equipment/equipmentCode.js";
 import { buildVisibleCategoryRowSpans } from "../utils/categoryRowSpan.js";
 const norm=(v)=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
 
@@ -40,6 +40,9 @@ function matchMulti(value,filter){
 function isMachineType(value,code=""){
   return isMaintenanceCostMachine({code,type:value});
 }
+function isTruckType(value,code=""){
+  return isMaintenanceCostTruck({code,type:value});
+}
 
 function isIncludedCostRow(row){
   return !isExcludedFromMaintenanceCostReport(row?.maquina||row?.equipo||"");
@@ -77,7 +80,8 @@ function processAmortizationRows(payload){
       const tipo=norm(row.tipo);
       const metaTipo=norm(row.metaTipo);
       const matches=tipoSelections.includes(tipo)||tipoSelections.includes(metaTipo)||
-        (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row.equipo)||isMachineType(metaTipo,row.equipo)));
+        (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row.equipo)||isMachineType(metaTipo,row.equipo)))||
+        (tipoSelections.includes("CAMIONES")&&(isTruckType(tipo,row.equipo)||isTruckType(metaTipo,row.equipo)));
       if(!matches)continue;
     }
     const vidaLM=Number(row.vidaListaMaestra||row.vidaBase||row.vida||8000);
@@ -155,7 +159,7 @@ function matchesFilters(row,filters={}){
   if(!isAll(filters.tipo)){
     const sels=arrayFilter(filters.tipo).map(norm);
     const tipo=norm(meta.tipo);
-    if(!(sels.includes(tipo)||(sels.includes('MAQUINAS')&&isMachineType(tipo,rowCode))))return false;
+    if(!(sels.includes(tipo)||(sels.includes('MAQUINAS')&&isMachineType(tipo,rowCode))||(sels.includes('CAMIONES')&&isTruckType(tipo,rowCode))))return false;
   }
   return true;
 }

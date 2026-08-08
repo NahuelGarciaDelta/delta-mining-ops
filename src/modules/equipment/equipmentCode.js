@@ -25,15 +25,26 @@ export function sameEquipmentCode(a, b) {
   return Boolean(aa && bb && aa === bb);
 }
 
+const GLOBALLY_EXCLUDED_EQUIPMENT_CODES = new Set(["CFN0101"]);
 const MAINTENANCE_COST_EXCLUDED_CODES = new Set(["CFN01010"]);
 
+export function isGloballyExcludedEquipmentCode(value) {
+  return GLOBALLY_EXCLUDED_EQUIPMENT_CODES.has(canonicalEquipmentCode(value));
+}
+
 export function isExcludedFromMaintenanceCostReport(value) {
-  return MAINTENANCE_COST_EXCLUDED_CODES.has(canonicalEquipmentCode(value));
+  const code = canonicalEquipmentCode(value);
+  return GLOBALLY_EXCLUDED_EQUIPMENT_CODES.has(code) || MAINTENANCE_COST_EXCLUDED_CODES.has(code);
 }
 
 export function isCompactorEquipmentCode(value) {
   const code = canonicalEquipmentCode(value);
   return code.startsWith("RPC") || code.startsWith("ROD");
+}
+
+export function isTruckEquipmentCode(value) {
+  const code = canonicalEquipmentCode(value);
+  return ["CAC", "CAR", "CAV", "CAA", "CAT"].some(prefix => code.startsWith(prefix));
 }
 
 const normalizeEquipmentType = value => String(value || "")
@@ -56,4 +67,9 @@ export function isMaintenanceCostMachine({ code = "", type = "", category = "", 
   const normalized = normalizeEquipmentType(type || category || description);
   return ["EXCAVADORA", "TOPADORA", "MOTONIVELADORA", "CARGADORA", "CARGADOR FRONTAL", "RETROPALA", "MINICARGADORA"]
     .some(machineType => normalized.includes(machineType));
+}
+
+export function isMaintenanceCostTruck({ code = "", type = "", category = "", description = "" } = {}) {
+  if (isTruckEquipmentCode(code)) return true;
+  return [type, category, description].some(value => normalizeEquipmentType(value).includes("CAMION"));
 }

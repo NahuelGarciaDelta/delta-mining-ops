@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 import { C, multiIsAll } from "../../components/ui/index.jsx";
 import { appAlert } from "../../services/dialogService.js";
 import { LOGIN_BACKGROUND_URL } from "../../config/assets.js";
-import { cleanEquipmentCode, isCompactorEquipment, isMaintenanceCostMachine } from "../../modules/equipment/equipmentCode.js";
+import { cleanEquipmentCode, isCompactorEquipment, isMaintenanceCostMachine, isMaintenanceCostTruck } from "../../modules/equipment/equipmentCode.js";
 
 const IMG_LOGIN_FONDO=LOGIN_BACKGROUND_URL;
 
@@ -29,6 +29,7 @@ const MACHINE_TYPE_MAP = {
   "AG816QB":"CAMION CISTERNA","AG818QB":"CAMION CISTERNA",
   "CAR-0073":"CAMION REGADOR",
   "CAR-0089":"CAMION REGADOR","CAR-0101":"CAMION REGADOR",
+  "CAC-0048":"CAMION DE COMBUSTIBLE",
   "CAT-0073":"CAMION",
   "CAV-0078":"CAMION VOLCADOR","CAV-0114":"CAMION VOLCADOR",
   "CATERPILLAR":"GENERADOR","CAT":"GRUPO ELECTROGENO",
@@ -48,6 +49,7 @@ const PREFIX_TYPE_MAP = {
   "EXC":"EXCAVADORA",
   "MNC":"MINICARGADORA",
   "MCA":"MINICARGADORA",
+  "CAC":"CAMION DE COMBUSTIBLE",
 };
 
 function normalizeMachineCode(code){
@@ -84,6 +86,7 @@ function isExcluded(maquina){
     // Camiones regadores, volcadores, cisternas
     if(/^CAR/.test(c))return true;
     if(/^CAV/.test(c))return true;
+    if(/^CAC/.test(c))return true;
     if(/^AG[0-9A-Z]{5,}$/.test(c))return true; // patentes largas AG*
     // Camión CAT con número
     if(/^CAT-[0-9]/.test(c))return true;
@@ -1493,7 +1496,7 @@ function tipoEquipoCosto(maquina){
   if(isCompactorEquipment({code,type:tipo}))return "COMPACTACION";
 
   if(tipo.includes("CAMIONETA")||/^CTA/.test(code)||/^AG[0-9]/.test(code)||/^AH[0-9]/.test(code))return "CAMIONETAS";
-  if(tipo.includes("CAMION")||/^CAR/.test(code)||/^CAV/.test(code)||/^CAA/.test(code)||/^CAT-[0-9]/.test(code))return "CAMIONES";
+  if(isMaintenanceCostTruck({code,type:tipo}))return "CAMIONES";
 
   // IMPORTANTE: MINICARGADORA va antes que CARGADORA FRONTAL.
   if(tipo.includes("MINICARGADORA")||/^MCA-/.test(code)||/^MNC-/.test(code))return "MINICARGADORA";

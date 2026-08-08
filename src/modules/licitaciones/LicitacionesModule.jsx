@@ -271,7 +271,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
     {tipo:"EXCAVADORA 1",equipos:["EXC-0034"],prefixes:[]},
     {tipo:"EXCAVADORA",equipos:["EXC-0005","EXC-0017","EXC-0048","EXC-0055"],prefixes:["EXC"]},
     {tipo:"CARGADORA 1",equipos:["PCA-0093"],prefixes:[]},
-    {tipo:"CARGADORA",equipos:["PCA-0081","PCA-0095","CFN-0101","PCA-0017","PCA-0021","PCA-0051","PCA-0070","PCA-0074","PCA-0101"],prefixes:["CFN","PCA"]},
+    {tipo:"CARGADORA",equipos:["PCA-0081","PCA-0095","PCA-0017","PCA-0021","PCA-0051","PCA-0070","PCA-0074","PCA-0101"],prefixes:["CFN","PCA"]},
     {tipo:"COMPACTACIÓN",equipos:["ROD-0001","RCP-0016","RPC-0016","RCP-0036","RPC-0036","RPC-0039"],prefixes:["ROD","RCP","RPC"]},
     {tipo:"RETROPALA",equipos:["RTP-0016","RTP-0011","RTP-0024","RTP-0018","RTP-0030"],prefixes:["RTP"]},
     {tipo:"TOPADORA",equipos:["TOP-0032","TOP-0022","TOP-0036","TOP-0048","TOP-0051","TOP-0058"],prefixes:["TOP"]},
