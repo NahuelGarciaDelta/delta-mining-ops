@@ -412,6 +412,28 @@ test("TOP0036 y TOP0051 de marzo se trasladan de FS a JM y se suman al históric
   ]);
 });
 
+test("PCA0101 de marzo se traslada de FS a JM y se suma al histórico existente", () => {
+  resetInformeCostosEngine();
+  handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
+    historicalRows:[
+      {equipo:"PCA-0101",section:"JM",months:{"2026-03":{prev:15,corr:25,total:40}}},
+    ],
+    dynamicMonthly:[
+      {maquina:"PCA-0101",proyecto:"FILO DEL SOL",mes:"2026-03",costo:60,esPrev:false},
+    ],
+    dynamicMO:[],
+    meta:{"PCA-0101":{display:"PCA-0101",tipo:"CARGADORA FRONTAL",familia:"CARGADORA FRONTAL"}},
+  });
+  const result=handleInformeCostosCommand("QUERY_COST_MONTHLY",{
+    months:[{key:"2026-03"}],fixedMonths:[{key:"2026-03"}],monthsAccum:[{key:"2026-03"}],
+    rates:{"2026-03":1},baseRate:1,filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
+  });
+  assert.equal(result.monthly.some(row=>row.section==="FS"),false);
+  assert.deepEqual(result.monthly.map(row=>({equipo:row.equipo,section:row.section,month:row.months["2026-03"]})),[
+    {equipo:"PCA-0101",section:"JM",month:{prev:15,corr:85,total:100}},
+  ]);
+});
+
 test("TOTAL 2025 suma los valores mensuales redondeados mostrados", () => {
   const months=["2025-09","2025-10","2025-11","2025-12"].map(key=>({key}));
   const rowMonths={

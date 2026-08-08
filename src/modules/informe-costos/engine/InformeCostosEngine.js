@@ -171,11 +171,11 @@ function prepareCostRows(rows){
     const resolvedCode=resolveEquipmentCodeAlias(rawCode);
     const originalSection=row.section||((norm(row.proyecto).includes("JOSE")||norm(row.proyecto).includes("JM"))?"JM":"FS");
     const canonicalCode=canonicalEquipmentCode(resolvedCode);
-    // Corrección confirmada: en marzo de 2026 TOP-0036 y TOP-0051 fueron
+    // Corrección confirmada: en marzo de 2026 TOP-0036, TOP-0051 y PCA-0101 fueron
     // registrados como Filo del Sol, pero pertenecen a José María. Se marca el
     // traslado para sumar esos importes al histórico JM del mismo mes.
     const moveMarchToJM=originalSection==="FS"&&String(row.mes||"")==="2026-03"&&
-      (canonicalCode==="TOP0036"||canonicalCode==="TOP0051");
+      (canonicalCode==="TOP0036"||canonicalCode==="TOP0051"||canonicalCode==="PCA0101");
     const section=moveMarchToJM?"JM":originalSection;
     return {
       ...row,
