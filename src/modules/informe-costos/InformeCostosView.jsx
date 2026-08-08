@@ -6,6 +6,8 @@ import CostosTabPanel from "./components/CostosTabPanel.jsx";
 import { getCostoHorarioAmortizacionOAlquiler, esEquipoPropioDelta } from "./utils/amortizationCost.js";
 import ComparisonStrip from "../../components/ComparisonStrip.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
+import { isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine } from "../equipment/equipmentCode.js";
+import { buildVisibleCategoryRowSpans } from "./utils/categoryRowSpan.js";
 
 function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   const [snapshot,setSnapshot]=React.useState(()=>diagSnapshot());
@@ -55,10 +57,13 @@ function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   </div>;
 }
 
-function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}){
+function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}){
   const {
     AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn, HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput:BaseParamInput, PeriodMonthYear, SortableTH, appAlert, appConfirm, buildMonthKeysCosto, byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand, esMaquinaCosto, findColumnKey, fmtNum, getMachineType, getValue, mainMachineCode, matchMulti, monthKeyCosto, monthLabelCosto, multiIsAll, normalizeInsumoCode, normalizeMachineCode, normalizeMultiValue, positionTip, proyColor, sortRowsForTable, tipoEquipoCosto, toNumber, uniq
   } = deps;
+  const esEquipoMaquinaCosto=React.useCallback((maquina,tipo)=>
+    isMaintenanceCostMachine({code:maquina,type:tipo})||esMaquinaCosto(tipo,maquina),
+  [esMaquinaCosto]);
   const ParamInput=React.useCallback((props)=><BaseParamInput {...props} set={readOnly?(()=>{}):props.set} disabled={readOnly||props.disabled}/>,[BaseParamInput,readOnly]);
   const [diagnosticoAbierto,setDiagnosticoAbierto]=React.useState(false);
   React.useEffect(()=>{
@@ -789,9 +794,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
       if(multiIsAll(dFTipoEquipo,"todos"))return true;
       const tipo=metaEquipoCosto(r.maquina).tipo;
       const sel=Array.isArray(dFTipoEquipo)?dFTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo));
     }),
-    [costoRowsTipoEquipoOpts,dFTipoEquipo,metaEquipoCosto]
+    [costoRowsTipoEquipoOpts,dFTipoEquipo,metaEquipoCosto,esEquipoMaquinaCosto]
   );
 
   const proyectoOpts=React.useMemo(()=>[
@@ -816,7 +821,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
       {value:"MOTONIVELADORA",label:"Motoniveladoras"},
       {value:"TOPADORA",label:"Topadoras"},
       {value:"RETROPALA",label:"Retropalas"},
-      {value:"VIBROCOMPACTADOR",label:"Vibrocompactadores"},
+      {value:"COMPACTACION",label:"Rodillos compactadores"},
       {value:"MINICARGADORA",label:"Minicargadoras"},
       {value:"OTROS",label:"Otros"},
     ];
@@ -866,9 +871,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
       if(multiIsAll(fMOTipoEquipo,"todos"))return true;
       const tipo=metaEquipoCosto(r.maquina).tipo;
       const sel=Array.isArray(fMOTipoEquipo)?fMOTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo));
     }),
-    [moRowsTipoEquipoOpts,fMOTipoEquipo,metaEquipoCosto]
+    [moRowsTipoEquipoOpts,fMOTipoEquipo,metaEquipoCosto,esEquipoMaquinaCosto]
   );
   const moPropiedadOpts=React.useMemo(()=>[
     {value:"todos",label:"Todas las propiedades"},
@@ -881,7 +886,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
       {value:"CAMIONES",label:"Camiones"},{value:"CAMIONETAS",label:"Camionetas"},
       {value:"EXCAVADORA",label:"Excavadoras"},{value:"CARGADORA FRONTAL",label:"Cargadoras frontales"},
       {value:"MOTONIVELADORA",label:"Motoniveladoras"},{value:"TOPADORA",label:"Topadoras"},
-      {value:"RETROPALA",label:"Retropalas"},{value:"VIBROCOMPACTADOR",label:"Vibrocompactadores"},
+      {value:"RETROPALA",label:"Retropalas"},{value:"COMPACTACION",label:"Rodillos compactadores"},
       {value:"MINICARGADORA",label:"Minicargadoras"},{value:"OTROS",label:"Otros"},
     ];
     return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||presentes.has(o.value));
@@ -909,11 +914,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
       if(multiIsAll(dFMOTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
       const sel=Array.isArray(dFMOTipoEquipo)?dFMOTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo));
     });
     rma15FiltradoMOCacheRef.current=out;
     return out;
-  },[needsManoObraCostos,rma15PorFecha,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+  },[needsManoObraCostos,rma15PorFecha,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,esEquipoMaquinaCosto]);
 
   const rma15Filtrado=React.useMemo(()=>{
     const activeCalc=calcTablaCostos;
@@ -926,11 +931,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
       if(multiIsAll(dFCTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
       const sel=Array.isArray(dFCTipoEquipo)?dFCTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esMaquinaCosto(tipo));
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo));
     });
     rma15FiltradoCacheRef.current=out;
     return out;
-  },[calcTablaCostos,rma15PorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta]);
+  },[calcTablaCostos,rma15PorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta,esEquipoMaquinaCosto]);
 
   // Comparación independiente de los filtros internos de cada tabla.
   // Antes heredaba Tipo/Equipo/Propiedad de Amortización y por eso podía mostrar 0
@@ -1295,6 +1300,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
 
   // costoMensualAcumulado con filtros MO aislados (para distribuir MO sobre todas las máquinas seleccionadas en MO)
   const [costoMensualAcumuladoMO,setCostoMensualAcumuladoMO]=React.useState(()=>costoMensualAcumuladoMOCacheRef.current||[]);
+  const [costoMensualUniversoMO,setCostoMensualUniversoMO]=React.useState(()=>costoMensualAcumuladoMOCacheRef.current||[]);
   const [costoMensualWorkerUpdating,setCostoMensualWorkerUpdating]=React.useState(false);
   const [costoMensualWorkerReady,setCostoMensualWorkerReady]=React.useState(false);
   const costoMensualWorkerInitRef=React.useRef(0);
@@ -1358,9 +1364,9 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
     }).then(result=>{
       if(token!==costoMensualWorkerQueryRef.current)return;
       const apply=()=>{
-        const monthly=result?.monthly||[],monthlyMO=result?.monthlyMO||[],acumulado=result?.acumulado||[];
+        const monthly=result?.monthly||[],monthlyMO=result?.monthlyMO||[],monthlyMOUniverse=result?.monthlyMOUniverse||monthly,acumulado=result?.acumulado||[];
         costoMensualAcumuladoCacheRef.current=monthly;costoMensualAcumuladoMOCacheRef.current=monthlyMO;acumuladoEquiposCacheRef.current=acumulado;
-        setCostoMensualAcumulado(monthly);setCostoMensualAcumuladoMO(monthlyMO);setAcumuladoEquipos(acumulado);
+        setCostoMensualAcumulado(monthly);setCostoMensualAcumuladoMO(monthlyMO);setCostoMensualUniversoMO(monthlyMOUniverse);setAcumuladoEquipos(acumulado);
       };
       React.startTransition?React.startTransition(apply):apply();
     }).catch(err=>console.error("No se pudo actualizar Costo mensual en el Worker",err)).finally(()=>{
@@ -1686,22 +1692,25 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
 
   const manoObraEquipmentMeta=React.useMemo(()=>{
     const out={};
-    (costoMensualAcumuladoMO||[]).forEach(x=>{
+    [...(costoMensualUniversoMO||[]),...(costoMensualAcumuladoMO||[])].forEach(x=>{
       const key=String(x.equipo||"");
       if(!key||out[key])return;
-      out[key]={
+      const value={
         propiedad:propiedadEquipo(key),
         costoAdquisicion:getCostoAdqAlquilerEquipo(key)
       };
+      out[key]=value;
+      out[`${x.section==="JM"?"JM":"FS"}__${canonicalEquivalentMachineCode(key)}`]=value;
     });
     return out;
-  },[costoMensualAcumuladoMO,propiedadEquipo,getCostoAdqAlquilerEquipo]);
+  },[costoMensualUniversoMO,costoMensualAcumuladoMO,propiedadEquipo,getCostoAdqAlquilerEquipo,canonicalEquivalentMachineCode]);
 
   const manoObraPayloadSigRef=React.useRef("");
   React.useEffect(()=>{
     if(!needsManoObraCostos||!costoMensualWorkerReady)return;
     const payloadSig=JSON.stringify({
       rows:(costoMensualAcumuladoMO||[]).map(x=>[x.section,x.equipo,Number(x.total||0)]),
+      universe:(costoMensualUniversoMO||[]).map(x=>[x.section,x.equipo]),
       months:(mesesCostoMensual||[]).map(x=>x.key||x),subtotalJM,subtotalFS,ctaJM,ctaFS,
       rate:Number(ultimoDolarCostoMensual)||Number(usdRate2)||1,projectFilter:fProyecto,
       sort:costosMantSorts.manoObra||null
@@ -1712,6 +1721,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
     setManoObraWorkerUpdating(true);
     dmCategoriasCommand("PROCESS_MANO_OBRA",{
       monthlyRows:costoMensualAcumuladoMO||[],
+      universeRows:costoMensualUniversoMO||[],
       months:mesesCostoMensual||[],
       subtotalJM,subtotalFS,ctaJM,ctaFS,
       rateCTA:Number(ultimoDolarCostoMensual)||Number(usdRate2)||1,
@@ -1733,7 +1743,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
       if(token===manoObraWorkerReqRef.current)setManoObraWorkerUpdating(false);
     });
   },[
-    needsManoObraCostos,costoMensualWorkerReady,costoMensualAcumuladoMO,mesesCostoMensual,
+    needsManoObraCostos,costoMensualWorkerReady,costoMensualUniversoMO,costoMensualAcumuladoMO,mesesCostoMensual,
     subtotalJM,subtotalFS,ctaJM,ctaFS,ultimoDolarCostoMensual,usdRate2,
     costoAdquisicionPromedioCamionetas,manoObraEquipmentMeta,sectionProyectoCosto,
     fProyecto,costosMantSorts.manoObra
@@ -2590,7 +2600,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
   })),[rowsResumenPorEquipo]);
 
   const rowsManoObraRender=useProgressiveRows(rowsManoObraOrdenadas,isCostosTabManoObra,80,80);
-  const amortizacionVirtual=useFixedVirtualRows(rowsAmortizacionDeferred,isCostosTabAmortizacion&&amortizacionSubtab==="tabla",52,520,5,18);
+  // Un rowSpan real necesita que el grupo completo exista en el DOM. Virtualizar
+  // por filas cortaba las categorías en ventanas y repetía el cuadro azul al
+  // desplazarse. Las filas ya están memoizadas y el cálculo pesado sigue en el
+  // Worker, por lo que se renderiza la colección completa y contigua.
+  const amortizacionVisibleRows=React.useMemo(()=>buildVisibleCategoryRowSpans(rowsAmortizacionDeferred||[]),[rowsAmortizacionDeferred]);
   const categoriasVirtual=useFixedVirtualRows(catalogoCategoriasAmortizacion,isCostosTabAmortizacion&&amortizacionSubtab==="categorias",48,540,10);
   const resumenVirtual=useFixedVirtualRows(rowsResumenPorEquipo,isCostosTabResumen,46,520,5,18);
 
@@ -3389,7 +3403,7 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
               Cargá la <b>Lista Maestra de Equipos</b> desde el menú lateral para ver esta tabla.
             </div>
           ):(
-            <div className="dm-table-scroll" onScroll={amortizacionVirtual.onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable",contain:"layout paint"}}>
+            <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable",contain:"layout paint"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
                 <thead><tr>
                   {sortableCostHead("amortizacion","equipo","Equipo",thL)}
@@ -3436,12 +3450,11 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
                   {sortableCostHead("amortizacion","promTipo","Promedio por tipo",{...thS,textAlign:"center"})}
                 </tr></thead>
                 <tbody>
-                  {amortizacionVirtual.topPad>0&&<tr style={{height:amortizacionVirtual.topPad}}><td colSpan={12} style={{padding:0,border:"none"}}/></tr>}
-                  {(amortizacionVirtual.visibleRows||[]).map((x,i)=>(
+                  {amortizacionVisibleRows.map((x,i)=>(
                     <AmortRow
                       key={x.equipo}
                       x={x}
-                      i={amortizacionVirtual.startIndex+i}
+                      i={i}
                       useListaVidaUtil={useListaVidaUtil}
                       vidaUtilOverride={vidaUtilOverride}
                       setVidaUtilState={setVidaUtilState}
@@ -3451,7 +3464,6 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
                       fmtNum={fmtNum}
                     />
                   ))}
-                  {amortizacionVirtual.bottomPad>0&&<tr style={{height:amortizacionVirtual.bottomPad}}><td colSpan={12} style={{padding:0,border:"none"}}/></tr>}
                 </tbody>
               </table>
             </div>
@@ -3642,5 +3654,22 @@ function sameInformeCostosProps(prev,next){
     (prev.insumos===next.insumos||dmDatasetFingerprint(prev.insumos)===dmDatasetFingerprint(next.insumos))&&
     (prev.listaEquipos===next.listaEquipos||dmDatasetFingerprint(prev.listaEquipos)===dmDatasetFingerprint(next.listaEquipos));
 }
+function rowHasExcludedMaintenanceCostCode(row){
+  if(!row||typeof row!=="object")return false;
+  return Object.entries(row).some(([key,value])=>
+    /codigo|código|interno/i.test(key)&&isExcludedFromMaintenanceCostReport(value)
+  );
+}
+
+function ViewCostosMant(props){
+  const filteredRma15=React.useMemo(()=>(props.rma15||[]).filter(row=>
+    !isExcludedFromMaintenanceCostReport(row?.maquina||row?.equipo||row?.interno||row?.codigo)
+  ),[props.rma15]);
+  const filteredListaEquipos=React.useMemo(()=>(props.listaEquipos||[]).filter(row=>
+    !rowHasExcludedMaintenanceCostCode(row)
+  ),[props.listaEquipos]);
+  return <ViewCostosMantCore {...props} rma15={filteredRma15} listaEquipos={filteredListaEquipos}/>;
+}
+
 export const MemoViewCostosMant=React.memo(ViewCostosMant,sameInformeCostosProps);
 export default MemoViewCostosMant;

@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 import { C, multiIsAll } from "../../components/ui/index.jsx";
 import { appAlert } from "../../services/dialogService.js";
 import { LOGIN_BACKGROUND_URL } from "../../config/assets.js";
-import { cleanEquipmentCode } from "../../modules/equipment/equipmentCode.js";
+import { cleanEquipmentCode, isCompactorEquipment, isMaintenanceCostMachine } from "../../modules/equipment/equipmentCode.js";
 
 const IMG_LOGIN_FONDO=LOGIN_BACKGROUND_URL;
 
@@ -1490,6 +1490,8 @@ function tipoEquipoCosto(maquina){
   const tipo=String(getMachineType(maquina)||"").toUpperCase();
   const code=cleanMachine(String(maquina||"")).toUpperCase();
 
+  if(isCompactorEquipment({code,type:tipo}))return "COMPACTACION";
+
   if(tipo.includes("CAMIONETA")||/^CTA/.test(code)||/^AG[0-9]/.test(code)||/^AH[0-9]/.test(code))return "CAMIONETAS";
   if(tipo.includes("CAMION")||/^CAR/.test(code)||/^CAV/.test(code)||/^CAA/.test(code)||/^CAT-[0-9]/.test(code))return "CAMIONES";
 
@@ -1501,12 +1503,10 @@ function tipoEquipoCosto(maquina){
   if(tipo.includes("MOTONIVELADORA")||/^MOT-/.test(code))return "MOTONIVELADORA";
   if(tipo.includes("TOPADORA")||/^TOP-/.test(code))return "TOPADORA";
   if(tipo.includes("RETROPALA")||/^RTP-/.test(code))return "RETROPALA";
-  // Los rodillos/compactadores pueden figurar como COMPACTACIÓN en Lista Maestra.
-  if(tipo.includes("VIBROCOMPACTADOR")||tipo.includes("COMPACT")||/^RPC-/.test(code)||/^ROD-/.test(code))return "COMPACTACION";
   return "OTROS";
 }
-function esMaquinaCosto(tipo){
-  return ["EXCAVADORA","CARGADORA FRONTAL","MOTONIVELADORA","TOPADORA","RETROPALA","VIBROCOMPACTADOR","COMPACTACION","MINICARGADORA"].includes(String(tipo||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase());
+function esMaquinaCosto(tipo,maquina=""){
+  return isMaintenanceCostMachine({code:maquina,type:tipo});
 }
 
 const MESES_ES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];

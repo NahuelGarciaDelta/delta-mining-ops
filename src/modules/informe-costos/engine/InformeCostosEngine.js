@@ -1,4 +1,6 @@
 import { getCostoHorarioAmortizacionOAlquiler } from "../utils/amortizationCost.js";
+import { canonicalEquipmentCode, isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine } from "../../equipment/equipmentCode.js";
+import { buildVisibleCategoryRowSpans } from "../utils/categoryRowSpan.js";
 const norm=(v)=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
 
 function setModelCategory(payload){
@@ -35,9 +37,12 @@ function matchMulti(value,filter){
   if(isAll(filter))return true;
   return selected(filter).includes(norm(value));
 }
-function isMachineType(value){
-  const t=norm(value);
-  return ["EXCAVADORA","EXCAVADORA 1","TOPADORA","MOTONIVELADORA","CARGADORA","CARGADORA 1","CARGADOR FRONTAL","RETROPALA","RODILLO","RODILLO COMPACTADOR","COMPACTADOR"].some(x=>t.includes(x));
+function isMachineType(value,code=""){
+  return isMaintenanceCostMachine({code,type:value});
+}
+
+function isIncludedCostRow(row){
+  return !isExcludedFromMaintenanceCostReport(row?.maquina||row?.equipo||"");
 }
 function sortValue(v){
   if(v==null)return "";
@@ -58,7 +63,7 @@ function compare(a,b){
 }
 
 function processAmortizationRows(payload){
-  const rows=Array.isArray(payload.rows)?payload.rows:[];
+  const rows=(Array.isArray(payload.rows)?payload.rows:[]).filter(isIncludedCostRow);
   const filters=payload.filters||{};
   const useLista=payload.useListaVidaUtil||{};
   const overrides=payload.vidaUtilOverride||{};
@@ -72,7 +77,7 @@ function processAmortizationRows(payload){
       const tipo=norm(row.tipo);
       const metaTipo=norm(row.metaTipo);
       const matches=tipoSelections.includes(tipo)||tipoSelections.includes(metaTipo)||
-        (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo)||isMachineType(metaTipo)));
+        (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row.equipo)||isMachineType(metaTipo,row.equipo)));
       if(!matches)continue;
     }
     const vidaLM=Number(row.vidaListaMaestra||row.vidaBase||row.vida||8000);
@@ -123,16 +128,21 @@ function processAmortizationRows(payload){
 
   const out=[];
   for(const group of groups){
-    group.rows.forEach((row,index)=>out.push({...row,_firstTipoDisplay:index===0,_grupoSizeDisplay:index===0?group.rows.length:0}));
+    group.rows.forEach(row=>out.push(row));
   }
-  return {rows:out};
+  return {rows:buildVisibleCategoryRowSpans(out)};
 }
 
 
-const costEngine={historicalRows:[],dynamicMonthly:[],dynamicMO:[],meta:{}};
+const costEngine={historicalRows:[],dynamicMonthly:[],dynamicMO:[],meta:{},metaCanonical:new Map(),queryCache:new Map()};
 function arrayFilter(v){return Array.isArray(v)?v:[v].filter(Boolean)}
+function getCostMeta(row){
+  const rawCode=String(row?.maquina||row?.equipo||"");
+  return costEngine.meta[rawCode]||costEngine.metaCanonical.get(row?._canonicalCode||canonicalEquipmentCode(rawCode))||row?.meta||{};
+}
 function matchesFilters(row,filters={}){
-  const meta=costEngine.meta[String(row.maquina||row.equipo||'')]||row.meta||{};
+  const meta=getCostMeta(row);
+  const rowCode=String(row?.maquina||row?.equipo||"");
   const proyecto=row.proyecto||((row.section==='JM')?'JOSE MARIA':'FILO DEL SOL');
   if(!matchMulti(proyecto,filters.proyecto))return false;
   if(!isAll(filters.propiedad)){
@@ -145,15 +155,25 @@ function matchesFilters(row,filters={}){
   if(!isAll(filters.tipo)){
     const sels=arrayFilter(filters.tipo).map(norm);
     const tipo=norm(meta.tipo);
-    if(!(sels.includes(tipo)||(sels.includes('MAQUINAS')&&isMachineType(tipo))))return false;
+    if(!(sels.includes(tipo)||(sels.includes('MAQUINAS')&&isMachineType(tipo,rowCode))))return false;
   }
   return true;
 }
+function prepareCostRows(rows){
+  return (Array.isArray(rows)?rows:[]).filter(isIncludedCostRow).map(row=>{
+    const rawCode=String(row.maquina||row.equipo||"");
+    const section=row.section||((norm(row.proyecto).includes("JOSE")||norm(row.proyecto).includes("JM"))?"JM":"FS");
+    return {...row,_canonicalCode:canonicalEquipmentCode(rawCode),section};
+  });
+}
 function initCostMonthlyEngine(payload){
-  costEngine.historicalRows=Array.isArray(payload.historicalRows)?payload.historicalRows:[];
-  costEngine.dynamicMonthly=Array.isArray(payload.dynamicMonthly)?payload.dynamicMonthly:[];
-  costEngine.dynamicMO=Array.isArray(payload.dynamicMO)?payload.dynamicMO:[];
+  costEngine.historicalRows=prepareCostRows(payload.historicalRows);
+  costEngine.dynamicMonthly=prepareCostRows(payload.dynamicMonthly);
+  costEngine.dynamicMO=prepareCostRows(payload.dynamicMO);
   costEngine.meta=payload.meta||{};
+  costEngine.metaCanonical=new Map();
+  Object.entries(costEngine.meta).forEach(([code,meta])=>{const key=canonicalEquipmentCode(code);if(key&&!costEngine.metaCanonical.has(key))costEngine.metaCanonical.set(key,meta);});
+  costEngine.queryCache.clear();
   return {ready:true,counts:{historical:costEngine.historicalRows.length,monthly:costEngine.dynamicMonthly.length,mo:costEngine.dynamicMO.length}};
 }
 function aggregateRows(rows,months,rates,baseRate,filters,minMonth){
@@ -162,7 +182,7 @@ function aggregateRows(rows,months,rates,baseRate,filters,minMonth){
   for(const r of rows){
     if(!matchesFilters(r,filters))continue;
     const mes=r.mes; if(!mes|| (minMonth&&mes<minMonth))continue;
-    const meta=costEngine.meta[String(r.maquina||'')]||{};
+    const meta=getCostMeta(r);
     const section=r.section||((norm(r.proyecto).includes('JOSE')||norm(r.proyecto).includes('JM'))?'JM':'FS');
     const equipo=meta.display||r.maquina||'—';
     const row=ensure(equipo,section); if(!row.months[mes])row.months[mes]={prev:0,corr:0,total:0};
@@ -176,7 +196,7 @@ function mergeHistorical(map,filters,fixedMonths){
   const ensure=(equipo,section)=>{const k=section+'__'+equipo; if(!map.has(k))map.set(k,{equipo,section,months:{},prev:0,corr:0,total:0}); return map.get(k)};
   for(const x of costEngine.historicalRows){
     if(!matchesFilters(x,filters))continue;
-    const meta=costEngine.meta[String(x.equipo||'')]||{};
+    const meta=getCostMeta(x);
     const row=ensure(meta.display||x.equipo,x.section);
     for(const m of fixedMonths||[]){
       const d=x.months?.[m.key]||{}; if(!row.months[m.key])row.months[m.key]={prev:0,corr:0,total:0};
@@ -192,6 +212,8 @@ function finalizeMap(map,months){
   return [...map.values()].filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
 }
 function queryCostMonthly(payload){
+  const cacheKey=JSON.stringify(payload);
+  if(costEngine.queryCache.has(cacheKey))return costEngine.queryCache.get(cacheKey);
   const months=payload.months||[], fixed=payload.fixedMonths||[], rates=payload.rates||{}, baseRate=payload.baseRate||1;
   const map=aggregateRows(costEngine.dynamicMonthly,months,rates,baseRate,payload.filters,'2026-04');
   mergeHistorical(map,payload.filtersHistorical||payload.filters,fixed);
@@ -199,11 +221,20 @@ function queryCostMonthly(payload){
   const moMap=aggregateRows(costEngine.dynamicMO,months,rates,baseRate,payload.filtersMO,'2026-04');
   mergeHistorical(moMap,payload.filtersMO,fixed);
   const monthlyMO=finalizeMap(moMap,months);
+  // Universo de Mano de Obra: nace de la misma fuente de Costo mensual, pero
+  // respeta los filtros propios de MO. Así una máquina sigue apareciendo aunque
+  // no tenga registros de mantenimiento en la fuente específica de Mano de Obra.
+  const moUniverseMap=aggregateRows(costEngine.dynamicMonthly,months,rates,baseRate,payload.filtersMO,'2026-04');
+  mergeHistorical(moUniverseMap,payload.filtersMO,fixed);
+  const monthlyMOUniverse=finalizeMap(moUniverseMap,months);
   const accumMonths=payload.monthsAccum||months;
   const accumMap=aggregateRows(costEngine.dynamicMonthly,accumMonths,{},baseRate,payload.filters, null);
   const values=[...accumMap.values()]; const counts={}; for(const x of values)if(x.total>0)counts[x.section]=(counts[x.section]||0)+1;
   const acumulado=values.filter(x=>x.total>0).map(x=>{const n=(accumMonths||[]).filter(m=>Number(x.months[m.key]?.total)>0).length;const hs=x.section==='JM'?Number(payload.hsJM)||180:Number(payload.hsFS)||180;const mo=x.section==='JM'?Number(payload.subtotalJM)||0:Number(payload.subtotalFS)||0;const moEq=mo/(counts[x.section]||1);return {...x,promedio:n?x.total/n:0,mo:moEq,hsEf:hs,usdHs:hs?(x.total+moEq)/hs:0}}).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
-  return {monthly,monthlyMO,acumulado};
+  const result={monthly,monthlyMO,monthlyMOUniverse,acumulado};
+  costEngine.queryCache.set(cacheKey,result);
+  if(costEngine.queryCache.size>20)costEngine.queryCache.delete(costEngine.queryCache.keys().next().value);
+  return result;
 }
 
 
@@ -226,7 +257,7 @@ function calculateCtaStats(section,payload){
   const rate=Number(payload.rateCTA)||Number(payload.baseRate)||1;
   const byPickup=new Map();
   for(const r of costEngine.dynamicMO||[]){
-    const meta=costEngine.meta[String(r.maquina||"")]||{};
+    const meta=getCostMeta(r);
     const sec=r.section||((norm(r.proyecto).includes("JOSE")||norm(r.proyecto).includes("JM"))?"JM":"FS");
     if(sec!==section||!isPickupMeta(r.maquina,meta))continue;
     const key=meta.display||r.maquina||"—";
@@ -251,16 +282,38 @@ function calculateCtaStats(section,payload){
 }
 function processManoObra(payload){
   const months=Array.isArray(payload.months)?payload.months:[];
-  const monthlyRows=Array.isArray(payload.monthlyRows)?payload.monthlyRows:[];
+  const monthlyRows=(Array.isArray(payload.monthlyRows)?payload.monthlyRows:[]).filter(isIncludedCostRow);
+  const universeRows=(Array.isArray(payload.universeRows)?payload.universeRows:monthlyRows).filter(isIncludedCostRow);
   const equipmentMeta=payload.equipmentMeta||{};
   const projectLabels=payload.projectLabels||{JM:"JOSE MARIA",FS:"FILO DEL SOL"};
   const ctaStats={FS:calculateCtaStats("FS",{...payload,monthCount:months.length}),JM:calculateCtaStats("JM",{...payload,monthCount:months.length})};
+  const rowKey=row=>`${row?.section==="JM"?"JM":"FS"}__${canonicalEquipmentCode(row?.equipo||row?.maquina)}`;
+  const laborByKey=new Map();
+  monthlyRows.forEach(row=>{
+    const key=rowKey(row);
+    if(!laborByKey.has(key)){
+      const monthCopy={};
+      Object.entries(row.months||{}).forEach(([month,value])=>{monthCopy[month]={...value};});
+      laborByKey.set(key,{...row,months:monthCopy});
+      return;
+    }
+    const target=laborByKey.get(key);
+    Object.entries(row.months||{}).forEach(([month,value])=>{
+      const current=target.months[month]||(target.months[month]={prev:0,corr:0,total:0});
+      current.prev=(Number(current.prev)||0)+(Number(value?.prev)||0);
+      current.corr=(Number(current.corr)||0)+(Number(value?.corr)||0);
+      current.total=(Number(current.total)||0)+(Number(value?.total)||0);
+    });
+  });
+  const universeByKey=new Map();
+  universeRows.forEach(row=>{const key=rowKey(row);if(!universeByKey.has(key))universeByKey.set(key,row);});
   const projectTotals={JM:0,FS:0};
-  const prepared=monthlyRows.map(row=>{
+  const prepared=[...universeByKey.entries()].map(([key,universeRow])=>{
+    const row=laborByKey.get(key)||universeRow;
     const section=row.section==="JM"?"JM":"FS";
-    const mantenimiento=averageMonthlyTotal(row,months);
+    const mantenimiento=laborByKey.has(key)?averageMonthlyTotal(row,months):0;
     projectTotals[section]+=mantenimiento;
-    return {row,section,mantenimiento};
+    return {row:{...row,equipo:universeRow.equipo||row.equipo},section,mantenimiento,key};
   });
   projectTotals.JM+=Number(ctaStats.JM.mantenimientoPromedio)||0;
   projectTotals.FS+=Number(ctaStats.FS.mantenimientoPromedio)||0;
@@ -271,7 +324,7 @@ function processManoObra(payload){
     const totalProyecto=Number(projectTotals[section])||0;
     const porcentaje=totalProyecto>0?mantenimiento/totalProyecto:0;
     const manoObra=subtotal*porcentaje;
-    const meta=equipmentMeta[String(row.equipo||"")]||{};
+    const meta=equipmentMeta[String(row.equipo||"")]||equipmentMeta[item.key]||{};
     rows.push({
       equipo:row.equipo,
       proyecto:projectLabels[section]||section,
@@ -338,7 +391,7 @@ function resumenTypeOrder(label){
   return 500;
 }
 function processResumenEquipo(payload){
-  const source=Array.isArray(payload.rows)?payload.rows:[];
+  const source=(Array.isArray(payload.rows)?payload.rows:[]).filter(isIncludedCostRow);
   const filters=payload.filters||{};
   const filtered=[];
   for(const x of source){
@@ -396,4 +449,6 @@ export function resetInformeCostosEngine(){
   costEngine.dynamicMonthly=[];
   costEngine.dynamicMO=[];
   costEngine.meta={};
+  costEngine.metaCanonical=new Map();
+  costEngine.queryCache.clear();
 }

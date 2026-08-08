@@ -162,9 +162,9 @@ const AmortRow=React.memo(function AmortRow({x,i,useListaVidaUtil,vidaUtilOverri
       <td style={{...tdS,color:C.purple,fontWeight:700}}>{x.mantUSDhs>0?"U$S "+fmtNum(Math.round(x.mantUSDhs)):"—"}</td>
       <td style={{...tdS,color:C.accent,fontWeight:800}}>{totalUSDhs>0?"U$S "+fmtNum(Math.round(totalUSDhs)):"—"}</td>
       <td style={{...tdS,color:C.textSub}}>{pctMant>0?(pctMant*100).toFixed(2)+"%":"—"}</td>
-      <td style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,fontSize:14,borderLeft:`1px solid ${C.blue}35`}} title="Promedio de mantenimiento para el tipo de equipo">
+      {x._firstTipoDisplay&&<td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,color:C.blue,fontWeight:900,background:C.blueDim,fontSize:14,borderLeft:`1px solid ${C.blue}35`,verticalAlign:"middle",textAlign:"center"}} title="Promedio de mantenimiento para el tipo de equipo">
         {x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"}
-      </td>
+      </td>}
     </tr>
   );
 });
