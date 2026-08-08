@@ -8,6 +8,7 @@ import ComparisonStrip from "../../components/ComparisonStrip.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
 import { isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine } from "../equipment/equipmentCode.js";
 import { buildVisibleCategoryRowSpans } from "./utils/categoryRowSpan.js";
+import { sumRoundedMonthlyTotals } from "./utils/monthlyCostTotals.js";
 
 function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   const [snapshot,setSnapshot]=React.useState(()=>diagSnapshot());
@@ -61,8 +62,8 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const {
     AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn, HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput:BaseParamInput, PeriodMonthYear, SortableTH, appAlert, appConfirm, buildMonthKeysCosto, byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand, esMaquinaCosto, findColumnKey, fmtNum, getMachineType, getValue, mainMachineCode, matchMulti, monthKeyCosto, monthLabelCosto, multiIsAll, normalizeInsumoCode, normalizeMachineCode, normalizeMultiValue, positionTip, proyColor, sortRowsForTable, tipoEquipoCosto, toNumber, uniq
   } = deps;
-  const esEquipoMaquinaCosto=React.useCallback((maquina,tipo)=>
-    isMaintenanceCostMachine({code:maquina,type:tipo})||esMaquinaCosto(tipo,maquina),
+  const esEquipoMaquinaCosto=React.useCallback((maquina,tipo,familia="")=>
+    isMaintenanceCostMachine({code:maquina,type:tipo,family:familia})||esMaquinaCosto(tipo,maquina,familia),
   [esMaquinaCosto]);
   const ParamInput=React.useCallback((props)=><BaseParamInput {...props} set={readOnly?(()=>{}):props.set} disabled={readOnly||props.disabled}/>,[BaseParamInput,readOnly]);
   const [diagnosticoAbierto,setDiagnosticoAbierto]=React.useState(false);
@@ -725,6 +726,16 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     return real||props[0]||"S/D";
   },[propiedadesEquipo]);
 
+  const familiaEquipoCostoMemo=React.useMemo(()=>new Map(),[listaEquiposIndex]);
+  const familiaEquipoCosto=React.useCallback((maquina)=>{
+    const cacheKey=String(maquina||"").trim().toUpperCase();
+    if(familiaEquipoCostoMemo.has(cacheKey))return familiaEquipoCostoMemo.get(cacheKey);
+    const eq=getEquipoListaMaestra(maquina);
+    const familia=String(getValue(eq||{},["Familia","FAMILIA"])||"").trim().toUpperCase();
+    familiaEquipoCostoMemo.set(cacheKey,familia);
+    return familia;
+  },[getEquipoListaMaestra,getValue,familiaEquipoCostoMemo]);
+
   const matchPropiedadEquipo=React.useCallback((maquina,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return true;
     const props=propiedadesEquipo(maquina);
@@ -743,15 +754,17 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       if(map.has(key))return;
       const props=propiedadesEquipo(r.maquina);
       const real=props.find(p=>p&&p!=="S/D");
+      const familia=familiaEquipoCosto(r.maquina);
       map.set(key,{
         display:equipoCostoDisplay(r.maquina),
         props,
         propiedad:real||props[0]||"S/D",
-        tipo:tipoEquipoCosto(codigoCanonicoEquipo(r.maquina)),
+        familia,
+        tipo:tipoEquipoCosto(codigoCanonicoEquipo(r.maquina),familia),
       });
     });
     return map;
-  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay,codigoCanonicoEquipo]);
+  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay,codigoCanonicoEquipo,familiaEquipoCosto,tipoEquipoCosto]);
 
   const metaEquipoFallbackMemo=React.useMemo(()=>new Map(),[listaEquiposIndex,identidadCanonicaEquipos]);
   const metaEquipoCosto=React.useCallback((maquina)=>{
@@ -761,15 +774,17 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     if(metaEquipoFallbackMemo.has(key))return metaEquipoFallbackMemo.get(key);
     const props=propiedadesEquipo(maquina);
     const real=props.find(p=>p&&p!=="S/D");
+    const familia=familiaEquipoCosto(maquina);
     const out={
       display:equipoCostoDisplay(maquina),
       props,
       propiedad:real||props[0]||"S/D",
-      tipo:tipoEquipoCosto(codigoCanonicoEquipo(maquina)),
+      familia,
+      tipo:tipoEquipoCosto(codigoCanonicoEquipo(maquina),familia),
     };
     metaEquipoFallbackMemo.set(key,out);
     return out;
-  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,codigoCanonicoEquipo,metaEquipoFallbackMemo]);
+  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,codigoCanonicoEquipo,familiaEquipoCosto,tipoEquipoCosto,metaEquipoFallbackMemo]);
 
   const matchPropiedadMeta=React.useCallback((meta,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return true;
@@ -793,9 +808,10 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const costoRowsMaquinaOpts=React.useMemo(()=>
     costoRowsTipoEquipoOpts.filter(r=>{
       if(multiIsAll(dFTipoEquipo,"todos"))return true;
-      const tipo=metaEquipoCosto(r.maquina).tipo;
+      const meta=metaEquipoCosto(r.maquina);
+      const tipo=meta.tipo;
       const sel=Array.isArray(dFTipoEquipo)?dFTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo));
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo,meta.familia));
     }),
     [costoRowsTipoEquipoOpts,dFTipoEquipo,metaEquipoCosto,esEquipoMaquinaCosto]
   );
@@ -870,9 +886,10 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const moRowsMaquinaOpts=React.useMemo(()=>
     moRowsTipoEquipoOpts.filter(r=>{
       if(multiIsAll(fMOTipoEquipo,"todos"))return true;
-      const tipo=metaEquipoCosto(r.maquina).tipo;
+      const meta=metaEquipoCosto(r.maquina);
+      const tipo=meta.tipo;
       const sel=Array.isArray(fMOTipoEquipo)?fMOTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo));
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo,meta.familia));
     }),
     [moRowsTipoEquipoOpts,fMOTipoEquipo,metaEquipoCosto,esEquipoMaquinaCosto]
   );
@@ -915,7 +932,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       if(multiIsAll(dFMOTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
       const sel=Array.isArray(dFMOTipoEquipo)?dFMOTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo));
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo,meta.familia));
     });
     rma15FiltradoMOCacheRef.current=out;
     return out;
@@ -932,7 +949,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       if(multiIsAll(dFCTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
       const sel=Array.isArray(dFCTipoEquipo)?dFCTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo));
+      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo,meta.familia));
     });
     rma15FiltradoCacheRef.current=out;
     return out;
@@ -1337,7 +1354,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
         dynamicMO.forEach(r=>machineKeys.add(String(r.maquina||"")));
         (HIST_COSTO_MENSUAL_ACUMULADO.rows||[]).forEach(r=>machineKeys.add(String(r.equipo||"")));
         const meta={};
-        machineKeys.forEach(k=>{const m=metaEquipoCosto(k);meta[k]={display:m.display,props:m.props,propiedad:m.propiedad,tipo:m.tipo};});
+        machineKeys.forEach(k=>{const m=metaEquipoCosto(k);meta[k]={display:m.display,props:m.props,propiedad:m.propiedad,tipo:m.tipo,familia:m.familia};});
         dmCategoriasCommand("INIT_COST_MONTHLY_ENGINE",{
           historicalRows:HIST_COSTO_MENSUAL_ACUMULADO.rows||[],dynamicMonthly,dynamicMO,meta
         }).then(()=>{
@@ -2299,7 +2316,8 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     setAmortizacionWorkerUpdating(true);
     const rowsPayload=(rowsAmortizacionConHH||[]).map(x=>({
       ...x,
-      metaTipo:metaEquipoCosto(x.equipo).tipo||""
+      metaTipo:metaEquipoCosto(x.equipo).tipo||"",
+      metaFamilia:metaEquipoCosto(x.equipo).familia||""
     }));
     dmCategoriasCommand("PROCESS_AMORTIZATION_ROWS",{
       rows:rowsPayload,
@@ -2602,10 +2620,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
         const total=Number(d?.total)||prev+corr;
         return total>0;
       });
-      const total2025=meses2025.reduce((sum,m)=>{
-        const d=x.months?.[m.key]||{};
-        return sum+(Number(d.total)||((Number(d.prev)||0)+(Number(d.corr)||0)));
-      },0);
+      const total2025=sumRoundedMonthlyTotals(meses2025,x.months);
       const months={};
       let prev=0,corr=0,total2026=0;
       mesesCM.forEach(m=>{

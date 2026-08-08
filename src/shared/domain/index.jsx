@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 import { C, multiIsAll } from "../../components/ui/index.jsx";
 import { appAlert } from "../../services/dialogService.js";
 import { LOGIN_BACKGROUND_URL } from "../../config/assets.js";
-import { cleanEquipmentCode, isCompactorEquipment, isMaintenanceCostMachine, isMaintenanceCostTruck } from "../../modules/equipment/equipmentCode.js";
+import { cleanEquipmentCode, isMaintenanceCostMachine, maintenanceCostTypeFromFamily } from "../../modules/equipment/equipmentCode.js";
 
 const IMG_LOGIN_FONDO=LOGIN_BACKGROUND_URL;
 
@@ -1490,27 +1490,13 @@ function excelFromCols(cols, rows, filename){
 
 // Botón Excel reutilizable
 
-function tipoEquipoCosto(maquina){
+function tipoEquipoCosto(maquina,familia=""){
   const tipo=String(getMachineType(maquina)||"").toUpperCase();
   const code=cleanMachine(String(maquina||"")).toUpperCase();
-
-  if(isCompactorEquipment({code,type:tipo}))return "COMPACTACION";
-
-  if(tipo.includes("CAMIONETA")||/^CTA/.test(code)||/^AG[0-9]/.test(code)||/^AH[0-9]/.test(code))return "CAMIONETAS";
-  if(isMaintenanceCostTruck({code,type:tipo}))return "CAMIONES";
-
-  // IMPORTANTE: MINICARGADORA va antes que CARGADORA FRONTAL.
-  if(tipo.includes("MINICARGADORA")||/^MCA-/.test(code)||/^MNC-/.test(code))return "MINICARGADORA";
-
-  if(tipo.includes("EXCAVADORA")||/^EXC-/.test(code))return "EXCAVADORA";
-  if(tipo.includes("CARGADORA FRONTAL")||tipo==="CARGADORA"||/^PCA-/.test(code)||/^CFN-/.test(code))return "CARGADORA FRONTAL";
-  if(tipo.includes("MOTONIVELADORA")||/^MOT-/.test(code))return "MOTONIVELADORA";
-  if(tipo.includes("TOPADORA")||/^TOP-/.test(code))return "TOPADORA";
-  if(tipo.includes("RETROPALA")||/^RTP-/.test(code))return "RETROPALA";
-  return "OTROS";
+  return maintenanceCostTypeFromFamily({code,family:familia,type:tipo});
 }
-function esMaquinaCosto(tipo,maquina=""){
-  return isMaintenanceCostMachine({code:maquina,type:tipo});
+function esMaquinaCosto(tipo,maquina="",familia=""){
+  return isMaintenanceCostMachine({code:maquina,type:tipo,family:familia});
 }
 
 const MESES_ES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];

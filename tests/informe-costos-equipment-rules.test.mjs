@@ -8,6 +8,7 @@ import {
   isExcludedFromMaintenanceCostReport,
   isMaintenanceCostMachine,
   isMaintenanceCostTruck,
+  maintenanceCostTypeFromFamily,
 } from "../src/modules/equipment/equipmentCode.js";
 import {
   handleInformeCostosCommand,
@@ -15,6 +16,7 @@ import {
 } from "../src/modules/informe-costos/engine/InformeCostosEngine.js";
 import fs from "node:fs";
 import { buildVisibleCategoryRowSpans } from "../src/modules/informe-costos/utils/categoryRowSpan.js";
+import { sumRoundedMonthlyTotals } from "../src/modules/informe-costos/utils/monthlyCostTotals.js";
 
 test("CFN01010 y sus variantes quedan excluidos por la clave canónica", () => {
   ["CFN01010", "CFN-01010", "CFN 01010", "cfn-01010-jm"].forEach(code => {
@@ -31,9 +33,39 @@ test("CFN0101 y sus variantes se resuelven globalmente como PCA0101", () => {
   assert.equal(resolveEquipmentCodeAlias("PCA-0101"),"PCA-0101");
 });
 
+test("todos los internos históricos se consolidan en sus equipos actuales", () => {
+  const aliases={
+    "CFN-0041":"PCA-0081","CFN-0043":"PCA-0093","CFN-0044":"PCA-0095","CFN-0045":"PCA-0095",
+    "EXC-0014":"EXC-0034","EXC-0019":"EXC-0048","MOT-0024":"MOT-0047",
+    "RTP-0010":"RTP-0016","RTP-0012":"RTP-0024","TOP-0014":"TOP-0032","TOP-0059":"TOP-0058",
+  };
+  Object.entries(aliases).forEach(([oldCode,currentCode])=>{
+    assert.equal(resolveEquipmentCodeAlias(oldCode),currentCode,oldCode);
+    assert.equal(resolveEquipmentCodeAlias(`${oldCode}-JM`),currentCode,`${oldCode}-JM`);
+  });
+});
+
 test("CAC0048 se reconoce como camión por código aunque el tipo esté incompleto", () => {
   ["CAC0048","CAC-0048","CAC 0048","CAC-0048-JM"].forEach(code=>
     assert.equal(isMaintenanceCostTruck({code,type:"OTROS"}),true,code));
+});
+
+test("Familia manda sobre el prefijo y CAT Generador no se clasifica como camión", () => {
+  assert.equal(maintenanceCostTypeFromFamily({code:"CAT",family:"Generador"}),"OTROS");
+  assert.equal(isMaintenanceCostTruck({code:"CAT",family:"Generador"}),false);
+  assert.equal(isMaintenanceCostMachine({code:"CAT",family:"Generador"}),true);
+  assert.equal(maintenanceCostTypeFromFamily({code:"CAT-0073",family:"Camión tractor"}),"CAMIONES");
+  assert.equal(isMaintenanceCostTruck({code:"CAT-0073",family:"Camión tractor"}),true);
+});
+
+test("sólo CAMION como primera palabra de Familia corresponde a camión", () => {
+  ["Camión regador","CAMION DE COMBUSTIBLE","camion tractor","Camión volcador"].forEach(familia=>{
+    assert.equal(maintenanceCostTypeFromFamily({family:familia}),"CAMIONES",familia);
+    assert.equal(isMaintenanceCostTruck({family:familia}),true,familia);
+  });
+  assert.equal(maintenanceCostTypeFromFamily({family:"Camioneta pickup"}),"CAMIONETAS");
+  assert.equal(isMaintenanceCostTruck({family:"Camioneta pickup"}),false);
+  assert.equal(isMaintenanceCostTruck({family:"Equipo camión auxiliar"}),false);
 });
 
 test("RPC y ROD se reconocen como rodillos y conservan la unificación -JM", () => {
@@ -224,6 +256,31 @@ test("el filtro CAMIONES incluye CAC0048 por código", () => {
   assert.deepEqual(result.monthly.map(row=>canonicalEquipmentCode(row.equipo)),["CAC0048"]);
 });
 
+test("los filtros del motor respetan Familia antes que el código", () => {
+  resetInformeCostosEngine();
+  handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
+    historicalRows:[],
+    dynamicMonthly:[
+      {maquina:"CAT",proyecto:"FILO DEL SOL",mes:"2026-06",costo:25},
+      {maquina:"CAT-0073",proyecto:"FILO DEL SOL",mes:"2026-06",costo:50},
+      {maquina:"CTA-0848",proyecto:"FILO DEL SOL",mes:"2026-06",costo:75},
+    ],
+    dynamicMO:[],
+    meta:{
+      CAT:{display:"CAT",tipo:"OTROS",familia:"GENERADOR"},
+      "CAT-0073":{display:"CAT-0073",tipo:"CAMIONES",familia:"CAMION TRACTOR"},
+      "CTA-0848":{display:"CTA-0848",tipo:"CAMIONETAS",familia:"CAMIONETA PICKUP"},
+    },
+  });
+  const query=filters=>handleInformeCostosCommand("QUERY_COST_MONTHLY",{
+    months:[{key:"2026-06"}],monthsAccum:[{key:"2026-06"}],rates:{"2026-06":1},baseRate:1,
+    filters,filtersMO:filters,
+  });
+  assert.deepEqual(query({tipo:["CAMIONES"]}).monthly.map(row=>row.equipo),["CAT-0073"]);
+  assert.deepEqual(query({tipo:["CAMIONETAS"]}).monthly.map(row=>row.equipo),["CTA-0848"]);
+  assert.deepEqual(query({tipo:["MAQUINAS"]}).monthly.map(row=>row.equipo),["CAT"]);
+});
+
 test("el motor acumula todos los datos CFN0101 dentro de PCA0101", () => {
   resetInformeCostosEngine();
   handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
@@ -304,6 +361,36 @@ test("un equipo vigente conserva 2025 desde la app y evita duplicar el históric
   assert.equal(result.monthly[0].months["2025-08"].total,20);
   assert.equal(result.monthly[0].months["2025-09"].total,40);
   assert.equal(result.monthly[0].total,70);
+});
+
+test("el motor vuelca preventivos y correctivos históricos al interno actual", () => {
+  resetInformeCostosEngine();
+  handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
+    historicalRows:[
+      {equipo:"EXC-0019",section:"FS",months:{"2026-01":{prev:12,corr:34,total:46}}},
+    ],
+    dynamicMonthly:[
+      {maquina:"EXC-0048",proyecto:"FILO DEL SOL",mes:"2026-04",costo:10},
+    ],
+    dynamicMO:[],
+    meta:{"EXC-0048":{display:"EXC-0048",tipo:"EXCAVADORA",familia:"EXCAVADORA"}},
+  });
+  const result=handleInformeCostosCommand("QUERY_COST_MONTHLY",{
+    months:[{key:"2026-01"},{key:"2026-04"}],fixedMonths:[{key:"2026-01"}],
+    monthsAccum:[{key:"2026-04"}],rates:{"2026-04":1},baseRate:1,
+    filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
+  });
+  assert.deepEqual(result.monthly.map(row=>row.equipo),["EXC-0048"]);
+  assert.deepEqual(result.monthly[0].months["2026-01"],{prev:12,corr:34,total:46});
+});
+
+test("TOTAL 2025 suma los valores mensuales redondeados mostrados", () => {
+  const months=["2025-09","2025-10","2025-11","2025-12"].map(key=>({key}));
+  const rowMonths={
+    "2025-09":{total:707.0002898550724},"2025-10":{total:167.9630797101449},
+    "2025-11":{total:138.43582068965517},"2025-12":{total:34.20503496503497},
+  };
+  assert.equal(sumRoundedMonthlyTotals(months,rowMonths),1047);
 });
 
 test("TOTAL 2025 considera todos los meses disponibles en la app", () => {

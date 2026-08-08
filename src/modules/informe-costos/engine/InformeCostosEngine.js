@@ -37,11 +37,11 @@ function matchMulti(value,filter){
   if(isAll(filter))return true;
   return selected(filter).includes(norm(value));
 }
-function isMachineType(value,code=""){
-  return isMaintenanceCostMachine({code,type:value});
+function isMachineType(value,code="",family=""){
+  return isMaintenanceCostMachine({code,type:value,family});
 }
-function isTruckType(value,code=""){
-  return isMaintenanceCostTruck({code,type:value});
+function isTruckType(value,code="",family=""){
+  return isMaintenanceCostTruck({code,type:value,family});
 }
 
 function isIncludedCostRow(row){
@@ -79,9 +79,10 @@ function processAmortizationRows(payload){
     if(!isAll(filters.tipo)){
       const tipo=norm(row.tipo);
       const metaTipo=norm(row.metaTipo);
+      const metaFamilia=norm(row.metaFamilia);
       const matches=tipoSelections.includes(tipo)||tipoSelections.includes(metaTipo)||
-        (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row.equipo)||isMachineType(metaTipo,row.equipo)))||
-        (tipoSelections.includes("CAMIONES")&&(isTruckType(tipo,row.equipo)||isTruckType(metaTipo,row.equipo)));
+        (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row.equipo,metaFamilia)||isMachineType(metaTipo,row.equipo,metaFamilia)))||
+        (tipoSelections.includes("CAMIONES")&&(isTruckType(tipo,row.equipo,metaFamilia)||isTruckType(metaTipo,row.equipo,metaFamilia)));
       if(!matches)continue;
     }
     const vidaLM=Number(row.vidaListaMaestra||row.vidaBase||row.vida||8000);
@@ -159,7 +160,8 @@ function matchesFilters(row,filters={}){
   if(!isAll(filters.tipo)){
     const sels=arrayFilter(filters.tipo).map(norm);
     const tipo=norm(meta.tipo);
-    if(!(sels.includes(tipo)||(sels.includes('MAQUINAS')&&isMachineType(tipo,rowCode))||(sels.includes('CAMIONES')&&isTruckType(tipo,rowCode))))return false;
+    const familia=norm(meta.familia||meta.family);
+    if(!(sels.includes(tipo)||(sels.includes('MAQUINAS')&&isMachineType(tipo,rowCode,familia))||(sels.includes('CAMIONES')&&isTruckType(tipo,rowCode,familia))))return false;
   }
   return true;
 }
@@ -286,6 +288,8 @@ function averageMonthlyTotal(row,months){
 }
 function isPickupMeta(code,meta={}){
   const tipo=norm(meta.tipo||meta.metaTipo||"");
+  const familia=norm(meta.familia||meta.metaFamilia||"");
+  if(familia)return familia.split(" ")[0]==="CAMIONETA";
   const raw=norm(code).replace(/\s+/g,"");
   const display=norm(meta.display||"").replace(/\s+/g,"");
   return tipo.includes("CAMIONETA")||/^CTA/.test(raw)||/^CTA/.test(display)||/^AG-?\d/.test(raw)||/^AH-?\d/.test(raw)||/^AG-?\d/.test(display)||/^AH-?\d/.test(display);
