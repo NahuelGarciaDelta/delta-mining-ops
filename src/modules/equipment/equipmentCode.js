@@ -25,16 +25,16 @@ export function sameEquipmentCode(a, b) {
   return Boolean(aa && bb && aa === bb);
 }
 
-const GLOBALLY_EXCLUDED_EQUIPMENT_CODES = new Set(["CFN0101"]);
 const MAINTENANCE_COST_EXCLUDED_CODES = new Set(["CFN01010"]);
 
-export function isGloballyExcludedEquipmentCode(value) {
-  return GLOBALLY_EXCLUDED_EQUIPMENT_CODES.has(canonicalEquipmentCode(value));
+export function resolveEquipmentCodeAlias(value) {
+  if (canonicalEquipmentCode(value) === "CFN0101") return "PCA-0101";
+  return String(value ?? "").trim();
 }
 
 export function isExcludedFromMaintenanceCostReport(value) {
   const code = canonicalEquipmentCode(value);
-  return GLOBALLY_EXCLUDED_EQUIPMENT_CODES.has(code) || MAINTENANCE_COST_EXCLUDED_CODES.has(code);
+  return MAINTENANCE_COST_EXCLUDED_CODES.has(code);
 }
 
 export function isCompactorEquipmentCode(value) {

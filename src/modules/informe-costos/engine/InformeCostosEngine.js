@@ -1,5 +1,5 @@
 import { getCostoHorarioAmortizacionOAlquiler } from "../utils/amortizationCost.js";
-import { canonicalEquipmentCode, isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine, isMaintenanceCostTruck } from "../../equipment/equipmentCode.js";
+import { canonicalEquipmentCode, isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine, isMaintenanceCostTruck, resolveEquipmentCodeAlias } from "../../equipment/equipmentCode.js";
 import { buildVisibleCategoryRowSpans } from "../utils/categoryRowSpan.js";
 const norm=(v)=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
 
@@ -166,17 +166,29 @@ function matchesFilters(row,filters={}){
 function prepareCostRows(rows){
   return (Array.isArray(rows)?rows:[]).filter(isIncludedCostRow).map(row=>{
     const rawCode=String(row.maquina||row.equipo||"");
+    const resolvedCode=resolveEquipmentCodeAlias(rawCode);
     const section=row.section||((norm(row.proyecto).includes("JOSE")||norm(row.proyecto).includes("JM"))?"JM":"FS");
-    return {...row,_canonicalCode:canonicalEquipmentCode(rawCode),section};
+    return {
+      ...row,
+      ...(row.maquina!=null?{maquina:resolvedCode}:{equipo:resolvedCode}),
+      _canonicalCode:canonicalEquipmentCode(resolvedCode),section
+    };
   });
 }
 function initCostMonthlyEngine(payload){
   costEngine.historicalRows=prepareCostRows(payload.historicalRows);
   costEngine.dynamicMonthly=prepareCostRows(payload.dynamicMonthly);
   costEngine.dynamicMO=prepareCostRows(payload.dynamicMO);
-  costEngine.meta=payload.meta||{};
+  costEngine.meta={};
   costEngine.metaCanonical=new Map();
-  Object.entries(costEngine.meta).forEach(([code,meta])=>{const key=canonicalEquipmentCode(code);if(key&&!costEngine.metaCanonical.has(key))costEngine.metaCanonical.set(key,meta);});
+  Object.entries(payload.meta||{}).forEach(([code,meta])=>{
+    const resolvedCode=resolveEquipmentCodeAlias(code);
+    const normalizedMeta={...meta,display:resolveEquipmentCodeAlias(meta?.display||resolvedCode)};
+    costEngine.meta[code]=normalizedMeta;
+    costEngine.meta[resolvedCode]=normalizedMeta;
+    const key=canonicalEquipmentCode(resolvedCode);
+    if(key&&!costEngine.metaCanonical.has(key))costEngine.metaCanonical.set(key,normalizedMeta);
+  });
   costEngine.queryCache.clear();
   return {ready:true,counts:{historical:costEngine.historicalRows.length,monthly:costEngine.dynamicMonthly.length,mo:costEngine.dynamicMO.length}};
 }

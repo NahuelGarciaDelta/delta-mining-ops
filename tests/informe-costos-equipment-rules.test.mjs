@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   canonicalEquipmentCode,
-  isGloballyExcludedEquipmentCode,
+  resolveEquipmentCodeAlias,
   isCompactorEquipmentCode,
   isCompactorEquipment,
   isExcludedFromMaintenanceCostReport,
@@ -23,12 +23,12 @@ test("CFN01010 y sus variantes quedan excluidos por la clave canónica", () => {
   assert.equal(isExcludedFromMaintenanceCostReport("CFN-01011"), false);
 });
 
-test("CFN0101 queda excluido globalmente sin excluir PCA0101", () => {
+test("CFN0101 y sus variantes se resuelven globalmente como PCA0101", () => {
   ["CFN0101","CFN-0101","CFN 0101","cfn-0101-jm"].forEach(code=>{
-    assert.equal(isGloballyExcludedEquipmentCode(code),true,code);
-    assert.equal(isExcludedFromMaintenanceCostReport(code),true,code);
+    assert.equal(resolveEquipmentCodeAlias(code),"PCA-0101",code);
+    assert.equal(isExcludedFromMaintenanceCostReport(code),false,code);
   });
-  assert.equal(isGloballyExcludedEquipmentCode("PCA-0101"),false);
+  assert.equal(resolveEquipmentCodeAlias("PCA-0101"),"PCA-0101");
 });
 
 test("CAC0048 se reconoce como camión por código aunque el tipo esté incompleto", () => {
@@ -205,18 +205,16 @@ test("el universo de Mano de Obra usa Costo mensual aunque no haya registro MO",
   assert.equal(labor.rows.every(row=>row.total===0),true);
 });
 
-test("el filtro CAMIONES incluye CAC0048 por código y elimina CFN0101", () => {
+test("el filtro CAMIONES incluye CAC0048 por código", () => {
   resetInformeCostosEngine();
   handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
     historicalRows:[],
     dynamicMonthly:[
       {maquina:"CAC0048",proyecto:"FILO DEL SOL",mes:"2026-06",costo:75},
-      {maquina:"CFN-0101",proyecto:"FILO DEL SOL",mes:"2026-06",costo:999},
     ],
     dynamicMO:[],
     meta:{
       CAC0048:{display:"CAC0048",propiedad:"DELTA",tipo:"OTROS"},
-      "CFN-0101":{display:"CFN-0101",propiedad:"DELTA",tipo:"CARGADORA FRONTAL"},
     },
   });
   const result=handleInformeCostosCommand("QUERY_COST_MONTHLY",{
@@ -224,6 +222,31 @@ test("el filtro CAMIONES incluye CAC0048 por código y elimina CFN0101", () => {
     filters:{tipo:["CAMIONES"]},filtersMO:{tipo:["CAMIONES"]},
   });
   assert.deepEqual(result.monthly.map(row=>canonicalEquipmentCode(row.equipo)),["CAC0048"]);
+});
+
+test("el motor acumula todos los datos CFN0101 dentro de PCA0101", () => {
+  resetInformeCostosEngine();
+  handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
+    historicalRows:[{equipo:"CFN-0101",section:"FS",months:{"2026-03":{total:20}}}],
+    dynamicMonthly:[
+      {maquina:"CFN0101",proyecto:"FILO DEL SOL",mes:"2026-06",costo:30},
+      {maquina:"PCA-0101",proyecto:"FILO DEL SOL",mes:"2026-06",costo:70},
+    ],
+    dynamicMO:[{maquina:"CFN-0101-JM",proyecto:"FILO DEL SOL",mes:"2026-06",costo:15}],
+    meta:{
+      "CFN-0101":{display:"CFN-0101",propiedad:"DELTA",tipo:"CARGADORA FRONTAL"},
+      "PCA-0101":{display:"PCA-0101",propiedad:"DELTA",tipo:"CARGADORA FRONTAL"},
+    },
+  });
+  const result=handleInformeCostosCommand("QUERY_COST_MONTHLY",{
+    months:[{key:"2026-03"},{key:"2026-06"}],fixedMonths:[{key:"2026-03"}],
+    monthsAccum:[{key:"2026-03"},{key:"2026-06"}],rates:{"2026-06":1},baseRate:1,
+    filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
+  });
+  assert.deepEqual(result.monthly.map(row=>row.equipo),["PCA-0101"]);
+  assert.equal(result.monthly[0].total,120);
+  assert.deepEqual(result.monthlyMO.map(row=>row.equipo),["PCA-0101"]);
+  assert.equal(result.monthlyMO[0].total,35);
   assert.equal(result.monthly.some(row=>canonicalEquipmentCode(row.equipo)==="CFN0101"),false);
 });
 

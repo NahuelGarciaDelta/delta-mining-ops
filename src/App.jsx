@@ -26,7 +26,7 @@ import { runRefreshTasks } from "./services/refreshManager.js";
 import { can, getPermissionSnapshot } from "./services/permissionService.js";
 import { APP_BUILD_LABEL } from "./app/version.js";
 import { EquipmentProfileView } from "./modules/equipment/index.js";
-import { isGloballyExcludedEquipmentCode } from "./modules/equipment/equipmentCode.js";
+import { resolveEquipmentCodeAlias } from "./modules/equipment/equipmentCode.js";
 import { Login } from "./modules/auth/index.js";
 import { ViewBienvenida } from "./modules/home/index.js";
 import { dmNormalizeArea } from "./shared/access.js";
@@ -377,7 +377,7 @@ export default function App(){
 
     if(rop05Raw.length){
       buildTareaMap(rop05Raw.map(r=>r.tarea).filter(Boolean));
-      setRop05(rop05Raw.filter(r=>!isGloballyExcludedEquipmentCode(r.maquina)&&dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,tarea:normTarea(r.tarea)})));
+      setRop05(rop05Raw.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),tarea:normTarea(r.tarea)})));
     }else if(src.rop05){
       setRop05([]);
     }
@@ -395,7 +395,7 @@ export default function App(){
     if(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur || src.rop02_zorro){
       const allNames=[...allRop02.map(r=>r.supervisor),...allRop02.map(r=>r.operario),...rop05Raw.map(r=>r.supervisor)].filter(Boolean);
       buildCanonicalMap(allNames);
-      setRop02All(allRop02.filter(r=>!isGloballyExcludedEquipmentCode(r.maquina)&&dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,supervisor:normName(r.supervisor),operario:normName(r.operario)})));
+      setRop02All(allRop02.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),supervisor:normName(r.supervisor),operario:normName(r.operario)})));
     }
 
     const insumosMap={};
@@ -422,14 +422,16 @@ export default function App(){
       setRma15([
         ...rmaFS.map(r=>normalizeRMA15({...r,_proyectoForzado:"FILO DEL SOL"},insumosMap)),
         ...rmaJM.map(r=>normalizeRMA15({...r,_proyectoForzado:"JOSE MARIA"},insumosMap)),
-      ].filter(r=>!isGloballyExcludedEquipmentCode(r.maquina)&&dmProjectMatches(r.proyecto,proyectoUsuario)));
+      ].filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina)})));
     }
 
     if(src.lista_equipos?.ok&&src.lista_equipos.data){
-      setListaEquipos(src.lista_equipos.data.filter(row=>{
-        const principal=getValue(row,["Código Nuevo","Codigo Nuevo","Código Drusila","Codigo Drusila","Interno","INTERNO","Equipo","EQUIPO"]);
-        return !isGloballyExcludedEquipmentCode(principal);
-      }));
+      setListaEquipos(src.lista_equipos.data.map(row=>Object.fromEntries(
+        Object.entries(row||{}).map(([key,value])=>[
+          key,
+          /codigo|código|interno|equipo/i.test(key)?resolveEquipmentCodeAlias(value):value
+        ])
+      )));
     }else if(src.lista_equipos&&!src.lista_equipos.ok){
       errs.push({source:"Lista Maestra de Equipos",...src.lista_equipos.error});
       setListaEquipos([]);
@@ -1042,7 +1044,7 @@ export default function App(){
             {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
                 {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
-                {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={selectedEquipmentCode} onSelectCode={code=>{setSelectedEquipmentCode(code);if(code)sessionStorage.setItem("dm_selected_equipment",code);}}/></ModuleErrorBoundary>}
+                {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}
                 {["dashboard","listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
                   view={view} deps={createOficinaTecnicaDeps(BlockingDataLoader)} dataHydrated={dataHydrated} rawSources={rawSources}
                   sourceHasData={sourceHasData} listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15}

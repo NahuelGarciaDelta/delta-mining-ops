@@ -654,6 +654,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     // reemplazados por los PCA indicados. Se aplican antes de cualquier
     // agrupamiento para consolidar todos los meses en una sola fila.
     const equivalenciasHistoricasForzadas={
+      "CFN-0101":"PCA-0101",
       "CFN-0041":"PCA-0081",
       "CFN-0043":"PCA-0093",
       "CFN-0044":"PCA-0095",

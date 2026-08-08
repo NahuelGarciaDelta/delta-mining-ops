@@ -409,13 +409,14 @@ function cleanMachine(v){
     .replace(/([A-Z]{2,4})-?(\d{4,})/,(_,a,n)=>`${a}-${n}`)
     .replace(/[-_]JM$/,"");
 }
-// Equivalencia interna: CFN/PCA con los mismos 4 números son el mismo equipo.
-// Ej: CFN-0101, PCA-0101, CFN0101 y PCA0101 se cruzan como CFN-0101.
+// Equivalencias internas confirmadas entre códigos históricos y vigentes.
+// CFN-0101 y todas sus variantes se consolidan en el código vigente PCA-0101.
 function canonicalEquivalentMachineCode(code){
   const c=cleanMachine(String(code||"").replace(/\s*\(.*?\)/g,""));
   // Equivalencias históricas confirmadas. Se usa el código vigente como
   // identidad única en todas las tablas, incluida Amortización.
   const equivalencias={
+    "CFN-0101":"PCA-0101",
     "CFN-0041":"PCA-0081",
     "CFN-0043":"PCA-0093",
     "CFN-0044":"PCA-0095",
