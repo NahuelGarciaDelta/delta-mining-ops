@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
+import { updateAuthenticatedUser } from "../services/authSession.js";
 
 export default function UserSettingsModal({open,forced=false,onClose,onSaved,APPS_SCRIPT_URL,C,Spinner,Icon,permissionSnapshot={}}){
   const [nombre,setNombre]=useState(()=>String(sessionStorage.getItem("dm_name")||""));
@@ -49,6 +50,7 @@ export default function UserSettingsModal({open,forced=false,onClose,onSaved,APP
       if(!json?.ok)throw new Error(json?.error?.message||"No se pudo guardar la configuración.");
       sessionStorage.setItem("dm_name",json.user?.nombre||nombre.trim());
       sessionStorage.setItem("dm_area",json.user?.area||area);
+      updateAuthenticatedUser({nombre:json.user?.nombre||nombre.trim(),area:json.user?.area||area});
       sessionStorage.setItem("dm_must_change_password","0");
       onSaved?.(json.user||{});
     }catch(err){setError(err.message||"No se pudo guardar la configuración.");}

@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { C, multiIsAll } from "../../components/ui/index.jsx";
 import { appAlert } from "../../services/dialogService.js";
 import { LOGIN_BACKGROUND_URL } from "../../config/assets.js";
+import { cleanEquipmentCode } from "../../modules/equipment/equipmentCode.js";
 
 const IMG_LOGIN_FONDO=LOGIN_BACKGROUND_URL;
 

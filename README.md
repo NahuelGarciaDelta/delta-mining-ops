@@ -11,7 +11,7 @@ Aplicación web React/Vite conectada a Google Sheets mediante Google Apps Script
 - `src/services/`: API de Apps Script, caché, diálogos y escrituras.
 - `src/config/`: configuración y dependencias de módulos.
 - `src/workers/`: cálculos pesados del Informe de Costos.
-- `backend/AppsScript.gs`: backend que debe copiarse al proyecto de Google Apps Script.
+- `AppsScript_Delta_Mining_OPS_FINAL.txt`: único backend vigente; debe copiarse completo al proyecto de Google Apps Script. Las menciones a `backend/AppsScript.gs` dentro de `docs/history` son exclusivamente históricas y no deben usarse para desplegar.
 
 ## Ejecutar localmente
 

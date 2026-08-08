@@ -3238,7 +3238,6 @@ function ViewCostosMant({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}
 
       {costosRenderTab==="t7"&&(()=>{
         // Top 3 insumos más caros por equipo, separados en correctivo y preventivo
-        const top3Data=React.useMemo?null:(()=>{})(); // computed inline below
         const byEquipo={};
         (rma15Filtrado||[]).forEach(r=>{
           const eq=metaEquipoCosto(r.maquina).display;

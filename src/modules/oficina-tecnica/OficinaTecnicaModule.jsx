@@ -3,6 +3,7 @@ import ReactDOM from "react-dom";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
 import ComparisonStrip from "../../components/ComparisonStrip.jsx";
+import {WeatherSummary} from "../weather/WeatherModule.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
@@ -1132,6 +1133,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:16}}>
+      <WeatherSummary onOpen={()=>{sessionStorage.setItem("dm_home_requested_view","weather");window.dispatchEvent(new CustomEvent("dm-open-weather"));}}/>
       {/* Selector de dashboard */}
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         <TabBtn active={dashSt?.dashTab!=="rop05"&&dashSt?.dashTab!=="rma15"} onClick={()=>setDashSt(s=>({...s,dashTab:"rop02"}))}>ROP02 — Partes Diarios</TabBtn>

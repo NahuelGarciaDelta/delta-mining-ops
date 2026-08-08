@@ -20,6 +20,14 @@ export const STYLES=`
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Inter',sans-serif;background:${C.bg};color:${C.text};-webkit-font-smoothing:antialiased;background-image:url('/img/embedded/ui-background-b80067ac.jpg');background-size:cover;background-position:center;background-attachment:fixed;background-repeat:no-repeat;}
+  html,body,#root{width:100%;min-width:0;min-height:100%;overflow-x:hidden}
+  img,svg,canvas{max-width:100%}
+  .dm-app-content>*{min-width:0}
+  .dm-table-scroll{width:100%;max-width:100%;overflow:auto;overscroll-behavior:contain}
+  [role="dialog"]>div{max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto}
+  input,select,textarea,button{max-width:100%}
+  @media(max-width:900px){.dm-app-shell{min-width:0}.dm-app-sidebar{width:64px!important;flex-basis:64px}.dm-app-sidebar>div:first-child{padding-inline:0!important;justify-content:center!important}.dm-app-sidebar>div:first-child>div{display:none!important}.dm-app-sidebar nav button{justify-content:center!important;padding-inline:0!important}.dm-app-sidebar nav button span{display:none!important}.dm-app-sidebar>div:last-child{padding-inline:6px!important}.dm-app-sidebar>div:last-child span,.dm-app-sidebar>div:last-child>div{display:none!important}.dm-app-content{min-width:0}.dm-app-content>div:first-child{height:auto!important;min-height:50px;flex-wrap:wrap;gap:6px;padding:7px 10px!important}.dm-app-content>div:first-child>div{min-width:0;flex-wrap:wrap}.dm-app-content>div:first-child>div:last-child{gap:6px!important;justify-content:flex-end}.dm-app-content>div:first-child>div:last-child>div{display:none!important}}
+  @media(max-width:640px){.dm-app-shell{height:100dvh}.dm-app-sidebar{width:54px!important;flex-basis:54px}.dm-app-content>div:last-child{padding:10px!important}.dm-app-content h1{max-width:48vw;overflow:hidden;text-overflow:ellipsis}.dm-app-content>div:first-child>div:last-child>span:not(:last-of-type){display:none!important}.dm-table-scroll{scrollbar-width:thin}.dm-table-scroll table{font-size:11px!important}.dm-table-scroll th,.dm-table-scroll td{padding-block:7px!important}}
   ::-webkit-scrollbar{width:12px;height:12px}
   ::-webkit-scrollbar-track{background:${C.surface}}
   ::-webkit-scrollbar-thumb{background:#4a4a4a;border-radius:6px;border:2px solid ${C.surface}}

@@ -162,6 +162,11 @@ function doGet(e) {
     if (action === "usuarios" || action === "users" || action === "auth_users") return buildResponse(handleUsuariosAutorizados_());
     if (action === "mantenimiento_programado" || action === "pm_programado") return buildResponse(handleGetMantenimientoProgramado_());
     if (action === "estados_solicitudes") return buildResponse(handleGetEstadosSolicitudes_());
+    if (action === "stock_excel_status") return buildResponse(handleStockExcelStatus_());
+    if (action === "stock_excel_data") return buildResponse(handleStockExcelData_());
+    if (action === "get_stock_active" || action === "stock_active") {
+      return buildResponse(handleGetStockActive_(p));
+    }
     if (action === "licitaciones_compartidas" || action === "cargar_licitaciones") {
       return buildResponse(handleGetLicitacionesCompartidas_());
     }
@@ -232,6 +237,18 @@ function doPost(e) {
     }
 
     var action = String(payload.action || "").toLowerCase().trim();
+
+    if (action === "stock_excel_upload" || action === "stock_excel_replace") {
+      return buildResponse(handleStockExcelUpload_(payload));
+    }
+
+    if (action === "stock_excel_clear") {
+      return buildResponse(handleStockExcelClear_(payload));
+    }
+
+    if (action === "upload_stock") {
+      return buildResponse(handleUploadStock_(payload));
+    }
 
     if (action === "add_lista_equipo") {
       return buildResponse(handleAddListaEquipo_(payload.row || {}));
@@ -1039,7 +1056,7 @@ function handleAuthenticateUser_(email,password){
   var expected=stored||"DELTA.MINING.APP";
   if(String(password||"")!==expected)return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
   var user={email:String(row[info.emailIdx]||"").trim().toLowerCase(),rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),nombre:String(row[info.nombreIdx]||"").trim(),area:String(row[info.areaIdx]||"").trim()};
-  return {ok:true,user:user,mustChangePassword:!stored};
+  return {ok:true,user:user,mustChangePassword:!stored,authToken:stockExcelIssueAuthToken_(user.email)};
 }
 
 function handleUpdateUserProfile_(payload){
@@ -4282,3 +4299,33 @@ function handleSavePMRepuesto_(r) {
   var row=pmUpsertGeneric_(db.PM_REPUESTOS,id,r,{"ID":function(){return id;},"CODIGO":function(x){return x.codigo||"";},"DESCRIPCION":function(x){return x.descripcion||"";},"TIPO_PM":function(x){return x.tipoPM||"PM 250";},"CANTIDAD_MINIMA":function(x){return Number(x.cantidadMinima||0);},"STOCK_ACTUAL":function(x){return Number(x.stockActual||0);},"PROYECTO":function(x){return x.proyecto||"TODOS";},"OBSERVACIONES":function(x){return x.observaciones||"";}});
   SpreadsheetApp.flush(); return {ok:true,id:id,rowNumber:row,message:"Repuesto PM guardado."};
 }
+
+/*******************************************************
+ * DASHBOARD STOCK COMPARTIDO - GOOGLE SHEETS
+ * Base: raba03 / STOCK CRITICO / STOCK_META
+ *******************************************************/
+var STOCK_EXCEL_DATA_HEADERS_=["ID","CODIGO_ARTICULO","DESCRIPCION","DESCRIPCION_ADICIONAL","DESCRIPCION_DEPOSITO","CONTROL_STOCK","SALDO_CONTROL_STOCK","STOCK_MAXIMO","STOCK_MINIMO"];
+var STOCK_EXCEL_META_HEADERS_=["VERSION","ACTIVE_SHEET","FILE_NAME","SOURCE_SHEET","ROW_COUNT","UPDATED_AT","UPDATED_BY","VALID_ROWS","REJECTED_ROWS","DUPLICATE_CODES"];
+var STOCK_HISTORY_HEADERS_=["VERSION","FILE_NAME","SOURCE_SHEET","ROW_COUNT","UPDATED_BY","UPDATED_AT","REJECTED_ROWS","DUPLICATE_CODES","RESULT"];
+var STOCK_MAIN_SHEET_="STOCK CRITICO",STOCK_TEMP_SHEET_="STOCK_TEMP",STOCK_HISTORY_SHEET_="STOCK_HISTORIAL";
+function stockExcelNorm_(v){return String(v||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();}
+function stockExcelDb_(){return SpreadsheetApp.openById("1CYXvmXk7XknGWq4TUJyTAaXz_TH1JOWcl2Zm7XurFTI");}
+function stockExcelSheet_(name,headers){var ss=stockExcelDb_(),sheet=ss.getSheetByName(name)||ss.insertSheet(name);if(sheet.getLastRow()<1)sheet.getRange(1,1,1,headers.length).setValues([headers]).setFontWeight("bold");sheet.setFrozenRows(1);return sheet;}
+function stockExcelMetaSheet_(){return stockExcelSheet_("STOCK_META",STOCK_EXCEL_META_HEADERS_);}
+function stockExcelReadMeta_(){var sheet=stockExcelMetaSheet_();if(sheet.getLastRow()<2)return{version:0,active:false};var oldHeaders=sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0].map(String),row=sheet.getRange(2,1,1,oldHeaders.length).getDisplayValues()[0],map={};oldHeaders.forEach(function(h,i){map[stockExcelNorm_(h)]=row[i];});return{version:Number(map.version||0),active:String(map.active_sheet||"")==STOCK_MAIN_SHEET_,activeSheet:map.active_sheet||"",fileName:map.file_name||"",sourceSheet:map.source_sheet||"",rowCount:Number(map.row_count||0),updatedAt:map.updated_at||"",updatedBy:map.updated_by||"",validRows:Number(map.valid_rows||map.row_count||0),rejectedRows:Number(map.rejected_rows||0),duplicateCodes:Number(map.duplicate_codes||0)};}
+function stockExcelWriteMeta_(meta){var sheet=stockExcelMetaSheet_();sheet.clearContents();sheet.getRange(1,1,1,STOCK_EXCEL_META_HEADERS_.length).setValues([STOCK_EXCEL_META_HEADERS_]).setFontWeight("bold");sheet.getRange(2,1,1,STOCK_EXCEL_META_HEADERS_.length).setValues([[Number(meta.version||0),meta.activeSheet||"",meta.fileName||"",meta.sourceSheet||"",Number(meta.rowCount||0),meta.updatedAt||new Date().toISOString(),meta.updatedBy||"",Number(meta.validRows||0),Number(meta.rejectedRows||0),Number(meta.duplicateCodes||0)]]);sheet.setFrozenRows(1);SpreadsheetApp.flush();}
+function stockExcelHistory_(meta,result){var sheet=stockExcelSheet_(STOCK_HISTORY_SHEET_,STOCK_HISTORY_HEADERS_);sheet.appendRow([Number(meta.version||0),meta.fileName||"",meta.sourceSheet||"",Number(meta.rowCount||0),meta.updatedBy||"",meta.updatedAt||new Date().toISOString(),Number(meta.rejectedRows||0),Number(meta.duplicateCodes||0),result]);}
+function stockExcelUser_(email){var wanted=String(email||"").trim().toLowerCase();if(!wanted)return null;var info=getUsuariosSheetInfo_(),rowNum=findUsuarioRowByEmail_(info,wanted);if(rowNum<0)return null;var row=info.sheet.getRange(rowNum,1,1,info.headers.length).getDisplayValues()[0];if(!usuarioActivoValor_(row[info.activoIdx]))return null;return{email:wanted,role:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),area:stockExcelNorm_(row[info.areaIdx]||"").toUpperCase()};}
+function stockExcelAuthorize_(payload,adminOnly){var actor=payload&&payload.actor||{},email=stockExcelVerifyAuthToken_(actor.token);if(!email||email!==String(actor.email||"").trim().toLowerCase())throw new Error("La sesión no es válida o expiró. Volvé a iniciar sesión.");var user=stockExcelUser_(email);if(!user)throw new Error("Usuario no autorizado para modificar Stock.");var admin=user.role==="ADMIN"||user.role==="ADMINISTRADOR";if(adminOnly&&!admin)throw new Error("Solo un administrador puede eliminar el Stock compartido.");if(!admin&&["ABASTECIMIENTO","OFICINA TECNICA"].indexOf(user.area)<0)throw new Error("Tu perfil no tiene permisos de edición en Abastecimiento.");return user;}
+function stockExcelAuthSecret_(){var props=PropertiesService.getScriptProperties(),secret=props.getProperty("APP_AUTH_TOKEN_SECRET");if(!secret){secret=Utilities.getUuid()+Utilities.getUuid();props.setProperty("APP_AUTH_TOKEN_SECRET",secret);}return secret;}
+function stockExcelIssueAuthToken_(email){var body=Utilities.base64EncodeWebSafe(JSON.stringify({email:String(email||"").trim().toLowerCase(),exp:new Date().getTime()+43200000}),Utilities.Charset.UTF_8).replace(/=+$/g,""),sig=Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(body,stockExcelAuthSecret_())).replace(/=+$/g,"");return body+"."+sig;}
+function stockExcelVerifyAuthToken_(token){try{var parts=String(token||"").split(".");if(parts.length!==2)return"";var expected=Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(parts[0],stockExcelAuthSecret_())).replace(/=+$/g,"");if(expected!==parts[1])return"";var data=JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());return Number(data.exp||0)>=new Date().getTime()?String(data.email||"").trim().toLowerCase():"";}catch(e){return"";}}
+function stockExcelText_(v){var text=String(v==null?"":v);return/^[=+\-@]/.test(text)?"'"+text:text;}
+function stockExcelValidateRows_(rows){if(!Array.isArray(rows)||!rows.length)throw new Error("El Excel no contiene filas válidas.");if(rows.length>50000)throw new Error("El Excel supera el máximo de 50.000 filas.");var seen={},duplicates=0,invalid=0,deposits={"DEPOSITO CENTRAL":1,"DEPOSITO BATIDERO":1,"DEPOSITO FILO DEL SOL":1},matrix=[];rows.forEach(function(r,i){var code=String(r.codigoArticulo||"").trim(),dep=String(r.descripcionDeposito||"").trim().toUpperCase(),nums=[r.saldoControlStock,r.stockMaximo,r.stockMinimo].map(Number);if(!code)throw new Error("Existe una fila con código vacío.");if(seen[code.toUpperCase()]){duplicates++;throw new Error("Existen códigos duplicados en las filas recibidas.");}seen[code.toUpperCase()]=1;if(!deposits[dep])throw new Error("Depósito no reconocido: "+dep);if(!nums.every(function(n){return isFinite(n);})) {invalid++;throw new Error("Existe un valor numérico inválido.");}if(nums[2]>nums[1])throw new Error("STOCK_MINIMO no puede superar STOCK_MAXIMO.");matrix.push(["stock-"+(i+1),stockExcelText_(code),stockExcelText_(r.descripcion),stockExcelText_(r.descripcionAdicional),stockExcelText_(dep),stockExcelText_(r.controlStock),nums[0],nums[1],nums[2]]);});return{matrix:matrix,duplicates:duplicates,invalid:invalid};}
+function stockExcelRowsFromSheet_(sheet){if(!sheet||sheet.getLastRow()<2)return[];return sheet.getRange(2,1,sheet.getLastRow()-1,STOCK_EXCEL_DATA_HEADERS_.length).getValues().map(function(r){return{id:r[0],codigoArticulo:r[1],descripcion:r[2],descripcionAdicional:r[3],descripcionDeposito:r[4],controlStock:r[5],saldoControlStock:Number(r[6]||0),stockMaximo:Number(r[7]||0),stockMinimo:Number(r[8]||0)};});}
+function handleStockExcelStatus_(){return handleStockExcelData_();}
+function handleStockExcelData_(){var meta=stockExcelReadMeta_(),sheet=stockExcelDb_().getSheetByName(STOCK_MAIN_SHEET_);return{ok:true,meta:meta,rows:meta.active&&sheet?stockExcelRowsFromSheet_(sheet):[]};}
+function handleGetStockActive_(){return handleStockExcelData_();}
+function handleUploadStock_(payload){return handleStockExcelUpload_(payload);}
+function handleStockExcelUpload_(payload){var lock=LockService.getScriptLock();if(!lock.tryLock(30000))throw new Error("Hay otra carga de Stock en curso. Intentá nuevamente.");var oldMeta=stockExcelReadMeta_(),user=null,backup=null,temp=null;try{user=stockExcelAuthorize_(payload,false);var name=String(payload.fileName||"").trim();if(!/\.(xlsx|xls)$/i.test(name))throw new Error("Solo se admiten archivos .xlsx o .xls.");var checked=stockExcelValidateRows_(payload.rows),ss=stockExcelDb_();temp=ss.getSheetByName(STOCK_TEMP_SHEET_)||ss.insertSheet(STOCK_TEMP_SHEET_);temp.clearContents();temp.getRange(1,1,1,STOCK_EXCEL_DATA_HEADERS_.length).setValues([STOCK_EXCEL_DATA_HEADERS_]).setFontWeight("bold");temp.getRange(2,1,checked.matrix.length,checked.matrix[0].length).setValues(checked.matrix);temp.setFrozenRows(1);SpreadsheetApp.flush();if(temp.getLastRow()-1!==checked.matrix.length)throw new Error("La cantidad escrita no coincide con las filas recibidas.");var main=ss.getSheetByName(STOCK_MAIN_SHEET_);if(main){backup=main;backup.setName("STOCK CRITICO BACKUP "+new Date().getTime());}temp.setName(STOCK_MAIN_SHEET_);var meta={version:Number(oldMeta.version||0)+1,activeSheet:STOCK_MAIN_SHEET_,fileName:name,sourceSheet:String(payload.sheetName||""),rowCount:checked.matrix.length,updatedAt:new Date().toISOString(),updatedBy:user.email,validRows:checked.matrix.length,rejectedRows:0,duplicateCodes:checked.duplicates};stockExcelWriteMeta_(meta);stockExcelHistory_(meta,"OK");if(backup)ss.deleteSheet(backup);stockExcelSheet_(STOCK_TEMP_SHEET_,STOCK_EXCEL_DATA_HEADERS_).clearContents();stockExcelSheet_(STOCK_TEMP_SHEET_,STOCK_EXCEL_DATA_HEADERS_);return{ok:true,meta:meta,rows:stockExcelRowsFromSheet_(ss.getSheetByName(STOCK_MAIN_SHEET_))};}catch(error){try{var rollbackSs=stockExcelDb_();if(backup){var currentMain=rollbackSs.getSheetByName(STOCK_MAIN_SHEET_);if(currentMain&&currentMain!==backup)currentMain.setName(STOCK_TEMP_SHEET_);backup.setName(STOCK_MAIN_SHEET_);}}catch(rollbackError){}try{stockExcelHistory_({version:Number(oldMeta.version||0)+1,fileName:payload.fileName||"",sourceSheet:payload.sheetName||"",rowCount:Array.isArray(payload.rows)?payload.rows.length:0,updatedBy:user?user.email:"",updatedAt:new Date().toISOString(),rejectedRows:0,duplicateCodes:0},"ERROR: "+error.message);}catch(historyError){}throw error;}finally{try{lock.releaseLock();}catch(e){}}}
+function handleStockExcelClear_(payload){var lock=LockService.getScriptLock();if(!lock.tryLock(30000))throw new Error("Hay otra operación de Stock en curso. Intentá nuevamente.");try{var user=stockExcelAuthorize_(payload,true),old=stockExcelReadMeta_(),sheet=stockExcelSheet_(STOCK_MAIN_SHEET_,STOCK_EXCEL_DATA_HEADERS_);sheet.clearContents();sheet.getRange(1,1,1,STOCK_EXCEL_DATA_HEADERS_.length).setValues([STOCK_EXCEL_DATA_HEADERS_]).setFontWeight("bold");sheet.setFrozenRows(1);var meta={version:Number(old.version||0)+1,activeSheet:"",fileName:"",sourceSheet:"",rowCount:0,updatedAt:new Date().toISOString(),updatedBy:user.email,validRows:0,rejectedRows:0,duplicateCodes:0};stockExcelWriteMeta_(meta);stockExcelHistory_(meta,"CLEARED");return{ok:true,meta:meta,rows:[]};}finally{try{lock.releaseLock();}catch(e){}}}

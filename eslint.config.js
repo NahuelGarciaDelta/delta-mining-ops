@@ -10,9 +10,12 @@ export default [
       parserOptions: { ecmaFeatures: { jsx: true } },
       globals: {
         window: "readonly", document: "readonly", localStorage: "readonly", sessionStorage: "readonly",
-        fetch: "readonly", URL: "readonly", Blob: "readonly", DOMParser: "readonly", navigator: "readonly",
+        fetch: "readonly", URL: "readonly", URLSearchParams: "readonly", Blob: "readonly", DOMParser: "readonly", navigator: "readonly",
         FileReader: "readonly", FormData: "readonly", setTimeout: "readonly", clearTimeout: "readonly",
-        setInterval: "readonly", clearInterval: "readonly", console: "readonly", structuredClone: "readonly"
+        setInterval: "readonly", clearInterval: "readonly", console: "readonly", structuredClone: "readonly",
+        AbortController: "readonly", CustomEvent: "readonly", Event: "readonly", Worker: "readonly",
+        performance: "readonly", requestAnimationFrame: "readonly", cancelAnimationFrame: "readonly",
+        indexedDB: "readonly", self: "readonly", process: "readonly"
       }
     },
     rules: {

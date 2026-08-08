@@ -9,6 +9,7 @@ import UserSettingsModal from "./components/UserSettingsModal.jsx";
 import { APPS_SCRIPT_URL } from "./config/app.js";
 import { VIEW_SOURCES } from "./config/viewSources.js";
 import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcurrency_ } from "./services/appsScriptApi.js";
+import { clearAuthenticatedSession, getAuthenticatedUser } from "./services/authSession.js";
 import { appAlert, appConfirm } from "./services/dialogService.js";
 import { APP_FILTERS_STATE_KEY, readSavedAppFilters, readSavedDataSources, saveDataSourcesToStorage, getCachedSourceTimestamp, mergeIncrementalSource, readCachedSourceRecords, readCachedSource, writeCachedSource } from "./services/appCache.js";
 import { useGlobalThreeStateTableSort } from "./hooks/useGlobalThreeStateTableSort.js";
@@ -163,7 +164,7 @@ export default function App(){
   const savedAppFilters=readSavedAppFilters();
   const savedAppData=readSavedDataSources();
   const savedOr=createSavedFilterReader(savedAppFilters);
-  const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1");
+  const[auth,setAuth]=useState(()=>sessionStorage.getItem("dm_auth")==="1"&&!!(getAuthenticatedUser()?.authToken||getAuthenticatedUser()?.token));
   const[profileRevision,setProfileRevision]=useState(0);
   const[settingsOpen,setSettingsOpen]=useState(false);
   const[forcePasswordChange,setForcePasswordChange]=useState(()=>sessionStorage.getItem("dm_must_change_password")==="1");
@@ -230,6 +231,7 @@ export default function App(){
     window.addEventListener("dm-open-equipment-profile",openProfile);
     return()=>window.removeEventListener("dm-open-equipment-profile",openProfile);
   },[]);
+  useEffect(()=>{const openWeather=()=>{setActiveModule("home");setView("bienvenida");};window.addEventListener("dm-open-weather",openWeather);return()=>window.removeEventListener("dm-open-weather",openWeather);},[]);
 
 
   // Precarga silenciosa desde caché local: al abrir la app, las vistas ya tienen
@@ -877,7 +879,7 @@ export default function App(){
   const showSidebar=view!=="bienvenida";
 
   const cambiarUsuario=useCallback(()=>{
-    ["dm_auth","dm_user","dm_role","dm_project","dm_name","dm_area","dm_must_change_password"].forEach(k=>sessionStorage.removeItem(k));
+    clearAuthenticatedSession();
     setAuth(false);
     setView("bienvenida");
     setActiveModule("home");
@@ -910,9 +912,9 @@ export default function App(){
           </div>
         </div>,document.body
       )}
-      <div style={{display:"flex",height:"100vh",overflow:"hidden",background:"transparent"}}>
+      <div className="dm-app-shell" style={{display:"flex",height:"100dvh",minHeight:0,overflow:"hidden",background:"transparent"}}>
         {showSidebar&&(
-        <div style={{width:SW,flexShrink:0,background:"rgba(22,22,22,0.55)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderRight:`1px solid ${C.border}44`,display:"flex",flexDirection:"column",transition:"width .25s ease",overflow:"hidden",position:"relative"}}>
+        <div className="dm-app-sidebar" style={{width:SW,flexShrink:0,background:"rgba(22,22,22,0.55)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderRight:`1px solid ${C.border}44`,display:"flex",flexDirection:"column",transition:"width .25s ease",overflow:"hidden",position:"relative"}}>
           <div style={{padding:sidebarOpen?"18px 16px 14px":"18px 0 14px",borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",gap:8,justifyContent:sidebarOpen?"flex-start":"center",minHeight:88,transition:"padding .25s ease"}}>
             {sidebarOpen&&(<div style={{display:"flex",alignItems:"center",gap:6}}><img src={LOGO} alt="Delta Mining" style={{height:58,display:"block",padding:"4px 6px",background:"transparent"}}/><div style={{display:"flex",flexDirection:"column",lineHeight:1.1}}><span style={{fontFamily:"Inter",fontWeight:800,fontSize:16,color:C.accent}}>DELTA MINING</span><span style={{fontFamily:"Inter",fontWeight:700,fontSize:16,color:C.accent}}>APP</span></div></div>)}
             <button
@@ -976,7 +978,7 @@ export default function App(){
         </div>
         )}
         {showSidebar&&sidebarTooltip&&!sidebarOpen&&(<div style={{position:"fixed",left:sidebarTooltip.x,top:sidebarTooltip.y,transform:"translateY(-50%)",background:"rgba(18,18,18,.96)",border:`1px solid ${C.border}`,boxShadow:"0 10px 24px rgba(0,0,0,.35)",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none"}}>{sidebarTooltip.label}</div>)}
-        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",transition:"all .25s ease"}}>
+        <div className="dm-app-content" style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",transition:"all .25s ease"}}>
           {showSidebar&&(<div style={{height:50,flexShrink:0,background:"rgba(22,22,22,0.65)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${C.border}44`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
               <h1 style={{fontFamily:"Inter",fontWeight:700,fontSize:14,color:C.text,whiteSpace:"nowrap"}}>{titles[view]}</h1>

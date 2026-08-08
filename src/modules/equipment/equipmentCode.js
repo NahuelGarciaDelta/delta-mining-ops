@@ -15,6 +15,10 @@ export function canonicalEquipmentCode(value) {
     .replace(/[^A-Z0-9]/g, "");
 }
 
+export function normalizeEquipmentMatchKey(value) {
+  return canonicalEquipmentCode(value);
+}
+
 export function sameEquipmentCode(a, b) {
   const aa = canonicalEquipmentCode(a);
   const bb = canonicalEquipmentCode(b);

@@ -1,4 +1,5 @@
 import React from "react";
+import { buildAuthenticatedUser, saveAuthenticatedSession } from "../../services/authSession.js";
 
 export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dmNormalizeAssignedProject}){
   const USUARIOS_FALLBACK=[
@@ -73,15 +74,9 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
         showError(json?.error?.message||"Usuario o contraseña incorrectos");
         return;
       }
-      const autorizado=json.user||{};
-      sessionStorage.setItem("dm_auth","1");
-      sessionStorage.setItem("dm_user",mail);
-      sessionStorage.setItem("dm_role",String(autorizado.rol||"USUARIO").toUpperCase());
-      sessionStorage.setItem("dm_project",dmNormalizeAssignedProject(autorizado.proyecto||"TODO"));
-      sessionStorage.setItem("dm_name",autorizado.nombre||mail.split("@")[0].split(/[._-]+/)[0]||"Usuario");
-      sessionStorage.setItem("dm_area",autorizado.area||"");
-      sessionStorage.setItem("dm_must_change_password",json.mustChangePassword?"1":"0");
-      onLogin();
+      const authenticatedUser=buildAuthenticatedUser(json,mail);
+      saveAuthenticatedSession(authenticatedUser,{mustChangePassword:!!json.mustChangePassword,normalizeProject:dmNormalizeAssignedProject});
+      onLogin(authenticatedUser);
     }catch(err){
       showError("No se pudo validar el acceso. Revisá la conexión.");
     }finally{
@@ -89,58 +84,75 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
     }
   };
 
+  const backgroundImageUrl = IMG_LOGIN_FONDO || "/img/embedded/home-welcome-b80067ac.jpg";
+
   return(
     <div style={{
+      position:"relative",
       minHeight:"100vh",
-      backgroundColor:C.bg,
-      backgroundImage:`linear-gradient(rgba(0,0,0,.62),rgba(0,0,0,.78)),url(${IMG_LOGIN_FONDO})`,
-      backgroundSize:"cover",
-      backgroundPosition:"center",
-      backgroundRepeat:"no-repeat",
-      display:"flex",
-      alignItems:"center",
-      justifyContent:"center",
-      flexDirection:"column",
-      gap:24,
-      paddingTop:70
+      overflow:"hidden",
+      backgroundColor:C.bg
     }}>
-      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
-      <img src={LOGO} alt="Delta Mining" style={{height:80,objectFit:"contain",marginBottom:8}}/>
-      <div style={{fontFamily:"Inter",fontWeight:800,fontSize:22,color:C.accent,letterSpacing:".1em"}}>DELTA MINING APP</div>
       <div style={{
-        background:C.card,border:`1px solid ${error?C.red:C.border}`,borderRadius:14,
-        padding:"32px 36px",display:"flex",flexDirection:"column",gap:16,
-        width:320,boxShadow:`0 8px 32px rgba(0,0,0,.4)`,
-        animation:shake?"shake .4s ease":"none"
+        position:"absolute",
+        inset:0,
+        backgroundImage:`url(${backgroundImageUrl})`,
+        backgroundSize:"cover",
+        backgroundPosition:"center",
+        backgroundRepeat:"no-repeat",
+        filter:"brightness(.78) saturate(.86)"
+      }}/>
+      <div style={{position:"absolute",inset:0,background:"linear-gradient(90deg,rgba(3,12,20,.28) 0 12%,rgba(3,10,17,.22) 27%,rgba(3,10,17,.12) 64%,rgba(3,10,17,.42) 100%)"}}/>
+      <div style={{position:"absolute",inset:0,background:"linear-gradient(0deg,rgba(3,11,18,.94) 0%,rgba(3,11,18,.05) 42%,rgba(3,11,18,.18) 100%)"}}/>
+      <div style={{
+        position:"relative",
+        zIndex:1,
+        minHeight:"100vh",
+        display:"flex",
+        alignItems:"center",
+        justifyContent:"center",
+        flexDirection:"column",
+        gap:24,
+        paddingTop:70
       }}>
-        <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá tu usuario y contraseña para continuar</div>
-        <input
-          type="email"
-          value={usuario}
-          onChange={e=>{setUsuario(e.target.value);setError("");}}
-          onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
-          placeholder="Usuario"
-          style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
-          autoFocus
-        />
-        <input
-          type="password"
-          value={pass}
-          onChange={e=>{setPass(e.target.value);setError("");}}
-          onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
-          placeholder="Contraseña"
-          style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
-        />
-        {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>{error}</div>}
-        <button
-          onClick={handleSubmit}
-          disabled={validando}
-          style={{background:C.accent,border:"none",borderRadius:8,color:"#fff",padding:"10px",fontSize:14,fontWeight:700,fontFamily:"Inter",cursor:validando?"wait":"pointer",letterSpacing:".06em",opacity:validando?.75:1}}
-        >
-          {validando?"VALIDANDO...":"INGRESAR"}
-        </button>
+        <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
+        <img src={LOGO} alt="Delta Mining" style={{height:80,objectFit:"contain",marginBottom:8}}/>
+        <div style={{fontFamily:"Inter",fontWeight:800,fontSize:22,color:C.accent,letterSpacing:".1em"}}>DELTA MINING APP</div>
+        <div style={{
+          background:C.card,border:`1px solid ${error?C.red:C.border}`,borderRadius:14,
+          padding:"32px 36px",display:"flex",flexDirection:"column",gap:16,
+          width:320,boxShadow:`0 8px 32px rgba(0,0,0,.4)`,
+          animation:shake?"shake .4s ease":"none"
+        }}>
+          <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá tu usuario y contraseña para continuar</div>
+          <input
+            type="email"
+            value={usuario}
+            onChange={e=>{setUsuario(e.target.value);setError("");}}
+            onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+            placeholder="Usuario"
+            style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
+            autoFocus
+          />
+          <input
+            type="password"
+            value={pass}
+            onChange={e=>{setPass(e.target.value);setError("");}}
+            onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+            placeholder="Contraseña"
+            style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
+          />
+          {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>{error}</div>}
+          <button
+            onClick={handleSubmit}
+            disabled={validando}
+            style={{background:C.accent,border:"none",borderRadius:8,color:"#fff",padding:"10px",fontSize:14,fontWeight:700,fontFamily:"Inter",cursor:validando?"wait":"pointer",letterSpacing:".06em",opacity:validando?.75:1}}
+          >
+            {validando?"VALIDANDO...":"INGRESAR"}
+          </button>
+        </div>
+        <div style={{fontSize:10,color:C.textMuted}}>Delta Mining OPS — Acceso restringido</div>
       </div>
-      <div style={{fontSize:10,color:C.textMuted}}>Delta Mining OPS — Acceso restringido</div>
     </div>
   );
 }

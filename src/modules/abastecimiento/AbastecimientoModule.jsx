@@ -1,6 +1,9 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import ReactDOM from "react-dom";
+import { clearSharedStock, uploadStockExcel } from "../../services/stockService.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
+import { useSharedStock } from "./stock/useSharedStock.js";
+import { stockValidationSummary, validateStockWorkbook } from "./stock/stockValidation.js";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
 
@@ -30,7 +33,6 @@ const RABA03_EXTRA_COLUMNS = [
 const RABA08_STORAGE_KEY = "dm_raba08_remitos_v1";
 const RABA03_REJECTED_STORAGE_KEY = "dm_raba03_solicitudes_rechazadas_v1";
 const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";
-const STOCK_CONTROL_STORAGE_KEY = "dm_control_stock_excel_v1";
 const STOCK_CONTROL_COLUMNS = [
   {key:"codigoArticulo", label:"Cód. artículo", width:112},
   {key:"descripcion", label:"Descripción", width:245},
@@ -88,14 +90,9 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   const [remitosPendientes,setRemitosPendientes]=useState([]);
   const [remitoSearch,setRemitoSearch]=useState("");
   const [remitoDetalleId,setRemitoDetalleId]=useState(null);
-  const [stockRows,setStockRows]=useState(()=>{
-    try{return JSON.parse(window.localStorage.getItem(STOCK_CONTROL_STORAGE_KEY)||"[]");}
-    catch(_){return [];}
-  });
-  const [stockFileName,setStockFileName]=useState(()=>{
-    try{return window.localStorage.getItem(STOCK_CONTROL_STORAGE_KEY+"_file")||"";}
-    catch(_){return "";}
-  });
+  const stockErrorHandler=useCallback(message=>setError(message),[]);
+  const {rows:stockRows,setRows:setStockRows,meta:stockMeta,setMeta:setStockMeta,loading:stockLoading,setLoading:setStockLoading,phase:stockPhase,setPhase:setStockPhase}=useSharedStock(APPS_SCRIPT_URL,stockErrorHandler);
+  const stockFileName=stockMeta?.fileName||"";
   const STOCK_FILTER_COLUMNS = STOCK_CONTROL_COLUMNS.filter(c=>["codigoArticulo","descripcion","descripcionDeposito"].includes(c.key));
   const [stockFilters,setStockFilters]=useState({codigoArticulo:"todos",descripcion:"todos",descripcionDeposito:"todos"});
   const [stockSort,setStockSort]=useState({key:null,dir:null});
@@ -116,18 +113,12 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   const rawRaba03RowsRef=useRef([]);
   const remitosSharedSignatureRef=useRef("");
   const estadosSharedSignatureRef=useRef("");
+  const canClearSharedStock=["ADMIN","ADMINISTRADOR"].includes(String(sessionStorage.getItem("dm_role")||"").trim().toUpperCase());
 
   useEffect(()=>{
     try{window.localStorage.setItem(RABA08_STORAGE_KEY,JSON.stringify(remitos));}
     catch(_){}
   },[remitos]);
-  useEffect(()=>{
-    try{
-      window.localStorage.setItem(STOCK_CONTROL_STORAGE_KEY,JSON.stringify(stockRows));
-      window.localStorage.setItem(STOCK_CONTROL_STORAGE_KEY+"_file",stockFileName||"");
-    }catch(_){}
-  },[stockRows,stockFileName]);
-
   useEffect(()=>{
     try{window.localStorage.setItem(RABA03_REJECTED_STORAGE_KEY,JSON.stringify(rejectedSolicitudes||{}));}
     catch(_){}
@@ -1756,76 +1747,46 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
 
   const handleStockExcelUpload=useCallback(async(file)=>{
     if(!file)return;
+    if(readOnly){appAlert("No tenés permisos para reemplazar el Stock compartido.");return;}
+    if(!/\.(xlsx|xls)$/i.test(String(file.name||""))){appAlert("Seleccioná un archivo Excel .xlsx o .xls.");return;}
     try{
-      setLoading(true);
+      setStockLoading(true);
+      setStockPhase("Validando Excel…");
       setError(null);
       const buffer=await file.arrayBuffer();
-      const wb=XLSX.read(buffer,{type:"array",cellDates:true});
-      const required=[
-        {key:"codigoArticulo", labels:["cod articulo","codigo articulo","cod artículo","cód articulo","cód artículo"]},
-        {key:"descripcion", labels:["descripcion"]},
-        {key:"descripcionAdicional", labels:["desc adicional","descripcion adicional","descripción adicional"]},
-        {key:"descripcionDeposito", labels:["descripcion deposito","descripción depósito"]},
-        {key:"controlStock", labels:["um control stock","u m control stock","u.m. control stock","u.m control stock","u m. control stock","unidad control stock","unidad medida control stock","control stock"]},
-        {key:"saldoControlStock", labels:["saldo control stock"]},
-        {key:"stockMaximo", labels:["stock maximo","stock máximo"]},
-        {key:"stockMinimo", labels:["stock minimo","stock mínimo"]},
-      ];
-      const cleanHeader=(v)=>norm(String(v||"").replace(/c[oó]d\.?/i,"codigo"));
-      const findHeader=(row)=>{
-        const headers=(row||[]).map(cleanHeader);
-        const map={};
-        for(const col of required){
-          const idx=headers.findIndex(h=>col.labels.includes(h));
-          if(idx<0)return null;
-          map[col.key]=idx;
-        }
-        return map;
-      };
-      let foundRows=[];
-      let headerMap=null;
-      let headerRow=-1;
-      let sheetName="";
-      for(const name of wb.SheetNames){
-        const ws=wb.Sheets[name];
-        const arr=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:true});
-        const idx=arr.findIndex(row=>findHeader(row));
-        if(idx>=0){
-          foundRows=arr;
-          headerMap=findHeader(arr[idx]);
-          headerRow=idx;
-          sheetName=name;
-          break;
-        }
-      }
-      if(!headerMap){
-        throw new Error("No encontré una fila con los encabezados indicados.");
-      }
-      const get=(row,key)=>row[headerMap[key]];
-      const parsed=foundRows.slice(headerRow+1)
-        .filter(row=>!findHeader(row))
-        .map((row,idx)=>({
-          id:`stock-${Date.now()}-${idx}`,
-          codigoArticulo:String(get(row,"codigoArticulo")||"").trim(),
-          descripcion:String(get(row,"descripcion")||"").trim(),
-          descripcionAdicional:String(get(row,"descripcionAdicional")||"").trim(),
-          descripcionDeposito:String(get(row,"descripcionDeposito")||"").trim(),
-          controlStock:String(get(row,"controlStock")||"").trim(),
-          saldoControlStock:toNumber(get(row,"saldoControlStock")),
-          stockMaximo:toNumber(get(row,"stockMaximo")),
-          stockMinimo:toNumber(get(row,"stockMinimo")),
-        }))
-        .filter(r=>(r.codigoArticulo||r.descripcion||r.descripcionAdicional||r.descripcionDeposito||r.controlStock||r.saldoControlStock||r.stockMinimo||r.stockMaximo));
-      setStockRows(parsed);
+      const validation=validateStockWorkbook(XLSX,buffer,file.name);
+      const summary=stockValidationSummary(validation);
+      if(validation.blocked)throw new Error(summary);
+      const warning=validation.report.rejectedRows?"\n\nLas filas rechazadas no se publicarán.":"";
+      if(!(await appConfirm(`${summary}${warning}\n\n¿Reemplazar el Stock compartido actual?`)))return;
+      setStockPhase("Actualizando Stock compartido…");
+      const result=await uploadStockExcel(APPS_SCRIPT_URL,{file,rows:validation.rows,sheetName:validation.sourceSheet,replace:stockRows.length>0});
+      const persisted=Array.isArray(result.rows)?result.rows:validation.rows;
+      setStockRows(persisted);
+      setStockMeta(result.meta||null);
       setStockVisibleLimit(350);
-      setStockFileName(`${file.name||"Excel"}${sheetName?` · ${sheetName}`:""}`);
       setTab("stock");
+      setSuccessAlert({message:`Stock compartido actualizado: ${persisted.length} filas · versión ${result.meta?.version||"nueva"}`});
     }catch(err){
       setError(`Error leyendo Control de stock: ${err.message||err}`);
     }finally{
-      setLoading(false);
+      setStockLoading(false);
+      setStockPhase("");
     }
-  },[norm,toNumber]);
+  },[APPS_SCRIPT_URL,appAlert,appConfirm,readOnly,setStockLoading,setStockMeta,setStockPhase,setStockRows,stockRows.length]);
+
+  const handleClearSharedStock=useCallback(async()=>{
+    if(!canClearSharedStock){appAlert("Solo un administrador puede eliminar el Stock compartido.");return;}
+    if(!(await appConfirm("Esta acción elimina globalmente el Excel y la tabla de Stock para todos los usuarios. ¿Continuar?")))return;
+    try{
+      setStockLoading(true);
+      setError(null);
+      const result=await clearSharedStock(APPS_SCRIPT_URL);
+      setStockRows([]);setStockMeta(result.meta||null);setStockVisibleLimit(350);
+      setSuccessAlert({message:"El Stock compartido fue eliminado para todos los usuarios."});
+    }catch(err){setError(`No se pudo eliminar el Stock compartido: ${err.message||err}`);}
+    finally{setStockLoading(false);}
+  },[APPS_SCRIPT_URL,appAlert,appConfirm,canClearSharedStock]);
 
   const stockTextCollator=useMemo(()=>new Intl.Collator("es",{numeric:true,sensitivity:"base"}),[]);
   const isStockDepositoPermitido=useCallback((row)=>{
@@ -2180,11 +2141,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       <div style={{display:"grid",gap:14}}>
         <Card>
           <div style={{padding:14,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>
+            <label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:readOnly?"not-allowed":"pointer",opacity:readOnly?.55:1}}>
               📥 Cargar Excel Stock
-              <input type="file" accept=".xlsx,.xls" onChange={e=>{handleStockExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
+              <input type="file" accept=".xlsx,.xls" disabled={readOnly||stockLoading} onChange={e=>{handleStockExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
             </label>
-            <div style={{color:C.textSub,fontSize:12,fontWeight:800}}>{stockFileName||"Sin archivo cargado"}</div>
+            <div style={{color:C.textSub,fontSize:12,fontWeight:800}}>{stockLoading?(stockPhase||"Sincronizando Stock compartido…"):stockFileName||"Sin archivo compartido cargado"}{stockMeta?.rowCount?` · ${fmtNum(stockMeta.rowCount)} filas`:""}{stockMeta?.version?` · v${stockMeta.version}`:""}{stockMeta?.updatedBy?` · ${stockMeta.updatedBy}`:""}{stockMeta?.updatedAt?` · ${new Date(stockMeta.updatedAt).toLocaleString("es-AR")}`:""}</div>
           </div>
         </Card>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
@@ -2222,12 +2183,12 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       <div style={{display:"grid",gap:14}}>
         <Card>
           <div style={{padding:14,display:"flex",alignItems:"flex-end",gap:10,flexWrap:"wrap"}}>
-            <label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>
+            <label style={{height:34,display:"inline-flex",alignItems:"center",gap:8,border:`1px solid ${C.green}66`,borderRadius:10,background:`${C.green}16`,color:C.green,padding:"0 12px",fontSize:12,fontWeight:900,cursor:readOnly?"not-allowed":"pointer",opacity:readOnly?.55:1}}>
               📥 Cargar Excel Stock
-              <input type="file" accept=".xlsx,.xls" onChange={e=>{handleStockExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
+              <input type="file" accept=".xlsx,.xls" disabled={readOnly||stockLoading} onChange={e=>{handleStockExcelUpload(e.target.files?.[0]); e.target.value="";}} style={{display:"none"}}/>
             </label>
-            <button onClick={()=>{setStockRows([]);setStockFileName("");setStockVisibleLimit(350);}} style={{height:34,border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,borderRadius:10,padding:"0 12px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Limpiar tabla</button>
-            <div style={{color:C.textSub,fontSize:12,fontWeight:800}}>{stockFileName||"Sin archivo cargado"}</div>
+            {canClearSharedStock&&<button disabled={stockLoading} onClick={handleClearSharedStock} style={{height:34,border:`1px solid ${C.red}55`,background:C.redDim,color:C.red,borderRadius:10,padding:"0 12px",fontSize:12,fontWeight:900,cursor:stockLoading?"wait":"pointer"}}>Eliminar stock compartido</button>}
+            <div style={{color:C.textSub,fontSize:12,fontWeight:800}}>{stockLoading?(stockPhase||"Sincronizando Stock compartido…"):stockFileName||"Sin archivo compartido cargado"}{stockMeta?.version?` · v${stockMeta.version}`:""}{stockMeta?.updatedBy?` · ${stockMeta.updatedBy}`:""}{stockMeta?.updatedAt?` · ${new Date(stockMeta.updatedAt).toLocaleString("es-AR")}`:""}</div>
             <div style={{marginLeft:"auto",color:C.textSub,fontSize:12,fontWeight:800}}>Mostrando {fmtNum(visibleStockRows.length)} de {fmtNum(sortedStockRows.length)} filtradas · Total {fmtNum(stockBaseRows.length)} filas</div>
           </div>
         </Card>
@@ -2254,7 +2215,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
                     ))}
                   </tr>
                 )):(
-                  <tr><td colSpan={STOCK_CONTROL_COLUMNS.length} style={{...tdStyle,color:C.textSub,textAlign:"center",padding:28}}>Cargá una planilla de Excel con los encabezados indicados.</td></tr>
+                  <tr><td colSpan={STOCK_CONTROL_COLUMNS.length} style={{...tdStyle,color:C.textSub,textAlign:"center",padding:28}}>{stockLoading?"Cargando Stock compartido...":"No hay un Excel de Stock compartido activo."}</td></tr>
                 )}
               </tbody>
             </table>
