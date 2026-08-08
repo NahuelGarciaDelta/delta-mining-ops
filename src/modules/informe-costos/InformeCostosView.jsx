@@ -2140,51 +2140,6 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       if(x.section&&!byEquipo[equipoCanonico].sections.includes(x.section))byEquipo[equipoCanonico].sections.push(x.section);
     });
 
-    // Agregar también los equipos que existen en Lista Maestra aunque todavía no
-    // tengan registros de mantenimiento en el período. Así, cuando se incorpora
-    // un equipo nuevo en Excel/App (ej.: MOT-0008), aparece automáticamente en
-    // esta tabla por su tipo/prefijo y no hay que tocar el código.
-    const yaCargadosCanon=new Set(Object.keys(byEquipo).map(eq=>canonicalEquivalentMachineCode(cleanMachine(mainMachineCode(eq)))));
-    const codigoListaEquipoCosto=(eq)=>{
-      const keys=Object.keys(eq||{});
-      const read=(label,aliases=[])=>{const k=findColumnKey(keys,label,aliases);return k?String(eq[k]||"").trim():"";};
-      return read("Código Nuevo",["Codigo Nuevo","Código nuevo","Codigo nuevo","Código Actual","Codigo Actual","Código Interno","Codigo Interno","CODIGO N° INTERNO","Interno"])||
-        read("Código Drusila",["Codigo Drusila","Código de Drusila","Codigo de Drusila","Cod Drusila","Cod. Drusila","Interno Drusila"])||
-        read("Código Viejo",["Codigo Viejo","Código viejo","Codigo viejo","Código Anterior","Codigo Anterior","Cod Viejo","Cod. Viejo"]);
-    };
-    const prefijosAmortizacion=new Set((AMORTIZACION_GRUPOS||[]).flatMap(g=>[...(g.prefixes||[]),...(g.equipos||[]).map(e=>String(e||"").split("-")[0])]).filter(Boolean));
-
-    // Equipos de Lista Maestra sin ningún registro de mantenimiento histórico.
-    // Se excluyen únicamente cuando entrarían por Lista Maestra; si en el futuro
-    // aparecen en Costo acumulado por tener mantenimiento, volverán a mostrarse.
-    const equiposSinMantenimientoExcluirAmortizacion=new Set([
-      "MOT-0023","MOT-0025","PCA-0002","RTP-0009","TOP-0020"
-    ].map(canonicalEquivalentMachineCode));
-
-    (listaEquipos||[]).forEach(eq=>{
-      const code=codigoCanonicoEquipo(codigoListaEquipoCosto(eq));
-      if(!code||isInvalidEquipoCodeCosto(code))return;
-      if(equiposSinMantenimientoExcluirAmortizacion.has(canonicalEquivalentMachineCode(code)))return;
-      const canon=canonicalEquivalentMachineCode(code);
-      if(!canon||yaCargadosCanon.has(canon))return;
-
-      const info=amortizacionGrupoInfo(code);
-      const prefix=String(code||"").split("-")[0];
-      // Para no ensuciar la tabla con vehículos u otros ítems no productivos,
-      // sólo se agregan automáticamente los equipos que entran en los grupos
-      // definidos para amortización, o aquellos cuyo tipo de lista coincide.
-      if(!prefijosAmortizacion.has(prefix)&&Number(info.grupoIndex)>=999)return;
-
-      byEquipo[code]={
-        equipo:code,
-        mantUSDhsTotal:0,
-        proyectos:[],
-        sections:[],
-        _fromLista:true
-      };
-      yaCargadosCanon.add(canon);
-    });
-
     const base=Object.values(byEquipo).map(e=>{
       const eq=getEquipoListaMaestra(e.equipo);
       const prop=propiedadEquipo(e.equipo);

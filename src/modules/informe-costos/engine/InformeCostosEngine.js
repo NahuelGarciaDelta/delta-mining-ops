@@ -176,9 +176,18 @@ function prepareCostRows(rows){
   });
 }
 function initCostMonthlyEngine(payload){
-  costEngine.historicalRows=prepareCostRows(payload.historicalRows);
   costEngine.dynamicMonthly=prepareCostRows(payload.dynamicMonthly);
   costEngine.dynamicMO=prepareCostRows(payload.dynamicMO);
+  // Los archivos históricos sólo enriquecen a equipos que siguen teniendo un
+  // registro actual. No deben volver a incorporar equipos dados de baja a las
+  // tablas del informe (por ejemplo, EXC-0017).
+  const activeEquipmentCodes=new Set(
+    [...costEngine.dynamicMonthly,...costEngine.dynamicMO]
+      .map(row=>row._canonicalCode)
+      .filter(Boolean)
+  );
+  costEngine.historicalRows=prepareCostRows(payload.historicalRows)
+    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
   costEngine.meta={};
   costEngine.metaCanonical=new Map();
   Object.entries(payload.meta||{}).forEach(([code,meta])=>{

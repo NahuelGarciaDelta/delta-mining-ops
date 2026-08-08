@@ -250,6 +250,41 @@ test("el motor acumula todos los datos CFN0101 dentro de PCA0101", () => {
   assert.equal(result.monthly.some(row=>canonicalEquipmentCode(row.equipo)==="CFN0101"),false);
 });
 
+test("el histórico no reincorpora equipos que no tienen registros actuales", () => {
+  resetInformeCostosEngine();
+  const init=handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
+    historicalRows:[
+      {equipo:"EXC-0017",section:"FS",months:{"2026-03":{total:100}}},
+      {equipo:"MOT-0014",section:"FS",months:{"2026-03":{total:40}}},
+    ],
+    dynamicMonthly:[
+      {maquina:"MOT-0014",proyecto:"FILO DEL SOL",mes:"2026-06",costo:60},
+    ],
+    dynamicMO:[],
+    meta:{
+      "EXC-0017":{display:"EXC-0017",tipo:"EXCAVADORA"},
+      "MOT-0014":{display:"MOT-0014",tipo:"MOTONIVELADORA"},
+    },
+  });
+  assert.equal(init.counts.historical,1);
+  const result=handleInformeCostosCommand("QUERY_COST_MONTHLY",{
+    months:[{key:"2026-03"},{key:"2026-06"}],fixedMonths:[{key:"2026-03"}],
+    monthsAccum:[{key:"2026-03"},{key:"2026-06"}],rates:{"2026-06":1},baseRate:1,
+    filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
+  });
+  assert.deepEqual(result.monthly.map(row=>row.equipo),["MOT-0014"]);
+  assert.equal(result.monthly[0].total,100);
+  assert.equal(result.monthly.some(row=>canonicalEquipmentCode(row.equipo)==="EXC0017"),false);
+  assert.equal(result.monthlyMO.some(row=>canonicalEquipmentCode(row.equipo)==="EXC0017"),false);
+  assert.equal(result.acumulado.some(row=>canonicalEquipmentCode(row.equipo)==="EXC0017"),false);
+});
+
+test("Amortización no agrega equipos sin registros sólo por existir en Lista Maestra", () => {
+  const view=fs.readFileSync(new URL("../src/modules/informe-costos/InformeCostosView.jsx",import.meta.url),"utf8");
+  assert.doesNotMatch(view,/_fromLista:true/);
+  assert.doesNotMatch(view,/Agregar también los equipos que existen en Lista Maestra/);
+});
+
 test("Amortización calcula el rowSpan sobre la colección completa, no sobre una ventana virtual", () => {
   const view=fs.readFileSync(new URL("../src/modules/informe-costos/InformeCostosView.jsx",import.meta.url),"utf8");
   assert.match(view,/buildVisibleCategoryRowSpans\(rowsAmortizacionDeferred\|\|\[\]\)/);
