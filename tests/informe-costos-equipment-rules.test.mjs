@@ -412,7 +412,7 @@ test("TOP0036 y TOP0051 de marzo se trasladan de FS a JM y se suman al históric
   ]);
 });
 
-test("PCA0101 de marzo se traslada de FS a JM y se suma al histórico existente", () => {
+test("todos los registros de PCA0101 se trasladan de FS a JM y se suman al histórico existente", () => {
   resetInformeCostosEngine();
   handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
     historicalRows:[
@@ -420,18 +420,20 @@ test("PCA0101 de marzo se traslada de FS a JM y se suma al histórico existente"
     ],
     dynamicMonthly:[
       {maquina:"PCA-0101",proyecto:"FILO DEL SOL",mes:"2026-03",costo:60,esPrev:false},
+      {maquina:"PCA-0101",proyecto:"FILO DEL SOL",mes:"2026-04",costo:30,esPrev:true},
     ],
     dynamicMO:[],
     meta:{"PCA-0101":{display:"PCA-0101",tipo:"CARGADORA FRONTAL",familia:"CARGADORA FRONTAL"}},
   });
   const result=handleInformeCostosCommand("QUERY_COST_MONTHLY",{
-    months:[{key:"2026-03"}],fixedMonths:[{key:"2026-03"}],monthsAccum:[{key:"2026-03"}],
-    rates:{"2026-03":1},baseRate:1,filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
+    months:[{key:"2026-03"},{key:"2026-04"}],fixedMonths:[{key:"2026-03"}],monthsAccum:[{key:"2026-03"},{key:"2026-04"}],
+    rates:{"2026-03":1,"2026-04":1},baseRate:1,filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
   });
   assert.equal(result.monthly.some(row=>row.section==="FS"),false);
   assert.deepEqual(result.monthly.map(row=>({equipo:row.equipo,section:row.section,month:row.months["2026-03"]})),[
     {equipo:"PCA-0101",section:"JM",month:{prev:15,corr:85,total:100}},
   ]);
+  assert.deepEqual(result.monthly[0].months["2026-04"],{prev:30,corr:0,total:30});
 });
 
 test("TOTAL 2025 suma los valores mensuales redondeados mostrados", () => {
