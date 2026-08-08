@@ -258,6 +258,7 @@ test("el histórico no reincorpora equipos que no tienen registros actuales", ()
       {equipo:"MOT-0014",section:"FS",months:{"2026-03":{total:40}}},
     ],
     dynamicMonthly:[
+      {maquina:"EXC-0017",proyecto:"FILO DEL SOL",mes:"2025-11",costo:25},
       {maquina:"MOT-0014",proyecto:"FILO DEL SOL",mes:"2026-06",costo:60},
     ],
     dynamicMO:[],
@@ -277,6 +278,38 @@ test("el histórico no reincorpora equipos que no tienen registros actuales", ()
   assert.equal(result.monthly.some(row=>canonicalEquipmentCode(row.equipo)==="EXC0017"),false);
   assert.equal(result.monthlyMO.some(row=>canonicalEquipmentCode(row.equipo)==="EXC0017"),false);
   assert.equal(result.acumulado.some(row=>canonicalEquipmentCode(row.equipo)==="EXC0017"),false);
+});
+
+test("un equipo vigente conserva 2025 desde la app y evita duplicar el histórico fijo", () => {
+  resetInformeCostosEngine();
+  handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
+    historicalRows:[
+      {equipo:"MOT-0014",section:"FS",months:{"2025-09":{prev:10,corr:30,total:40}}},
+    ],
+    dynamicMonthly:[
+      {maquina:"MOT-0014",proyecto:"FILO DEL SOL",mes:"2025-08",costo:20,esPrev:true},
+      {maquina:"MOT-0014",proyecto:"FILO DEL SOL",mes:"2025-09",costo:60},
+      {maquina:"MOT-0014",proyecto:"FILO DEL SOL",mes:"2026-06",costo:10},
+    ],
+    dynamicMO:[],
+    meta:{"MOT-0014":{display:"MOT-0014",tipo:"MOTONIVELADORA"}},
+  });
+  const result=handleInformeCostosCommand("QUERY_COST_MONTHLY",{
+    months:[{key:"2025-08"},{key:"2025-09"},{key:"2026-06"}],
+    fixedMonths:[{key:"2025-09"}],monthsAccum:[{key:"2026-06"}],
+    rates:{"2025-08":1,"2025-09":1,"2026-06":1},baseRate:1,
+    filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
+  });
+  assert.deepEqual(result.monthly.map(row=>row.equipo),["MOT-0014"]);
+  assert.equal(result.monthly[0].months["2025-08"].total,20);
+  assert.equal(result.monthly[0].months["2025-09"].total,40);
+  assert.equal(result.monthly[0].total,70);
+});
+
+test("TOTAL 2025 considera todos los meses disponibles en la app", () => {
+  const view=fs.readFileSync(new URL("../src/modules/informe-costos/InformeCostosView.jsx",import.meta.url),"utf8");
+  assert.match(view,/startsWith\("2025-"\)/);
+  assert.doesNotMatch(view,/clavesTotal2025=new Set/);
 });
 
 test("Amortización no agrega equipos sin registros sólo por existir en Lista Maestra", () => {

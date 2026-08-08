@@ -176,16 +176,22 @@ function prepareCostRows(rows){
   });
 }
 function initCostMonthlyEngine(payload){
-  costEngine.dynamicMonthly=prepareCostRows(payload.dynamicMonthly);
-  costEngine.dynamicMO=prepareCostRows(payload.dynamicMO);
-  // Los archivos históricos sólo enriquecen a equipos que siguen teniendo un
-  // registro actual. No deben volver a incorporar equipos dados de baja a las
-  // tablas del informe (por ejemplo, EXC-0017).
+  const preparedDynamicMonthly=prepareCostRows(payload.dynamicMonthly);
+  const preparedDynamicMO=prepareCostRows(payload.dynamicMO);
+  // Un equipo se considera vigente si tiene al menos un registro en 2026. Una
+  // vez vigente, se conservan también sus movimientos de 2025 para TOTAL 2025.
+  // Así el histórico no revive equipos dados de baja, pero tampoco se pierde el
+  // costo anterior de los equipos que siguen activos.
   const activeEquipmentCodes=new Set(
-    [...costEngine.dynamicMonthly,...costEngine.dynamicMO]
+    [...preparedDynamicMonthly,...preparedDynamicMO]
+      .filter(row=>String(row.mes||"").startsWith("2026-"))
       .map(row=>row._canonicalCode)
       .filter(Boolean)
   );
+  costEngine.dynamicMonthly=preparedDynamicMonthly
+    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
+  costEngine.dynamicMO=preparedDynamicMO
+    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
   costEngine.historicalRows=prepareCostRows(payload.historicalRows)
     .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
   costEngine.meta={};
@@ -224,8 +230,15 @@ function mergeHistorical(map,filters,fixedMonths){
     const meta=getCostMeta(x);
     const row=ensure(meta.display||x.equipo,x.section);
     for(const m of fixedMonths||[]){
-      const d=x.months?.[m.key]||{}; if(!row.months[m.key])row.months[m.key]={prev:0,corr:0,total:0};
-      row.months[m.key].prev+=Number(d.prev)||0;row.months[m.key].corr+=Number(d.corr)||0;row.months[m.key].total+=Number(d.total)||((Number(d.prev)||0)+(Number(d.corr)||0));
+      const d=x.months?.[m.key]||{};
+      const prev=Number(d.prev)||0;
+      const corr=Number(d.corr)||0;
+      const total=Number(d.total)||(prev+corr);
+      // El histórico fijo es un consolidado del mismo período. Cuando contiene
+      // un importe reemplaza al valor dinámico de ese mes para evitar duplicarlo;
+      // si está vacío, se conserva lo que venga actualmente desde la app.
+      if(total!==0)row.months[m.key]={prev,corr,total};
+      else if(!row.months[m.key])row.months[m.key]={prev:0,corr:0,total:0};
     }
   }
 }
@@ -240,16 +253,16 @@ function queryCostMonthly(payload){
   const cacheKey=JSON.stringify(payload);
   if(costEngine.queryCache.has(cacheKey))return costEngine.queryCache.get(cacheKey);
   const months=payload.months||[], fixed=payload.fixedMonths||[], rates=payload.rates||{}, baseRate=payload.baseRate||1;
-  const map=aggregateRows(costEngine.dynamicMonthly,months,rates,baseRate,payload.filters,'2026-04');
+  const map=aggregateRows(costEngine.dynamicMonthly,months,rates,baseRate,payload.filters,null);
   mergeHistorical(map,payload.filtersHistorical||payload.filters,fixed);
   const monthly=finalizeMap(map,months);
-  const moMap=aggregateRows(costEngine.dynamicMO,months,rates,baseRate,payload.filtersMO,'2026-04');
+  const moMap=aggregateRows(costEngine.dynamicMO,months,rates,baseRate,payload.filtersMO,null);
   mergeHistorical(moMap,payload.filtersMO,fixed);
   const monthlyMO=finalizeMap(moMap,months);
   // Universo de Mano de Obra: nace de la misma fuente de Costo mensual, pero
   // respeta los filtros propios de MO. Así una máquina sigue apareciendo aunque
   // no tenga registros de mantenimiento en la fuente específica de Mano de Obra.
-  const moUniverseMap=aggregateRows(costEngine.dynamicMonthly,months,rates,baseRate,payload.filtersMO,'2026-04');
+  const moUniverseMap=aggregateRows(costEngine.dynamicMonthly,months,rates,baseRate,payload.filtersMO,null);
   mergeHistorical(moUniverseMap,payload.filtersMO,fixed);
   const monthlyMOUniverse=finalizeMap(moUniverseMap,months);
   const accumMonths=payload.monthsAccum||months;

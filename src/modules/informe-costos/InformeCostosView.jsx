@@ -1278,7 +1278,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     const set=new Set();
     (rma15CostoMensualPorFecha||[]).forEach(r=>{
       const k=monthKeyCosto(r.fecha);
-      if(k&&k>="2026-04")set.add(k);
+      if(k&&k>="2025-01")set.add(k);
     });
     return [...set].sort().map(k=>({key:k,label:monthLabelCosto(k),dollar:Number(monthlyDollar[k])||Number(usdRate2)||1400}));
   },[rma15CostoMensualPorFecha,monthlyDollar,usdRate2]);
@@ -2585,8 +2585,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const TablaCostoMensualAcumulado=()=>{
     const mesDesde=fechaDCostoMensual?monthKeyCosto(fechaDCostoMensual):"";
     const mesHasta=hastaCostoMensual?monthKeyCosto(hastaCostoMensual):"";
-    const clavesTotal2025=new Set(["2025-09","2025-10","2025-11","2025-12"]);
-    const meses2025=(mesesCostoMensual||[]).filter(m=>clavesTotal2025.has(String(m.key||"")));
+    const meses2025=(mesesCostoMensual||[]).filter(m=>String(m.key||"").startsWith("2025-"));
     // Desde 2026 se siguen mostrando los meses individualmente.
     const mesesCM=(mesesCostoMensual||[]).filter(m=>{
       if(String(m.key||"")<"2026-01")return false;
@@ -2696,7 +2695,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
 
     const rowsExcelCM=React.useMemo(()=>{
       // Formato especial para el Excel de Costo mensual acumulado.
-      // Septiembre, Octubre, Noviembre y Diciembre de 2025 se exportan agrupados en Total 2025.
+      // Todos los meses disponibles de 2025 se exportan agrupados en Total 2025.
       const mesesDesdeEnero=mesesCM;
       const round=v=>Math.round(Number(v)||0);
       const emptyRow=()=>[];
@@ -2939,7 +2938,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
           </table>
         </div>
         <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
-          Solo se muestran equipos con registros en 2026. Septiembre, Octubre, Noviembre y Diciembre de 2025 se consolidan en TOTAL 2025; desde Enero 2026 los meses se muestran individualmente.
+          Solo se muestran equipos con registros en 2026. Todos sus costos disponibles de 2025 se consolidan en TOTAL 2025; desde Enero 2026 los meses se muestran individualmente.
         </div>
       </Card>
     );
