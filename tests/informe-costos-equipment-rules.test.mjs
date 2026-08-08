@@ -384,6 +384,34 @@ test("el motor vuelca preventivos y correctivos históricos al interno actual", 
   assert.deepEqual(result.monthly[0].months["2026-01"],{prev:12,corr:34,total:46});
 });
 
+test("TOP0036 y TOP0051 de marzo se trasladan de FS a JM y se suman al histórico existente", () => {
+  resetInformeCostosEngine();
+  handleInformeCostosCommand("INIT_COST_MONTHLY_ENGINE",{
+    historicalRows:[
+      {equipo:"TOP-0036",section:"JM",months:{"2026-03":{prev:10,corr:20,total:30}}},
+      {equipo:"TOP-0051",section:"JM",months:{"2026-03":{prev:5,corr:15,total:20}}},
+    ],
+    dynamicMonthly:[
+      {maquina:"TOP-0036",proyecto:"FILO DEL SOL",mes:"2026-03",costo:100,esPrev:true},
+      {maquina:"TOP-0051",proyecto:"FILO DEL SOL",mes:"2026-03",costo:50,esPrev:false},
+    ],
+    dynamicMO:[],
+    meta:{
+      "TOP-0036":{display:"TOP-0036",tipo:"TOPADORA",familia:"TOPADORA"},
+      "TOP-0051":{display:"TOP-0051",tipo:"TOPADORA",familia:"TOPADORA"},
+    },
+  });
+  const result=handleInformeCostosCommand("QUERY_COST_MONTHLY",{
+    months:[{key:"2026-03"}],fixedMonths:[{key:"2026-03"}],monthsAccum:[{key:"2026-03"}],
+    rates:{"2026-03":1},baseRate:1,filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
+  });
+  assert.equal(result.monthly.some(row=>row.section==="FS"),false);
+  assert.deepEqual(result.monthly.map(row=>({equipo:row.equipo,section:row.section,month:row.months["2026-03"]})),[
+    {equipo:"TOP-0036",section:"JM",month:{prev:110,corr:20,total:130}},
+    {equipo:"TOP-0051",section:"JM",month:{prev:5,corr:65,total:70}},
+  ]);
+});
+
 test("TOTAL 2025 suma los valores mensuales redondeados mostrados", () => {
   const months=["2025-09","2025-10","2025-11","2025-12"].map(key=>({key}));
   const rowMonths={

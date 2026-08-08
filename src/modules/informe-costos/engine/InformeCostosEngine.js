@@ -169,11 +169,19 @@ function prepareCostRows(rows){
   return (Array.isArray(rows)?rows:[]).filter(isIncludedCostRow).map(row=>{
     const rawCode=String(row.maquina||row.equipo||"");
     const resolvedCode=resolveEquipmentCodeAlias(rawCode);
-    const section=row.section||((norm(row.proyecto).includes("JOSE")||norm(row.proyecto).includes("JM"))?"JM":"FS");
+    const originalSection=row.section||((norm(row.proyecto).includes("JOSE")||norm(row.proyecto).includes("JM"))?"JM":"FS");
+    const canonicalCode=canonicalEquipmentCode(resolvedCode);
+    // Corrección confirmada: en marzo de 2026 TOP-0036 y TOP-0051 fueron
+    // registrados como Filo del Sol, pero pertenecen a José María. Se marca el
+    // traslado para sumar esos importes al histórico JM del mismo mes.
+    const moveMarchToJM=originalSection==="FS"&&String(row.mes||"")==="2026-03"&&
+      (canonicalCode==="TOP0036"||canonicalCode==="TOP0051");
+    const section=moveMarchToJM?"JM":originalSection;
     return {
       ...row,
       ...(row.maquina!=null?{maquina:resolvedCode}:{equipo:resolvedCode}),
-      _canonicalCode:canonicalEquipmentCode(resolvedCode),section
+      ...(moveMarchToJM?{proyecto:"JOSE MARIA",_addHistoricalSameMonth:true}:{}),
+      _canonicalCode:canonicalCode,section
     };
   });
 }
@@ -219,6 +227,10 @@ function aggregateRows(rows,months,rates,baseRate,filters,minMonth){
     const section=r.section||((norm(r.proyecto).includes('JOSE')||norm(r.proyecto).includes('JM'))?'JM':'FS');
     const equipo=meta.display||r.maquina||'—';
     const row=ensure(equipo,section); if(!row.months[mes])row.months[mes]={prev:0,corr:0,total:0};
+    if(r._addHistoricalSameMonth){
+      if(!row._addHistoricalMonths)row._addHistoricalMonths={};
+      row._addHistoricalMonths[mes]=true;
+    }
     const usd=(Number(r.costo)||0)/(Number(rates?.[mes])||Number(baseRate)||1);
     if(r.esPrev){row.months[mes].prev+=usd;row.prev+=usd}else{row.months[mes].corr+=usd;row.corr+=usd}
     row.months[mes].total+=usd;row.total+=usd;
@@ -239,7 +251,15 @@ function mergeHistorical(map,filters,fixedMonths){
       // El histórico fijo es un consolidado del mismo período. Cuando contiene
       // un importe reemplaza al valor dinámico de ese mes para evitar duplicarlo;
       // si está vacío, se conserva lo que venga actualmente desde la app.
-      if(total!==0)row.months[m.key]={prev,corr,total};
+      if(total!==0&&row._addHistoricalMonths?.[m.key]){
+        const current=row.months[m.key]||{prev:0,corr:0,total:0};
+        row.months[m.key]={
+          prev:(Number(current.prev)||0)+prev,
+          corr:(Number(current.corr)||0)+corr,
+          total:(Number(current.total)||0)+total,
+        };
+      }
+      else if(total!==0)row.months[m.key]={prev,corr,total};
       else if(!row.months[m.key])row.months[m.key]={prev:0,corr:0,total:0};
     }
   }
@@ -248,6 +268,7 @@ function finalizeMap(map,months){
   for(const row of map.values()){
     row.prev=0;row.corr=0;row.total=0;
     for(const m of months||[]){const d=row.months[m.key]||{};row.prev+=Number(d.prev)||0;row.corr+=Number(d.corr)||0;row.total+=Number(d.total)||0}
+    delete row._addHistoricalMonths;
   }
   return [...map.values()].filter(x=>x.total>0).sort((a,b)=>a.section.localeCompare(b.section)||a.equipo.localeCompare(b.equipo));
 }
