@@ -4245,6 +4245,13 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
 function ViewAtrasoROP02({rop02All}){
   const STORAGE_KEY="delta_rop02_atrasos_admitidos_v2";
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded && normalizeMachineCode(r.maquina)!=="CAA-0002" && r.fecha),[rop02All]);
+  const [modoFiltro,setModoFiltro]=useState("periodo");
+  const [fechaFiltro,setFechaFiltro]=useState("");
+  const [fechaDesde,setFechaDesde]=useState("");
+  const [fechaHasta,setFechaHasta]=useState("");
+  const [tipoMaquinaFiltro,setTipoMaquinaFiltro]=useState("todas");
+  const [proyectoFiltro,setProyectoFiltro]=useState("todos");
+  const [maquinaFiltro,setMaquinaFiltro]=useState("todas");
   const [admitidos,setAdmitidos]=useState(()=>{try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");}catch{return{};}});
   const [modalAtraso,setModalAtraso]=useState(null);
   const [motivoTipo,setMotivoTipo]=useState("Bajó a San Juan");
@@ -4332,6 +4339,52 @@ function ViewAtrasoROP02({rop02All}){
     return{ultimaFecha,diasAtraso,atrasados,saltos,totalUltima:rowsUltima.length,equiposUltima:presentesUltima.size,inicioVentana,finVentana};
   },[rop02Prod,admitidos,hoyISO,keyEquipoAtraso]);
 
+  const coincideFechaFiltro=useCallback(fecha=>{
+    const f=String(fecha||"");
+    if(modoFiltro==="dia")return !fechaFiltro||f===fechaFiltro;
+    if(fechaDesde&&f<fechaDesde)return false;
+    if(fechaHasta&&f>fechaHasta)return false;
+    return true;
+  },[modoFiltro,fechaFiltro,fechaDesde,fechaHasta]);
+
+  const coincideDimensionesFiltro=useCallback(row=>{
+    if(!multiIsAll(tipoMaquinaFiltro,"todas")&&!tipoMatchMachineROP05(tipoMaquinaFiltro,row.maquina))return false;
+    if(!matchMulti(row.proyecto,proyectoFiltro,"todos"))return false;
+    if(!matchMulti(row.maquina,maquinaFiltro,"todas"))return false;
+    return true;
+  },[tipoMaquinaFiltro,proyectoFiltro,maquinaFiltro]);
+
+  const universoFiltros=useMemo(()=>[...data.atrasados,...data.saltos],[data.atrasados,data.saltos]);
+  const proyectosFiltro=useMemo(()=>uniq(universoFiltros
+    .filter(r=>multiIsAll(tipoMaquinaFiltro,"todas")||tipoMatchMachineROP05(tipoMaquinaFiltro,r.maquina))
+    .map(r=>r.proyecto).filter(Boolean)),[universoFiltros,tipoMaquinaFiltro]);
+  const maquinasFiltro=useMemo(()=>uniq(universoFiltros
+    .filter(r=>(multiIsAll(tipoMaquinaFiltro,"todas")||tipoMatchMachineROP05(tipoMaquinaFiltro,r.maquina))&&matchMulti(r.proyecto,proyectoFiltro,"todos"))
+    .map(r=>r.maquina).filter(Boolean)),[universoFiltros,tipoMaquinaFiltro,proyectoFiltro]);
+
+  const atrasosFiltrados=useMemo(()=>data.atrasados.filter(r=>coincideFechaFiltro(r.ultimaCarga)&&coincideDimensionesFiltro(r)),[data.atrasados,coincideFechaFiltro,coincideDimensionesFiltro]);
+  const saltosFiltrados=useMemo(()=>data.saltos.filter(r=>coincideFechaFiltro(r.ultimaCarga)&&coincideDimensionesFiltro(r)),[data.saltos,coincideFechaFiltro,coincideDimensionesFiltro]);
+  const registrosFiltrados=useMemo(()=>rop02Prod.filter(r=>coincideFechaFiltro(r.fecha)&&coincideDimensionesFiltro(r)),[rop02Prod,coincideFechaFiltro,coincideDimensionesFiltro]);
+  const resumenFiltrado=useMemo(()=>{
+    const fechas=uniq(registrosFiltrados.map(r=>r.fecha).filter(Boolean)).sort();
+    const ultimaFecha=fechas[fechas.length-1]||"";
+    const rowsUltima=ultimaFecha?registrosFiltrados.filter(r=>r.fecha===ultimaFecha):[];
+    const equiposUltima=new Set(rowsUltima.map(r=>keyEquipoAtraso(r.maquina)).filter(Boolean)).size;
+    const diasAtraso=ultimaFecha?Math.floor((new Date(hoyISO+"T00:00:00")-new Date(ultimaFecha+"T00:00:00"))/86400000):null;
+    return{ultimaFecha,totalUltima:rowsUltima.length,equiposUltima,diasAtraso};
+  },[registrosFiltrados,keyEquipoAtraso,hoyISO]);
+
+  const hayFiltrosAtraso=Boolean(fechaFiltro||fechaDesde||fechaHasta)||!multiIsAll(tipoMaquinaFiltro,"todas")||!multiIsAll(proyectoFiltro,"todos")||!multiIsAll(maquinaFiltro,"todas");
+  const limpiarFiltrosAtraso=()=>{
+    setModoFiltro("periodo");
+    setFechaFiltro("");
+    setFechaDesde("");
+    setFechaHasta("");
+    setTipoMaquinaFiltro("todas");
+    setProyectoFiltro("todos");
+    setMaquinaFiltro("todas");
+  };
+
   const abrirJustificacion=(row)=>{
     setModalAtraso(row);
     setMotivoTipo(row.causa||"Bajó a San Juan");
@@ -4401,20 +4454,40 @@ function ViewAtrasoROP02({rop02All}){
     {key:"accion",label:"Acción",render:(_,r)=><button onClick={()=>restaurar(r)} style={{border:`1px solid ${C.green}55`,background:C.greenDim,color:C.green,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Restaurar</button>},
   ],[admitidos]);
 
-  const atrasadosPendientes=data.atrasados.filter(r=>!r.admitido);
-  const atrasadosAceptados=data.atrasados.filter(r=>r.admitido);
-  const saltosSinCausa=data.saltos.filter(r=>!r.admitido).length;
-  const atrasoGeneral=data.diasAtraso!==null&&data.diasAtraso>1;
+  const atrasadosPendientes=atrasosFiltrados.filter(r=>!r.admitido);
+  const atrasadosAceptados=atrasosFiltrados.filter(r=>r.admitido);
+  const saltosSinCausa=saltosFiltrados.filter(r=>!r.admitido).length;
+  const atrasoGeneral=resumenFiltrado.diasAtraso!==null&&resumenFiltrado.diasAtraso>1;
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
-      {atrasoGeneral&&<AlertBanner type="warn">Pasó más de 1 día desde la última carga de ROP02. Última carga detectada: <strong>{fmtFecha(data.ultimaFecha)}</strong> ({data.diasAtraso} días).</AlertBanner>}
-      {!atrasoGeneral&&data.ultimaFecha&&<AlertBanner type="success">La carga general de ROP02 está al día. Última carga detectada: <strong>{fmtFecha(data.ultimaFecha)}</strong>.</AlertBanner>}
-      {!data.ultimaFecha&&<AlertBanner type="warn">No se detectaron cargas de ROP02.</AlertBanner>}
+      <Card>
+        <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
+            <TabBtn active={modoFiltro==="dia"} onClick={()=>setModoFiltro("dia")}>Por día</TabBtn>
+            <TabBtn active={modoFiltro==="periodo"} onClick={()=>setModoFiltro("periodo")}>Por período</TabBtn>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+            {modoFiltro==="dia"?(
+              <DateIn label="Fecha" value={fechaFiltro} onChange={setFechaFiltro}/>
+            ):(
+              <><PeriodMonthYear fechaD={fechaDesde} fechaH={fechaHasta} setFechaD={setFechaDesde} setFechaH={setFechaHasta}/><DateIn label="Desde" value={fechaDesde} onChange={setFechaDesde} max={fechaHasta||undefined}/><DateIn label="Hasta" value={fechaHasta} onChange={setFechaHasta} min={fechaDesde||undefined} warn={fechaHasta&&fechaDesde&&fechaHasta<fechaDesde?"≥ Desde":null}/></>
+            )}
+            <MultiSel label="Tipo de Máquina" value={tipoMaquinaFiltro} onChange={v=>{setTipoMaquinaFiltro(v);setProyectoFiltro("todos");setMaquinaFiltro("todas");}} options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
+            <MultiSel label="Proyecto" value={proyectoFiltro} onChange={v=>{setProyectoFiltro(v);setMaquinaFiltro("todas");}} options={[{value:"todos",label:"Todos"},...proyectosFiltro.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Máquina" value={maquinaFiltro} onChange={setMaquinaFiltro} options={[{value:"todas",label:"Todas"},...maquinasFiltro.map(m=>({value:m,label:m}))]}/>
+            <button onClick={limpiarFiltrosAtraso} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltrosAtraso?1:0.3,pointerEvents:hayFiltrosAtraso?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
+          </div>
+        </div>
+      </Card>
+
+      {atrasoGeneral&&<AlertBanner type="warn">Pasó más de 1 día desde la última carga de ROP02 para los filtros seleccionados. Última carga detectada: <strong>{fmtFecha(resumenFiltrado.ultimaFecha)}</strong> ({resumenFiltrado.diasAtraso} días).</AlertBanner>}
+      {!atrasoGeneral&&resumenFiltrado.ultimaFecha&&<AlertBanner type="success">La carga de ROP02 está al día para los filtros seleccionados. Última carga detectada: <strong>{fmtFecha(resumenFiltrado.ultimaFecha)}</strong>.</AlertBanner>}
+      {!resumenFiltrado.ultimaFecha&&<AlertBanner type="warn">No se detectaron cargas de ROP02 para los filtros seleccionados.</AlertBanner>}
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
-        <StatCard icon="hours" label="Última carga" value={data.ultimaFecha?fmtFecha(data.ultimaFecha):"—"} sub={data.diasAtraso!==null?`${data.diasAtraso} días desde la última carga`:"Sin datos"} color={atrasoGeneral?C.red:C.green} small/>
-        <StatCard icon="equip" label="Equipos última carga" value={data.equiposUltima} sub={`${data.totalUltima} registros en el último día`} color={C.purple} small/>
+        <StatCard icon="hours" label="Última carga" value={resumenFiltrado.ultimaFecha?fmtFecha(resumenFiltrado.ultimaFecha):"—"} sub={resumenFiltrado.diasAtraso!==null?`${resumenFiltrado.diasAtraso} días desde la última carga`:"Sin datos"} color={atrasoGeneral?C.red:C.green} small/>
+        <StatCard icon="equip" label="Equipos última carga" value={resumenFiltrado.equiposUltima} sub={`${resumenFiltrado.totalUltima} registros en el último día`} color={C.purple} small/>
         <StatCard icon="warn" label="Equipos atrasados" value={atrasadosPendientes.length} sub="Venían cargándose y dejaron de aparecer" color={atrasadosPendientes.length?C.red:C.green} small/>
         <StatCard icon="check" label="Atrasos aceptados" value={atrasadosAceptados.length} sub="Ej.: equipos que bajaron a San Juan" color={C.green} small/>
         <StatCard icon="warn" label="Saltos sin causa" value={saltosSinCausa} sub="Cortes intermedios por equipo" color={saltosSinCausa?C.red:C.green} small/>
@@ -4430,8 +4503,8 @@ function ViewAtrasoROP02({rop02All}){
         <Table cols={colsAceptados} rows={atrasadosAceptados} maxH={420} emptyMsg="Todavía no hay equipos aceptados o justificados"/>
       </Card>
 
-      <Card title={`Saltos de carga por equipo (${data.saltos.length})`} action={<BtnExcel onClick={()=>excelFromCols(colsSaltos.filter(c=>c.key!=="accion"),data.saltos,"Saltos_ROP02")}/>}>
-        <Table cols={colsSaltos} rows={data.saltos} maxH={520} emptyMsg="No se detectaron saltos intermedios de carga por equipo"/>
+      <Card title={`Saltos de carga por equipo (${saltosFiltrados.length})`} action={<BtnExcel onClick={()=>excelFromCols(colsSaltos.filter(c=>c.key!=="accion"),saltosFiltrados,"Saltos_ROP02")}/>}> 
+        <Table cols={colsSaltos} rows={saltosFiltrados} maxH={520} emptyMsg="No se detectaron saltos intermedios de carga por equipo con los filtros seleccionados"/>
       </Card>
 
       {modalAtraso&&<div style={{position:"fixed",inset:0,zIndex:9999,background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>

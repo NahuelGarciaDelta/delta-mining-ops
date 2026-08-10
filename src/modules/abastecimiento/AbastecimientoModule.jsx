@@ -436,8 +436,9 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   },[buildRemitosCompartidos]);
 
   useEffect(()=>{
-    loadRemitosCompartidos({silent:true}).catch(()=>{});
-    loadEstadosSolicitudesCompartidos({silent:true}).catch(()=>{});
+    // La carga inicial completa se hace más abajo en forma secuencial. Este
+    // efecto queda reservado para resincronizaciones periódicas y al recuperar
+    // el foco, evitando dos consultas simultáneas al montar el módulo.
     const timer=window.setInterval(()=>{
       if(document.visibilityState==="visible"){
         loadRemitosCompartidos({silent:true}).catch(()=>{});
@@ -490,9 +491,9 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     return (remitos||[]).filter(rem=>norm(rem.comprobante).includes(q));
   },[remitos,remitoSearch,norm]);
 
-  const sentByCode=useMemo(()=>{
+  const buildSentByCode=useCallback((sourceRemitos=[])=>{
     const map={};
-    (remitos||[]).forEach(remito=>{
+    (sourceRemitos||[]).forEach(remito=>{
       const proyecto=normalizeCentroCosto(remito.proyecto||remito.observaciones||remito.destino||remito.centroCosto||remito.origen||"");
       (remito.items||[]).forEach(item=>{
         const code=normCode(item.codigo);
@@ -503,7 +504,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       });
     });
     return map;
-  },[remitos,normCode,toNumber,normalizeCentroCosto]);
+  },[normCode,toNumber,normalizeCentroCosto]);
+
+  const sentByCode=useMemo(()=>buildSentByCode(remitos),[remitos,buildSentByCode]);
+  const sentByCodeRef=useRef(sentByCode);
+  useEffect(()=>{sentByCodeRef.current=sentByCode;},[sentByCode]);
 
   const remitosByCode=useMemo(()=>{
     const map={};
@@ -541,7 +546,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     return "";
   },[formatDateLocal]);
 
-  const normalizeRow=useCallback((r,idx)=>{
+  const normalizeRow=useCallback((r,idx,sentMap={})=>{
     // Para N° de solicitud / N° de pedido se exige coincidencia EXACTA de encabezado.
     // Así nunca se confunde "N° de pedido" con la columna "Pedido por".
     const pickExact=(obj,names)=>{
@@ -558,7 +563,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     const centroCostoRaw=String(pick(r,["Centro de Costo","Centro de costo","Proyecto","CC"])||"").trim();
     const centroCostoNorm=normalizeCentroCosto(centroCostoRaw);
     const codeNorm=normCode(codigo);
-    const enviada=(sentByCode[`${codeNorm}__${centroCostoNorm}`]||0)+(sentByCode[`${codeNorm}__*`]||0);
+    const enviada=(sentMap[`${codeNorm}__${centroCostoNorm}`]||0)+(sentMap[`${codeNorm}__*`]||0);
     const restante=Math.max(0,solicitada-enviada);
     const pedidoRaw=pickExact(r,["N° de pedido","Nº de pedido","N de pedido","Numero de pedido","Número de pedido"]);
     const solicitudLegacy=pickExact(r,["N° de solicitud","Nº de solicitud","N de solicitud","Numero de solicitud","Número de solicitud","Solicitud"]);
@@ -581,7 +586,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       cantidadEnviada:enviada,
       cantidadRestante:restante
     };
-  },[formatDateLocal,pick,sentByCode,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa,numeroSolicitudHistorica]);
+  },[formatDateLocal,pick,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa,numeroSolicitudHistorica]);
 
   const buildSolicitudKey=useCallback((row)=>{
     return buildSolicitudStableKeyFromParts({
@@ -774,14 +779,14 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
   },[rows,selectedReopenKeys,closedSolicitudes,buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
-  const mapRaba03Rows=useCallback((raw=[])=>raw.map(normalizeRow).filter(r=>
+  const mapRaba03Rows=useCallback((raw=[],sentMap={})=>raw.map((row,index)=>normalizeRow(row,index,sentMap)).filter(r=>
     [r.empresa,r.fechaSolicitud,r.fechaRequerida,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada]
       .some(v=>String(v||"").trim()) &&
     !String(r.empresa||"").toLowerCase().includes("aprobado") &&
     !String(r.empresa||"").toLowerCase().includes("empresa")
   ),[normalizeRow]);
 
-  const loadRaba03=useCallback(async({silent=false}={})=>{
+  const loadRaba03=useCallback(async({silent=false,remitosOverride=null}={})=>{
     if(!silent){
       setLoading(true);
       setError(null);
@@ -793,7 +798,8 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       if(!json.ok)throw new Error(json?.error?.message||"No se pudo leer RABA03");
       const raw=Array.isArray(json.data)?json.data:(Array.isArray(json?.sources?.raba03?.data)?json.sources.raba03.data:[]);
       rawRaba03RowsRef.current=raw;
-      setRows(mapRaba03Rows(raw));
+      const sentMap=Array.isArray(remitosOverride)?buildSentByCode(remitosOverride):sentByCodeRef.current;
+      setRows(mapRaba03Rows(raw,sentMap));
     }catch(err){
       if(!silent){
         setError(err.message||String(err));
@@ -804,21 +810,32 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }finally{
       if(!silent)setLoading(false);
     }
-  },[mapRaba03Rows]);
+  },[mapRaba03Rows,buildSentByCode]);
 
-  // Cargar RABA03 una sola vez al montar el módulo. Los cambios periódicos de remitos
-  // ya no vuelven a disparar el cartel visible "Cargando RABA03...".
+  // Carga inicial coordinada: primero se esperan los remitos y estados reales;
+  // recién entonces se normaliza RABA03 con esas cantidades. Pasar los remitos
+  // como argumento evita depender de que React haya completado setRemitos.
   useEffect(()=>{
     if(raba03InitialLoadDoneRef.current)return;
     raba03InitialLoadDoneRef.current=true;
-    loadRaba03();
-  },[loadRaba03]);
+    let cancelled=false;
+    const run=async()=>{
+      let sharedRemitos=null;
+      try{sharedRemitos=await loadRemitosCompartidos({silent:true});}catch(_){}
+      try{await loadEstadosSolicitudesCompartidos({silent:true});}catch(_){}
+      if(cancelled)return;
+      await loadRaba03({silent:false,remitosOverride:sharedRemitos});
+    };
+    run();
+    return()=>{cancelled=true;};
+  },[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
 
   // Registro en el motor único de actualización de la aplicación.
   useEffect(()=>registerRefreshTask("abastecimiento",async()=>{
+    let sharedRemitos=null;
+    try{sharedRemitos=await loadRemitosCompartidos({silent:true});}catch(_){}
     await Promise.allSettled([
-      loadRaba03({silent:true}),
-      loadRemitosCompartidos({silent:true}),
+      loadRaba03({silent:true,remitosOverride:sharedRemitos}),
       loadEstadosSolicitudesCompartidos({silent:true})
     ]);
   },{views:["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"],priority:20}),[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
@@ -827,7 +844,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   // copia de RABA03 ya cargada, sin nueva consulta y sin mostrar ningún loader.
   useEffect(()=>{
     if(!raba03InitialLoadDoneRef.current||!rawRaba03RowsRef.current.length)return;
-    const refresh=()=>setRows(mapRaba03Rows(rawRaba03RowsRef.current));
+    const refresh=()=>setRows(mapRaba03Rows(rawRaba03RowsRef.current,sentByCode));
     if(typeof window!=="undefined"&&window.requestIdleCallback){
       const id=window.requestIdleCallback(refresh,{timeout:500});
       return()=>window.cancelIdleCallback&&window.cancelIdleCallback(id);

@@ -11,6 +11,12 @@ test("Abastecimiento importa y registra registerRefreshTask en el scope del mód
   assert.match(moduleSource, /registerRefreshTask\(["']abastecimiento["']/);
 });
 
+test("Abastecimiento espera remitos reales antes de calcular RABA03 al abrir", () => {
+  assert.match(moduleSource, /sharedRemitos=await loadRemitosCompartidos\(\{silent:true\}\)/);
+  assert.match(moduleSource, /loadRaba03\(\{silent:false,remitosOverride:sharedRemitos\}\)/);
+  assert.match(moduleSource, /const sentMap=Array\.isArray\(remitosOverride\)\?buildSentByCode\(remitosOverride\):sentByCodeRef\.current/);
+});
+
 test("App conserva todas las rutas de Abastecimiento y su Error Boundary", () => {
   const routes = [
     "abastecimiento", "abastecimientoDashboard", "abastecimientoRABA03", "abastecimientoRemito",
