@@ -115,7 +115,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const toggleFavorite=id=>setFavorites(current=>current.includes(id)?current.filter(x=>x!==id):[...current,id]);
   const openView=id=>onNavigate?.(id);
   const favoritesBadge=favorites.length;
-  const sidebarSections=[
+  const sidebarSectionsBase=[
     {key:"home",label:"Inicio",icon:"dashboard",active:activeView==="home",badge:null,action:()=>setActiveView("home")},
     {key:"favorites",label:"Favoritos",icon:"barChart",active:activeView==="favorites",badge:favoritesBadge>0?favoritesBadge:null,action:()=>setActiveView("favorites")},
     {key:"agenda",label:"Agenda",icon:"calendar",active:activeView==="agenda",badge:null,action:()=>setActiveView("agenda")},
@@ -124,6 +124,9 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     {key:"docs",label:"Documentos",icon:"fileBarChart",active:activeView==="docs",badge:null,action:()=>setActiveView("docs")},
     {key:"profile",label:"Mi Perfil",icon:"person",active:activeView==="profile",badge:null,action:()=>onOpenProfile?.()},
   ];
+  const sidebarSections=esAdministrativo
+    ? sidebarSectionsBase.filter(item=>["home","weather","profile"].includes(item.key))
+    : sidebarSectionsBase;
   const firstName=String(nombreUsuario||"Usuario").trim().split(/\s+/)[0].toUpperCase();
   const dateTop=now.toLocaleDateString("es-AR",{day:"numeric",month:"long",year:"numeric"});
   const weekday=now.toLocaleDateString("es-AR",{weekday:"long"});

@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { getPermissionsForArea } from "../src/services/permissionService.js";
 import { registerRefreshTask, runRefreshTasks } from "../src/services/refreshManager.js";
 import { previousComparablePeriod, percentDelta } from "../src/shared/periodCompare.js";
+import fs from "node:fs";
+
+const welcomeSource=fs.readFileSync(new URL("../src/modules/home/ViewBienvenida.jsx",import.meta.url),"utf8");
 
 test("Oficina Técnica tiene permisos completos en otros módulos",()=>{
   const p=getPermissionsForArea("ABASTECIMIENTO",{role:"USUARIO",area:"OFICINA TÉCNICA"});
@@ -30,4 +33,8 @@ test("comparación usa un período anterior de igual duración",()=>{
   const p=previousComparablePeriod("2026-07-01","2026-07-31");
   assert.deepEqual(p,{from:"2026-05-31",to:"2026-06-30",days:31});
   assert.equal(percentDelta(120,100),20);
+});
+
+test("la bienvenida del administrativo limita la sidebar a Inicio, Clima y Mi Perfil",()=>{
+  assert.match(welcomeSource,/esAdministrativo\s*\?\s*sidebarSectionsBase\.filter\(item=>\["home","weather","profile"\]\.includes\(item\.key\)\)/);
 });
