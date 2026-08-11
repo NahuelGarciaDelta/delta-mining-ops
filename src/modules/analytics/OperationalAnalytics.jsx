@@ -246,8 +246,8 @@ function ViewCambiosTurnoInner({rop02All=[]}){
     const mesNum=Number(filtroMesHoras)||0;
     // Período operativo: del 26 del mes anterior al 25 del mes seleccionado.
     // Ejemplo: Junio 2026 = 26/05/2026 al 25/06/2026.
-    const inicio=new Date(anio,mesNum-1,26,12);
-    const fin=new Date(anio,mesNum,25,12);
+    const inicio=new Date(anio,mesNum-2,26,12);
+    const fin=new Date(anio,mesNum-1,25,12);
     const diasPeriodo=diffTurnoDays(fin,inicio)+1;
     return {
       desde:turnoISO(inicio),

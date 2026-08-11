@@ -26,8 +26,21 @@ export const STYLES=`
   .dm-table-scroll{width:100%;max-width:100%;overflow:auto;overscroll-behavior:contain}
   [role="dialog"]>div{max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto}
   input,select,textarea,button{max-width:100%}
+  .dm-app-content{container-type:inline-size}
+  .dm-app-content table{max-width:100%;font-variant-numeric:tabular-nums}
+  .dm-app-content [style*="display: grid"]>*{min-width:0}
+  .dm-app-content [style*="display: flex"]>*{min-width:0}
+  .dm-app-content [style*="grid-template-columns"]{max-width:100%}
+  .dm-app-content h1,.dm-app-content h2,.dm-app-content h3,.dm-app-content strong,.dm-app-content td,.dm-app-content th{overflow-wrap:anywhere}
+  .dm-app-content canvas{width:100%!important;height:auto;min-width:0}
+  @media(max-width:1200px){
+    .dm-app-content>div:last-child{padding-inline:12px!important}
+    .dm-table-scroll{overflow-x:auto!important;-webkit-overflow-scrolling:touch}
+    .dm-table-scroll table{min-width:max-content}
+    [role=dialog]>div{width:min(96vw,1100px)!important}
+  }
   @media(max-width:900px){.dm-app-shell{min-width:0}.dm-app-sidebar{width:64px!important;flex-basis:64px}.dm-app-sidebar>div:first-child{padding-inline:0!important;justify-content:center!important}.dm-app-sidebar>div:first-child>div{display:none!important}.dm-app-sidebar nav button{justify-content:center!important;padding-inline:0!important}.dm-app-sidebar nav button span{display:none!important}.dm-app-sidebar>div:last-child{padding-inline:6px!important}.dm-app-sidebar>div:last-child span,.dm-app-sidebar>div:last-child>div{display:none!important}.dm-app-content{min-width:0}.dm-app-content>div:first-child{height:auto!important;min-height:50px;flex-wrap:wrap;gap:6px;padding:7px 10px!important}.dm-app-content>div:first-child>div{min-width:0;flex-wrap:wrap}.dm-app-content>div:first-child>div:last-child{gap:6px!important;justify-content:flex-end}.dm-app-content>div:first-child>div:last-child>div{display:none!important}}
-  @media(max-width:640px){.dm-app-shell{height:100dvh}.dm-app-sidebar{width:54px!important;flex-basis:54px}.dm-app-content>div:last-child{padding:10px!important}.dm-app-content h1{max-width:48vw;overflow:hidden;text-overflow:ellipsis}.dm-app-content>div:first-child>div:last-child>span:not(:last-of-type){display:none!important}.dm-table-scroll{scrollbar-width:thin}.dm-table-scroll table{font-size:11px!important}.dm-table-scroll th,.dm-table-scroll td{padding-block:7px!important}}
+  @media(max-width:640px){.dm-app-shell{height:100dvh}.dm-app-sidebar{width:54px!important;flex-basis:54px}.dm-app-content>div:last-child{padding:10px!important}.dm-app-content h1{max-width:48vw;overflow:hidden;text-overflow:ellipsis}.dm-app-content>div:first-child>div:last-child>span:not(:last-of-type){display:none!important}.dm-table-scroll{scrollbar-width:thin}.dm-table-scroll table{font-size:11px!important;min-width:max-content}.dm-table-scroll th,.dm-table-scroll td{padding-block:7px!important}}
   ::-webkit-scrollbar{width:12px;height:12px}
   ::-webkit-scrollbar-track{background:${C.surface}}
   ::-webkit-scrollbar-thumb{background:#4a4a4a;border-radius:6px;border:2px solid ${C.surface}}
@@ -850,9 +863,9 @@ export const MONTH_OPTIONS=[
 ];
 export const YEAR_OPTIONS=[{value:"",label:"Año"},{value:"2026",label:"2026"},{value:"2027",label:"2027"},{value:"2028",label:"2028"}];
 export function PeriodMonthYear({fechaD,fechaH,setFechaD,setFechaH}){
-  const sameMonth=fechaD&&fechaH&&fechaD.slice(0,7)===fechaH.slice(0,7);
-  const selectedMonth=sameMonth?String(fechaD).slice(5,7):"";
-  const selectedYear=fechaD?String(fechaD).slice(0,4):"";
+  // El mes representa el período operativo: 26 del mes anterior → 25 del mes seleccionado.
+  const selectedMonth=fechaH&&String(fechaH).slice(8,10)==="25"?String(fechaH).slice(5,7):"";
+  const selectedYear=fechaH&&selectedMonth?String(fechaH).slice(0,4):(fechaD?String(fechaD).slice(0,4):"");
   const apply=(year,month)=>{
     const now=new Date();
     const y=year||String(now.getFullYear());
@@ -862,9 +875,13 @@ export function PeriodMonthYear({fechaD,fechaH,setFechaD,setFechaH}){
       setFechaH(`${y}-12-31`);
       return;
     }
-    const lastDay=new Date(Number(y),Number(month),0).getDate();
-    setFechaD(`${y}-${month}-01`);
-    setFechaH(`${y}-${month}-${String(lastDay).padStart(2,"0")}`);
+    const endYear=Number(y);
+    const endMonth=Number(month);
+    const start=new Date(endYear,endMonth-2,26,12);
+    const end=new Date(endYear,endMonth-1,25,12);
+    const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    setFechaD(iso(start));
+    setFechaH(iso(end));
   };
   const clearPeriodo=()=>{setFechaD("");setFechaH("");};
   return(

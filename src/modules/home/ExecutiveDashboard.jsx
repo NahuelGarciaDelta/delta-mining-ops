@@ -35,15 +35,16 @@ const periodMonthKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,
 const reportingPeriodForMonth=month=>{
   const [yy,mm]=String(month||"").split("-").map(Number);
   if(!yy||!mm)return null;
-  const start=new Date(yy,mm-1,26,12);
-  const end=new Date(yy,mm,25,12);
+  const start=new Date(yy,mm-2,26,12);
+  const end=new Date(yy,mm-1,25,12);
   return{start:ymd(start),end:ymd(end),startDate:start,endDate:end};
 };
 const reportingMonthForDate=d=>{
   const x=new Date(d);
   if(Number.isNaN(x.getTime()))return"";
-  // El período vigente comienza el día 26. Antes del 26 seguimos dentro del período iniciado el mes anterior.
-  if(x.getDate()<26)x.setMonth(x.getMonth()-1);
+  // El mes seleccionado representa el período 26 del mes anterior → 25 del mes corriente.
+  // Desde el día 26, la fecha pertenece al período etiquetado con el mes siguiente.
+  if(x.getDate()>=26)x.setMonth(x.getMonth()+1);
   return periodMonthKey(x);
 };
 const dateKey=v=>{
