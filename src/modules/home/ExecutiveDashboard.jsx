@@ -39,6 +39,12 @@ const reportingPeriodForMonth=month=>{
   const end=new Date(yy,mm-1,25,12);
   return{start:ymd(start),end:ymd(end),startDate:start,endDate:end};
 };
+const previousReportingMonth=month=>{
+  const [yy,mm]=String(month||"").split("-").map(Number);
+  if(!yy||!mm)return"";
+  const d=new Date(yy,mm-2,1,12);
+  return periodMonthKey(d);
+};
 const reportingMonthForDate=d=>{
   const x=new Date(d);
   if(Number.isNaN(x.getTime()))return"";
@@ -116,6 +122,7 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],rawSou
     return ars>0?ars/usdRateSafe:0;
   };
   const [selectedMonth,setSelectedMonth]=useState(()=>reportingMonthForDate(today));
+  const [comparisonMonth,setComparisonMonth]=useState(()=>previousReportingMonth(reportingMonthForDate(today)));
   const initialPeriod=reportingPeriodForMonth(reportingMonthForDate(today));
   const [from,setFrom]=useState(()=>initialPeriod?.start||ymd(monthStart(today)));
   const [to,setTo]=useState(()=>initialPeriod?.end||ymd(monthEnd(today)));
@@ -123,6 +130,7 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],rawSou
     setSelectedMonth(month);
     const p=reportingPeriodForMonth(month);
     if(p){setFrom(p.start);setTo(p.end);}
+    setComparisonMonth(previousReportingMonth(month));
   };
   const [remote,setRemote]=useState({pm:null,states:null,stock:null,raba:null});
   const [stateEquipment,setStateEquipment]=useState("");
@@ -134,14 +142,10 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],rawSou
   ]).then(([pm,states,stock,raba])=>{if(!alive)return;setRemote({pm:pm.status==="fulfilled"&&pm.value?.ok?pm.value:null,states:states.status==="fulfilled"&&states.value?.ok?states.value:null,stock:stock.status==="fulfilled"&&stock.value?.ok?stock.value:null,raba:raba.status==="fulfilled"&&(raba.value?.ok||raba.value?.sources)?raba.value:null});});return()=>{alive=false};},[]);
 
   const [prevFrom,prevTo]=useMemo(()=>{
-    const auto=reportingPeriodForMonth(selectedMonth);
-    if(auto&&from===auto.start&&to===auto.end){
-      const d=new Date(`${auto.start}T12:00:00`);d.setMonth(d.getMonth()-1);
-      const prev=reportingPeriodForMonth(periodMonthKey(d));
-      if(prev)return[prev.start,prev.end];
-    }
+    const chosen=reportingPeriodForMonth(comparisonMonth);
+    if(chosen)return[chosen.start,chosen.end];
     return prevRange(from,to);
-  },[from,to,selectedMonth]);
+  },[from,to,comparisonMonth]);
   const current=useMemo(()=>safe(rop02All).filter(r=>inRange(r,from,to)&&!r?._excluded),[rop02All,from,to]);
   const previous=useMemo(()=>safe(rop02All).filter(r=>inRange(r,prevFrom,prevTo)&&!r?._excluded),[rop02All,prevFrom,prevTo]);
   const maintNow=useMemo(()=>safe(rma15).filter(r=>inRange(r,from,to)),[rma15,from,to]);
@@ -337,13 +341,15 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],rawSou
   const topEquipment=useMemo(()=>{const m={};current.forEach(r=>{const c=code(r);if(!c)return;if(!m[c])m[c]={hours:0,project:r?.proyecto||"S/D"};m[c].hours+=num(r?.horas);});return Object.entries(m).sort((a,b)=>b[1].hours-a[1].hours).slice(0,5).map(([name,d])=>({name,...d}));},[current]);
   const maintTotal=maintSplit.reduce((s,x)=>s+x.value,0);
 
-  const comparisonLabel=new Date(`${prevFrom}T12:00:00`).toLocaleDateString("es-AR",{month:"long",year:"numeric"});
+  const comparisonLabel=comparisonMonth
+    ? new Date(`${comparisonMonth}-01T12:00:00`).toLocaleDateString("es-AR",{month:"long",year:"numeric"})
+    : new Date(`${prevFrom}T12:00:00`).toLocaleDateString("es-AR",{month:"long",year:"numeric"});
   return <div className="fade-in dm-exec-dashboard" style={{display:"flex",flexDirection:"column",gap:16}}>
     <style>{`.dm-exec-dashboard{font-family:Inter,sans-serif}.dm-exec-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px}.dm-exec-main{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(280px,.9fr);gap:16px}.dm-exec-triple{display:grid;grid-template-columns:1.25fr .9fr .9fr;gap:16px}.dm-exec-bottom{display:grid;grid-template-columns:1fr 1.05fr 1.15fr;gap:16px}.dm-panel{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}.dm-help{position:relative;width:16px;height:16px;border:1px solid rgba(255,255,255,.28);border-radius:50%;display:inline-grid;place-items:center;font-size:10px;font-weight:800;color:#cbd5df;cursor:help;line-height:1}.dm-help:after{content:attr(data-tip);position:absolute;left:50%;top:22px;transform:translateX(-50%);width:230px;padding:8px 10px;border-radius:7px;background:#111820;color:#e7edf4;border:1px solid rgba(255,255,255,.18);box-shadow:0 8px 24px rgba(0,0,0,.45);font-size:10px;font-weight:500;line-height:1.35;opacity:0;pointer-events:none;z-index:50;transition:.15s}.dm-help:hover:after,.dm-help:focus:after{opacity:1}.dm-exec-table{width:100%;border-collapse:separate;border-spacing:0;font-size:10px;background:rgba(255,255,255,.035);border-radius:8px;overflow:hidden}.dm-exec-table th{background:rgba(255,255,255,.075);color:#cbd5df;font-weight:800}.dm-exec-table th,.dm-exec-table td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.10)}.dm-exec-table tbody tr:nth-child(even){background:rgba(255,255,255,.025)}.dm-exec-table tbody tr:hover{background:rgba(255,255,255,.055)}@media(max-width:1350px){.dm-exec-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.dm-exec-main{grid-template-columns:1fr}.dm-exec-triple,.dm-exec-bottom{grid-template-columns:1fr 1fr}.dm-exec-triple>*:first-child{grid-column:1/-1}}@media(max-width:800px){.dm-exec-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dm-exec-triple,.dm-exec-bottom{grid-template-columns:1fr}.dm-exec-triple>*:first-child{grid-column:auto}}@media(max-width:520px){.dm-exec-kpis{grid-template-columns:1fr}}`}</style>
 
     <div style={{display:"flex",justifyContent:"space-between",gap:14,alignItems:"center",flexWrap:"wrap",padding:"4px 2px 2px"}}>
       <div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:20}}>♛</span><h2 style={{fontSize:20,margin:0}}>Dashboard Gerencial</h2></div><div style={{fontSize:11,color:C.textMuted,marginTop:3}}>Resumen ejecutivo de operaciones · foco en indicadores y excepciones</div></div>
-      <div style={{display:"flex",gap:9,alignItems:"end",flexWrap:"wrap"}}><label style={{fontSize:9,color:C.textMuted}}>Mes<input type="month" value={selectedMonth} onChange={e=>applyMonth(e.target.value)} onClick={e=>e.currentTarget.showPicker?.()} title="Elegir mes" style={{display:"block",marginTop:4,background:C.surface,border:`1px solid ${C.borderLight}`,color:C.text,borderRadius:8,padding:"7px 36px 7px 9px",fontSize:11,cursor:"pointer",colorScheme:"dark",backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'18\' height=\'18\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'white\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Crect x=\'3\' y=\'5\' width=\'18\' height=\'16\' rx=\'2\'/%3E%3Cline x1=\'16\' y1=\'3\' x2=\'16\' y2=\'7\'/%3E%3Cline x1=\'8\' y1=\'3\' x2=\'8\' y2=\'7\'/%3E%3Cline x1=\'3\' y1=\'11\' x2=\'21\' y2=\'11\'/%3E%3C/svg%3E")',backgroundRepeat:"no-repeat",backgroundPosition:"right 10px center",backgroundSize:"16px 16px"}}/></label><label style={{fontSize:9,color:C.textMuted}}>Desde<input type="date" value={from} onChange={e=>setFrom(e.target.value)} style={{display:"block",marginTop:4,background:C.surface,border:`1px solid ${C.borderLight}`,color:C.text,borderRadius:8,padding:"7px 9px",fontSize:11}}/></label><label style={{fontSize:9,color:C.textMuted}}>Hasta<input type="date" value={to} min={from} onChange={e=>setTo(e.target.value)} style={{display:"block",marginTop:4,background:C.surface,border:`1px solid ${C.borderLight}`,color:C.text,borderRadius:8,padding:"7px 9px",fontSize:11}}/></label><div style={{padding:"7px 10px",border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,fontSize:9,color:C.textMuted,lineHeight:1.35}}>Comparación<br/><strong style={{fontSize:10,color:C.textSub,textTransform:"capitalize"}}>{comparisonLabel}</strong></div></div>
+      <div style={{display:"flex",gap:9,alignItems:"end",flexWrap:"wrap"}}><label style={{fontSize:9,color:C.textMuted}}>Mes<input type="month" value={selectedMonth} onChange={e=>applyMonth(e.target.value)} onClick={e=>e.currentTarget.showPicker?.()} title="Elegir mes" style={{display:"block",marginTop:4,background:C.surface,border:`1px solid ${C.borderLight}`,color:C.text,borderRadius:8,padding:"7px 36px 7px 9px",fontSize:11,cursor:"pointer",colorScheme:"dark",backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'18\' height=\'18\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'white\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Crect x=\'3\' y=\'5\' width=\'18\' height=\'16\' rx=\'2\'/%3E%3Cline x1=\'16\' y1=\'3\' x2=\'16\' y2=\'7\'/%3E%3Cline x1=\'8\' y1=\'3\' x2=\'8\' y2=\'7\'/%3E%3Cline x1=\'3\' y1=\'11\' x2=\'21\' y2=\'11\'/%3E%3C/svg%3E")',backgroundRepeat:"no-repeat",backgroundPosition:"right 10px center",backgroundSize:"16px 16px"}}/></label><label style={{fontSize:9,color:C.textMuted}}>Desde<input type="date" value={from} onChange={e=>setFrom(e.target.value)} style={{display:"block",marginTop:4,background:C.surface,border:`1px solid ${C.borderLight}`,color:C.text,borderRadius:8,padding:"7px 9px",fontSize:11}}/></label><label style={{fontSize:9,color:C.textMuted}}>Hasta<input type="date" value={to} min={from} onChange={e=>setTo(e.target.value)} style={{display:"block",marginTop:4,background:C.surface,border:`1px solid ${C.borderLight}`,color:C.text,borderRadius:8,padding:"7px 9px",fontSize:11}}/></label><label style={{fontSize:9,color:C.textMuted}}>Comparar con<input type="month" value={comparisonMonth} onChange={e=>setComparisonMonth(e.target.value)} onClick={e=>e.currentTarget.showPicker?.()} title="Elegir mes de comparación" style={{display:"block",marginTop:4,background:C.surface,border:`1px solid ${C.borderLight}`,color:C.text,borderRadius:8,padding:"7px 36px 7px 9px",fontSize:11,cursor:"pointer",colorScheme:"dark",backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'18\' height=\'18\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'white\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Crect x=\'3\' y=\'5\' width=\'18\' height=\'16\' rx=\'2\'/%3E%3Cline x1=\'16\' y1=\'3\' x2=\'16\' y2=\'7\'/%3E%3Cline x1=\'8\' y1=\'3\' x2=\'8\' y2=\'7\'/%3E%3Cline x1=\'3\' y1=\'11\' x2=\'21\' y2=\'11\'/%3E%3C/svg%3E")',backgroundRepeat:"no-repeat",backgroundPosition:"right 10px center",backgroundSize:"16px 16px"}}/><span style={{display:"block",marginTop:3,fontSize:8,color:C.textMuted,textTransform:"capitalize"}}>{comparisonLabel}</span></label></div>
     </div>
 
     <div className="dm-exec-kpis">

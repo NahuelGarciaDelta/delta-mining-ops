@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { C, Card, StatCard, Table, Icon, DateIn, PeriodMonthYear, MultiSel, matchMulti, multiIsAll, normalizeMultiValue, multiDefault } from "../../components/ui/index.jsx";
+import { C, Card, StatCard, Table, Icon, DateIn, PeriodMonthYear, normalizeMultiValue, multiDefault } from "../../components/ui/index.jsx";
 import { APPS_SCRIPT_URL } from "../../config/app.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
-import { byDateFilter, uniq } from "../../shared/domain/index.jsx";
+import { byDateFilter } from "../../shared/domain/index.jsx";
 import { cleanEquipmentCode, canonicalEquipmentCode } from "./equipmentCode.js";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 
@@ -51,7 +51,6 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const [fechaD,setFechaD]=useState("");
   const [fechaH,setFechaH]=useState("");
   const [selectedMonth,setSelectedMonth]=useState("");
-  const [fProyecto,setFProyecto]=useState("todos");
   const [activeTab,setActiveTab]=useState("resumen");
 
   // El selector debe responder de inmediato. La ficha pesada se actualiza en el
@@ -115,13 +114,6 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   // Si llega RPC-0016-JM, el selector utiliza RPC-0016; ambos comparten la misma clave.
   const selectedKey=detailKey;
   const selectedOption=useMemo(()=>allCodes.find(o=>o.key===selectedKey)||null,[allCodes,selectedKey]);
-  const projectOptions=useMemo(()=>{
-    const projects=uniq([...(rop02Index.get(selectedKey)||[]),...(rop05Index.get(selectedKey)||[]),...(rma15Index.get(selectedKey)||[])]
-      .map(r=>String(r.proyecto||"").trim())
-      .filter(Boolean));
-    return [{value:"todos",label:"Todos los proyectos"},...projects.map(p=>({value:p,label:p}))];
-  },[selectedKey,rop02Index,rop05Index,rma15Index]);
-
   const master=masterIndex.get(selectedKey)||selectedOption?.master||null;
   const op=rop02Index.get(selectedKey)||[];
   const prod=rop05Index.get(selectedKey)||[];
@@ -131,27 +123,23 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const filteredOp=useMemo(()=>{
     let rows=op;
     if(fechaD||fechaH)rows=byDateFilter(rows,"periodo",null,fechaD,fechaH);
-    if(!multiIsAll(fProyecto,"todos"))rows=rows.filter(r=>matchMulti(r.proyecto||"",fProyecto,"todos"));
     return rows;
-  },[op,fechaD,fechaH,fProyecto]);
+  },[op,fechaD,fechaH]);
   const filteredProd=useMemo(()=>{
     let rows=prod;
     if(fechaD||fechaH)rows=byDateFilter(rows,"periodo",null,fechaD,fechaH);
-    if(!multiIsAll(fProyecto,"todos"))rows=rows.filter(r=>matchMulti(r.proyecto||"",fProyecto,"todos"));
     return rows;
-  },[prod,fechaD,fechaH,fProyecto]);
+  },[prod,fechaD,fechaH]);
   const filteredMant=useMemo(()=>{
     let rows=mant;
     if(fechaD||fechaH)rows=byDateFilter(rows,"periodo",null,fechaD,fechaH);
-    if(!multiIsAll(fProyecto,"todos"))rows=rows.filter(r=>matchMulti(r.proyecto||"",fProyecto,"todos"));
     return rows;
-  },[mant,fechaD,fechaH,fProyecto]);
+  },[mant,fechaD,fechaH]);
   const filteredPmReg=useMemo(()=>{
     let rows=pmReg;
     if(fechaD||fechaH)rows=byDateFilter(rows,"periodo",null,fechaD,fechaH);
-    if(!multiIsAll(fProyecto,"todos"))rows=rows.filter(r=>matchMulti(pick(r,["Proyecto","Lugar","Sitio"])||"",fProyecto,"todos"));
     return rows;
-  },[pmReg,fechaD,fechaH,fProyecto]);
+  },[pmReg,fechaD,fechaH]);
 
   const effectiveUsdRate=useMemo(()=>{try{const saved=JSON.parse(window.localStorage.getItem("delta_costos_mant_state_v1")||"{}");const configured=Number(saved?.usdRate2);if(Number.isFinite(configured)&&configured>0)return configured;}catch(_){}const fallback=Number(usdRate);return Number.isFinite(fallback)&&fallback>0?fallback:1400;},[usdRate]);
 
@@ -255,7 +243,7 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
     setFechaD(ymd(start));
     setFechaH(ymd(end));
   };
-  const clearFilters=()=>{setSelectedMonth("");setFechaD("");setFechaH("");setFProyecto("todos");};
+  const clearFilters=()=>{setSelectedMonth("");setFechaD("");setFechaH("");};
   const periodLabel=fechaD||fechaH?`${fechaD||"inicio"} al ${fechaH||"hoy"}`:"Todo el historial disponible";
   const statusColor=operationalStatus.current==="FS"?C.red:operationalStatus.current==="EM"?C.purple:operationalStatus.current==="OD"?C.yellow:C.green;
   const totalStateDays=operationalStatus.tracked||0;
@@ -324,10 +312,9 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
         </div>
         <div className="dm-equipment-filter-panel" style={{display:"flex",flexDirection:"column",gap:9,minWidth:0,width:"100%"}}>
           <div><div style={{fontSize:9,color:C.textMuted,fontWeight:800,marginBottom:4}}>EQUIPO</div><EquipmentPicker options={allCodes} value={selected} onChange={v=>setSelected(cleanEquipmentCode(v))}/></div>
-          <div className="dm-equipment-filter-row" style={{display:"grid",gridTemplateColumns:"minmax(145px,1.2fr) minmax(120px,1fr) minmax(120px,1fr) minmax(145px,1.15fr) auto",alignItems:"end",gap:8}}>
+          <div className="dm-equipment-filter-row" style={{display:"grid",gridTemplateColumns:"minmax(145px,1.2fr) minmax(120px,1fr) minmax(120px,1fr) auto",alignItems:"end",gap:8}}>
             <label style={{fontSize:9,color:C.textMuted,fontWeight:800}}>MES<input type="month" value={selectedMonth} onChange={e=>applyOperationalMonth(e.target.value)} onClick={e=>e.currentTarget.showPicker?.()} title="Elegir mes" style={{display:"block",marginTop:4,height:33,boxSizing:"border-box",background:"#151515",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"0 36px 0 9px",fontSize:11,fontWeight:700,cursor:"pointer",colorScheme:"dark",backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'18\' height=\'18\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'white\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Crect x=\'3\' y=\'5\' width=\'18\' height=\'16\' rx=\'2\'/%3E%3Cline x1=\'16\' y1=\'3\' x2=\'16\' y2=\'7\'/%3E%3Cline x1=\'8\' y1=\'3\' x2=\'8\' y2=\'7\'/%3E%3Cline x1=\'3\' y1=\'11\' x2=\'21\' y2=\'11\'/%3E%3C/svg%3E")',backgroundRepeat:"no-repeat",backgroundPosition:"right 10px center",backgroundSize:"16px 16px"}}/></label>
             <DateIn label="Desde" value={fechaD} onChange={setFechaD}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH}/>
-            <MultiSel label="Proyecto" value={fProyecto} onChange={setFProyecto} options={projectOptions}/>
             <button onClick={clearFilters} style={{background:"rgba(255,255,255,.03)",border:`1px solid ${C.border}`,borderRadius:8,color:C.textSub,padding:"7px 10px",fontSize:11,cursor:"pointer",height:33}}>Limpiar</button>
           </div>
         </div>

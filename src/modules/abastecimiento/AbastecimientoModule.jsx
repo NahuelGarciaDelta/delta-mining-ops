@@ -59,7 +59,10 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     catch(_){return {};}
   });
   const [rejectModal,setRejectModal]=useState({open:false,row:null,observacion:""});
-  const [loading,setLoading]=useState(false);
+  // Las vistas basadas en RABA03 deben entrar en estado de carga desde el
+  // primer render. De este modo no se muestran cards/tablas transitoriamente
+  // en cero mientras se sincronizan remitos, estados y solicitudes.
+  const [loading,setLoading]=useState(()=>!["remito","stock","stockDashboard"].includes(initialTab));
   const [actionLoading,setActionLoading]=useState("");
   const [selectedCloseKeys,setSelectedCloseKeys]=useState(()=>new Set());
   const [selectedReopenKeys,setSelectedReopenKeys]=useState(()=>new Set());
