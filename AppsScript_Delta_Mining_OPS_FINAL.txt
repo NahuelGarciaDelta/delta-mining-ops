@@ -1046,6 +1046,10 @@ function usuarioActivoValor_(v){
   return !(a==="NO"||a==="FALSE"||a==="0"||a==="INACTIVO"||a==="BAJA");
 }
 
+function usuarioNormalizarArea_(v){
+  return String(v||"").trim().toUpperCase();
+}
+
 function handleAuthenticateUser_(email,password){
   var info=getUsuariosSheetInfo_();
   var rowNum=findUsuarioRowByEmail_(info,email);
@@ -1055,7 +1059,7 @@ function handleAuthenticateUser_(email,password){
   var stored=String(row[info.passwordIdx]||"");
   var expected=stored||"DELTA.MINING.APP";
   if(String(password||"")!==expected)return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
-  var user={email:String(row[info.emailIdx]||"").trim().toLowerCase(),rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),nombre:String(row[info.nombreIdx]||"").trim(),area:String(row[info.areaIdx]||"").trim()};
+  var user={email:String(row[info.emailIdx]||"").trim().toLowerCase(),rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),nombre:String(row[info.nombreIdx]||"").trim(),area:usuarioNormalizarArea_(row[info.areaIdx])};
   return {ok:true,user:user,mustChangePassword:!stored,authToken:stockExcelIssueAuthToken_(user.email)};
 }
 
@@ -1079,8 +1083,8 @@ function handleUpdateUserProfile_(payload){
     }
     var nombre=String(payload.nombre||"").trim();
     var currentRole=String(row[info.rolIdx]||"USUARIO").trim().toUpperCase();
-    var currentArea=String(row[info.areaIdx]||"").trim().toUpperCase();
-    var requestedArea=String(payload.area||"").trim().toUpperCase();
+    var currentArea=usuarioNormalizarArea_(row[info.areaIdx]);
+    var requestedArea=usuarioNormalizarArea_(payload.area);
     var canChangeArea=(currentRole==="ADMIN"||currentRole==="ADMINISTRADOR");
     var area=canChangeArea?requestedArea:currentArea;
     if(nombre)info.sheet.getRange(rowNum,info.nombreIdx+1).setValue(nombre);

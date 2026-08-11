@@ -1,6 +1,7 @@
 import React, {useMemo, useState, useEffect} from "react";
 import * as XLSX from "xlsx";
 import { C as UI_C } from "../../components/ui/index.jsx";
+import { getHoursExtremes } from "./hoursExtremes.js";
 
 let C=UI_C, Icon, Spinner, Badge, StatCard, Card, Table, Sel, MultiSel, DateIn, PeriodMonthYear, TabBtn, AlertBanner, HelpTip;
 let fmtNum, fmtFecha, uniq, normDate, cleanMachine, canonicalEquivalentMachineCode, isRop02ControlMachineExcluded, dmMatchTipoMaquinaSeleccion, dmTipoMaquinaOptions, matchMulti, multiIsAll, multiIncludes, normalizeMachineCode, getMachineType, isExcluded, excelFromCols, proyColor, semaforo, appAlert;
@@ -370,6 +371,10 @@ function ViewCambiosTurnoInner({rop02All=[]}){
 
   const hayFiltrosHoras=filtroMesHoras!==String(hoy.getMonth())||filtroAnioHoras!==String(hoy.getFullYear())||!multiIsAll(filtroProyectoHoras,"todos")||!multiIsAll(filtroEquipoHoras,"todas")||!multiIsAll(filtroTipoHoras,"todos");
   const resetFiltrosHoras=()=>{setFiltroMesHoras(String(hoy.getMonth()));setFiltroAnioHoras(String(hoy.getFullYear()));setFiltroProyectoHoras("todos");setFiltroEquipoHoras("todas");setFiltroTipoHoras("todos");};
+  const extremosHoras=useMemo(()=>getHoursExtremes(mesCorrienteInfo.equipos),[mesCorrienteInfo.equipos]);
+  const resumenEquipoHoras=row=>row
+    ? [`${fmtNum(row.horas)} hs`,row.proyecto,row.equipo].filter(Boolean).join(" · ")
+    : "Sin datos para los filtros seleccionados";
 
   const escapeHtmlTurno=v=>String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]));
   const tooltipExcesoDiasTurno=(row)=>{
@@ -410,37 +415,14 @@ function ViewCambiosTurnoInner({rop02All=[]}){
     {key:"horas",label:"Hs Totales",render:v=><span style={{fontWeight:900,color:C.green}}>{fmtNum(v)}</span>},
     {key:"ultimaFecha",label:"Último registro",render:v=>v?fmtFecha(v):"—"},
   ];
-  const cardIntegrantes=(g)=>(
-    <div style={{background:g.color+"14",border:`1px solid ${g.color}55`,borderRadius:12,padding:14}}>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-        <Badge color={g.color}>{g.nombre}</Badge>
-        <span style={{fontSize:11,color:C.textMuted}}>Turno de 14 días</span>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <div>
-          <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>José María</div>
-          {g.jm.map(n=><div key={n} style={{fontSize:13,color:C.text,fontWeight:650,marginBottom:3}}>{n}</div>)}
-        </div>
-        <div>
-          <div style={{fontSize:10,color:C.textMuted,textTransform:"uppercase",letterSpacing:".06em",marginBottom:5}}>Filo del Sol</div>
-          {g.fs.map(n=><div key={n} style={{fontSize:13,color:C.text,fontWeight:650,marginBottom:3}}>{n}</div>)}
-        </div>
-      </div>
-    </div>
-  );
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:12}}>
         <StatCard icon="person" label="Grupo trabajando hoy" value={turnoActual.grupo.nombre} sub={`${fmtFecha(turnoISO(turnoActual.inicio))} al ${fmtFecha(turnoISO(turnoActual.fin))}`} color={turnoActual.grupo.color} small/>
         <StatCard icon="consist" label="Próximo cambio" value={fmtFecha(turnoISO(turnoActual.proximoCambio))} sub={`Ingresa ${turnoActual.grupoSiguiente.nombre}`} color={C.yellow} small/>
-        <StatCard icon="hours" label="Duración del turno" value="14 días" sub="Rotación automática cada 14 días" color={C.purple} small/>
+        <StatCard icon="hours" label="Equipo con más horas" value={extremosHoras.max?.maquina||"—"} sub={resumenEquipoHoras(extremosHoras.max)} color={C.green} small/>
+        <StatCard icon="hours" label="Equipo con menos horas" value={extremosHoras.min?.maquina||"—"} sub={resumenEquipoHoras(extremosHoras.min)} color={C.blue} small/>
       </div>
-
-      <Card title="Orden de grupos">
-        <div style={{padding:14,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
-          {CAMBIOS_TURNO_GRUPOS.map(cardIntegrantes)}
-        </div>
-      </Card>
 
       <Card title="Equipos al fin de turno" action={<BtnExcel onClick={()=>excelFromCols(colsEquiposFinTurno,mesCorrienteInfo.equipos,"Equipos_al_fin_de_turno")}/>}>
         <div style={{padding:14,display:"flex",flexDirection:"column",gap:12}}>

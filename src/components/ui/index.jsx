@@ -485,7 +485,10 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
                     const rawCell=r[c.key];
                     const cellContent=c.render?c.render(rawCell,r):(rawCell??"—");
                     const linkLabel=String(c.label||c.key||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-                    const equipmentLink=!c.render&&(linkLabel.includes("interno")||linkLabel.includes("codigo int"))&&String(rawCell||"").trim();
+                    const equipmentText=String(rawCell||"").trim();
+                    const looksEquipmentCode=/^[A-Z]{2,6}[- ]?\d{3,6}(?:[- ][A-Z0-9]+)?$/i.test(equipmentText);
+                    const equipmentColumn=linkLabel.includes("interno")||linkLabel.includes("codigo int")||linkLabel==="equipo"||linkLabel.includes("codigo equipo")||linkLabel.includes("maquina");
+                    const equipmentLink=!c.render&&equipmentColumn&&looksEquipmentCode&&equipmentText;
                     return(
                     <td key={j} style={{padding:c.compact?"8px 6px":"8px 12px",borderBottom:`1px solid ${C.border}18`,color:C.text,whiteSpace:c.wrap?"normal":"nowrap",overflow:"hidden",textOverflow:"ellipsis",textAlign:c.align||"left",maxWidth:c.maxWidth||(c.wrap?undefined:300),minWidth:effectiveWidth,width:effectiveWidth,position:sticky?"sticky":undefined,left:sticky?0:undefined,zIndex:sticky?2:undefined,background:sticky?C.card:(c.color?c.color+"0a":undefined),boxShadow:sticky?`1px 0 0 ${C.border}`:undefined,verticalAlign:"top",lineHeight:1.25}}>{equipmentLink?<button type="button" title="Abrir ficha única del equipo" onClick={e=>{e.stopPropagation();window.dispatchEvent(new CustomEvent("dm-open-equipment-profile",{detail:{code:String(rawCell).trim()}}));}} style={{background:"none",border:"none",padding:0,color:C.blue,font:"inherit",fontWeight:800,cursor:"pointer",textDecoration:"underline",textDecorationColor:C.blue+"66"}}>{cellContent}</button>:cellContent}</td>
                     );

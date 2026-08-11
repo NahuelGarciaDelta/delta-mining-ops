@@ -5,6 +5,7 @@ import { APPS_SCRIPT_URL } from "../../config/app.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
 import { fetchStockData } from "../../services/stockService.js";
 import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
+import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
 
 const norm=v=>String(v??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 const getVal=(row,cands)=>{const keys=Object.keys(row||{});for(const cand of cands){const w=norm(cand);for(const k of keys){const nk=norm(k);if(nk===w||nk.includes(w)||w.includes(nk))return row[k];}}return "";};
@@ -14,7 +15,7 @@ const dateOf=r=>{const raw=getVal(r,["Fecha","Fecha OT","Fecha del Parte Diario"
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
 
-export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],listaEquipos=[],rop02All=[],nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false}){
+export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false}){
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState([]);
@@ -117,11 +118,9 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const favoritesBadge=favorites.length;
   const sidebarSectionsBase=[
     {key:"home",label:"Inicio",icon:"dashboard",active:activeView==="home",badge:null,action:()=>setActiveView("home")},
-    {key:"favorites",label:"Favoritos",icon:"barChart",active:activeView==="favorites",badge:favoritesBadge>0?favoritesBadge:null,action:()=>setActiveView("favorites")},
+    {key:"dashboard",label:"Dashboard",icon:"barChart",active:activeView==="dashboard",badge:null,action:()=>setActiveView("dashboard")},
     {key:"agenda",label:"Agenda",icon:"calendar",active:activeView==="agenda",badge:null,action:()=>setActiveView("agenda")},
     {key:"weather",label:"Clima",icon:"alert",active:activeView==="weather",badge:null,action:()=>setActiveView("weather")},
-    {key:"dashboard",label:"Dashboard",icon:"barChart",active:false,badge:null,action:()=>openView("dashboard")},
-    {key:"docs",label:"Documentos",icon:"fileBarChart",active:activeView==="docs",badge:null,action:()=>setActiveView("docs")},
     {key:"profile",label:"Mi Perfil",icon:"person",active:activeView==="profile",badge:null,action:()=>onOpenProfile?.()},
   ];
   const sidebarSections=esAdministrativo
@@ -141,6 +140,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     if(activeView==="agenda")return renderPanel("Agenda operativa","Calendario mensual con programaciones de mantenimiento y fechas de licitación disponibles en los servicios existentes.",<OperationalAgenda month={agendaMonth} onMonthChange={setAgendaMonth} data={agendaData} onNavigate={openView}/>, "#22c55e");
     if(activeView==="weather")return renderPanel("Clima operacional","Pronóstico para Campamento Batidero orientado a condiciones relevantes para la operación minera.",<WeatherModule/>, "#38bdf8");
     if(activeView==="docs")return renderPanel("Documentos","Se reutilizan los informes, planillas y fichas ya disponibles en los módulos operativos; no se creó una biblioteca paralela.",actionGrid([{label:"Ficha única de equipo",view:"equipmentProfile",icon:"person",color:"#22c55e",detail:"Abrir ficha"},{label:"Informe de costos",view:"costosMant",icon:"barChart",color:"#a78bfa",detail:"Abrir informe"},{label:"Planillas de licitación",view:"licitaciones",icon:"fileSpreadsheet",color:"#22d3ee",detail:"Abrir licitaciones"},{label:"Documentación técnica",view:"listaEquipos",icon:"fileBarChart",color:"#60a5fa",detail:"Abrir lista maestra"}]), "#3b82f6");
+    if(activeView==="dashboard")return <div className="dm-home-dashboard-shell" style={{margin:"-2px -4px 0",padding:"18px",borderRadius:14,background:"rgba(7,13,19,.36)",border:"1px solid rgba(255,255,255,.08)",boxShadow:"0 22px 60px rgba(0,0,0,.24)",backdropFilter:"blur(5px) saturate(105%)",WebkitBackdropFilter:"blur(5px) saturate(105%)"}}><ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={onNavigate}/></div>;
     return null;
   };
 
@@ -162,7 +162,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       </div>
     </aside>
 
-    <main style={{position:"absolute",left:sidebarCollapsed?84:218,right:0,top:0,bottom:0,zIndex:2,padding:"30px 48px 26px",display:"grid",gridTemplateRows:"auto 1fr auto auto auto",gap:14,transition:"left .24s ease"}}>
+    <main style={{position:"absolute",left:sidebarCollapsed?84:218,right:0,top:0,bottom:0,zIndex:2,padding:activeView==="dashboard"?"18px 24px 22px":"30px 48px 26px",display:"grid",gridTemplateRows:"auto 1fr auto auto auto",gap:activeView==="dashboard"?10:14,transition:"left .24s ease",background:"transparent"}}>
       <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:22,minHeight:48}}>
         <TopInfo icon="☁" value={weatherData?.current?`${Math.round(weatherData.current.temperature_2m)}°C`:"—°C"} sub="Camp. Batidero · Iglesia"/>
         <Sep/><TopInfo icon="▣" value={dateTop} sub={weekday.charAt(0).toUpperCase()+weekday.slice(1)}/>

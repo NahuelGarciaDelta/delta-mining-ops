@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 import { updateAuthenticatedUser } from "../services/authSession.js";
+import { USER_AREA_OPTIONS } from "../constants/userProfile.js";
 
 export default function UserSettingsModal({open,forced=false,onClose,onSaved,APPS_SCRIPT_URL,C,Spinner,Icon,permissionSnapshot={}}){
   const [nombre,setNombre]=useState(()=>String(sessionStorage.getItem("dm_name")||""));
@@ -20,20 +21,6 @@ export default function UserSettingsModal({open,forced=false,onClose,onSaved,APP
     }
   },[open]);
   if(!open)return null;
-  const areas=[
-    "",
-    "OFICINA TÉCNICA",
-    "MANTENIMIENTO",
-    "CALIDAD",
-    "ABASTECIMIENTO",
-    "TALLER CENTRAL",
-    "LICITACIONES",
-    "FINANZAS",
-    "RECURSOS HUMANOS",
-    "HIGIENE Y SEGURIDAD",
-    "ADMINISTRATIVO",
-    "SUPERVISOR"
-  ];
   const guardar=async()=>{
     setError("");
     if(!nombre.trim()){setError("Ingresá un nombre.");return;}
@@ -69,7 +56,7 @@ export default function UserSettingsModal({open,forced=false,onClose,onSaved,APP
           </label>
           <label style={{display:"grid",gap:6,fontSize:11,color:C.textSub,fontWeight:700}}>ÁREA
             <select value={area} disabled={!canChangeArea} onChange={e=>setArea(e.target.value)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 12px",color:C.text,outline:"none",opacity:canChangeArea?1:.65,cursor:canChangeArea?"pointer":"not-allowed"}}>
-              {areas.map(x=><option key={x} value={x}>{x||"SIN DEFINIR"}</option>)}
+              {USER_AREA_OPTIONS.map(x=><option key={x} value={x}>{x||"SIN DEFINIR"}</option>)}
             </select>
             {!canChangeArea&&<span style={{fontSize:10,color:C.textMuted,fontWeight:500}}>El área la administra un usuario ADMIN; no puede autoasignarse desde el perfil.</span>}
           </label>

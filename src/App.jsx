@@ -6,6 +6,7 @@ import { MantenimientoRoute } from "./modules/mantenimiento/index.js";
 import { LicitacionesRoute } from "./modules/licitaciones/index.js";
 import { OficinaTecnicaRoute } from "./modules/oficina-tecnica/index.js";
 import UserSettingsModal from "./components/UserSettingsModal.jsx";
+import GlobalSearch from "./components/GlobalSearch.jsx";
 import { APPS_SCRIPT_URL } from "./config/app.js";
 import { VIEW_SOURCES } from "./config/viewSources.js";
 import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcurrency_ } from "./services/appsScriptApi.js";
@@ -28,7 +29,7 @@ import { APP_BUILD_LABEL } from "./app/version.js";
 import { EquipmentProfileView } from "./modules/equipment/index.js";
 import { resolveEquipmentCodeAlias } from "./modules/equipment/equipmentCode.js";
 import { Login } from "./modules/auth/index.js";
-import { ViewBienvenida } from "./modules/home/index.js";
+import { ViewBienvenida, ExecutiveDashboard } from "./modules/home/index.js";
 import { dmNormalizeArea } from "./shared/access.js";
 import { ViewCostosUnitarios, ViewRankingOperarios, ViewCambiosTurno } from "./modules/analytics/index.js";
 import ReactDOM from "react-dom";
@@ -306,7 +307,7 @@ export default function App(){
 
   // Tipo de cambio: se pide recién cuando una vista de costos/mantenimiento lo necesita.
   useEffect(()=>{
-    const needsUsd=["mant","costosMant","costosUnitarios","equipmentProfile"].includes(view);
+    const needsUsd=["bienvenida","dashboard","mant","costosMant","costosUnitarios","equipmentProfile"].includes(view);
     if(!needsUsd||usdRate)return;
     let alive=true;
     fetch("https://api.exchangerate-api.com/v4/latest/USD")
@@ -717,7 +718,7 @@ export default function App(){
       {id:"vehiculos",icon:"car",label:"Vehículos"},
       {id:"combustible",icon:"fuel",label:"Combustible"},
       {id:"horometros",icon:"hours",label:"Horómetros"},
-      {id:"cambiosTurno",icon:"usersRound",label:"Cambios de turno"},
+      {id:"cambiosTurno",icon:"usersRound",label:"Control de horas mensuales"},
     ]},
     {id:"grp_control_rop02",icon:"shieldCheck",label:"Control de ROP02",type:"group",color:C.accent,children:[
       {id:"controlErrores",icon:"circleAlert",label:"Control de errores"},
@@ -741,6 +742,7 @@ export default function App(){
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
   const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",equipmentProfile:"Ficha única del equipo",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",pmProgramado:"Mantenimiento Programado",pmDashboard:"Mantenimiento Programado — Dashboard",pmPlanificador:"Mantenimiento Programado — Planificador",pmProgramacion:"Mantenimiento Programado — Programación",pmPanel:"Mantenimiento Programado — Panel de flota",pmRealizado:"Mantenimiento Programado — Registrar realizado",pmRepuestos:"Mantenimiento Programado — Repuestos",pmGestion:"Mantenimiento Programado — Gestión y alertas",pmConfig:"Mantenimiento Programado — Configuración",pmHistorial:"Mantenimiento Programado — Historial",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
+  titles.cambiosTurno="Control de horas mensuales";
   const titleHelp={
     equipmentProfile:"Ficha transversal por interno: integra Lista Maestra, ROP02, ROP05, RMA15, PM, costos y estado operativo.",
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
@@ -751,7 +753,7 @@ export default function App(){
     vehiculos:"Mismo reporte que ROP02 (TD/TN, horómetros, km), pero para camiones y camionetas en lugar de máquinas.",
     ctrlEquipo:"Ficha por equipo: muestra el detalle día por turno (TD/TN) y controla automáticamente que la numeración de partes y los horómetros sean consistentes entre registros.",
     combustible:"Análisis de litros de combustible cargados por equipo, proyecto y período, con ranking de consumo.",
-    cambiosTurno:"Calendario de rotación de supervisores por grupos y control de horas acumuladas por equipo en período 26 al 25.",
+    cambiosTurno:"Control mensual de horas acumuladas por equipo y calendario de rotación de supervisores en el período 26 al 25.",
     rop05:"ROP05 = Reporte de Producción: cantidad y tipo de trabajo productivo realizado por cada equipo (m³, m², horas, etc.).",
     ranking:"Ranking de operarios según horas trabajadas, días activos y equipos operados.",
     chc:"ICHC = Indicador de Control de Horas Contratadas: compara las horas efectivamente trabajadas contra las horas pactadas por contrato (180 hs/mes por equipo).",
@@ -919,6 +921,7 @@ export default function App(){
         </div>,document.body
       )}
       <div className="dm-app-shell" style={{display:"flex",height:"100dvh",minHeight:0,overflow:"hidden",background:"transparent"}}>
+        <GlobalSearch listaEquipos={listaEquipos} rawSources={rawSources} onNavigate={navigateToView}/>
         {showSidebar&&(
         <div className="dm-app-sidebar" style={{width:SW,flexShrink:0,background:"rgba(22,22,22,0.55)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderRight:`1px solid ${C.border}44`,display:"flex",flexDirection:"column",transition:"width .25s ease",overflow:"hidden",position:"relative"}}>
           <div style={{padding:sidebarOpen?"18px 16px 14px":"18px 0 14px",borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",gap:8,justifyContent:sidebarOpen?"flex-start":"center",minHeight:88,transition:"padding .25s ease"}}>
@@ -1043,9 +1046,10 @@ export default function App(){
             )}
             {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
+                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
+                {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
                 {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}
-                {["dashboard","listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
+                {["listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
                   view={view} deps={createOficinaTecnicaDeps(BlockingDataLoader)} dataHydrated={dataHydrated} rawSources={rawSources}
                   sourceHasData={sourceHasData} listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15}
                   control={control} dashSt={dashSt} setDashSt={setDashSt} health={health} loading={loading}
@@ -1058,7 +1062,7 @@ export default function App(){
                   stRma15CtrlEquipo={stRma15CtrlEquipo} setStRma15CtrlEquipo={setStRma15CtrlEquipo}
                   stCHC={stCHC} setStCHC={setStCHC} stCtrl={stCtrl} setStCtrl={setStCtrl}
                 /></ModuleErrorBoundary>}
-                {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Cambios de turno" onRetry={loadData}><ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando cambios de turno..." />)}
+                {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Control de horas mensuales" onRetry={loadData}><ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando control de horas mensuales..." />)}
                 {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Ranking de Operarios" onRetry={loadData}><ViewRankingOperarios deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Ranking..." />)}
                 {view==="mant"&&(viewDataReady?<ModuleErrorBoundary name="Mantenimiento" onRetry={loadData}><MantenimientoRoute mode="mantenimiento" deps={MANTENIMIENTO_DEPS} rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando" />)}
                 {view==="distMant"&&(dataHydrated&&rma15.length>0?<ModuleErrorBoundary name="Distribución de mantenimientos" onRetry={loadData}><MantenimientoRoute mode="distribucion" deps={MANTENIMIENTO_DEPS} rma15={rma15}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}

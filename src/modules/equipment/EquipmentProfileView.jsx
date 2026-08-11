@@ -50,7 +50,9 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const [pm,setPm]=useState({config:[],registros:[]});
   const [fechaD,setFechaD]=useState("");
   const [fechaH,setFechaH]=useState("");
+  const [selectedMonth,setSelectedMonth]=useState("");
   const [fProyecto,setFProyecto]=useState("todos");
+  const [activeTab,setActiveTab]=useState("resumen");
 
   // El selector debe responder de inmediato. La ficha pesada se actualiza en el
   // frame siguiente para que el navegador pueda pintar primero la opción elegida.
@@ -83,6 +85,7 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const rop05Index=useMemo(()=>buildCodeIndex(rop05,sourceCode),[rop05]);
   const rma15Index=useMemo(()=>buildCodeIndex(rma15,sourceCode,(a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))),[rma15]);
   const pmRegIndex=useMemo(()=>buildCodeIndex(pm.registros||[],r=>pick(r,["Interno","Codigo","Equipo"]),(a,b)=>String(pick(b,["Fecha","Fecha PM"])||"").localeCompare(String(pick(a,["Fecha","Fecha PM"])||""))),[pm.registros]);
+  const pmCfgIndex=useMemo(()=>{const m=new Map();for(const r of pm.config||[]){const k=canonicalEquipmentCode(pick(r,["Interno","Codigo","Equipo"]));if(k)m.set(k,r);}return m;},[pm.config]);
 
   const allCodes=useMemo(()=>{
     const catalog=new Map();
@@ -162,57 +165,220 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
     return {lastOp,currentH,totalHours,totalFuel,prodHours,maintCostARS,fuelRate:totalHours>0?totalFuel/totalHours:0,availability:filteredMant.length?Math.round(100*operativos/filteredMant.length):null};
   },[filteredOp,filteredProd,filteredMant,insumos]);
 
+  const operationalStatus=useMemo(()=>{
+    const byDay=new Map();
+    for(const r of filteredOp){
+      const d=String(r.fecha||"").slice(0,10);if(!d)continue;
+      const x=byDay.get(d)||{hours:0,states:[]};x.hours+=Number(r.horas??r.hs??0)||0;x.states.push(norm(r.estado||r.status||r.horasRaw));byDay.set(d,x);
+    }
+    const counts={TRABAJO:0,OD:0,EM:0,FS:0,SD:0};
+    for(const x of byDay.values()){
+      if(x.hours>0)counts.TRABAJO++;
+      else if(x.states.some(v=>v==="FS"||v.includes("FUERA")))counts.FS++;
+      else if(x.states.some(v=>v==="EM"||v.includes("MANT")))counts.EM++;
+      else if(x.states.some(v=>v==="OD"||v.includes("DISPOSIC")))counts.OD++;
+      else counts.SD++;
+    }
+    const tracked=counts.TRABAJO+counts.OD+counts.EM+counts.FS;
+    const latest=[...filteredOp].reverse().find(Boolean)||{};
+    let current="SIN REGISTRO";
+    const latestHours=Number(latest.horas??latest.hs??0)||0, st=norm(latest.estado||latest.status||latest.horasRaw);
+    if(latestHours>0)current="OPERATIVO";else if(st==="FS"||st.includes("FUERA"))current="FS";else if(st==="EM"||st.includes("MANT"))current="EM";else if(st==="OD"||st.includes("DISPOSIC"))current="OD";
+    return{...counts,tracked,utilization:tracked?counts.TRABAJO/tracked*100:null,availability:tracked?(counts.TRABAJO+counts.OD)/tracked*100:null,current};
+  },[filteredOp]);
+  const totalMaintAllARS=useMemo(()=>mant.reduce((s,r)=>s+maintenanceCostARS(r,insumos),0),[mant,insumos]);
+  const periodCostUSD=Number(effectiveUsdRate)>0?summary.maintCostARS/Number(effectiveUsdRate):0;
+  const accumulatedCostUSD=Number(effectiveUsdRate)>0?totalMaintAllARS/Number(effectiveUsdRate):0;
+  const costPerHourUSD=summary.totalHours>0?periodCostUSD/summary.totalHours:0;
+  const pmInfo=useMemo(()=>{
+    const cfg=pmCfgIndex.get(selectedKey)||{};
+    const latestReg=pmReg[0]||null;
+    const lastH=Number(latestReg?pick(latestReg,["Horometro","Horómetro","Km / hs"]):pick(cfg,["horometroUltimoPM","Horómetro último PM"]))||0;
+    const lastDate=latestReg?pick(latestReg,["Fecha","Fecha PM"]):pick(cfg,["fechaUltimoPM","Fecha último PM"]);
+    const interval=Number(pick(cfg,["intervalo","Intervalo"]))||250;
+    const next=lastH?lastH+interval:0;
+    const since=lastH&&summary.currentH?Math.max(0,summary.currentH-lastH):0;
+    const remaining=next&&summary.currentH?next-summary.currentH:null;
+    let status="SIN BASE";if(lastH){status=remaining!=null&&remaining<0?"ATRASADO":remaining!=null&&remaining<=50?"PRÓXIMO":"AL DÍA";}
+    return{lastH,lastDate,interval,next,since,remaining,status};
+  },[pmCfgIndex,selectedKey,pmReg,summary.currentH]);
+  const projectMovements=useMemo(()=>{
+    const sorted=[...op].sort((a,b)=>String(a.fecha||"").localeCompare(String(b.fecha||"")));
+    const out=[];let prev="";
+    for(const r of sorted){const pr=String(r.proyecto||"").trim();if(!pr||pr===prev)continue;out.push({fecha:r.fecha,desde:prev||"—",hasta:pr});prev=pr;}
+    return out.reverse().slice(0,30);
+  },[op]);
   const project=summary.lastOp.proyecto||pick(master||{},["Proyecto","Lugar","Sitio"])||"—";
   const marca=pick(master||{},["Marca"]),modelo=pick(master||{},["Modelo"]),familia=pick(master||{},["Familia","Tipo"]),propiedad=pick(master||{},["Propiedad"]);
   const acquisition=pick(master||{},["Costo local en dólares sin IVA","Costo adquisición","Costo adquisicion"]);
   const rent=pick(master||{},["Tarifa mensual de alquiler","Tarifa mensual alquiler","Tarifa mensual de alquiler en dólares"]);
 
+  const detailCode=selectedOption?.value||cleanEquipmentCode(selected);
   const horometerSeries=useMemo(()=>filteredOp.slice(-90).map(r=>({fecha:shortDate(r.fecha),horometro:Number(r.horometroFinal??r.hf??0)||0})).filter(x=>x.horometro>0),[filteredOp]);
   const monthlyMaint=useMemo(()=>{const rate=Number(effectiveUsdRate);if(!Number.isFinite(rate)||rate<=0)return[];const map=new Map();for(const r of filteredMant){const key=monthKey(r.fecha);if(key)map.set(key,(map.get(key)||0)+maintenanceCostARS(r,insumos)/rate);}return[...map.entries()].sort(([a],[b])=>a.localeCompare(b)).slice(-12).map(([key,value])=>({mes:key.slice(5)+"/"+key.slice(2,4),costo:Math.round(value*100)/100}));},[filteredMant,effectiveUsdRate,insumos]);
+  const rop05Analytics=useMemo(()=>{
+    const tasks=new Map(),days=new Set();
+    let totalHours=0,totalRecords=0;
+    for(const r of filteredProd){
+      const task=String(r.tarea||r.actividad||r.tipoTrabajo||"Sin tarea").trim()||"Sin tarea";
+      const hours=Number(r.cantHs??r.horasProductivas??r.hs??r.horas??0)||0;
+      const quantity=Number(r.cantidad??r.cant??r.produccion??0)||0;
+      const unit=String(r.unidad||"").trim().toUpperCase();
+      const date=String(r.fecha||"").slice(0,10);if(date)days.add(date);
+      totalHours+=hours;totalRecords++;
+      const key=norm(task);const x=tasks.get(key)||{task,registros:0,horas:0,cantidad:0,units:new Set()};
+      x.registros++;x.horas+=hours;x.cantidad+=quantity;if(unit)x.units.add(unit);tasks.set(key,x);
+    }
+    const list=[...tasks.values()].map(x=>{const unit=x.units.size===1?[...x.units][0]:x.units.size>1?"VARIAS":"";return{...x,unidad:unit,rendimiento:unit&&x.horas>0?x.cantidad/x.horas:null};}).sort((a,b)=>b.horas-a.horas||b.registros-a.registros);
+    const byFrequency=[...list].sort((a,b)=>b.registros-a.registros||b.horas-a.horas);
+    const main=list[0]||null,frequent=byFrequency[0]||null;
+    return{list,top:list.slice(0,6),main,frequent,totalHours,totalRecords,productiveDays:days.size,avgHoursDay:days.size?totalHours/days.size:0};
+  },[filteredProd]);
+  const rop05TaskRows=useMemo(()=>rop05Analytics.list.slice(0,30).map((x,i)=>({id:`task-${i}`,tarea:x.task,registros:x.registros,horas:x.horas,cantidad:x.cantidad,unidad:x.unidad,rendimiento:x.rendimiento})),[rop05Analytics]);
+  const rop05TaskCols=useMemo(()=>[{key:"tarea",label:"Tarea",wrap:true,minWidth:220},{key:"registros",label:"Registros",width:90},{key:"horas",label:"Horas",width:90,render:v=>`${fmt(v)} h`},{key:"cantidad",label:"Cantidad",width:105,render:v=>fmt(v)},{key:"unidad",label:"Unidad",width:90},{key:"rendimiento",label:"Rendimiento",width:120,render:(v,row)=>v==null?"—":`${fmt(v,2)} ${row?.unidad||""}/h`}],[]);
   const rows=useMemo(()=>filteredMant.slice(0,80).map((r,i)=>{const costoARS=maintenanceCostARS(r,insumos);return{id:`${selectedKey}-${i}`,fecha:r.fecha,tipo:r.tipoMant,intervencion:r.intervencion,kmHs:r.kmHs,costoUSD:Number(effectiveUsdRate)>0?costoARS/Number(effectiveUsdRate):0,operativo:r.operativo?"Sí":"No",observaciones:r.observaciones};}),[filteredMant,effectiveUsdRate,selectedKey,insumos]);
   const cols=useMemo(()=>[{key:"fecha",label:"Fecha",width:100},{key:"tipo",label:"Tipo",width:120},{key:"intervencion",label:"Intervención",wrap:true,minWidth:240},{key:"kmHs",label:"Km / hs",width:90,render:value=>fmt(value)},{key:"costoUSD",label:"Insumos USD",width:120,render:value=>formatUSDNumber(value)},{key:"operativo",label:"Operativo",width:90},{key:"observaciones",label:"Observaciones",wrap:true,minWidth:220}],[]);
+  const rop02Rows=useMemo(()=>filteredOp.slice().reverse().slice(0,150).map((r,i)=>{const hours=Number(r.horas??r.hs??0)||0;const raw=r.estado||r.status||r.horasRaw;const st=norm(raw);const estadoTipo=hours>0?"TRABAJO":st==="FS"||st.includes("FUERA")?"FS":st==="EM"||st.includes("MANT")?"EM":st==="OD"||st.includes("DISPOSIC")?"OD":"SIN REGISTRO";return{id:`op-${i}`,fecha:r.fecha,interno:detailCode||sourceCode(r),proyecto:r.proyecto,turno:r.turno,hi:r.horometroInicial??r.hi,hf:r.horometroFinal??r.hf,horas:r.horas,estado:raw,estadoTipo,operador:r.operador||r.chofer||r.conductor,observaciones:r.observaciones};}),[filteredOp,detailCode]);
+  const rop02Cols=useMemo(()=>[{key:"fecha",label:"Fecha",width:100},{key:"interno",label:"Interno",width:105},{key:"proyecto",label:"Proyecto",width:120},{key:"turno",label:"Turno",width:70},{key:"hi",label:"HI",width:85,render:v=>fmt(v)},{key:"hf",label:"HF",width:85,render:v=>fmt(v)},{key:"horas",label:"Horas",width:75,render:(v,row)=><strong style={{color:row?.estadoTipo==="TRABAJO"?C.green:C.text}}>{fmt(v)}</strong>},{key:"estado",label:"Estado",width:105,render:(v,row)=>{const type=row?.estadoTipo||"SIN REGISTRO";const color=type==="TRABAJO"?C.green:type==="OD"?C.yellow:type==="FS"?C.red:type==="EM"?C.purple:C.textMuted;const label=type==="TRABAJO"?"TRABAJO":type;return <span style={{display:"inline-flex",alignItems:"center",gap:6,color,fontWeight:900,background:`${color}18`,border:`1px solid ${color}55`,borderRadius:999,padding:"3px 8px"}}><span style={{width:6,height:6,borderRadius:"50%",background:color}}/>{label}</span>}},{key:"operador",label:"Operador",width:150},{key:"observaciones",label:"Observaciones",wrap:true,minWidth:220}],[]);
+  const rop05Rows=useMemo(()=>filteredProd.slice().reverse().slice(0,150).map((r,i)=>({id:`prod-${i}`,fecha:r.fecha,interno:detailCode||sourceCode(r),proyecto:r.proyecto,tarea:r.tarea||r.actividad||r.tipoTrabajo,horas:r.cantHs??r.horasProductivas??r.hs??r.horas,cantidad:r.cantidad??r.cant??r.produccion,unidad:r.unidad,operador:r.operador||r.chofer||r.conductor})),[filteredProd,detailCode]);
+  const rop05Cols=useMemo(()=>[{key:"fecha",label:"Fecha",width:100},{key:"interno",label:"Interno",width:105},{key:"proyecto",label:"Proyecto",width:120},{key:"tarea",label:"Tarea",wrap:true,minWidth:220},{key:"horas",label:"Horas",width:80,render:v=>fmt(v)},{key:"cantidad",label:"Cantidad",width:95,render:v=>fmt(v)},{key:"unidad",label:"Unidad",width:85},{key:"operador",label:"Operador",width:150}],[]);
+  const movementCols=useMemo(()=>[{key:"fecha",label:"Fecha",width:110},{key:"desde",label:"Proyecto anterior",width:160},{key:"hasta",label:"Nuevo proyecto",width:160}],[]);
 
-  const detailCode=selectedOption?.value||cleanEquipmentCode(selected);
-  const clearFilters=()=>{setFechaD("");setFechaH("");setFProyecto("todos");};
-  return <div style={{display:"flex",flexDirection:"column",gap:12,padding:"0 14px 18px",boxSizing:"border-box"}}>
-    <Card title="Ficha única del equipo" tooltip="Integra Lista Maestra, ROP02, ROP05, RMA15 y PM del interno seleccionado.">
-      <div style={{padding:"14px 16px 16px",display:"grid",gridTemplateColumns:"minmax(320px,560px) 1fr",gap:16,alignItems:"end"}}>
-        <div><div style={{fontSize:10,color:C.textMuted,fontWeight:800,marginBottom:5}}>EQUIPO</div><EquipmentPicker options={allCodes} value={selected} onChange={v=>{
-          const clean=cleanEquipmentCode(v);
-          setSelected(clean);
-        }}/><div style={{marginTop:5,fontSize:10,color:C.textMuted}}>{allCodes.length} internos únicos disponibles · sufijo -JM unificado automáticamente{canonicalEquipmentCode(selected)!==detailKey?" · actualizando ficha…":""}</div></div>
-        {detailCode&&<div style={{display:"flex",gap:10,alignItems:"center",color:C.textSub,fontSize:12,flexWrap:"wrap",paddingBottom:4}}><Icon name="truck" size={18} color={C.accent}/><strong style={{color:C.text}}>{detailCode}</strong><span>{[marca,modelo].filter(Boolean).join(" ")||"Sin datos de marca/modelo"}</span><span>· {familia||"Sin familia"}</span><span>· {project}</span></div>}
-      </div>
-      <div style={{padding:"0 16px 16px",marginTop:4,borderTop:`1px solid ${C.border}22`}}>
-        <div style={{display:"flex",alignItems:"end",gap:10,flexWrap:"wrap",paddingTop:10}}>
-          <PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/>
-          <DateIn label="Desde" value={fechaD} onChange={setFechaD}/>
-          <DateIn label="Hasta" value={fechaH} onChange={setFechaH}/>
-          <MultiSel label="Proyecto" value={fProyecto} onChange={setFProyecto} options={projectOptions}/>
-          <button onClick={clearFilters} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer",height:33}}>Limpiar filtros</button>
+  const applyOperationalMonth=(month)=>{
+    setSelectedMonth(month);
+    if(!month){setFechaD("");setFechaH("");return;}
+    const [year,monthNum]=month.split("-").map(Number);
+    if(!year||!monthNum)return;
+    const start=new Date(year,monthNum-1,26,12);
+    const end=new Date(year,monthNum,25,12);
+    const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    setFechaD(ymd(start));
+    setFechaH(ymd(end));
+  };
+  const clearFilters=()=>{setSelectedMonth("");setFechaD("");setFechaH("");setFProyecto("todos");};
+  const periodLabel=fechaD||fechaH?`${fechaD||"inicio"} al ${fechaH||"hoy"}`:"Todo el historial disponible";
+  const statusColor=operationalStatus.current==="FS"?C.red:operationalStatus.current==="EM"?C.purple:operationalStatus.current==="OD"?C.yellow:C.green;
+  const totalStateDays=operationalStatus.tracked||0;
+  const workPct=totalStateDays?operationalStatus.TRABAJO/totalStateDays*100:0;
+  const odPct=totalStateDays?operationalStatus.OD/totalStateDays*100:0;
+  const emPct=totalStateDays?operationalStatus.EM/totalStateDays*100:0;
+  const fsPct=totalStateDays?operationalStatus.FS/totalStateDays*100:0;
+  const pmProgress=pmInfo.lastH&&pmInfo.interval?Math.max(0,Math.min(100,(pmInfo.since/pmInfo.interval)*100)):0;
+  const tabs=[
+    ["resumen","Resumen"],["rop02","ROP02"],["rop05","ROP05"],["rma15","RMA15"],["historial","Historial"]
+  ];
+  const metricValueStyle={fontSize:24,lineHeight:1.05,whiteSpace:"normal",overflowWrap:"anywhere",wordBreak:"break-word"};
+  const compactMetric=(label,value,color,tooltip,sub,icon)=><StatCard icon={icon} label={label} value={value} color={color} tooltip={tooltip} sub={sub} small valueStyle={metricValueStyle}/>;
+  const dataRow=(label,value,color=C.text)=><div style={{display:"flex",justifyContent:"space-between",gap:18,padding:"8px 0",borderBottom:`1px solid ${C.border}55`,fontSize:12}}><span style={{color:C.textMuted}}>{label}</span><strong style={{color,textAlign:"right",overflowWrap:"anywhere"}}>{value||"—"}</strong></div>;
+
+  return <div style={{display:"flex",flexDirection:"column",gap:12,padding:"0 14px 18px",boxSizing:"border-box",minWidth:0}}>
+    <div style={{background:"rgba(18,25,33,.84)",backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)",border:`1px solid ${C.border}55`,borderRadius:14,overflow:"hidden",boxShadow:"0 18px 45px rgba(0,0,0,.22)"}}>
+      <div style={{padding:"16px 20px 12px",display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(260px,420px)",gap:18,alignItems:"start"}}>
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:11,color:C.textMuted,marginBottom:8}}>Inicio &nbsp;›&nbsp; Oficina Técnica &nbsp;›&nbsp; Ficha Única del Equipo</div>
+          <div style={{fontSize:13,color:C.textSub,marginBottom:4}}>Ficha Única del Equipo</div>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <strong style={{fontSize:34,lineHeight:1,fontWeight:900,color:C.text,letterSpacing:"-.03em"}}>{detailCode||"Seleccioná un equipo"}</strong>
+            {detailCode&&<span style={{fontSize:10,fontWeight:900,color:statusColor,background:`${statusColor}18`,border:`1px solid ${statusColor}55`,borderRadius:7,padding:"5px 8px"}}>{operationalStatus.current}</span>}
+          </div>
+          {detailCode&&<div style={{marginTop:9,color:C.textSub,fontSize:12,fontWeight:600,display:"flex",gap:8,flexWrap:"wrap"}}>
+            <span>{familia||"Equipo"}</span><span>·</span><span>{marca||"Sin marca"}</span><span>·</span><span>{modelo||"Sin modelo"}</span><span>·</span><span style={{color:C.blue}}>{project}</span>
+          </div>}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:9,minWidth:560}}>
+          <div><div style={{fontSize:9,color:C.textMuted,fontWeight:800,marginBottom:4}}>EQUIPO</div><EquipmentPicker options={allCodes} value={selected} onChange={v=>setSelected(cleanEquipmentCode(v))}/></div>
+          <div style={{display:"flex",alignItems:"end",gap:8,flexWrap:"nowrap"}}>
+            <label style={{fontSize:9,color:C.textMuted,fontWeight:800}}>MES<input type="month" value={selectedMonth} onChange={e=>applyOperationalMonth(e.target.value)} onClick={e=>e.currentTarget.showPicker?.()} title="Elegir mes" style={{display:"block",marginTop:4,height:33,boxSizing:"border-box",background:"#151515",border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"0 36px 0 9px",fontSize:11,fontWeight:700,cursor:"pointer",colorScheme:"dark",backgroundImage:'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'18\' height=\'18\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'white\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Crect x=\'3\' y=\'5\' width=\'18\' height=\'16\' rx=\'2\'/%3E%3Cline x1=\'16\' y1=\'3\' x2=\'16\' y2=\'7\'/%3E%3Cline x1=\'8\' y1=\'3\' x2=\'8\' y2=\'7\'/%3E%3Cline x1=\'3\' y1=\'11\' x2=\'21\' y2=\'11\'/%3E%3C/svg%3E")',backgroundRepeat:"no-repeat",backgroundPosition:"right 10px center",backgroundSize:"16px 16px"}}/></label>
+            <DateIn label="Desde" value={fechaD} onChange={setFechaD}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH}/>
+            <MultiSel label="Proyecto" value={fProyecto} onChange={setFProyecto} options={projectOptions}/>
+            <button onClick={clearFilters} style={{background:"rgba(255,255,255,.03)",border:`1px solid ${C.border}`,borderRadius:8,color:C.textSub,padding:"7px 10px",fontSize:11,cursor:"pointer",height:33}}>Limpiar</button>
+          </div>
         </div>
       </div>
-    </Card>
-    {selectedKey?<>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
-        <StatCard label="Horómetro actual" value={summary.currentH?`${fmt(summary.currentH)} h`:"—"} color={C.blue} tooltip="Último horómetro final registrado en ROP02."/>
-        <StatCard label="Horas ROP02" value={`${fmt(summary.totalHours)} h`} color={C.teal} tooltip="Horas acumuladas del equipo en ROP02."/>
-        <StatCard label="Horas productivas" value={`${fmt(summary.prodHours)} h`} color={C.green} tooltip="Horas productivas registradas en ROP05."/>
-        <StatCard label="Consumo observado" value={summary.fuelRate>0?`${fmt(summary.fuelRate,2)} L/h`:"—"} color={C.blue} tooltip="Combustible ROP02 dividido por horas ROP02."/>
-        <StatCard label="OT RMA15" value={filteredMant.length} color={C.yellow} tooltip="Órdenes RMA15 asociadas al interno, incluyendo su variante con sufijo -JM."/>
-        <StatCard label="Costo insumos RMA15" value={formatUSDFromARS(summary.maintCostARS,effectiveUsdRate)} color={C.purple} small valueStyle={{whiteSpace:"nowrap",fontSize:24}} tooltip="Suma valorizada de insumos RMA15 convertida a USD con el mismo tipo de cambio usado por Informe de Costos."/>
-        <StatCard label="Disponibilidad registrada" value={summary.availability===null?"—":`${summary.availability}%`} color={summary.availability!==null&&summary.availability<80?C.red:C.green} tooltip="Porcentaje de OT RMA15 donde el equipo quedó operativo."/>
+      {detailCode&&<div style={{display:"flex",alignItems:"center",gap:4,padding:"0 14px",borderTop:`1px solid ${C.border}55`,borderBottom:`1px solid ${C.border}55`,overflowX:"auto",background:"rgba(10,16,22,.35)"}}>
+        {tabs.map(([id,label])=><button key={id} onClick={()=>setActiveTab(id)} style={{position:"relative",border:0,background:"transparent",color:activeTab===id?C.text:C.textSub,padding:"12px 17px",fontSize:11,fontWeight:activeTab===id?800:600,cursor:"pointer",whiteSpace:"nowrap"}}>{label}{activeTab===id&&<span style={{position:"absolute",height:2,left:10,right:10,bottom:0,background:C.blue,borderRadius:2}}/>}</button>)}
+      </div>}
+    </div>
+
+    {selectedKey&&activeTab==="resumen"&&<>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:12,minWidth:0}}>
+        {compactMetric("Horómetro actual",summary.currentH?`${fmt(summary.currentH)} h`:"—",C.blue,"Último horómetro final registrado en ROP02.",summary.lastOp?.fecha?`Última lectura: ${shortDate(summary.lastOp.fecha)}`:undefined,"hours")}
+        {compactMetric("Horas ROP02 (período)",`${fmt(summary.totalHours)} h`,C.teal,"Horas acumuladas del equipo en ROP02 para el período filtrado.",periodLabel,"clock")}
+        {compactMetric("Horas productivas",`${fmt(summary.prodHours)} h`,C.green,"Horas productivas registradas en ROP05 para el período filtrado.",summary.totalHours>0?`${fmt(summary.prodHours/summary.totalHours*100)}% del total ROP02`:undefined,"barChart")}
+        {compactMetric("Consumo observado",summary.fuelRate>0?`${fmt(summary.fuelRate,2)} L/h`:"—",C.purple,"Combustible registrado dividido por horas ROP02 del período.","Promedio período","fuel")}
+        {compactMetric("OT RMA15 (período)",filteredMant.length,C.yellow,"Órdenes RMA15 asociadas al interno dentro del período seleccionado.","Órdenes de trabajo","maintenance")}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.1fr) minmax(0,.9fr)",gap:12}}>
-        <Card title="Datos de Lista Maestra"><div style={{padding:"14px 16px",display:"grid",gridTemplateColumns:"repeat(2,minmax(120px,1fr))",gap:"9px 18px",fontSize:12}}>{[["Marca",marca],["Modelo",modelo],["Familia",familia],["Propiedad",propiedad],["Proyecto actual",project],["Costo adquisición USD",acquisition],["Tarifa alquiler mensual",rent],["N° serie",pick(master||{},["N de serie","N° de serie","Numero de serie"])],["Año",pick(master||{},["Año de fabricacion","Año fabricacion"])],["Potencia",pick(master||{},["Potencia"])]].map(([k,v])=><div key={k}><span style={{color:C.textMuted}}>{k}: </span><strong>{v||"—"}</strong></div>)}</div></Card>
-        <Card title="Mantenimiento programado"><div style={{padding:"14px 16px",fontSize:12,color:C.textSub,lineHeight:1.9}}><div>PM registrados: <strong style={{color:C.text}}>{filteredPmReg.length}</strong></div><div>Último PM: <strong style={{color:C.text}}>{filteredPmReg[0]?pick(filteredPmReg[0],["Fecha","Fecha PM"]):"—"}</strong></div><div>Último horómetro PM: <strong style={{color:C.text}}>{filteredPmReg[0]?fmt(pick(filteredPmReg[0],["Horometro","Horómetro","Km / hs"])):"—"}</strong></div><div>Proyecto actual: <strong style={{color:C.text}}>{project}</strong></div></div></Card>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(6,minmax(0,1fr))",gap:12,minWidth:0}}>
+        {compactMetric("Costo insumos RMA15",formatUSDFromARS(summary.maintCostARS,effectiveUsdRate),C.purple,"Suma de insumos RMA15 del período convertida a USD.","Período seleccionado","money")}
+        {compactMetric("Costo acumulado",formatUSDNumber(accumulatedCostUSD),C.purple,"Costo histórico acumulado de insumos RMA15 del equipo.","Desde inicio de registros","money")}
+        {compactMetric("Costo mant. USD/h",summary.totalHours>0?`USD ${costPerHourUSD.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}/h`:"—",C.purple,"Costo RMA15 del período dividido por las horas ROP02 del mismo período.","Promedio período","money")}
+        {compactMetric("Utilización",operationalStatus.utilization==null?"—":`${fmt(operationalStatus.utilization)}%`,operationalStatus.utilization!=null&&operationalStatus.utilization<50?C.red:C.green,"Días con trabajo dividido por días con estado ROP02 dentro del filtro.","Trabajo / días registrados","barChart")}
+        {compactMetric("Disponibilidad",operationalStatus.availability==null?"—":`${fmt(operationalStatus.availability)}%`,operationalStatus.availability!=null&&operationalStatus.availability<70?C.red:C.green,"Días Trabajo + OD divididos por días con estado ROP02 dentro del filtro.","Trabajo + OD / registrados","truck")}
+        {compactMetric("Último PM",pmInfo.lastH?`${fmt(pmInfo.lastH)} h`:"—",C.blue,pmInfo.lastDate?`Último PM registrado: ${pmInfo.lastDate}`:"No existe base de PM para este equipo.",pmInfo.lastDate?`Realizado: ${shortDate(pmInfo.lastDate)}`:undefined,"maintenance")}
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12}}>
-        <Card title="Evolución de horómetro" tooltip="Últimos registros ROP02 con horómetro final válido."><div style={{height:240,padding:"10px 14px 14px"}}><ResponsiveContainer width="100%" height="100%"><LineChart data={horometerSeries}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.08)"/><XAxis dataKey="fecha" tick={{fill:C.textMuted,fontSize:10}}/><YAxis tick={{fill:C.textMuted,fontSize:10}} width={58}/><Tooltip/><Line type="monotone" dataKey="horometro" stroke={C.blue} dot={false} strokeWidth={2}/></LineChart></ResponsiveContainer></div></Card>
-        <Card title="Costo mensual de insumos RMA15 (USD)" tooltip="Suma mensual de insumos RMA15 convertida a USD con el tipo de cambio vigente de Informe de Costos."><div style={{height:240,padding:"10px 14px 14px"}}><ResponsiveContainer width="100%" height="100%"><BarChart data={monthlyMaint}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.08)"/><XAxis dataKey="mes" tick={{fill:C.textMuted,fontSize:10}}/><YAxis tick={{fill:C.textMuted,fontSize:10}} width={86} tickFormatter={v=>`USD ${Number(v||0).toLocaleString("es-AR",{maximumFractionDigits:0})}`}/><Tooltip content={<Rma15UsdTooltip/>}/><Bar dataKey="costo" name="Costo" fill={C.purple}/></BarChart></ResponsiveContainer></div></Card>
+
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,.9fr) minmax(0,.9fr) minmax(0,1.2fr)",gap:12}}>
+        <Card title="Estado actual" tooltip="Último estado ROP02 disponible para el equipo seleccionado."><div style={{padding:"8px 16px 14px"}}>
+          {dataRow("Estado operativo",operationalStatus.current,statusColor)}
+          {dataRow("Proyecto actual",project,C.blue)}
+          {dataRow("Familia",familia)}
+          {dataRow("Marca / Modelo",[marca,modelo].filter(Boolean).join(" "))}
+          {dataRow("Propiedad",propiedad)}
+        </div></Card>
+        <Card title="Próximo PM" tooltip="Objetivo de mantenimiento preventivo calculado con el último PM, intervalo configurado y horómetro actual."><div style={{padding:"8px 16px 14px"}}>
+          {dataRow("Próximo PM",pmInfo.next?`${fmt(pmInfo.next)} h`:"—",pmInfo.status==="ATRASADO"?C.red:C.text)}
+          {dataRow("Faltan / atraso",pmInfo.remaining==null?"—":pmInfo.remaining<0?`${fmt(Math.abs(pmInfo.remaining))} h de atraso`:`${fmt(pmInfo.remaining)} h`,pmInfo.remaining!=null&&pmInfo.remaining<0?C.red:C.green)}
+          {dataRow("Periodicidad",`${fmt(pmInfo.interval)} h`)}
+          {dataRow("Estado",pmInfo.status,pmInfo.status==="ATRASADO"?C.red:pmInfo.status==="PRÓXIMO"?C.yellow:C.green)}
+          <div style={{marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.textMuted,marginBottom:5}}><span>Progreso del intervalo</span><strong style={{color:C.green}}>{fmt(pmProgress)}%</strong></div><div style={{height:6,borderRadius:999,background:"rgba(255,255,255,.08)",overflow:"hidden"}}><div style={{height:"100%",width:`${pmProgress}%`,background:pmProgress>=100?C.red:pmProgress>=80?C.yellow:C.green,borderRadius:999}}/></div></div>
+        </div></Card>
+        <Card title="Resumen de utilización (período)" tooltip="Distribución de días ROP02 del equipo seleccionado dentro de los filtros activos."><div style={{padding:"14px 16px",display:"grid",gridTemplateColumns:"150px minmax(0,1fr)",alignItems:"center",gap:18}}>
+          <div style={{width:134,height:134,borderRadius:"50%",background:`conic-gradient(${C.green} 0 ${workPct}%, ${C.yellow} ${workPct}% ${workPct+odPct}%, ${C.purple} ${workPct+odPct}% ${workPct+odPct+emPct}%, ${C.red} ${workPct+odPct+emPct}% 100%)`,position:"relative",margin:"0 auto"}}><div style={{position:"absolute",inset:28,borderRadius:"50%",background:"#17212a",display:"grid",placeItems:"center",textAlign:"center"}}><div><strong style={{fontSize:19,color:C.text}}>{totalStateDays}</strong><div style={{fontSize:9,color:C.textMuted}}>días</div></div></div></div>
+          <div>{[["Trabajo",operationalStatus.TRABAJO,workPct,C.green],["OD (A disposición)",operationalStatus.OD,odPct,C.yellow],["Mantenimiento (EM)",operationalStatus.EM,emPct,C.purple],["Fuera de servicio (FS)",operationalStatus.FS,fsPct,C.red]].map(([l,n,pct,col])=><div key={l} style={{display:"grid",gridTemplateColumns:"10px minmax(0,1fr) auto",gap:8,alignItems:"center",padding:"5px 0",fontSize:11}}><span style={{width:8,height:8,borderRadius:2,background:col}}/><span style={{color:C.textSub}}>{l}</span><strong>{n} días ({fmt(pct)}%)</strong></div>)}</div>
+        </div></Card>
       </div>
-      <Card title="Historial RMA15 del equipo"><div style={{padding:"0 12px 12px"}}><Table tableId="equipment-profile-rma15" cols={cols} rows={rows} maxH={420} emptyMsg="Sin mantenimientos RMA15 para este equipo"/></div></Card>
-    </>:null}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:12,minWidth:0}}>
+        {compactMetric("Tarea principal ROP05",rop05Analytics.main?.task||"—",C.green,"Tarea con mayor cantidad de horas productivas en ROP05 dentro del período.",rop05Analytics.main?`${fmt(rop05Analytics.main.horas)} h · ${rop05Analytics.main.registros} registros`:"Sin registros","barChart")}
+        {compactMetric("Registros productivos",rop05Analytics.totalRecords,C.teal,"Cantidad total de registros ROP05 del equipo en el período.",`${rop05Analytics.productiveDays} días con productividad`,"list")}
+        {compactMetric("Días productivos",rop05Analytics.productiveDays,C.blue,"Días distintos con al menos un registro ROP05.",rop05Analytics.productiveDays?`${fmt(rop05Analytics.avgHoursDay,2)} h/día promedio`:"Sin registros","calendar")}
+        {compactMetric("Tarea más frecuente",rop05Analytics.frequent?.task||"—",C.yellow,"Tarea que aparece mayor cantidad de veces en ROP05.",rop05Analytics.frequent?`${rop05Analytics.frequent.registros} registros`:"Sin registros","star")}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:12}}>
+        <Card title="Resumen productivo ROP05" tooltip="Horas productivas acumuladas por las principales tareas del equipo en el período seleccionado."><div style={{height:270,padding:"10px 14px 14px"}}><ResponsiveContainer width="100%" height="100%"><BarChart data={rop05Analytics.top} layout="vertical" margin={{left:18,right:18}}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.08)"/><XAxis type="number" tick={{fill:C.textMuted,fontSize:10}}/><YAxis type="category" dataKey="task" width={135} tick={{fill:C.textSub,fontSize:10}}/><Tooltip/><Bar dataKey="horas" name="Horas" fill={C.green} radius={[0,6,6,0]}/></BarChart></ResponsiveContainer></div></Card>
+        <Card title="Productividad por tarea" tooltip="Consolidado de las principales tareas ROP05. El rendimiento se calcula como cantidad dividida por horas cuando existe una única unidad para la tarea."><div style={{padding:"0 12px 12px"}}><Table tableId="equipment-profile-summary-rop05" cols={rop05TaskCols} rows={rop05TaskRows.slice(0,8)} maxH={270} emptyMsg="Sin productividad para el filtro"/></div></Card>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,.8fr) minmax(0,1.2fr)",gap:12}}>
+        <Card title="Mantenimiento programado" tooltip="Legajo de PM con último servicio, próximo objetivo y horas restantes calculadas contra el horómetro actual."><div style={{padding:"14px 16px"}}>{dataRow("PM registrados en filtro",filteredPmReg.length)}{dataRow("Último PM",pmInfo.lastDate||"—")}{dataRow("Horómetro último PM",pmInfo.lastH?`${fmt(pmInfo.lastH)} h`:"—")}{dataRow("Próximo PM",pmInfo.next?`${fmt(pmInfo.next)} h`:"—")}{dataRow("Horas desde PM",pmInfo.lastH?`${fmt(pmInfo.since)} h`:"—")}{dataRow("Estado",pmInfo.status,pmInfo.status==="ATRASADO"?C.red:pmInfo.status==="PRÓXIMO"?C.yellow:C.green)}</div></Card>
+        <Card title="Evolución de horómetro" tooltip="Evolución del horómetro final registrado en ROP02 dentro del período activo."><div style={{height:300,padding:"10px 14px 14px"}}><ResponsiveContainer width="100%" height="100%"><LineChart data={horometerSeries}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.08)"/><XAxis dataKey="fecha" tick={{fill:C.textMuted,fontSize:10}}/><YAxis tick={{fill:C.textMuted,fontSize:10}} width={58}/><Tooltip/><Line type="monotone" dataKey="horometro" stroke={C.blue} dot={false} strokeWidth={2}/></LineChart></ResponsiveContainer></div></Card>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:12}}>
+        {compactMetric("Costo período",formatUSDFromARS(summary.maintCostARS,effectiveUsdRate),C.purple,"Costo de insumos RMA15 del período seleccionado.",periodLabel,"money")}
+        {compactMetric("Costo acumulado",formatUSDNumber(accumulatedCostUSD),C.purple,"Costo histórico acumulado del equipo.","Histórico","money")}
+        {compactMetric("Costo mant. USD/h",summary.totalHours>0?`USD ${costPerHourUSD.toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}/h`:"—",C.teal,"Costo del período dividido por horas ROP02.","Promedio período","money")}
+      </div>
+      <Card title="Costo mensual de insumos RMA15 (USD)" tooltip="Suma mensual de insumos RMA15 convertida a USD dentro de los filtros activos."><div style={{height:300,padding:"10px 14px 14px"}}><ResponsiveContainer width="100%" height="100%"><BarChart data={monthlyMaint}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.08)"/><XAxis dataKey="mes" tick={{fill:C.textMuted,fontSize:10}}/><YAxis tick={{fill:C.textMuted,fontSize:10}} width={86} tickFormatter={v=>`USD ${Number(v||0).toLocaleString("es-AR",{maximumFractionDigits:0})}`}/><Tooltip content={<Rma15UsdTooltip/>}/><Bar dataKey="costo" name="Costo" fill={C.purple} radius={[6,6,0,0]}/></BarChart></ResponsiveContainer></div></Card>
+
+      <div style={{padding:"10px 14px",display:"flex",alignItems:"center",gap:8,background:"rgba(29,78,216,.10)",border:"1px solid rgba(96,165,250,.20)",borderRadius:10,color:C.textSub,fontSize:10}}><Icon name="info" size={14} color={C.blue}/>Los datos mostrados corresponden al período seleccionado en la ficha: <strong style={{color:C.text}}>{periodLabel}</strong>.</div>
+    </>}
+
+    {selectedKey&&activeTab==="rop02"&&<Card title={`Historial ROP02 (${filteredOp.length})`} tooltip="Partes operativos del equipo dentro de los filtros activos."><div style={{padding:"0 12px 12px"}}><Table tableId="equipment-profile-rop02" cols={rop02Cols} rows={rop02Rows} maxH={560} emptyMsg="Sin ROP02 para el filtro"/></div></Card>}
+    {selectedKey&&activeTab==="rop05"&&<>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:12,minWidth:0}}>
+        {compactMetric("Tarea principal",rop05Analytics.main?.task||"—",C.green,"Tarea con mayor cantidad de horas productivas en el período.",rop05Analytics.main?`${fmt(rop05Analytics.main.horas)} h acumuladas`:"Sin registros","barChart")}
+        {compactMetric("Horas productivas",`${fmt(rop05Analytics.totalHours)} h`,C.teal,"Horas productivas acumuladas en ROP05 para el filtro activo.",periodLabel,"clock")}
+        {compactMetric("Días productivos",rop05Analytics.productiveDays,C.blue,"Cantidad de días distintos con registros de productividad.",rop05Analytics.productiveDays?`${fmt(rop05Analytics.avgHoursDay,2)} h/día promedio`:"Sin registros","calendar")}
+        {compactMetric("Registros ROP05",rop05Analytics.totalRecords,C.yellow,"Cantidad de partes de productividad del equipo en el período.",rop05Analytics.frequent?`Más frecuente: ${rop05Analytics.frequent.task}`:"Sin registros","list")}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:12}}>
+        <Card title="Horas productivas por tarea" tooltip="Ranking de tareas por horas productivas acumuladas en ROP05."><div style={{height:300,padding:"10px 14px 14px"}}><ResponsiveContainer width="100%" height="100%"><BarChart data={rop05Analytics.top} layout="vertical" margin={{left:18,right:18}}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.08)"/><XAxis type="number" tick={{fill:C.textMuted,fontSize:10}}/><YAxis type="category" dataKey="task" width={135} tick={{fill:C.textSub,fontSize:10}}/><Tooltip/><Bar dataKey="horas" name="Horas" fill={C.green} radius={[0,6,6,0]}/></BarChart></ResponsiveContainer></div></Card>
+        <Card title="Detalle de productividad por tarea" tooltip="Consolida registros, horas, cantidad y rendimiento por tarea. El rendimiento sólo se muestra cuando la tarea usa una única unidad."><div style={{padding:"0 12px 12px"}}><Table tableId="equipment-profile-rop05-task-summary" cols={rop05TaskCols} rows={rop05TaskRows} maxH={300} emptyMsg="Sin productividad para el filtro"/></div></Card>
+      </div>
+      <Card title={`Historial ROP05 (${filteredProd.length})`} tooltip="Detalle de todos los registros de productividad del equipo dentro de los filtros activos."><div style={{padding:"0 12px 12px"}}><Table tableId="equipment-profile-rop05" cols={rop05Cols} rows={rop05Rows} maxH={480} emptyMsg="Sin ROP05 para el filtro"/></div></Card>
+    </>}
+    {selectedKey&&activeTab==="rma15"&&<Card title={`Historial RMA15 (${filteredMant.length})`} tooltip="Órdenes de mantenimiento e insumos asociados al equipo dentro del período filtrado."><div style={{padding:"0 12px 12px"}}><Table tableId="equipment-profile-rma15" cols={cols} rows={rows} maxH={560} emptyMsg="Sin mantenimientos RMA15 para este equipo"/></div></Card>}
+    {selectedKey&&activeTab==="historial"&&<div style={{display:"grid",gridTemplateColumns:"minmax(0,.8fr) minmax(0,1.2fr)",gap:12}}><Card title="Datos de Lista Maestra" tooltip="Datos maestros y comerciales del equipo."><div style={{padding:"8px 16px 14px"}}>{dataRow("Marca",marca)}{dataRow("Modelo",modelo)}{dataRow("Familia",familia)}{dataRow("Propiedad",propiedad)}{dataRow("Proyecto actual",project,C.blue)}{dataRow("Costo adquisición USD",acquisition)}{dataRow("Tarifa alquiler mensual",rent)}{dataRow("N° serie",pick(master||{},["N de serie","N° de serie","Numero de serie"]))}{dataRow("Año",pick(master||{},["Año de fabricacion","Año fabricacion"]))}</div></Card><Card title="Historial de movimientos entre proyectos" tooltip="Se detecta un movimiento cuando el proyecto informado en ROP02 cambia respecto del registro anterior."><div style={{padding:"0 12px 12px"}}><Table tableId="equipment-profile-movements" cols={movementCols} rows={projectMovements} maxH={460} emptyMsg="No se detectaron cambios de proyecto"/></div></Card></div>}
   </div>;
 }
 
