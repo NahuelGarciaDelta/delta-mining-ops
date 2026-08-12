@@ -17,6 +17,45 @@ import {
 import fs from "node:fs";
 import { buildVisibleCategoryRowSpans } from "../src/modules/informe-costos/utils/categoryRowSpan.js";
 import { sumRoundedMonthlyTotals } from "../src/modules/informe-costos/utils/monthlyCostTotals.js";
+import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, indexMaintenanceCostRows, prepareMaintenanceCostRows, queryEquipmentRangeIndex, sumEffectiveRop02Hours2026 } from "../src/modules/informe-costos/utils/equipmentUniverse2026.js";
+
+test("el universo 2026 y las horas ROP02 respetan las reglas globales",()=>{
+  const universe=buildEquipmentWithMaintenance2026([{maquina:"EXC-0001",fecha:"2026-02-10"},{maquina:"TOP-0002",fecha:"2025-12-31"}]);
+  assert.deepEqual([...universe],["EXC0001"]);
+  const hours=sumEffectiveRop02Hours2026([
+    {maquina:"EXC-0001",fecha:"2026-02-11",horas:8,estado:""},
+    {maquina:"EXC-0001",fecha:"2026-02-12",horas:4,estado:"OD"},
+    {maquina:"EXC-0001",fecha:"2026-02-13",horas:0,estado:""},
+    {maquina:"TOP-0002",fecha:"2026-02-11",horas:9,estado:""},
+  ],universe);
+  assert.equal(hours.get("EXC0001"),8);
+  assert.equal(hours.has("TOP0002"),false);
+});
+
+test("el preprocesamiento de costos normaliza fecha, equipo e importe una sola vez",()=>{
+  const rows=prepareMaintenanceCostRows([{maquina:"EXC-0001-JM",fecha:"2026-03-12",proyecto:"JOSE MARIA",tipoMant:"Preventivo",insumos:[{costoTotal:20},{costoTotal:5}]}]);
+  assert.equal(rows[0]._dateKey,"2026-03-12");
+  assert.equal(rows[0]._monthKey,"2026-03");
+  assert.equal(rows[0]._canonicalEquipment,"EXC0001");
+  assert.equal(rows[0]._costoTotalARS,25);
+  assert.equal(rows[0]._esPreventivo,true);
+  const index=indexMaintenanceCostRows(rows);
+  assert.equal(index.byEquipment.get("EXC0001")[0],rows[0]);
+  assert.equal(index.byMonth.get("2026-03")[0],rows[0]);
+  assert.equal(index.displayByEquipment.get("EXC0001"),"EXC-0001-JM");
+});
+
+test("el índice histórico responde rangos sin volver a recorrer los registros",()=>{
+  const rows=prepareMaintenanceCostRows([
+    {maquina:"EXC-0001",fecha:"2026-01-10",insumos:[{costoTotal:10}]},
+    {maquina:"EXC-0001",fecha:"2026-02-10",insumos:[{costoTotal:20}]},
+    {maquina:"EXC-0001",fecha:"2026-03-10",insumos:[{costoTotal:30}]},
+  ]);
+  const universe=buildEquipmentWithMaintenance2026(rows);
+  const index=buildEquipmentRangeIndex(rows,universe,row=>row._costoTotalARS);
+  assert.equal(queryEquipmentRangeIndex(index,"2026-02-01","2026-03-01").get("EXC0001"),20);
+  assert.equal(queryEquipmentRangeIndex(index,"2026-01-01","2026-12-31").get("EXC0001"),60);
+});
 
 test("CFN01010 y sus variantes quedan excluidos por la clave canónica", () => {
   ["CFN01010", "CFN-01010", "CFN 01010", "cfn-01010-jm"].forEach(code => {
@@ -358,9 +397,9 @@ test("un equipo vigente conserva 2025 desde la app y evita duplicar el históric
     filters:{tipo:"todos"},filtersMO:{tipo:"todos"},
   });
   assert.deepEqual(result.monthly.map(row=>row.equipo),["MOT-0014"]);
-  assert.equal(result.monthly[0].months["2025-08"].total,20);
+  assert.equal(result.monthly[0].months["2025-08"],undefined);
   assert.equal(result.monthly[0].months["2025-09"].total,40);
-  assert.equal(result.monthly[0].total,70);
+  assert.equal(result.monthly[0].total,50);
 });
 
 test("el motor vuelca preventivos y correctivos históricos al interno actual", () => {
@@ -482,8 +521,8 @@ test("TOTAL 2025 suma los valores mensuales redondeados mostrados", () => {
 
 test("TOTAL 2025 considera todos los meses disponibles en la app", () => {
   const view=fs.readFileSync(new URL("../src/modules/informe-costos/InformeCostosView.jsx",import.meta.url),"utf8");
-  assert.match(view,/startsWith\("2025-"\)/);
-  assert.doesNotMatch(view,/clavesTotal2025=new Set/);
+  assert.match(view,/startsWith\("2026-"\)/);
+  assert.doesNotMatch(view,/>TOTAL 2025</);
 });
 
 test("Amortización no agrega equipos sin registros sólo por existir en Lista Maestra", () => {

@@ -233,9 +233,9 @@ function initCostMonthlyEngine(payload){
       .filter(Boolean)
   );
   costEngine.dynamicMonthly=assignedDynamicMonthly
-    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
+    .filter(row=>String(row.mes||"").startsWith("2026-")&&activeEquipmentCodes.has(row._canonicalCode));
   costEngine.dynamicMO=assignedDynamicMO
-    .filter(row=>activeEquipmentCodes.has(row._canonicalCode));
+    .filter(row=>String(row.mes||"").startsWith("2026-")&&activeEquipmentCodes.has(row._canonicalCode));
   costEngine.historicalRows=prepareCostRows(payload.historicalRows)
     .map(assignProjectFromMasterList)
     .filter(row=>activeEquipmentCodes.has(row._canonicalCode));

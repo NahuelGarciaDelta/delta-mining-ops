@@ -8,7 +8,7 @@ import ComparisonStrip from "../../components/ComparisonStrip.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
 import { isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine } from "../equipment/equipmentCode.js";
 import { buildVisibleCategoryRowSpans } from "./utils/categoryRowSpan.js";
-import { sumRoundedMonthlyTotals } from "./utils/monthlyCostTotals.js";
+import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, belongsToMaintenanceUniverse2026, clampInformeCostosDate, indexMaintenanceCostRows, maintenanceEquipmentCode, prepareMaintenanceCostRows, prepareRop02CostRows, queryEquipmentRangeIndex } from "./utils/equipmentUniverse2026.js";
 
 function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   const [snapshot,setSnapshot]=React.useState(()=>diagSnapshot());
@@ -58,7 +58,7 @@ function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   </div>;
 }
 
-function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=false}){
+function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readOnly=false,equiposConMantenimiento2026,costDataIndex,rop02RangeIndex}){
   const {
     AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn, HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput:BaseParamInput, PeriodMonthYear, SortableTH, appAlert, appConfirm, buildMonthKeysCosto, byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand, esMaquinaCosto, findColumnKey, fmtNum, getMachineType, getValue, mainMachineCode, matchMulti, monthKeyCosto, monthLabelCosto, multiIsAll, normalizeInsumoCode, normalizeMachineCode, normalizeMultiValue, positionTip, proyColor, sortRowsForTable, tipoEquipoCosto, toNumber, uniq
   } = deps;
@@ -299,6 +299,8 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const isCostosTabManoObra=costosRenderTab==="t4";
   const isCostosTabAmortizacion=costosRenderTab==="t5";
   const isCostosTabResumen=costosRenderTab==="t8";
+  const isCostosTabAmortizacionHistorica=costosRenderTab==="t9";
+  const isCostosTabResumenHistorico=costosRenderTab==="t10";
 
   // Sólo se recalcula el motor que necesita la pestaña visible. Los resultados de
   // las demás pestañas permanecen en sus caches y se refrescan al volver a ellas.
@@ -339,6 +341,12 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
 
   const [fechaDCostoMensual,setFechaDCostoMensual]=React.useState(initialCostosMantState.fechaDCostoMensual||"");
   const [fechaHCostoMensual,setFechaHCostoMensual]=React.useState(initialCostosMantState.fechaHCostoMensual||"");
+  const historicalDefaultUntil=React.useMemo(()=>clampInformeCostosDate(new Date().toISOString().slice(0,10),"2026-12-31"),[]);
+  const [fechaHistoricaDesde,setFechaHistoricaDesde]=React.useState(()=>clampInformeCostosDate(initialCostosMantState.fechaHistoricaDesde||"2026-01-01"));
+  const [fechaHistoricaHasta,setFechaHistoricaHasta]=React.useState(()=>clampInformeCostosDate(initialCostosMantState.fechaHistoricaHasta||historicalDefaultUntil,historicalDefaultUntil));
+  const [fHistoricoTipo,setFHistoricoTipo]=React.useState("todos");
+  const [fHistoricoEquipo,setFHistoricoEquipo]=React.useState("todos");
+  const [fHistoricoProyecto,setFHistoricoProyecto]=React.useState("todos");
   // Filtros AISLADOS exclusivamente para la tabla Mano de Obra.
   // El proyecto NO se filtra acá: Mano de Obra usa el filtro general fProyecto.
   const [fMOMaquinas,setFMOMaquinas]=React.useState(initialCostosMantState.fMOMaquinas||"todos");
@@ -467,7 +475,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const filtrarInsumosCosto=React.useCallback((rows,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return rows||[];
     const selected=new Set((Array.isArray(seleccion)?seleccion:[seleccion]).map(v=>String(v||"").trim()).filter(Boolean));
-    return (rows||[]).map(r=>({...r,insumos:(r.insumos||[]).filter(ins=>selected.has(costoInsumoCode(ins)))}));
+    return (rows||[]).map(r=>({...r,_costNeedsRecalc:true,insumos:(r.insumos||[]).filter(ins=>selected.has(costoInsumoCode(ins)))}));
   },[costoInsumoCode]);
 
   // Precalcular una sola vez los importes de cada registro. Varias tablas usaban
@@ -476,9 +484,12 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const costoFilaPreparadaMemo=React.useMemo(()=>new WeakMap(),[rma15]);
   const prepararFilasCosto=React.useCallback((rows)=>(rows||[]).map(r=>{
     if(r&&typeof r==="object"&&costoFilaPreparadaMemo.has(r))return costoFilaPreparadaMemo.get(r);
-    let totalARS=0;
-    (r.insumos||[]).forEach(ins=>{totalARS+=Number(ins?.costoTotal)||0;});
-    const out={...r,_costoTotalARS:totalARS,_esPreventivo:String(r.tipoMant||"").toUpperCase().includes("PREV")};
+    let totalARS=r?._costNeedsRecalc?NaN:Number(r?._costoTotalARS);
+    if(!Number.isFinite(totalARS)){
+      totalARS=0;
+      (r.insumos||[]).forEach(ins=>{totalARS+=Number(ins?.costoTotal)||0;});
+    }
+    const out=!r?._costNeedsRecalc&&r?._dateKey?r:{...r,_costNeedsRecalc:false,_costoTotalARS:totalARS,_esPreventivo:String(r.tipoMant||"").toUpperCase().includes("PREV")};
     if(r&&typeof r==="object")costoFilaPreparadaMemo.set(r,out);
     return out;
   }),[costoFilaPreparadaMemo]);
@@ -1203,7 +1214,6 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
         const header=String((rows?.[0]?.[i]||rows?.[1]?.[i]||"")).toLowerCase();
         if(header.includes("descripcion")||header.includes("descripción"))return {wch:42};
         if(header.includes("propiedad"))return {wch:16};
-        if(header.includes("total 2025"))return {wch:14};
         if(header.includes("hs"))return {wch:13};
         if(header.includes("usd"))return {wch:13};
         return {wch:13};
@@ -1259,7 +1269,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     ];
   };
 
-  const rowsAcumuladoExcel=React.useMemo(()=>{
+  const buildRowsAcumuladoExcel=()=>{
     const rows=[];
     [{id:"FS",label:"FILO DEL SOL"},{id:"JM",label:"JOSE MARIA"}].forEach(sec=>{
       (acumuladoEquipos||[]).filter(x=>x.section===sec.id).forEach(x=>{
@@ -1279,7 +1289,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       });
     });
     return rows;
-  },[acumuladoEquipos,mesesAcumulado]);
+  };
 
 
   const monthInFechaFiltroCosto=React.useCallback((key)=>{
@@ -1302,7 +1312,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     // Los meses 2025 se conservan siempre para poder consolidarlos en TOTAL 2025,
     // aunque el usuario filtre un período que comience en 2026.
     (HIST_COSTO_MENSUAL_ACUMULADO.months||[]).filter(m=>
-      String(m.key||"").startsWith("2025-")||monthInFechaFiltroCosto(m.key)
+      String(m.key||"").startsWith("2026-")&&monthInFechaFiltroCosto(m.key)
     ),
     [monthInFechaFiltroCosto]
   );
@@ -1311,7 +1321,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     const set=new Set();
     (rma15CostoMensualPorFecha||[]).forEach(r=>{
       const k=monthKeyCosto(r.fecha);
-      if(k&&k>="2025-01")set.add(k);
+      if(k&&k>="2026-01")set.add(k);
     });
     return [...set].sort().map(k=>({key:k,label:monthLabelCosto(k),dollar:Number(monthlyDollar[k])||Number(usdRate2)||1400}));
   },[rma15CostoMensualPorFecha,monthlyDollar,usdRate2]);
@@ -1339,12 +1349,19 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const [costoMensualWorkerReady,setCostoMensualWorkerReady]=React.useState(false);
   const costoMensualWorkerInitRef=React.useRef(0);
   const costoMensualWorkerQueryRef=React.useRef(0);
+  const costoMensualWorkerSourcesRef=React.useRef(null);
+  const costoMensualQueryCacheRef=React.useRef(new Map());
 
   // Inicializa el motor de Costo mensual en lotes pequeños. La compactación se
   // reparte entre frames para no bloquear la interfaz; luego el Worker conserva
   // las fuentes en memoria y los cambios de filtros sólo envían parámetros.
   React.useEffect(()=>{
     if(!calcCostoMensual){setCostoMensualWorkerUpdating(false);return;}
+    const initialized=costoMensualWorkerSourcesRef.current;
+    if(initialized?.monthly===rma15CostoMensualPorFecha&&initialized?.labor===rma15PorFecha){
+      setCostoMensualWorkerReady(true);
+      return;
+    }
     const token=++costoMensualWorkerInitRef.current;
     let cancelled=false;
     setCostoMensualWorkerReady(false);
@@ -1375,6 +1392,8 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
           historicalRows:HIST_COSTO_MENSUAL_ACUMULADO.rows||[],dynamicMonthly,dynamicMO,meta
         }).then(()=>{
           if(cancelled||token!==costoMensualWorkerInitRef.current)return;
+          costoMensualWorkerSourcesRef.current={monthly:rma15CostoMensualPorFecha,labor:rma15PorFecha};
+          costoMensualQueryCacheRef.current.clear();
           setCostoMensualWorkerReady(true);
         }).catch(err=>{
           console.error("No se pudo inicializar el motor de Costo mensual",err);
@@ -1431,7 +1450,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     return out;
   },[costoMensualAcumulado,mesesCostoMensual]);
 
-  const rowsCostoMensualExcel=React.useMemo(()=>{
+  const buildRowsCostoMensualExcel=()=>{
     const rows=[];
     (costoMensualAcumulado||[]).forEach(x=>{
       const row={Proyecto:sectionProyectoCosto(x.section),Equipo:x.equipo};
@@ -1455,7 +1474,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       rows.push(row);
     });
     return rows;
-  },[costoMensualAcumulado,mesesCostoMensual,sectionProyectoCosto]);
+  };
 
   const setDollarMesCostoDraft=(key,val)=>{
     setMonthlyDollarDraft(prev=>({...prev,[key]:val}));
@@ -1783,7 +1802,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     fProyecto,costosMantSorts.manoObra
   ]);
 
-  const rowsManoObraExcel=React.useMemo(()=>[
+  const buildRowsManoObraExcel=()=>[
     ...(rowsManoObra||[]).map(x=>({
       Equipo:x.equipo,
       Propiedad:x.propiedad||"S/D",
@@ -1800,7 +1819,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       "Mano de obra":Math.round(x.manoObra||0),
       Total:Math.round(x.total||0),
     })),
-  ],[rowsManoObra,rowsManoObraTotales]);
+  ];
 
   const monthThemeCosto=(key)=>{
     const n=Number(String(key||"").slice(5,7))||0;
@@ -2364,7 +2383,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const rowsAmortizacionDeferred=React.useDeferredValue?React.useDeferredValue(rowsAmortizacionOrdenadasFiltradas):rowsAmortizacionOrdenadasFiltradas;
   const costosTablasReady=amortizacionCalcActive;
 
-  const rowsAmortizacionExcel=React.useMemo(()=>(rowsAmortizacionOrdenadasFiltradas||[]).map(x=>({
+  const buildRowsAmortizacionExcel=()=>(rowsAmortizacionOrdenadasFiltradas||[]).map(x=>({
     Equipo:x.equipo,
     Propiedad:x.propiedad||"S/D",
     Tipo:x.tipo||"S/D",
@@ -2378,7 +2397,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     "Total (USD/hs)":Math.round(x.totalUSDhs||0),
     "% Mant.":x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—",
     "Promedio por tipo":x._firstTipoDisplay?(x.promTipo>0?(x.promTipo*100).toFixed(0)+"%":"—"):"",
-  })),[rowsAmortizacionOrdenadasFiltradas]);
+  }));
 
 
   const resumenTipoOrden=React.useCallback((label)=>{
@@ -2580,14 +2599,162 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     }catch(_){ }
   },[rowsResumenPorEquipo,hombreVestido]);
 
-  const rowsResumenPorEquipoExcel=React.useMemo(()=>(rowsResumenPorEquipo||[]).map(x=>({
+  const buildRowsResumenPorEquipoExcel=()=>(rowsResumenPorEquipo||[]).map(x=>({
     "Maquina":x.maquina,
     "Modelo Tipo":x.modelo,
     "Costo Horario de Amortización":x.costoAmort>0?"USD "+Math.round(x.costoAmort):"—",
     "% Mantenimiento":x.pctMant>0?(x.pctMant*100).toFixed(0)+"%":"—",
     "Costo Horario":x.costoHorario>0?"USD "+Math.round(x.costoHorario):"—",
     "Costo Total Horario":x.costoTotal>0?"USD "+Math.round(x.costoTotal):"—",
-  })),[rowsResumenPorEquipo]);
+  }));
+
+  const historicalCalcActive=isCostosTabAmortizacionHistorica||isCostosTabResumenHistorico;
+  const historicalRowsCacheRef=React.useRef([]);
+  const maintenanceUsdRangeIndex=React.useMemo(()=>historicalCalcActive?buildEquipmentRangeIndex(
+    rma15,equiposConMantenimiento2026,row=>{
+      const month=row._monthKey||String(row.fecha||"").slice(0,7);
+      const rate=Number(monthlyDollar[month])||Number(usdRate2)||1;
+      return (Number(row._costoTotalARS)||0)/rate;
+    }
+  ):null,[historicalCalcActive,rma15,equiposConMantenimiento2026,monthlyDollar,usdRate2]);
+  const horasHistoricasPorEquipo=React.useMemo(()=>historicalCalcActive?queryEquipmentRangeIndex(
+    rop02RangeIndex,fechaHistoricaDesde,fechaHistoricaHasta
+  ):new Map(),[historicalCalcActive,rop02RangeIndex,fechaHistoricaDesde,fechaHistoricaHasta]);
+
+  const mantenimientoHistoricoPorEquipo=React.useMemo(()=>historicalCalcActive?queryEquipmentRangeIndex(
+    maintenanceUsdRangeIndex,fechaHistoricaDesde,fechaHistoricaHasta
+  ):new Map(),[historicalCalcActive,maintenanceUsdRangeIndex,fechaHistoricaDesde,fechaHistoricaHasta]);
+
+  /*
+      // `rma15` llega acá sin pasar necesariamente por prepararFilasCosto.
+      // Por eso no dependemos de _costoTotalARS: si no existe, sumamos los
+      // insumos de la OT directamente. Esto corrige los históricos en “—”.
+      const costoARS=Number.isFinite(Number(r._costoTotalARS))
+        ? Number(r._costoTotalARS)
+        : (r.insumos||[]).reduce((sum,ins)=>sum+(Number(ins?.costoTotal)||0),0);
+      current.mantenimiento+=costoARS/rate;
+      if(r.proyecto)current.proyecto=r.proyecto;
+      map.set(code,current);
+    }
+    return map;
+  */
+
+  const rowsAmortizacionHistorica=React.useMemo(()=>{
+    if(!historicalCalcActive)return historicalRowsCacheRef.current;
+    const rows=[];
+    for(const [code,mantenimiento] of mantenimientoHistoricoPorEquipo){
+      const equipo=costDataIndex?.displayByEquipment?.get(code)||code;
+      if(!esDelta(equipo))continue;
+      const meta=metaEquipoCosto(equipo);
+      const groupInfo=amortizacionGrupoInfo(equipo)||{};
+      const tipo=groupInfo.grupo||meta.familia||meta.tipo||"S/D";
+      const modelo=modeloListaEquipo(equipo)||meta.modelo||"";
+      const valor=getCostoLocalUSDEquipo(equipo);
+      const vida=getVidaUtilEquipo(equipo);
+      const amort=vida>0?valor/vida:0;
+      const horas=Number(horasHistoricasPorEquipo.get(code))||0;
+      const mantHs=horas>0?mantenimiento/horas:0;
+      const pctMant=amort>0?mantHs/amort:0;
+      const totalHs=amort+mantHs;
+      const maquinaResumen=getResumenTipoLabel({equipo,tipo,modelo,_resumenModelo:modelo})||tipo;
+      rows.push({
+        equipo,tipo,modelo,valor,vida,mantenimiento,horas,mantHs,amort,totalHs,pctMant,
+        maquinaResumen,
+        _grupoIndex:Number(groupInfo.grupoIndex??998),
+        _ordenGrupo:Number(groupInfo.orden??0)
+      });
+    }
+    const averages=new Map();
+    rows.forEach(x=>{
+      const a=averages.get(x.tipo)||{sum:0,count:0};
+      if(x.pctMant>0){a.sum+=x.pctMant;a.count++;}
+      averages.set(x.tipo,a);
+    });
+    const result=rows.map(x=>({...x,promedioEquipo:averages.get(x.tipo)?.count?averages.get(x.tipo).sum/averages.get(x.tipo).count:0}))
+      .filter(x=>(multiIsAll(fHistoricoTipo,"todos")||matchMulti(x.tipo,fHistoricoTipo))&&(multiIsAll(fHistoricoEquipo,"todos")||matchMulti(x.equipo,fHistoricoEquipo)))
+      .sort((a,b)=>a._grupoIndex-b._grupoIndex||a._ordenGrupo-b._ordenGrupo||a.tipo.localeCompare(b.tipo,"es")||a.equipo.localeCompare(b.equipo));
+    historicalRowsCacheRef.current=result;
+    return result;
+  },[historicalCalcActive,mantenimientoHistoricoPorEquipo,costDataIndex,esDelta,metaEquipoCosto,amortizacionGrupoInfo,modeloListaEquipo,getCostoLocalUSDEquipo,getVidaUtilEquipo,horasHistoricasPorEquipo,getResumenTipoLabel,fHistoricoTipo,fHistoricoEquipo,multiIsAll,matchMulti,useListaVidaUtil,vidaUtilOverride]);
+
+  const historicoTipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los tipos"},...uniq(rowsAmortizacionHistorica.map(x=>x.tipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistorica,uniq]);
+  const historicoEquipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los equipos"},...uniq(rowsAmortizacionHistorica.map(x=>x.equipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistorica,uniq]);
+
+  const buildRowsAmortizacionHistoricaExcel=()=>rowsAmortizacionHistorica.map(x=>({
+    Equipo:x.equipo,
+    Propiedad:"DELTA",
+    Tipo:x.tipo,
+    Modelo:x.modelo,
+    "C. Adq. (USD)":Math.round(x.valor),
+    "Vida útil (hs)":Math.round(x.vida),
+    "Mantenimiento acumulado 2026 (USD)":Math.round(x.mantenimiento),
+    "Hs efectivas ROP02 2026":Number(x.horas.toFixed(2)),
+    "Costo amortización (USD/h)":Number(x.amort.toFixed(2)),
+    "Mant. (USD/h)":x.horas>0?Number(x.mantHs.toFixed(2)):"—",
+    "Total (USD/h)":Number(x.totalHs.toFixed(2)),
+    "% Mant.":x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—",
+    "Promedio por tipo":x.promedioEquipo>0?(x.promedioEquipo*100).toFixed(2)+"%":"—"
+  }));
+
+  const rowsResumenHistorico=React.useMemo(()=>{
+    const groups=new Map();
+    rowsAmortizacionHistorica.forEach(x=>{
+      const label=String(x.maquinaResumen||x.tipo||"S/D").trim()||"S/D";
+      const key=cleanKey(label)||label;
+      const g=groups.get(key)||{
+        maquina:label,
+        modelos:new Map(),
+        mantenimiento:0,horas:0,
+        amorts:[],mantHsVals:[],pctVals:[],
+        _grupoIndex:x._grupoIndex,_ordenGrupo:x._ordenGrupo
+      };
+      g.mantenimiento+=Number(x.mantenimiento)||0;
+      g.horas+=Number(x.horas)||0;
+      if(x.amort>0)g.amorts.push(x.amort);
+      if(x.mantHs>0)g.mantHsVals.push(x.mantHs);
+      if(x.pctMant>0)g.pctVals.push(x.pctMant);
+      const modelo=String(x.modelo||"—")||"—";
+      const mk=cleanKey(modelo)||modelo;
+      const modelRec=g.modelos.get(mk)||{modelo,count:0,orden:g.modelos.size};
+      modelRec.count++;
+      g.modelos.set(mk,modelRec);
+      g._grupoIndex=Math.min(Number(g._grupoIndex??998),Number(x._grupoIndex??998));
+      g._ordenGrupo=Math.min(Number(g._ordenGrupo??999),Number(x._ordenGrupo??999));
+      groups.set(key,g);
+    });
+    const avg=a=>a.length?a.reduce((sum,v)=>sum+v,0)/a.length:0;
+    return [...groups.values()].map(g=>{
+      const modelos=[...g.modelos.values()].sort((a,b)=>b.count-a.count||a.orden-b.orden||String(a.modelo).localeCompare(String(b.modelo),"es"));
+      const amort=avg(g.amorts);
+      const pctMant=avg(g.pctVals);
+      const costoHorario=avg(g.mantHsVals);
+      return {
+        maquina:g.maquina,
+        modelo:modelos[0]?.modelo||"—",
+        mantenimiento:g.mantenimiento,
+        horas:g.horas,
+        amort,
+        pctMant,
+        costoHorario,
+        costoTotal:amort>0?amort*(1+pctMant):0,
+        _grupoIndex:g._grupoIndex,
+        _ordenGrupo:g._ordenGrupo
+      };
+    }).sort((a,b)=>resumenTipoOrden(a.maquina)-resumenTipoOrden(b.maquina)||a._grupoIndex-b._grupoIndex||a._ordenGrupo-b._ordenGrupo||a.maquina.localeCompare(b.maquina,"es"));
+  },[rowsAmortizacionHistorica,cleanKey,resumenTipoOrden]);
+
+  const buildRowsResumenHistoricoExcel=()=>rowsResumenHistorico.map(x=>({
+    "Maquina":x.maquina,
+    "Modelo Tipo":x.modelo,
+    "Mantenimiento acumulado 2026 (USD)":Math.round(x.mantenimiento),
+    "Hs efectivas ROP02 2026":Number(x.horas.toFixed(2)),
+    "Costo Horario de Amortización":x.amort>0?"USD "+Math.round(x.amort):"—",
+    "% Mantenimiento":x.pctMant>0?(x.pctMant*100).toFixed(0)+"%":"—",
+    "Costo Horario":x.costoHorario>0?"USD "+Math.round(x.costoHorario):"—",
+    "Costo Total Horario":x.costoTotal>0?"USD "+Math.round(x.costoTotal):"—"
+  }));
+
+  const amortizacionHistoricaVisibleRows=React.useMemo(()=>buildVisibleCategoryRowSpans(rowsAmortizacionHistorica),[rowsAmortizacionHistorica]);
 
   const rowsManoObraRender=useProgressiveRows(rowsManoObraOrdenadas,isCostosTabManoObra,80,80);
   // Un rowSpan real necesita que el grupo completo exista en el DOM. Virtualizar
@@ -2619,7 +2786,6 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
   const TablaCostoMensualAcumulado=()=>{
     const mesDesde=fechaDCostoMensual?monthKeyCosto(fechaDCostoMensual):"";
     const mesHasta=hastaCostoMensual?monthKeyCosto(hastaCostoMensual):"";
-    const meses2025=(mesesCostoMensual||[]).filter(m=>String(m.key||"").startsWith("2025-"));
     // Desde 2026 se siguen mostrando los meses individualmente.
     const mesesCM=(mesesCostoMensual||[]).filter(m=>{
       if(String(m.key||"")<"2026-01")return false;
@@ -2636,7 +2802,6 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
         const total=Number(d?.total)||prev+corr;
         return total>0;
       });
-      const total2025=sumRoundedMonthlyTotals(meses2025,x.months);
       const months={};
       let prev=0,corr=0,total2026=0;
       mesesCM.forEach(m=>{
@@ -2647,14 +2812,14 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
         months[m.key]={prev:p,corr:c,total:t};
         prev+=p;corr+=c;total2026+=t;
       });
-      return {...x,months,prev,corr,total2025,total2026,total:total2025+total2026,tieneRegistro2026};
+      return {...x,months,prev,corr,total2026,total:total2026,tieneRegistro2026};
     }).filter(x=>x.tieneRegistro2026);
-    const mkTot=()=>({prev:0,corr:0,total:0,total2025:0,months:Object.fromEntries((mesesCM||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
+    const mkTot=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesCM||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
     const totalesCM={FS:mkTot(),JM:mkTot(),TOTAL:mkTot()};
     rowsCM.forEach(x=>{
       const sec=totalesCM[x.section]||totalesCM.FS;
       [sec,totalesCM.TOTAL].forEach(t=>{
-        t.prev+=x.prev||0;t.corr+=x.corr||0;t.total2025+=x.total2025||0;t.total+=x.total||0;
+        t.prev+=x.prev||0;t.corr+=x.corr||0;t.total+=x.total||0;
         mesesCM.forEach(m=>{
           const d=x.months?.[m.key]||{};
           if(!t.months[m.key])t.months[m.key]={prev:0,corr:0,total:0};
@@ -2689,13 +2854,12 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     // Los subtotales se pedían decenas de veces durante cada render y cada
     // llamada volvía a recorrer todas las filas. Se calculan una sola vez.
     const sumCMCache=React.useMemo(()=>{
-      const mk=()=>({total2025:0,totalB:0,mo:0,usdHs:0,hsEf:0,prev:0,corr:0,total:0,months:{}});
+      const mk=()=>({totalB:0,mo:0,usdHs:0,hsEf:0,prev:0,corr:0,total:0,months:{}});
       const out={FS:mk(),JM:mk(),TOTAL:mk()};
       (rowsCM||[]).forEach(x=>{
         const targets=[out[x.section]||out.FS,out.TOTAL];
         const p=promedioCM(x);
         const values={
-          total2025:Math.round(Number(x.total2025)||0),
           totalB:Math.round(Number(x.total)||0),
           mo:Math.round(Number(getManoObraCostoMensual(x))||0),
           usdHs:Math.round(Number(getUsdHoraCM(x))||0),
@@ -2724,19 +2888,18 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       rowsCM.some(x=>x.section===sec.id)
     );
 
-    const rowsExcelCM=React.useMemo(()=>{
-      // Formato especial para el Excel de Costo mensual acumulado.
-      // Todos los meses disponibles de 2025 se exportan agrupados en Total 2025.
+    const buildRowsExcelCM=()=>{
+      // Formato especial para el Excel de Costo mensual acumulado 2026.
       const mesesDesdeEnero=mesesCM;
       const round=v=>Math.round(Number(v)||0);
       const emptyRow=()=>[];
-      const rowLen=3+(mesesDesdeEnero.length*3)+1+3+3;
+      const rowLen=2+(mesesDesdeEnero.length*3)+1+3+3;
 
-      const head1=["Equipo","Propiedad","Total 2025"];
+      const head1=["Equipo","Propiedad"];
       mesesDesdeEnero.forEach(m=>head1.push(m.label,"",""));
       head1.push("Total B","Promedio","","","MO","Hs Efectivas","USD/Hs");
 
-      const head2=["","",""];
+      const head2=["",""];
       mesesDesdeEnero.forEach(()=>head2.push("Preventivo","Correctivo","Total"));
       head2.push("","Preventivo","Correctivo","Total","","","");
 
@@ -2748,9 +2911,8 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
         out.push(row);
       };
 
-      const total2025Equipo=(x)=>round(x.total2025||0);
       const pushEquipo=(x)=>{
-        const row=[x.equipo,propiedadEquipo(x.equipo)||"S/D",total2025Equipo(x)];
+        const row=[x.equipo,propiedadEquipo(x.equipo)||"S/D"];
         mesesDesdeEnero.forEach(m=>{
           const d=x.months?.[m.key]||{};
           row.push(round(d.prev),round(d.corr),round(d.total));
@@ -2770,8 +2932,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       };
 
       const pushSubtotal=(sectionId,label)=>{
-        const row=[label,"",0];
-        row[2]=round(sumCM(sectionId,"total2025"));
+        const row=[label,""];
         mesesDesdeEnero.forEach(m=>{
           row.push(round(sumCM(sectionId,"prev",m.key)),round(sumCM(sectionId,"corr",m.key)),round(sumCM(sectionId,"total",m.key)));
         });
@@ -2795,11 +2956,10 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       });
       pushSubtotal("TOTAL","TOTAL");
       return out;
-    },[rowsCM,mesesCM,sections,sumCMCache,hsEfJM,hsEfFS,hsPropios,hsArrendados,manoObraPorEquipoCostoMensual,propiedadEquipo]);
+    };
 
     const costoMensualGetters={
       equipo:x=>x.equipo,
-      total2025:x=>x.total2025,
       totalB:x=>x.total,
       promPrev:x=>promedioCM(x).prev,
       promCorr:x=>promedioCM(x).corr,
@@ -2831,7 +2991,10 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
     };
 
     return(
-      <Card title={`Costo mensual acumulado (Todos los proyectos) (${rowsCM.length} equipos)`} action={<BotonDescargar onClick={()=>descargarExcel("Costo_mensual_acumulado",rowsExcelCM)}/>}> 
+      <Card
+        title={`Costo mensual acumulado (Todos los proyectos) (${rowsCM.length} equipos)`}
+        action={<BotonDescargar onClick={()=>descargarExcel("Costo_mensual_acumulado",buildRowsExcelCM())}/>}
+      >
         {renderCostosQuickFilters("t6",true)}
         <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:"rgba(20,30,20,0.6)"}}>
           <span style={{fontSize:12,fontWeight:800,color:C.green}}>Filtros Costo mensual</span>
@@ -2846,7 +3009,6 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
             <thead>
               <tr>
                 <th style={{...thL,position:"sticky",left:0,top:0,zIndex:8,minWidth:170,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</th>
-                <SortableTH sortId="costoMensual" sortKey="total2025" sorts={costosMantSorts} setSorts={setCostosMantSorts} rowSpan={3} style={{...thS,position:"sticky",top:0,zIndex:7,minWidth:120,background:"#374151",color:"#fff",fontWeight:900,borderLeft:`1px solid ${C.border}`}}>TOTAL 2025</SortableTH>
                 {mesesCM.map(m=>{
                   const t=monthThemeCosto(m.key);
                   return(
@@ -2893,11 +3055,10 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
             <tbody>
               {sections.map(sec=>(
                 <React.Fragment key={sec.id}>
-                  <tr><td colSpan={5+mesesCM.length*3+4} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
+                  <tr><td colSpan={4+mesesCM.length*3+4} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
                   {costoMensualRowsOrdenadas(sec.id).map((x,i)=>(
                     <tr key={sec.id+"__"+x.equipo} style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)"}}>
                       <td style={{...tdL,position:"sticky",left:0,zIndex:2,background:i%2===0?C.card:C.surface}}>{x.equipo}</td>
-                      <td style={{...tdS,background:"rgba(55,65,81,.42)",color:"#fff",fontWeight:900}}>{fmtU(x.total2025||0)}</td>
                       {mesesCM.map(m=>{
                         const d=x.months[m.key]||{};
                         return(
@@ -2923,7 +3084,6 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
                   ))}
                   <tr>
                     <td style={{...tdL,position:"sticky",left:0,zIndex:2,...rowSubtotalStyleCosto}}>Subtotal {sec.id}</td>
-                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#374151",color:"#fff"}}>{fmtU(sumCM(sec.id,"total2025"))}</td>
                     {mesesCM.map(m=>{
                       const d=totalesCM[sec.id]?.months?.[m.key]||{};
                       return(
@@ -2946,7 +3106,6 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
               ))}
               <tr>
                 <td style={{...tdL,position:"sticky",left:0,zIndex:2,...rowTotalStyleCosto,color:"#fff"}}>TOTAL</td>
-                <td style={{...tdT,...rowTotalStyleCosto,background:"#1f2937",color:"#fff"}}>{fmtU(sumCM("TOTAL","total2025"))}</td>
                 {mesesCM.map(m=>{
                   const d=totalesCM.TOTAL?.months?.[m.key]||{};
                   return(
@@ -2969,7 +3128,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
           </table>
         </div>
         <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
-          Solo se muestran equipos con registros en 2026. Todos sus costos disponibles de 2025 se consolidan en TOTAL 2025; desde Enero 2026 los meses se muestran individualmente.
+          Solo se muestran equipos con mantenimiento en 2026. El informe comienza el 01/01/2026 y no utiliza acumulados anteriores.
         </div>
       </Card>
     );
@@ -3084,12 +3243,6 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
         <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Registros RMA15 filtrados: <b style={{color:C.text}}>{rma15Filtrado.length}</b> / {rma15?.length||0}</span>
       </div>
 
-      {periodoAnteriorCostos&&<ComparisonStrip title="Comparar períodos — Costos de mantenimiento" currentLabel={`${dFechaD} → ${dFechaH}`} previousLabel={`${periodoAnteriorCostos.from} → ${periodoAnteriorCostos.to}`} metrics={[
-        {label:"OT",current:rma15ComparacionActual.length,previous:rma15AnteriorCostos.length},
-        {label:"Equipos",current:new Set(rma15ComparacionActual.map(r=>r.maquina)).size,previous:new Set(rma15AnteriorCostos.map(r=>r.maquina)).size},
-        {label:"Costo insumos",current:rma15ComparacionActual.reduce((sum,r)=>sum+(Number(r._costoTotalARS)||0),0),previous:rma15AnteriorCostos.reduce((sum,r)=>sum+(Number(r._costoTotalARS)||0),0),format:v=>"$"+Math.round(v).toLocaleString("es-AR"),lowerIsBetter:true}
-      ]}/>}
-      {multiIsAll(fProyecto,"todos")&&(()=>{const jm=rma15ComparacionActual.filter(r=>String(r.proyecto||"").toUpperCase().includes("JOSE"));const fs=rma15ComparacionActual.filter(r=>String(r.proyecto||"").toUpperCase().includes("FILO"));if(!jm.length&&!fs.length)return null;return <ComparisonStrip title="Comparar proyectos — Costos" currentLabel="José María" previousLabel="Filo del Sol" metrics={[{label:"OT",current:jm.length,previous:fs.length},{label:"Equipos",current:new Set(jm.map(r=>r.maquina)).size,previous:new Set(fs.map(r=>r.maquina)).size},{label:"Costo insumos",current:jm.reduce((a,r)=>a+(Number(r._costoTotalARS)||0),0),previous:fs.reduce((a,r)=>a+(Number(r._costoTotalARS)||0),0),format:v=>"$"+Math.round(v).toLocaleString("es-AR"),lowerIsBetter:true}]}/>})()}
 
       {/* Header parámetros */}
       <div style={{display:"flex",flexDirection:"column",gap:10,padding:"12px 14px",background:"rgba(28,28,28,0.86)",backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",borderRadius:12,border:`1px solid ${C.border}55`,overflow:"hidden"}}>
@@ -3161,7 +3314,7 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {[["t1","Tabla de costos"],["t7","Top 3 Insumos"],["t6","Costo mensual acumulado"],["t4","Mano de Obra"],["t5","Amortización"],["t8","Resumen por equipo"]].map(([id,lbl])=>(
+        {[["t1","Tabla de costos"],["t7","Top 3 Insumos"],["t6","Costo mensual acumulado"],["t4","Mano de Obra"],["t5","Amortización"],["t8","Resumen de costo mensual por grupo"],["t9","Amortización histórica"],["t10","Resumen de costo histórico por grupo"]].map(([id,lbl])=>(
           <TabBtn key={id} id={id} label={lbl}/>
         ))}
       </div>
@@ -3171,7 +3324,10 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       {<CostosTabPanel active={costosRenderTab==="t6"} version={`${costoMensualAcumulado?.length||0}|${mesesCostoMensual?.length||0}`}><TablaCostoMensualAcumulado/></CostosTabPanel>}
 
       {costosRenderTab==="t4"&&(
-        <Card title="Mano de Obra" action={<BotonDescargar onClick={()=>descargarExcel("Mano_de_Obra",rowsManoObraExcel)}/>}>
+        <Card
+          title="Mano de Obra"
+          action={<BotonDescargar onClick={()=>descargarExcel("Mano_de_Obra",buildRowsManoObraExcel())}/>}
+        >
           {manoObraWorkerUpdating&&<div style={{fontSize:12,color:C.cyan,fontWeight:800,marginBottom:8}}>Actualizando Mano de Obra en segundo plano…</div>}
           {/* Filtros AISLADOS para Mano de Obra — independientes de los filtros del resto de tablas */}
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:"rgba(20,30,20,0.6)"}}>
@@ -3373,7 +3529,10 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       })()}
 
       {costosRenderTab==="t5"&&(
-        <Card title="Costo horario de amortización y mantenimiento" action={amortizacionSubtab==="tabla"?<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",rowsAmortizacionExcel)}/>:null}> 
+        <Card
+          title="Costo horario de amortización y mantenimiento"
+          action={amortizacionSubtab==="tabla"?<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",buildRowsAmortizacionExcel())}/>:null}
+        >
           <div style={{display:"flex",gap:8,padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(0,0,0,.12)"}}>
             <button onClick={()=>{setAmortizacionSubtab("tabla");window.setTimeout(()=>setAmortizacionCategoriasCalculo(amortizacionCategorias),0);}} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${amortizacionSubtab==="tabla"?C.teal:C.border}`,background:amortizacionSubtab==="tabla"?"rgba(45,212,191,.18)":"rgba(255,255,255,.04)",color:amortizacionSubtab==="tabla"?C.teal:C.textSub,fontWeight:800,cursor:"pointer"}}>Amortización</button>
             <button onClick={()=>setAmortizacionSubtab("categorias")} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${amortizacionSubtab==="categorias"?C.teal:C.border}`,background:amortizacionSubtab==="categorias"?"rgba(45,212,191,.18)":"rgba(255,255,255,.04)",color:amortizacionSubtab==="categorias"?C.teal:C.textSub,fontWeight:800,cursor:"pointer"}}>Categorías por modelo</button>
@@ -3515,7 +3674,10 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
       )}
 
       {costosRenderTab==="t8"&&(
-        <Card title="Resumen por equipo" action={<BotonDescargar onClick={()=>descargarExcel("Resumen_por_equipo",rowsResumenPorEquipoExcel)}/>}>
+        <Card
+          title="Resumen de costo mensual por grupo"
+          action={<BotonDescargar onClick={()=>descargarExcel("Resumen_costo_mensual_por_grupo",buildRowsResumenPorEquipoExcel())}/>}
+        >
           {resumenWorkerUpdating&&<div style={{fontSize:12,color:"#60a5fa",marginBottom:8}}>Actualizando Resumen por equipo en segundo plano…</div>}
           <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"12px 14px",borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.18)"}}>
             <MultiSel label="Tipo máquina" value={fResumenTipo} onChange={v=>setFiltroFluido(setFResumenTipo,v)} options={resumenTipoOptions} commitOnClose commitDelay={180}/>
@@ -3604,6 +3766,147 @@ function ViewCostosMantCore({rma15,insumos,listaEquipos,usdRate,deps,readOnly=fa
           )}
         </Card>
       )}
+
+      {isCostosTabAmortizacionHistorica&&(
+        <Card
+          title="Costo horario de amortización y mantenimiento — histórico 2026"
+          action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_historica_2026",buildRowsAmortizacionHistoricaExcel())}/>}
+        >
+          <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"12px 14px",borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.18)"}}>
+            <MultiSel label="Tipo de máquina" value={fHistoricoTipo} onChange={setFHistoricoTipo} options={historicoTipoOptions}/>
+            <MultiSel label="Equipo" value={fHistoricoEquipo} onChange={setFHistoricoEquipo} options={historicoEquipoOptions}/>
+            <DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/>
+            <DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/>
+            <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Solo equipos propios con mantenimiento 2026 · sin HH</span>
+          </div>
+          <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:620,scrollbarGutter:"stable"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
+              <thead><tr>
+                <th style={{...thL,width:92,minWidth:92,maxWidth:92}}>EQUIPO</th>
+                <th style={{...thS,width:82,minWidth:82,maxWidth:82}}>PROPIEDAD</th>
+                <th style={{...thS,width:150,minWidth:150,maxWidth:150}}>TIPO</th>
+                <th style={{...thS,width:86,minWidth:86,maxWidth:86}}>MODELO</th>
+                <th style={{...thS,width:150,minWidth:150,maxWidth:150}}>C. ADQ./ALQUILER (USD)</th>
+                <th style={{...thS,minWidth:185,width:185}}>
+                  <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
+                    <span>VIDA ÚTIL (HS) / HS MENSUALES</span>
+                    <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontWeight:500,fontSize:10,textTransform:"none",letterSpacing:0,color:C.textSub,whiteSpace:"nowrap"}}
+                      title="Solo aplica a equipos Delta. Al tildar, usa la Vida Útil de Lista Maestra. Al destildar, permite usar el valor manual.">
+                      <input
+                        type="checkbox"
+                        checked={Object.keys(useListaVidaUtil).length===0||rowsAmortizacionHistorica.every(x=>useListaVidaUtil[x.equipo]!==false)}
+                        onChange={e=>{
+                          if(e.target.checked){
+                            setVidaUtilState(s=>({...s,lista:{}}));
+                          }else{
+                            setVidaUtilState(s=>{
+                              const lista={...s.lista};
+                              const override={...s.override};
+                              rowsAmortizacionHistorica.forEach(x=>{
+                                lista[x.equipo]=false;
+                                if(!(override[x.equipo]>0))override[x.equipo]=Math.round(getVidaUtilListaMaestra(x.equipo))||8000;
+                              });
+                              return {lista,override};
+                            });
+                          }
+                        }}
+                        style={{accentColor:C.teal,cursor:"pointer"}}
+                      />
+                      <span style={{color:C.teal}}>Delta:</span> Lista de Equipos
+                    </label>
+                  </div>
+                </th>
+                <th style={{...thS,minWidth:190,width:190}}>MANTENIMIENTO ACUMULADO 2026</th>
+                <th style={{...thS,width:120,minWidth:120,maxWidth:120}}>HS EFECTIVAS 2026</th>
+                <th style={{...thS,minWidth:190,width:190}}>AMORTIZACIÓN / ALQUILER (USD/H)</th>
+                <th style={{...thS,width:110,minWidth:110,maxWidth:110}}>MANT. (USD/HS)</th>
+                <th style={{...thS,width:110,minWidth:110,maxWidth:110}}>TOTAL (USD/HS)</th>
+                <th style={{...thS,width:82,minWidth:82,maxWidth:82}}>% MANT.</th>
+                <th style={{...thS,textAlign:"center",width:130,minWidth:130,maxWidth:130}}>PROMEDIO POR TIPO</th>
+              </tr></thead>
+              <tbody>{amortizacionHistoricaVisibleRows.map((x,i)=>{
+                const groupTop={};
+                const manual=useListaVidaUtil[x.equipo]===false;
+                return <tr key={x.equipo} style={{background:i%2===0?"rgba(255,255,255,.14)":"rgba(255,255,255,.09)"}}>
+                  <td style={{...tdL,...groupTop,color:C.blue,fontWeight:800,whiteSpace:"nowrap",width:92,minWidth:92,maxWidth:92}}>{x.equipo}</td>
+                  <td style={{...tdS,...groupTop,fontWeight:700,whiteSpace:"nowrap",width:82,minWidth:82,maxWidth:82}}>DELTA</td>
+                  <td style={{...tdS,...groupTop,fontWeight:700,whiteSpace:"nowrap",width:150,minWidth:150,maxWidth:150}}>{x.tipo}</td>
+                  <td style={{...tdS,...groupTop,whiteSpace:"nowrap",width:86,minWidth:86,maxWidth:86}}>{x.modelo||"—"}</td>
+                  <td style={{...tdS,...groupTop,fontWeight:800,whiteSpace:"nowrap",width:150,minWidth:150,maxWidth:150}}>{x.valor>0?`U$S ${fmtNum(Math.round(x.valor))}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,minWidth:185,width:185,whiteSpace:"nowrap"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                      <input
+                        type="checkbox"
+                        checked={!manual}
+                        onChange={e=>{
+                          const checked=e.target.checked;
+                          setVidaUtilState(state=>{
+                            const lista={...state.lista,[x.equipo]:checked?undefined:false};
+                            const override={...state.override};
+                            if(!checked&&!(override[x.equipo]>0))override[x.equipo]=Math.round(getVidaUtilListaMaestra(x.equipo))||8000;
+                            return {lista,override};
+                          });
+                        }}
+                        style={{accentColor:C.teal,cursor:"pointer"}}
+                        title={manual?"Usar Vida Útil de Lista Maestra":"Usando Vida Útil de Lista Maestra"}
+                      />
+                      {manual?(
+                        <input
+                          value={vidaUtilOverride[x.equipo]??Math.round(x.vida)}
+                          onChange={e=>{
+                            const raw=String(e.target.value||"").replace(/[^\d.,]/g,"").replace(",",".");
+                            const value=Number(raw)||0;
+                            setVidaUtilState(state=>({lista:{...state.lista,[x.equipo]:false},override:{...state.override,[x.equipo]:value}}));
+                          }}
+                          style={{width:74,padding:"5px 7px",borderRadius:6,border:`1px solid ${C.border}`,background:"rgba(0,0,0,.32)",color:C.text,textAlign:"center",fontWeight:800}}
+                        />
+                      ):<span>{fmtNum(Math.round(x.vida))}</span>}
+                    </div>
+                  </td>
+                  <td style={{...tdS,...groupTop,color:C.purple,fontWeight:800,whiteSpace:"nowrap",minWidth:190,width:190}}>{x.mantenimiento>0?`U$S ${fmtNum(Math.round(x.mantenimiento))}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,fontWeight:800,whiteSpace:"nowrap",width:120,minWidth:120,maxWidth:120}}>{x.horas>0?fmtNum(x.horas):"—"}</td>
+                  <td style={{...tdS,...groupTop,color:C.yellow,fontWeight:800,whiteSpace:"nowrap",minWidth:190,width:190}}>{x.amort>0?`U$S ${Number(x.amort).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,color:C.purple,fontWeight:800,whiteSpace:"nowrap",width:110,minWidth:110,maxWidth:110}}>{x.horas>0?`U$S ${Number(x.mantHs).toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,color:"#ff1717",fontWeight:900,whiteSpace:"nowrap",width:110,minWidth:110,maxWidth:110}}>{x.totalHs>0?`U$S ${Number(x.totalHs).toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,whiteSpace:"nowrap",width:82,minWidth:82,maxWidth:82}}>{x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—"}</td>
+                  {x._firstTipoDisplay&&<td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,background:"rgba(59,130,246,.16)",color:C.blue,fontWeight:900,fontSize:15,borderLeft:`1px solid ${C.blue}55`,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,verticalAlign:"middle",whiteSpace:"nowrap",width:130,minWidth:130,maxWidth:130}}>{x.promedioEquipo>0?(x.promedioEquipo*100).toFixed(0)+"%":"—"}</td>}
+                </tr>;
+              })}</tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {isCostosTabResumenHistorico&&(
+        <Card
+          title="Resumen de costo histórico por grupo"
+          action={<BotonDescargar onClick={()=>descargarExcel("Resumen_costo_historico_por_grupo_2026",buildRowsResumenHistoricoExcel())}/>}
+        >
+          <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"12px 14px",borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.18)"}}>
+            <MultiSel label="Tipo de máquina" value={fHistoricoTipo} onChange={setFHistoricoTipo} options={historicoTipoOptions}/>
+            <MultiSel label="Equipo" value={fHistoricoEquipo} onChange={setFHistoricoEquipo} options={historicoEquipoOptions}/>
+            <DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/>
+            <DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead><tr>
+                {["MAQUINA","MODELO TIPO","MANTENIMIENTO ACUMULADO 2026","HS EFECTIVAS 2026","COSTO HORARIO DE AMORTIZACIÓN","% MANTENIMIENTO","COSTO HORARIO","COSTO TOTAL HORARIO"].map(h=><th key={h} style={{...thS,background:C.yellow,color:"#111",fontWeight:900}}>{h}</th>)}
+              </tr></thead>
+              <tbody>{rowsResumenHistorico.map((x,i)=><tr key={`${x.maquina}-${x.modelo}`} style={{background:i%2===0?"rgba(255,255,255,.14)":"rgba(255,255,255,.09)"}}>
+                <td style={{...tdS,textAlign:"left",fontWeight:700,color:C.text}}>{x.maquina}</td>
+                <td style={{...tdS,textAlign:"left",fontWeight:600,color:C.textSub}}>{x.modelo||"—"}</td>
+                <td style={{...tdS,fontWeight:800,color:C.purple}}>{x.mantenimiento>0?`USD ${fmtNum(Math.round(x.mantenimiento))}`:"—"}</td>
+                <td style={{...tdS,fontWeight:800,color:C.text}}>{x.horas>0?fmtNum(x.horas):"—"}</td>
+                <td style={{...tdS,fontWeight:700,color:C.yellow}}>{x.amort>0?`USD ${fmtNum(Math.round(x.amort))}`:"—"}</td>
+                <td style={{...tdS,fontWeight:700,color:C.textSub}}>{x.pctMant>0?(x.pctMant*100).toFixed(0)+"%":"—"}</td>
+                <td style={{...tdS,fontWeight:800,color:C.cyan}}>{x.costoHorario>0?`USD ${fmtNum(Math.round(x.costoHorario))}`:"—"}</td>
+                <td style={{...tdS,fontWeight:800,color:C.green}}>{x.costoTotal>0?`USD ${fmtNum(Math.round(x.costoTotal))}`:"—"}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -3637,6 +3940,7 @@ function sameInformeCostosProps(prev,next){
   return prev.usdRate===next.usdRate&&
     prev.deps===next.deps&&
     (prev.rma15===next.rma15||dmDatasetFingerprint(prev.rma15)===dmDatasetFingerprint(next.rma15))&&
+    (prev.rop02===next.rop02||dmDatasetFingerprint(prev.rop02)===dmDatasetFingerprint(next.rop02))&&
     (prev.insumos===next.insumos||dmDatasetFingerprint(prev.insumos)===dmDatasetFingerprint(next.insumos))&&
     (prev.listaEquipos===next.listaEquipos||dmDatasetFingerprint(prev.listaEquipos)===dmDatasetFingerprint(next.listaEquipos));
 }
@@ -3648,13 +3952,19 @@ function rowHasExcludedMaintenanceCostCode(row){
 }
 
 function ViewCostosMant(props){
-  const filteredRma15=React.useMemo(()=>(props.rma15||[]).filter(row=>
-    !isExcludedFromMaintenanceCostReport(row?.maquina||row?.equipo||row?.interno||row?.codigo)
-  ),[props.rma15]);
+  const preparedRma15=React.useMemo(()=>prepareMaintenanceCostRows(props.rma15),[props.rma15]);
+  const equiposConMantenimiento2026=React.useMemo(()=>buildEquipmentWithMaintenance2026(preparedRma15),[preparedRma15]);
+  const filteredRma15=React.useMemo(()=>preparedRma15.filter(row=>
+    !isExcludedFromMaintenanceCostReport(row?.maquina||row?.equipo||row?.interno||row?.codigo)&&belongsToMaintenanceUniverse2026(row,equiposConMantenimiento2026)
+  ),[preparedRma15,equiposConMantenimiento2026]);
+  const costDataIndex=React.useMemo(()=>indexMaintenanceCostRows(filteredRma15),[filteredRma15]);
+  const preparedRop02=React.useMemo(()=>prepareRop02CostRows(props.rop02),[props.rop02]);
+  const filteredRop02=React.useMemo(()=>preparedRop02.filter(row=>belongsToMaintenanceUniverse2026(row,equiposConMantenimiento2026)),[preparedRop02,equiposConMantenimiento2026]);
+  const rop02RangeIndex=React.useMemo(()=>buildEquipmentRangeIndex(filteredRop02,equiposConMantenimiento2026,row=>row._effectiveHours),[filteredRop02,equiposConMantenimiento2026]);
   const filteredListaEquipos=React.useMemo(()=>(props.listaEquipos||[]).filter(row=>
     !rowHasExcludedMaintenanceCostCode(row)
   ),[props.listaEquipos]);
-  return <ViewCostosMantCore {...props} rma15={filteredRma15} listaEquipos={filteredListaEquipos}/>;
+  return <ViewCostosMantCore {...props} rma15={filteredRma15} rop02={filteredRop02} listaEquipos={filteredListaEquipos} equiposConMantenimiento2026={equiposConMantenimiento2026} costDataIndex={costDataIndex} rop02RangeIndex={rop02RangeIndex}/>;
 }
 
 export const MemoViewCostosMant=React.memo(ViewCostosMant,sameInformeCostosProps);
