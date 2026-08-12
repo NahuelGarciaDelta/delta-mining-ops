@@ -9,6 +9,7 @@ import { previousComparablePeriod } from "../../shared/periodCompare.js";
 import { isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine } from "../equipment/equipmentCode.js";
 import { buildVisibleCategoryRowSpans } from "./utils/categoryRowSpan.js";
 import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, belongsToMaintenanceUniverse2026, clampInformeCostosDate, indexMaintenanceCostRows, maintenanceEquipmentCode, prepareMaintenanceCostRows, prepareRop02CostRows, queryEquipmentRangeIndex } from "./utils/equipmentUniverse2026.js";
+import { matchesAmortizationTypeFilter } from "./engine/InformeCostosEngine.js";
 
 function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   const [snapshot,setSnapshot]=React.useState(()=>diagSnapshot());
@@ -285,10 +286,10 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     else apply();
   },[defaultCostosFiltrosTabla]);
   const resetCostoFiltroTabla=React.useCallback((key)=>{
-    const apply=()=>setCostosFiltrosTabla(prev=>({...(prev||{}),[key]:{tipo:"todos",equipo:"todos",propiedad:"todos"}}));
+    const apply=()=>setCostosFiltrosTabla(prev=>({...(prev||{}),[key]:defaultCostosFiltrosTabla()[key]||defaultCostosFiltrosTabla().t1}));
     if(React.startTransition)React.startTransition(apply);
     else apply();
-  },[]);
+  },[defaultCostosFiltrosTabla]);
   const resetCostosFiltrosTodasTablas=React.useCallback(()=>{
     const apply=()=>setCostosFiltrosTabla(defaultCostosFiltrosTabla());
     if(React.startTransition)React.startTransition(apply);
@@ -2658,6 +2659,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       const maquinaResumen=getResumenTipoLabel({equipo,tipo,modelo,_resumenModelo:modelo})||tipo;
       rows.push({
         equipo,tipo,modelo,valor,vida,mantenimiento,horas,mantHs,amort,totalHs,pctMant,
+        metaTipo:meta.tipo||"",metaFamilia:meta.familia||"",
         maquinaResumen,
         _grupoIndex:Number(groupInfo.grupoIndex??998),
         _ordenGrupo:Number(groupInfo.orden??0)
@@ -2678,10 +2680,15 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const filtrosAmortHistorica=getCostosFiltrosTabla("t9");
   const filtrosResumenHistorico=getCostosFiltrosTabla("t10");
   const filtrarHistorico=React.useCallback((rows,filtros)=>rows.filter(x=>(multiIsAll(filtros.tipo,"todos")||matchMulti(x.tipo,filtros.tipo))&&(multiIsAll(filtros.equipo,"todos")||matchMulti(x.equipo,filtros.equipo))&&(multiIsAll(filtros.propiedad,"todos")||matchMulti(x.propiedad,filtros.propiedad))),[multiIsAll,matchMulti]);
-  const rowsAmortizacionHistorica=React.useMemo(()=>filtrarHistorico(rowsAmortizacionHistoricaBase,filtrosAmortHistorica),[rowsAmortizacionHistoricaBase,filtrosAmortHistorica,filtrarHistorico]);
+  const rowsAmortizacionHistorica=React.useMemo(()=>rowsAmortizacionHistoricaBase.filter(x=>matchesAmortizationTypeFilter(x,filtrosAmortHistorica.tipo)&&(multiIsAll(filtrosAmortHistorica.equipo,"todos")||matchMulti(x.equipo,filtrosAmortHistorica.equipo))),[rowsAmortizacionHistoricaBase,filtrosAmortHistorica,multiIsAll,matchMulti]);
   const rowsResumenHistoricoDetalle=React.useMemo(()=>filtrarHistorico(rowsAmortizacionHistoricaBase,filtrosResumenHistorico),[rowsAmortizacionHistoricaBase,filtrosResumenHistorico,filtrarHistorico]);
-  const historicoTipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los tipos"},...uniq(rowsAmortizacionHistoricaBase.map(x=>x.tipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,uniq]);
-  const historicoEquipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los equipos"},...uniq(rowsAmortizacionHistoricaBase.filter(x=>multiIsAll(filtrosAmortHistorica.tipo,"todos")||matchMulti(x.tipo,filtrosAmortHistorica.tipo)).map(x=>x.equipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,filtrosAmortHistorica.tipo,uniq,multiIsAll,matchMulti]);
+  const historicoEquipoOptions=React.useMemo(()=>[{value:"todos",label:"Todas"},...uniq(rowsAmortizacionHistoricaBase.filter(x=>matchesAmortizationTypeFilter(x,filtrosAmortHistorica.tipo)).map(x=>x.equipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,filtrosAmortHistorica.tipo,uniq]);
+  React.useEffect(()=>{
+    const tipoNormalizado=normalizeMultiValue(filtrosAmortHistorica.tipo,tipoEquipoOpts);
+    const equipoNormalizado=normalizeMultiValue(filtrosAmortHistorica.equipo,historicoEquipoOptions);
+    if(!sameCostoFilterValue(filtrosAmortHistorica.tipo,tipoNormalizado))setCostoFiltroTabla("t9","tipo",tipoNormalizado);
+    if(!sameCostoFilterValue(filtrosAmortHistorica.equipo,equipoNormalizado))setCostoFiltroTabla("t9","equipo",equipoNormalizado);
+  },[filtrosAmortHistorica.tipo,filtrosAmortHistorica.equipo,tipoEquipoOpts,historicoEquipoOptions,normalizeMultiValue,sameCostoFilterValue,setCostoFiltroTabla]);
   const resumenHistoricoTipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los tipos"},...uniq(rowsAmortizacionHistoricaBase.map(x=>x.tipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,uniq]);
   const resumenHistoricoEquipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los equipos"},...uniq(rowsAmortizacionHistoricaBase.filter(x=>multiIsAll(filtrosResumenHistorico.tipo,"todos")||matchMulti(x.tipo,filtrosResumenHistorico.tipo)).map(x=>x.equipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,filtrosResumenHistorico.tipo,uniq,multiIsAll,matchMulti]);
   const historicoPropiedadOptions=React.useMemo(()=>[{value:"todos",label:"Todas"},{value:"DELTA",label:"DELTA"}],[]);
@@ -3784,7 +3791,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           title="Costo horario de amortización y mantenimiento — histórico 2026"
           action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_historica_2026",buildRowsAmortizacionHistoricaExcel())}/>}
         >
-          {renderCostosQuickFilters("t9",true,{showProperty:false,tipoOptions:historicoTipoOptions,equipoOptions:historicoEquipoOptions,extra:<><DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/><DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/></>,note:"Solo equipos propios con mantenimiento 2026 · sin HH"})}
+          {renderCostosQuickFilters("t9",true,{showProperty:false,tipoOptions:tipoEquipoOpts,equipoOptions:historicoEquipoOptions,extra:<><DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/><DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/></>,note:"Solo equipos propios con mantenimiento 2026 · sin HH"})}
           <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:620,scrollbarGutter:"stable"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
               <thead><tr>

@@ -44,6 +44,17 @@ function isTruckType(value,code="",family=""){
   return isMaintenanceCostTruck({code,type:value,family});
 }
 
+export function matchesAmortizationTypeFilter(row,filter){
+  if(isAll(filter))return true;
+  const tipoSelections=selected(filter);
+  const tipo=norm(row?.tipo);
+  const metaTipo=norm(row?.metaTipo);
+  const metaFamilia=norm(row?.metaFamilia);
+  return tipoSelections.includes(tipo)||tipoSelections.includes(metaTipo)||
+    (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row?.equipo,metaFamilia)||isMachineType(metaTipo,row?.equipo,metaFamilia)))||
+    (tipoSelections.includes("CAMIONES")&&(isTruckType(tipo,row?.equipo,metaFamilia)||isTruckType(metaTipo,row?.equipo,metaFamilia)));
+}
+
 function isIncludedCostRow(row){
   return !isExcludedFromMaintenanceCostReport(row?.maquina||row?.equipo||"");
 }
@@ -70,21 +81,12 @@ function processAmortizationRows(payload){
   const filters=payload.filters||{};
   const useLista=payload.useListaVidaUtil||{};
   const overrides=payload.vidaUtilOverride||{};
-  const tipoSelections=selected(filters.tipo);
   const filtered=[];
 
   for(const row of rows){
     if(!matchMulti(row.equipo,filters.equipo))continue;
     if(!matchMulti(row.propiedad||"S/D",filters.propiedad))continue;
-    if(!isAll(filters.tipo)){
-      const tipo=norm(row.tipo);
-      const metaTipo=norm(row.metaTipo);
-      const metaFamilia=norm(row.metaFamilia);
-      const matches=tipoSelections.includes(tipo)||tipoSelections.includes(metaTipo)||
-        (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row.equipo,metaFamilia)||isMachineType(metaTipo,row.equipo,metaFamilia)))||
-        (tipoSelections.includes("CAMIONES")&&(isTruckType(tipo,row.equipo,metaFamilia)||isTruckType(metaTipo,row.equipo,metaFamilia)));
-      if(!matches)continue;
-    }
+    if(!matchesAmortizationTypeFilter(row,filters.tipo))continue;
     const vidaLM=Number(row.vidaListaMaestra||row.vidaBase||row.vida||8000);
     const override=Number(overrides[row.equipo])||0;
     const usaLista=useLista[row.equipo]!==false;
