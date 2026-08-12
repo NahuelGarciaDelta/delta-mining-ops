@@ -258,12 +258,14 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
 
   // Filtros independientes por tabla dentro de Costos de Mantenimiento.
   // Cada pestaña mantiene su propia selección para no arrastrar filtros de otra tabla.
-  const COSTOS_TABLAS_FILTRABLES=React.useMemo(()=>["t1","t7","t6","t5"],[]);
+  const COSTOS_TABLAS_FILTRABLES=React.useMemo(()=>["t1","t7","t6","t5","t9","t10"],[]);
   const defaultCostosFiltrosTabla=React.useCallback(()=>({
     t1:{tipo:"todos",equipo:"todos",propiedad:"todos"},
     t7:{tipo:"todos",equipo:"todos",propiedad:"todos"},
     t6:{tipo:"todos",equipo:"todos",propiedad:"todos"},
     t5:{tipo:"todos",equipo:"todos",propiedad:"todos"},
+    t9:{tipo:"todos",equipo:"todos",propiedad:"DELTA"},
+    t10:{tipo:"todos",equipo:"todos",propiedad:"todos"},
   }),[]);
   const [costosFiltrosTabla,setCostosFiltrosTabla]=React.useState(()=>({
     ...defaultCostosFiltrosTabla(),
@@ -344,9 +346,6 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const historicalDefaultUntil=React.useMemo(()=>clampInformeCostosDate(new Date().toISOString().slice(0,10),"2026-12-31"),[]);
   const [fechaHistoricaDesde,setFechaHistoricaDesde]=React.useState(()=>clampInformeCostosDate(initialCostosMantState.fechaHistoricaDesde||"2026-01-01"));
   const [fechaHistoricaHasta,setFechaHistoricaHasta]=React.useState(()=>clampInformeCostosDate(initialCostosMantState.fechaHistoricaHasta||historicalDefaultUntil,historicalDefaultUntil));
-  const [fHistoricoTipo,setFHistoricoTipo]=React.useState("todos");
-  const [fHistoricoEquipo,setFHistoricoEquipo]=React.useState("todos");
-  const [fHistoricoProyecto,setFHistoricoProyecto]=React.useState("todos");
   // Filtros AISLADOS exclusivamente para la tabla Mano de Obra.
   // El proyecto NO se filtra acá: Mano de Obra usa el filtro general fProyecto.
   const [fMOMaquinas,setFMOMaquinas]=React.useState(initialCostosMantState.fMOMaquinas||"todos");
@@ -2639,7 +2638,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     return map;
   */
 
-  const rowsAmortizacionHistorica=React.useMemo(()=>{
+  const rowsAmortizacionHistoricaBase=React.useMemo(()=>{
     if(!historicalCalcActive)return historicalRowsCacheRef.current;
     const rows=[];
     for(const [code,mantenimiento] of mantenimientoHistoricoPorEquipo){
@@ -2670,15 +2669,22 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       if(x.pctMant>0){a.sum+=x.pctMant;a.count++;}
       averages.set(x.tipo,a);
     });
-    const result=rows.map(x=>({...x,promedioEquipo:averages.get(x.tipo)?.count?averages.get(x.tipo).sum/averages.get(x.tipo).count:0}))
-      .filter(x=>(multiIsAll(fHistoricoTipo,"todos")||matchMulti(x.tipo,fHistoricoTipo))&&(multiIsAll(fHistoricoEquipo,"todos")||matchMulti(x.equipo,fHistoricoEquipo)))
+    const result=rows.map(x=>({...x,propiedad:"DELTA",promedioEquipo:averages.get(x.tipo)?.count?averages.get(x.tipo).sum/averages.get(x.tipo).count:0}))
       .sort((a,b)=>a._grupoIndex-b._grupoIndex||a._ordenGrupo-b._ordenGrupo||a.tipo.localeCompare(b.tipo,"es")||a.equipo.localeCompare(b.equipo));
     historicalRowsCacheRef.current=result;
     return result;
-  },[historicalCalcActive,mantenimientoHistoricoPorEquipo,costDataIndex,esDelta,metaEquipoCosto,amortizacionGrupoInfo,modeloListaEquipo,getCostoLocalUSDEquipo,getVidaUtilEquipo,horasHistoricasPorEquipo,getResumenTipoLabel,fHistoricoTipo,fHistoricoEquipo,multiIsAll,matchMulti,useListaVidaUtil,vidaUtilOverride]);
+  },[historicalCalcActive,mantenimientoHistoricoPorEquipo,costDataIndex,esDelta,metaEquipoCosto,amortizacionGrupoInfo,modeloListaEquipo,getCostoLocalUSDEquipo,getVidaUtilEquipo,horasHistoricasPorEquipo,getResumenTipoLabel,useListaVidaUtil,vidaUtilOverride]);
 
-  const historicoTipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los tipos"},...uniq(rowsAmortizacionHistorica.map(x=>x.tipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistorica,uniq]);
-  const historicoEquipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los equipos"},...uniq(rowsAmortizacionHistorica.map(x=>x.equipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistorica,uniq]);
+  const filtrosAmortHistorica=getCostosFiltrosTabla("t9");
+  const filtrosResumenHistorico=getCostosFiltrosTabla("t10");
+  const filtrarHistorico=React.useCallback((rows,filtros)=>rows.filter(x=>(multiIsAll(filtros.tipo,"todos")||matchMulti(x.tipo,filtros.tipo))&&(multiIsAll(filtros.equipo,"todos")||matchMulti(x.equipo,filtros.equipo))&&(multiIsAll(filtros.propiedad,"todos")||matchMulti(x.propiedad,filtros.propiedad))),[multiIsAll,matchMulti]);
+  const rowsAmortizacionHistorica=React.useMemo(()=>filtrarHistorico(rowsAmortizacionHistoricaBase,filtrosAmortHistorica),[rowsAmortizacionHistoricaBase,filtrosAmortHistorica,filtrarHistorico]);
+  const rowsResumenHistoricoDetalle=React.useMemo(()=>filtrarHistorico(rowsAmortizacionHistoricaBase,filtrosResumenHistorico),[rowsAmortizacionHistoricaBase,filtrosResumenHistorico,filtrarHistorico]);
+  const historicoTipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los tipos"},...uniq(rowsAmortizacionHistoricaBase.map(x=>x.tipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,uniq]);
+  const historicoEquipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los equipos"},...uniq(rowsAmortizacionHistoricaBase.filter(x=>multiIsAll(filtrosAmortHistorica.tipo,"todos")||matchMulti(x.tipo,filtrosAmortHistorica.tipo)).map(x=>x.equipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,filtrosAmortHistorica.tipo,uniq,multiIsAll,matchMulti]);
+  const resumenHistoricoTipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los tipos"},...uniq(rowsAmortizacionHistoricaBase.map(x=>x.tipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,uniq]);
+  const resumenHistoricoEquipoOptions=React.useMemo(()=>[{value:"todos",label:"Todos los equipos"},...uniq(rowsAmortizacionHistoricaBase.filter(x=>multiIsAll(filtrosResumenHistorico.tipo,"todos")||matchMulti(x.tipo,filtrosResumenHistorico.tipo)).map(x=>x.equipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,filtrosResumenHistorico.tipo,uniq,multiIsAll,matchMulti]);
+  const historicoPropiedadOptions=React.useMemo(()=>[{value:"todos",label:"Todas"},{value:"DELTA",label:"DELTA"}],[]);
 
   const buildRowsAmortizacionHistoricaExcel=()=>rowsAmortizacionHistorica.map(x=>({
     Equipo:x.equipo,
@@ -2698,7 +2704,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
 
   const rowsResumenHistorico=React.useMemo(()=>{
     const groups=new Map();
-    rowsAmortizacionHistorica.forEach(x=>{
+    rowsResumenHistoricoDetalle.forEach(x=>{
       const label=String(x.maquinaResumen||x.tipo||"S/D").trim()||"S/D";
       const key=cleanKey(label)||label;
       const g=groups.get(key)||{
@@ -2741,7 +2747,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         _ordenGrupo:g._ordenGrupo
       };
     }).sort((a,b)=>resumenTipoOrden(a.maquina)-resumenTipoOrden(b.maquina)||a._grupoIndex-b._grupoIndex||a._ordenGrupo-b._ordenGrupo||a.maquina.localeCompare(b.maquina,"es"));
-  },[rowsAmortizacionHistorica,cleanKey,resumenTipoOrden]);
+  },[rowsResumenHistoricoDetalle,cleanKey,resumenTipoOrden]);
 
   const buildRowsResumenHistoricoExcel=()=>rowsResumenHistorico.map(x=>({
     "Maquina":x.maquina,
@@ -3189,14 +3195,20 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const soloFiltroMesCostos = tab==="t1" || tab==="t7";
 
 
-  const renderCostosQuickFilters=React.useCallback((tableKey="t1",compact=false)=>{
+  const renderCostosQuickFilters=React.useCallback((tableKey="t1",compact=false,config={})=>{
     const filtros=getCostosFiltrosTabla(tableKey);
+    const tipoOptions=config.tipoOptions||tipoEquipoOpts;
+    const equipoOptions=config.equipoOptions||maquinaOpts;
+    const propiedadOptions=config.propiedadOptions||propiedadOpts;
     return (
       <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:compact?"rgba(0,0,0,.18)":"rgba(0,0,0,.14)"}}>
-        <MultiSel label="Tipo máquina" value={filtros.tipo} onChange={v=>setCostoFiltroTabla(tableKey,"tipo",v)} options={tipoEquipoOpts} commitOnClose commitDelay={180}/>
-        <MultiSel label="Equipo" value={filtros.equipo} onChange={v=>setCostoFiltroTabla(tableKey,"equipo",v)} options={maquinaOpts} commitOnClose commitDelay={180}/>
-        <MultiSel label="Propiedad" value={filtros.propiedad} onChange={v=>setCostoFiltroTabla(tableKey,"propiedad",v)} options={propiedadOpts} commitOnClose commitDelay={180}/>
+        <MultiSel label="Tipo máquina" value={filtros.tipo} onChange={v=>setCostoFiltroTabla(tableKey,"tipo",v)} options={tipoOptions} commitOnClose commitDelay={180}/>
+        <MultiSel label="Equipo" value={filtros.equipo} onChange={v=>setCostoFiltroTabla(tableKey,"equipo",v)} options={equipoOptions} commitOnClose commitDelay={180}/>
+        {config.showProperty!==false&&<MultiSel label="Propiedad" value={filtros.propiedad} onChange={v=>setCostoFiltroTabla(tableKey,"propiedad",v)} options={propiedadOptions} commitOnClose commitDelay={180}/>}
+        {config.extra||null}
         <button onClick={()=>resetCostoFiltroTabla(tableKey)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer",height:33}}>Limpiar filtros</button>
+        {config.counter!=null&&<span style={{marginLeft:"auto",fontSize:11,color:C.textMuted,paddingBottom:8}}>Equipos considerados: <b style={{color:C.text}}>{config.counter}</b></span>}
+        {config.note&&<span style={{marginLeft:"auto",fontSize:11,color:C.textMuted,paddingBottom:8}}>{config.note}</span>}
       </div>
     );
   },[getCostosFiltrosTabla,setCostoFiltroTabla,resetCostoFiltroTabla,tipoEquipoOpts,maquinaOpts,propiedadOpts]);
@@ -3772,13 +3784,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           title="Costo horario de amortización y mantenimiento — histórico 2026"
           action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_historica_2026",buildRowsAmortizacionHistoricaExcel())}/>}
         >
-          <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"12px 14px",borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.18)"}}>
-            <MultiSel label="Tipo de máquina" value={fHistoricoTipo} onChange={setFHistoricoTipo} options={historicoTipoOptions}/>
-            <MultiSel label="Equipo" value={fHistoricoEquipo} onChange={setFHistoricoEquipo} options={historicoEquipoOptions}/>
-            <DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/>
-            <DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/>
-            <span style={{marginLeft:"auto",fontSize:11,color:C.textMuted}}>Solo equipos propios con mantenimiento 2026 · sin HH</span>
-          </div>
+          {renderCostosQuickFilters("t9",true,{showProperty:false,tipoOptions:historicoTipoOptions,equipoOptions:historicoEquipoOptions,extra:<><DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/><DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/></>,note:"Solo equipos propios con mantenimiento 2026 · sin HH"})}
           <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:620,scrollbarGutter:"stable"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
               <thead><tr>
@@ -3882,12 +3888,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           title="Resumen de costo histórico por grupo"
           action={<BotonDescargar onClick={()=>descargarExcel("Resumen_costo_historico_por_grupo_2026",buildRowsResumenHistoricoExcel())}/>}
         >
-          <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"12px 14px",borderBottom:`1px solid ${C.border}55`,background:"rgba(0,0,0,.18)"}}>
-            <MultiSel label="Tipo de máquina" value={fHistoricoTipo} onChange={setFHistoricoTipo} options={historicoTipoOptions}/>
-            <MultiSel label="Equipo" value={fHistoricoEquipo} onChange={setFHistoricoEquipo} options={historicoEquipoOptions}/>
-            <DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/>
-            <DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/>
-          </div>
+          {renderCostosQuickFilters("t10",true,{tipoOptions:resumenHistoricoTipoOptions,equipoOptions:resumenHistoricoEquipoOptions,propiedadOptions:historicoPropiedadOptions,extra:<><DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/><DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/></>,counter:rowsResumenHistoricoDetalle.length})}
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
               <thead><tr>
