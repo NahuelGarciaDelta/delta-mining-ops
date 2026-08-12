@@ -1,7 +1,6 @@
 import { getCostoHorarioAmortizacionOAlquiler } from "../utils/amortizationCost.js";
 import { canonicalEquipmentCode, isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine, isMaintenanceCostTruck, resolveEquipmentCodeAlias } from "../../equipment/equipmentCode.js";
 import { buildVisibleCategoryRowSpans } from "../utils/categoryRowSpan.js";
-import { costGroupOrder } from "../utils/costGroups.js";
 const norm=(v)=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
 
 function setModelCategory(payload){
@@ -462,9 +461,6 @@ function processManoObra(payload){
 }
 
 
-function resumenTypeOrder(label){
-  return costGroupOrder(label);
-}
 function processResumenEquipo(payload){
   const source=(Array.isArray(payload.rows)?payload.rows:[]).filter(isIncludedCostRow);
   const filters=payload.filters||{};
@@ -495,7 +491,7 @@ function processResumenEquipo(payload){
     g.orden=Math.min(g.orden,Number(x._grupoIndex)||999);
     g.ordenTipo=Math.min(g.ordenTipo,Number(x._ordenGrupo)||9999);
   }
-  const rows=[...grupos.values()].sort((a,b)=>resumenTypeOrder(a.tipoGrupo)-resumenTypeOrder(b.tipoGrupo)||a.orden-b.orden||a.ordenTipo-b.ordenTipo||a.tipoGrupo.localeCompare(b.tipoGrupo)).map(g=>{
+  const rows=[...grupos.values()].sort((a,b)=>a.orden-b.orden||a.ordenTipo-b.ordenTipo||a.tipoGrupo.localeCompare(b.tipoGrupo)).map(g=>{
     const avg=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
     const costoAmort=avg(g.amorts),pctMant=avg(g.pctMantVals),costoHorario=avg(g.mantVals);
     const modelos=[...g.modelos.values()].sort((a,b)=>b.count-a.count||a.orden-b.orden||String(a.modelo).localeCompare(String(b.modelo)));

@@ -10,7 +10,7 @@ import { isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine } from ".
 import { buildVisibleCategoryRowSpans } from "./utils/categoryRowSpan.js";
 import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, belongsToMaintenanceUniverse2026, clampInformeCostosDate, indexMaintenanceCostRows, maintenanceEquipmentCode, prepareMaintenanceCostRows, prepareRop02CostRows, queryEquipmentRangeIndex } from "./utils/equipmentUniverse2026.js";
 import { matchesAmortizationTypeFilter } from "./engine/InformeCostosEngine.js";
-import { COST_GROUP_OPTIONS, buildCostEquipmentOptions, buildCostPropertyOptions, costGroupOrder, normalizeCostGroup } from "./utils/costGroups.js";
+import { buildCostEquipmentOptions, buildCostPropertyOptions } from "./utils/costGroups.js";
 
 function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   const [snapshot,setSnapshot]=React.useState(()=>diagSnapshot());
@@ -114,10 +114,6 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   });
   const [amortizacionSubtab,setAmortizacionSubtab]=React.useState(initialCostosMantState.amortizacionSubtab||"tabla");
   const [amortizacionCategorias,setAmortizacionCategorias]=React.useState(()=>initialCostosMantState.amortizacionCategorias&&typeof initialCostosMantState.amortizacionCategorias==="object"?initialCostosMantState.amortizacionCategorias:{});
-  // La edición de categorías queda desacoplada del motor de cálculo.
-  // Mientras se edita NO se recalculan Amortización, Mano de Obra ni Resumen.
-  // La configuración se aplica al motor recién al volver a la subpestaña Amortización.
-  const [amortizacionCategoriasCalculo,setAmortizacionCategoriasCalculo]=React.useState(amortizacionCategorias);
   const [amortizacionCategoriasLista,setAmortizacionCategoriasLista]=React.useState(()=>Array.isArray(initialCostosMantState.amortizacionCategoriasLista)?initialCostosMantState.amortizacionCategoriasLista:null);
   const [nuevaCategoriaAmortizacion,setNuevaCategoriaAmortizacion]=React.useState("");
   const [categoriaAmortizacionDrafts,setCategoriaAmortizacionDrafts]=React.useState({});
@@ -1997,13 +1993,16 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const base=amortizacionCategoriasLista===null
       ?(AMORTIZACION_GRUPOS||[]).map(g=>normalizarCategoriaTexto(g.tipo)).filter(Boolean)
       :(amortizacionCategoriasLista||[]).map(normalizarCategoriaTexto).filter(Boolean);
-    const vals=new Set(base);
+    const vals=new Set();
+    const ordered=[];
+    base.forEach(value=>{if(!vals.has(value)){vals.add(value);ordered.push(value);}});
     Object.values(amortizacionCategorias||{}).forEach(v=>{
       const t=normalizarCategoriaTexto(v);
-      if(t&&t!=="SIN CATEGORIA")vals.add(t);
+      if(t&&t!=="SIN CATEGORIA"&&!vals.has(t)){vals.add(t);ordered.push(t);}
     });
-    return Array.from(vals).sort((a,b)=>a.localeCompare(b,"es"));
+    return ordered;
   },[AMORTIZACION_GRUPOS,amortizacionCategorias,amortizacionCategoriasLista,normalizarCategoriaTexto]);
+  const categoriasAmortizacionSet=React.useMemo(()=>new Set(categoriasAmortizacionDisponibles),[categoriasAmortizacionDisponibles]);
 
   const catalogoCategoriasAmortizacion=React.useMemo(()=>{
     const map=new Map();
@@ -2040,7 +2039,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const modeloEspecial=String(getValue(eqLista,["Modelo","MODELO","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"")
       .normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[\s\-_/]+/g,"");
     const claveCategoria=claveCategoriaAmortizacion(code);
-    const categoriaManual=claveCategoria?normalizarCategoriaTexto(amortizacionCategoriasCalculo?.[claveCategoria]):"";
+    const categoriaManual=claveCategoria?normalizarCategoriaTexto(amortizacionCategorias?.[claveCategoria]):"";
     if(categoriaManual){
       const gi=AMORTIZACION_GRUPOS.findIndex(g=>normalizarCategoriaTexto(g.tipo)===categoriaManual);
       return {grupo:categoriaManual,grupoIndex:gi>=0?gi:998,orden:0};
@@ -2070,7 +2069,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
 
     const fallback=tipoEquipoListaMaestra(equipo)||getMachineType(equipo)||"S/D";
     return {grupo:fallback,grupoIndex:999,orden:9999};
-  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra,getEquipoListaMaestra,codigoCanonicoEquipo,claveCategoriaAmortizacion,amortizacionCategoriasCalculo,normalizarCategoriaTexto]);
+  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra,getEquipoListaMaestra,codigoCanonicoEquipo,claveCategoriaAmortizacion,amortizacionCategorias,normalizarCategoriaTexto]);
 
   // Índice liviano para la subpestaña de categorías. Evita recorrer todo el
   // catálogo una vez por cada categoría y otra vez por cada fila renderizada.
@@ -2448,8 +2447,6 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   }));
 
 
-  const resumenTipoOrden=React.useCallback(value=>costGroupOrder(value),[]);
-
   const getModeloFromListaRow=React.useCallback((eq,modeloFallback="")=>{
     const modelo=getValue(eq||{},[
       "Modelo",
@@ -2499,10 +2496,9 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     // volvía a buscar modelo/tipo contra toda la Lista Maestra y eso hacía que se tilde.
     return (rowsAmortizacionOrdenadas||[]).map(x=>{
       const modeloResumen=modeloListaEquipo(x?.equipo,x?.modelo)||x?.modelo||"";
-      const grupoResumen=normalizeCostGroup(x?.tipo,modeloResumen);
-      const tipoLabel=grupoResumen.label||"";
-      if(!tipoLabel)return null;
-      const tipoValue=grupoResumen.value;
+      const tipoLabel=normalizarCategoriaTexto(x?.tipo)||"";
+      if(!tipoLabel||!categoriasAmortizacionSet.has(tipoLabel))return null;
+      const tipoValue=tipoLabel;
       const equipoValue=String(x.equipo||"").trim();
       const propiedadValue=String(x.propiedad||"S/D").trim()||"S/D";
       return {
@@ -2514,9 +2510,12 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         _resumenPropiedadValue:propiedadValue,
       };
     }).filter(Boolean);
-  },[rowsAmortizacionOrdenadas,modeloListaEquipo]);
+  },[rowsAmortizacionOrdenadas,modeloListaEquipo,normalizarCategoriaTexto,categoriasAmortizacionSet]);
 
-  const resumenTipoOptions=React.useMemo(()=>COST_GROUP_OPTIONS,[]);
+  const resumenTipoOptions=React.useMemo(()=>[
+    {value:"todos",label:"Todos los tipos"},
+    ...(categoriasAmortizacionDisponibles||[]).map(categoria=>({value:categoria,label:categoria}))
+  ],[categoriasAmortizacionDisponibles]);
 
   const resumenEquipoOptions=React.useMemo(()=>{
     const rows=(resumenFiltroRows||[]).filter(x=>matchMulti(x._resumenTipoValue,fResumenTipo)&&matchMulti(x._resumenPropiedadValue,fResumenPropiedad));
@@ -2625,12 +2624,12 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       const mantHs=horas>0?mantenimiento/horas:0;
       const pctMant=amort>0?mantHs/amort:0;
       const totalHs=amort+mantHs;
-      const grupoResumen=normalizeCostGroup(tipo,modelo);
-      const maquinaResumen=grupoResumen.label||tipo;
+      const maquinaResumen=normalizarCategoriaTexto(groupInfo.grupo)||"";
+      if(!maquinaResumen||!categoriasAmortizacionSet.has(maquinaResumen))continue;
       rows.push({
         equipo,tipo,modelo,valor,vida,mantenimiento,horas,mantHs,amort,totalHs,pctMant,
         metaTipo:meta.tipo||"",metaFamilia:meta.familia||"",
-        _resumenTipoValue:grupoResumen.value,_resumenTipoLabel:grupoResumen.label,
+        _resumenTipoValue:maquinaResumen,_resumenTipoLabel:maquinaResumen,
         _resumenEquipoValue:equipo,_resumenPropiedadValue:"DELTA",
         maquinaResumen,
         _grupoIndex:Number(groupInfo.grupoIndex??998),
@@ -2647,7 +2646,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       .sort((a,b)=>a._grupoIndex-b._grupoIndex||a._ordenGrupo-b._ordenGrupo||a.tipo.localeCompare(b.tipo,"es")||a.equipo.localeCompare(b.equipo));
     historicalRowsCacheRef.current=result;
     return result;
-  },[historicalCalcActive,mantenimientoHistoricoPorEquipo,costDataIndex,esDelta,metaEquipoCosto,amortizacionGrupoInfo,modeloListaEquipo,getCostoLocalUSDEquipo,getVidaUtilEquipo,horasHistoricasPorEquipo,useListaVidaUtil,vidaUtilOverride]);
+  },[historicalCalcActive,mantenimientoHistoricoPorEquipo,costDataIndex,esDelta,metaEquipoCosto,amortizacionGrupoInfo,modeloListaEquipo,getCostoLocalUSDEquipo,getVidaUtilEquipo,horasHistoricasPorEquipo,useListaVidaUtil,vidaUtilOverride,normalizarCategoriaTexto,categoriasAmortizacionSet]);
 
   const filtrosAmortHistorica=getCostosFiltrosTabla("t9");
   const filtrosResumenHistorico=getCostosFiltrosTabla("t10");
@@ -2735,8 +2734,8 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         _grupoIndex:g._grupoIndex,
         _ordenGrupo:g._ordenGrupo
       };
-    }).sort((a,b)=>resumenTipoOrden(a.maquina)-resumenTipoOrden(b.maquina)||a._grupoIndex-b._grupoIndex||a._ordenGrupo-b._ordenGrupo||a.maquina.localeCompare(b.maquina,"es"));
-  },[rowsResumenHistoricoDetalle,cleanKey,resumenTipoOrden]);
+    }).sort((a,b)=>a._grupoIndex-b._grupoIndex||a._ordenGrupo-b._ordenGrupo||a.maquina.localeCompare(b.maquina,"es"));
+  },[rowsResumenHistoricoDetalle,cleanKey]);
 
   const buildRowsResumenHistoricoExcel=()=>rowsResumenHistorico.map(x=>({
     "Maquina":x.maquina,
@@ -3535,7 +3534,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           action={amortizacionSubtab==="tabla"?<BotonDescargar onClick={()=>descargarExcel("Amortizacion_y_Mantenimiento",buildRowsAmortizacionExcel())}/>:null}
         >
           <div style={{display:"flex",gap:8,padding:"10px 14px",borderBottom:`1px solid ${C.border}`,background:"rgba(0,0,0,.12)"}}>
-            <button onClick={()=>{setAmortizacionSubtab("tabla");window.setTimeout(()=>setAmortizacionCategoriasCalculo(amortizacionCategorias),0);}} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${amortizacionSubtab==="tabla"?C.teal:C.border}`,background:amortizacionSubtab==="tabla"?"rgba(45,212,191,.18)":"rgba(255,255,255,.04)",color:amortizacionSubtab==="tabla"?C.teal:C.textSub,fontWeight:800,cursor:"pointer"}}>Amortización</button>
+            <button onClick={()=>setAmortizacionSubtab("tabla")} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${amortizacionSubtab==="tabla"?C.teal:C.border}`,background:amortizacionSubtab==="tabla"?"rgba(45,212,191,.18)":"rgba(255,255,255,.04)",color:amortizacionSubtab==="tabla"?C.teal:C.textSub,fontWeight:800,cursor:"pointer"}}>Amortización</button>
             <button onClick={()=>setAmortizacionSubtab("categorias")} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${amortizacionSubtab==="categorias"?C.teal:C.border}`,background:amortizacionSubtab==="categorias"?"rgba(45,212,191,.18)":"rgba(255,255,255,.04)",color:amortizacionSubtab==="categorias"?C.teal:C.textSub,fontWeight:800,cursor:"pointer"}}>Categorías por modelo</button>
           </div>
           {amortizacionSubtab==="tabla"&&renderCostosQuickFilters("t5",true)}
