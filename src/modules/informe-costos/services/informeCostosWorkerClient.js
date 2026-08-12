@@ -17,6 +17,7 @@ export function getInformeCostosWorker() {
   );
 
   worker.onmessage = ({ data }) => {
+    const receivedByReactAt = performance.timeOrigin + performance.now();
     const request = pending.get(data?.requestId);
     if (!request) return;
     pending.delete(data.requestId);
@@ -24,7 +25,11 @@ export function getInformeCostosWorker() {
     diagTiming(`Worker · ${request.type}`, roundTripMs, {
       workerMs: Number(data?.perf?.workerMs || 0),
       payloadBytes: request.payloadBytes,
+      postToWorkerReceiveMs:Math.max(0,Number(data?.perf?.receivedAt||0)-request.postedAt),
+      workerResponseToReactMs:Math.max(0,receivedByReactAt-Number(data?.perf?.responseSentAt||receivedByReactAt)),
     });
+    if(data?.perf?.receivedAt)diagTiming(`Cola · ${request.type}`,Math.max(0,Number(data.perf.receivedAt)-request.postedAt));
+    if(data?.perf?.responseSentAt)diagTiming(`Entrega · ${request.type}`,Math.max(0,receivedByReactAt-Number(data.perf.responseSentAt)));
     if (data?.perf?.workerMs != null) {
       diagTiming(`Motor · ${request.type}`, Number(data.perf.workerMs), { requestId: data.requestId });
     }
@@ -49,7 +54,9 @@ export function informeCostosCommand(type, payload = {}, transfer = []) {
   return new Promise((resolve, reject) => {
     let payloadBytes = 0;
     try { payloadBytes = JSON.stringify(payload).length; } catch (_) {}
-    pending.set(currentRequestId, { resolve, reject, type, startedAt: performance.now(), payloadBytes });
+    const startedAt=performance.now();
+    const postedAt=performance.timeOrigin+startedAt;
+    pending.set(currentRequestId, { resolve, reject, type, startedAt, postedAt, payloadBytes });
     diagCount(`Solicitudes Worker · ${type}`);
     diagEvent(`Enviado al Worker · ${type}`, { payloadBytes });
     currentWorker.postMessage(

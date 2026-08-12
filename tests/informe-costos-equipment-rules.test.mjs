@@ -18,6 +18,15 @@ import fs from "node:fs";
 import { buildVisibleCategoryRowSpans } from "../src/modules/informe-costos/utils/categoryRowSpan.js";
 import { sumRoundedMonthlyTotals } from "../src/modules/informe-costos/utils/monthlyCostTotals.js";
 import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, indexMaintenanceCostRows, prepareMaintenanceCostRows, queryEquipmentRangeIndex, sumEffectiveRop02Hours2026 } from "../src/modules/informe-costos/utils/equipmentUniverse2026.js";
+import { COST_GROUP_OPTIONS, buildCostEquipmentOptions, buildCostPropertyOptions, normalizeCostGroup } from "../src/modules/informe-costos/utils/costGroups.js";
+
+test("los resúmenes comparten grupos, etiquetas y orden canónicos",()=>{
+  assert.deepEqual(normalizeCostGroup("camion volcador"),{value:"CAMION VOLCADOR",label:"Camión Volcador"});
+  assert.deepEqual(normalizeCostGroup("CARGADORA","L120"),{value:"CARGADOR FRONTAL L120",label:"Cargador Frontal L120"});
+  assert.equal(new Set(COST_GROUP_OPTIONS.map(option=>option.value)).size,COST_GROUP_OPTIONS.length);
+  assert.deepEqual(buildCostEquipmentOptions([{equipo:"PCA-0081"},{equipo:"EXC-0034"}]).map(option=>option.label),["Todos los equipos","EXC-0034","PCA-0081"]);
+  assert.deepEqual(buildCostPropertyOptions([{propiedad:"faro"},{propiedad:"DELTA"},{propiedad:"diesel lange"}]).map(option=>option.label),["Todas las propiedades","DELTA","DIESEL LANGE","FARO"]);
+});
 
 test("el universo 2026 y las horas ROP02 respetan las reglas globales",()=>{
   const universe=buildEquipmentWithMaintenance2026([{maquina:"EXC-0001",fecha:"2026-02-10"},{maquina:"TOP-0002",fecha:"2025-12-31"}]);

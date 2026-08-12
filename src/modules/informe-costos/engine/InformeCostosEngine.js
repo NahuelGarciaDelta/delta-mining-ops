@@ -1,6 +1,7 @@
 import { getCostoHorarioAmortizacionOAlquiler } from "../utils/amortizationCost.js";
 import { canonicalEquipmentCode, isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine, isMaintenanceCostTruck, resolveEquipmentCodeAlias } from "../../equipment/equipmentCode.js";
 import { buildVisibleCategoryRowSpans } from "../utils/categoryRowSpan.js";
+import { costGroupOrder } from "../utils/costGroups.js";
 const norm=(v)=>String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
 
 function setModelCategory(payload){
@@ -141,7 +142,7 @@ function processAmortizationRows(payload){
 }
 
 
-const costEngine={historicalRows:[],dynamicMonthly:[],dynamicMO:[],meta:{},metaCanonical:new Map(),queryCache:new Map()};
+const costEngine={historicalRows:[],dynamicMonthly:[],dynamicMO:[],amortizationRows:[],meta:{},metaCanonical:new Map(),queryCache:new Map()};
 function arrayFilter(v){return Array.isArray(v)?v:[v].filter(Boolean)}
 function getCostMeta(row){
   const rawCode=String(row?.maquina||row?.equipo||"");
@@ -462,23 +463,7 @@ function processManoObra(payload){
 
 
 function resumenTypeOrder(label){
-  const t=norm(label);
-  if(!t||t==="S/D"||t==="SD")return 9999;
-  if(t.includes("CARGADOR FRONTAL L120"))return 10;
-  if(t.includes("CARGADOR FRONTAL"))return 20;
-  if(t.includes("EXCAVADORA PC350"))return 30;
-  if(t.includes("EXCAVADORA"))return 40;
-  if(t.includes("MINICARGADORA"))return 50;
-  if(t.includes("MOTONIVELADORA"))return 60;
-  if(t.includes("RETROPALA"))return 70;
-  if(t.includes("RODILLO COMPACTADOR"))return 80;
-  if(t.includes("TOPADORA"))return 90;
-  if(t.includes("CAMIONETA")||t.includes("HILUX")||t.includes("PICK"))return 200;
-  if(t.includes("GRUPO ELECTROGENO")||t.includes("GENERADOR"))return 210;
-  if(t.includes("CAMION DE COMBUSTIBLE"))return 220;
-  if(t.includes("CAMION REGADOR"))return 230;
-  if(t.includes("CAMION VOLCADOR"))return 240;
-  return 500;
+  return costGroupOrder(label);
 }
 function processResumenEquipo(payload){
   const source=(Array.isArray(payload.rows)?payload.rows:[]).filter(isIncludedCostRow);
@@ -526,6 +511,11 @@ export function handleInformeCostosCommand(type,payload={}){
   if(type==="SET_MODEL_CATEGORY")return setModelCategory(payload);
   if(type==="RENAME_CATEGORY")return renameCategory(payload);
   if(type==="PROCESS_AMORTIZATION_ROWS")return processAmortizationRows(payload);
+  if(type==="INIT_AMORTIZATION_ROWS"){
+    costEngine.amortizationRows=Array.isArray(payload.rows)?payload.rows:[];
+    return {rowCount:costEngine.amortizationRows.length};
+  }
+  if(type==="QUERY_AMORTIZATION_ROWS")return processAmortizationRows({...payload,rows:costEngine.amortizationRows});
   if(type==="INIT_COST_MONTHLY_ENGINE")return initCostMonthlyEngine(payload);
   if(type==="QUERY_COST_MONTHLY")return queryCostMonthly(payload);
   if(type==="PROCESS_MANO_OBRA")return processManoObra(payload);
@@ -538,6 +528,7 @@ export function resetInformeCostosEngine(){
   costEngine.historicalRows=[];
   costEngine.dynamicMonthly=[];
   costEngine.dynamicMO=[];
+  costEngine.amortizationRows=[];
   costEngine.meta={};
   costEngine.metaCanonical=new Map();
   costEngine.queryCache.clear();
