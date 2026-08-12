@@ -3810,7 +3810,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                             });
                           }
                         }}
-                        style={{accentColor:C.teal,cursor:"pointer"}}
+                        style={{accentColor:C.teal,cursor:"pointer",background:"rgba(0,0,0,0.6)",borderRadius:3}}
                       />
                       <span style={{color:C.teal}}>Delta:</span> Lista de Equipos
                     </label>
@@ -3827,14 +3827,14 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
               <tbody>{amortizacionHistoricaVisibleRows.map((x,i)=>{
                 const groupTop={};
                 const manual=useListaVidaUtil[x.equipo]===false;
-                return <tr key={x.equipo} style={{background:i%2===0?"rgba(255,255,255,.14)":"rgba(255,255,255,.09)"}}>
+                return <tr key={x.equipo} style={{height:52,background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)"}}>
                   <td style={{...tdL,...groupTop,color:C.blue,fontWeight:800,whiteSpace:"nowrap",width:92,minWidth:92,maxWidth:92}}>{x.equipo}</td>
-                  <td style={{...tdS,...groupTop,fontWeight:700,whiteSpace:"nowrap",width:82,minWidth:82,maxWidth:82}}>DELTA</td>
-                  <td style={{...tdS,...groupTop,fontWeight:700,whiteSpace:"nowrap",width:150,minWidth:150,maxWidth:150}}>{x.tipo}</td>
-                  <td style={{...tdS,...groupTop,whiteSpace:"nowrap",width:86,minWidth:86,maxWidth:86}}>{x.modelo||"—"}</td>
+                  <td style={{...tdS,...groupTop,textAlign:"left",color:C.textSub,fontWeight:600,whiteSpace:"nowrap",width:82,minWidth:82,maxWidth:82}}>DELTA</td>
+                  <td style={{...tdS,...groupTop,textAlign:"left",color:C.textSub,fontWeight:700,whiteSpace:"nowrap",width:150,minWidth:150,maxWidth:150}}>{x.tipo}</td>
+                  <td style={{...tdS,...groupTop,textAlign:"left",color:C.textSub,whiteSpace:"nowrap",width:86,minWidth:86,maxWidth:86}}>{x.modelo||"—"}</td>
                   <td style={{...tdS,...groupTop,fontWeight:800,whiteSpace:"nowrap",width:150,minWidth:150,maxWidth:150}}>{x.valor>0?`U$S ${fmtNum(Math.round(x.valor))}`:"—"}</td>
-                  <td style={{...tdS,...groupTop,minWidth:185,width:185,whiteSpace:"nowrap"}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                  <td style={{...tdS,...groupTop,padding:"4px 6px",minWidth:185,width:185,whiteSpace:"nowrap"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}>
                       <input
                         type="checkbox"
                         checked={!manual}
@@ -3847,7 +3847,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                             return {lista,override};
                           });
                         }}
-                        style={{accentColor:C.teal,cursor:"pointer"}}
+                        style={{accentColor:C.teal,cursor:"pointer",flexShrink:0,appearance:"auto",width:14,height:14,background:"rgba(0,0,0,0.7)",borderRadius:3}}
                         title={manual?"Usar Vida Útil de Lista Maestra":"Usando Vida Útil de Lista Maestra"}
                       />
                       {manual?(
@@ -3858,9 +3858,9 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                             const value=Number(raw)||0;
                             setVidaUtilState(state=>({lista:{...state.lista,[x.equipo]:false},override:{...state.override,[x.equipo]:value}}));
                           }}
-                          style={{width:74,padding:"5px 7px",borderRadius:6,border:`1px solid ${C.border}`,background:"rgba(0,0,0,.32)",color:C.text,textAlign:"center",fontWeight:800}}
+                          style={{width:72,background:"rgba(0,0,0,0.6)",border:"1px solid #f5c518aa",borderRadius:5,color:"#f5c518",fontWeight:700,fontSize:12,padding:"3px 6px",outline:"none",textAlign:"right",fontFamily:"Inter"}}
                         />
-                      ):<span>{fmtNum(Math.round(x.vida))}</span>}
+                      ):<span style={{color:C.textSub,minWidth:60,textAlign:"right"}}>{x.vida>0?fmtNum(Math.round(x.vida)):"—"}</span>}
                     </div>
                   </td>
                   <td style={{...tdS,...groupTop,color:C.purple,fontWeight:800,whiteSpace:"nowrap",minWidth:190,width:190}}>{x.mantenimiento>0?`U$S ${fmtNum(Math.round(x.mantenimiento))}`:"—"}</td>
@@ -3868,7 +3868,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                   <td style={{...tdS,...groupTop,color:C.yellow,fontWeight:800,whiteSpace:"nowrap",minWidth:190,width:190}}>{x.amort>0?`U$S ${Number(x.amort).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
                   <td style={{...tdS,...groupTop,color:C.purple,fontWeight:800,whiteSpace:"nowrap",width:110,minWidth:110,maxWidth:110}}>{x.horas>0?`U$S ${Number(x.mantHs).toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
                   <td style={{...tdS,...groupTop,color:"#ff1717",fontWeight:900,whiteSpace:"nowrap",width:110,minWidth:110,maxWidth:110}}>{x.totalHs>0?`U$S ${Number(x.totalHs).toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
-                  <td style={{...tdS,...groupTop,whiteSpace:"nowrap",width:82,minWidth:82,maxWidth:82}}>{x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—"}</td>
+                  <td style={{...tdS,...groupTop,color:C.textSub,whiteSpace:"nowrap",width:82,minWidth:82,maxWidth:82}}>{x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—"}</td>
                   {x._firstTipoDisplay&&<td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,background:"rgba(59,130,246,.16)",color:C.blue,fontWeight:900,fontSize:15,borderLeft:`1px solid ${C.blue}55`,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,verticalAlign:"middle",whiteSpace:"nowrap",width:130,minWidth:130,maxWidth:130}}>{x.promedioEquipo>0?(x.promedioEquipo*100).toFixed(0)+"%":"—"}</td>}
                 </tr>;
               })}</tbody>
