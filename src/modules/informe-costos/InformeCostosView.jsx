@@ -3773,15 +3773,18 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           action={<BotonDescargar onClick={()=>descargarExcel("Amortizacion_historica_2026",buildRowsAmortizacionHistoricaExcel())}/>}
         >
           {renderCostosQuickFilters("t9",true,{showProperty:false,tipoOptions:tipoEquipoOpts,equipoOptions:historicoEquipoOptions,extra:<><DateIn label="Desde" value={fechaHistoricaDesde} min="2026-01-01" max={fechaHistoricaHasta} onChange={v=>setFechaHistoricaDesde(clampInformeCostosDate(v))}/><DateIn label="Hasta" value={fechaHistoricaHasta} min={fechaHistoricaDesde} onChange={v=>setFechaHistoricaHasta(clampInformeCostosDate(v,historicalDefaultUntil))}/></>,note:"Solo equipos propios con mantenimiento 2026 · sin HH"})}
-          <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:620,scrollbarGutter:"stable"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:14}}>
+          <div className="dm-table-scroll" style={{overflowX:"visible",overflowY:"auto",maxHeight:620,scrollbarGutter:"stable"}}>
+            <table style={{width:"100%",maxWidth:"100%",borderCollapse:"collapse",tableLayout:"fixed",fontSize:14}}>
+              <colgroup>
+                {[6,5.2,9.5,5.2,8.5,12,10,7,10,7,7,5.3,7.3].map((width,index)=><col key={index} style={{width:`${width}%`}}/>)}
+              </colgroup>
               <thead><tr>
-                <th style={{...thL,width:92,minWidth:92,maxWidth:92}}>EQUIPO</th>
-                <th style={{...thS,width:82,minWidth:82,maxWidth:82}}>PROPIEDAD</th>
-                <th style={{...thS,width:150,minWidth:150,maxWidth:150}}>TIPO</th>
-                <th style={{...thS,width:86,minWidth:86,maxWidth:86}}>MODELO</th>
-                <th style={{...thS,width:150,minWidth:150,maxWidth:150}}>C. ADQ./ALQUILER (USD)</th>
-                <th style={{...thS,minWidth:185,width:185}}>
+                <th style={{...thL,padding:"7px 4px",whiteSpace:"normal",lineHeight:1.2}}>EQUIPO</th>
+                <th style={{...thS,padding:"7px 3px",whiteSpace:"normal",lineHeight:1.2}}>PROPIEDAD</th>
+                <th style={{...thS,padding:"7px 4px",whiteSpace:"normal",lineHeight:1.2}}>TIPO</th>
+                <th style={{...thS,padding:"7px 3px",whiteSpace:"normal",lineHeight:1.2}}>MODELO</th>
+                <th style={{...thS,padding:"7px 4px",whiteSpace:"normal",lineHeight:1.2}}>C. ADQ./ALQUILER<br/>(USD)</th>
+                <th style={{...thS,padding:"7px 4px",whiteSpace:"normal",lineHeight:1.2}}>
                   <div style={{display:"flex",flexDirection:"column",gap:3,alignItems:"center"}}>
                     <span>VIDA ÚTIL (HS) / HS MENSUALES</span>
                     <label onClick={e=>e.stopPropagation()} style={{display:"flex",alignItems:"center",gap:4,cursor:"pointer",fontWeight:500,fontSize:10,textTransform:"none",letterSpacing:0,color:C.textSub,whiteSpace:"nowrap"}}
@@ -3810,24 +3813,24 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                     </label>
                   </div>
                 </th>
-                <th style={{...thS,minWidth:190,width:190}}>MANTENIMIENTO ACUMULADO 2026</th>
-                <th style={{...thS,width:120,minWidth:120,maxWidth:120}}>HS EFECTIVAS 2026</th>
-                <th style={{...thS,minWidth:190,width:190}}>AMORTIZACIÓN / ALQUILER (USD/H)</th>
-                <th style={{...thS,width:110,minWidth:110,maxWidth:110}}>MANT. (USD/HS)</th>
-                <th style={{...thS,width:110,minWidth:110,maxWidth:110}}>TOTAL (USD/HS)</th>
-                <th style={{...thS,width:82,minWidth:82,maxWidth:82}}>% MANT.</th>
-                <th style={{...thS,textAlign:"center",width:130,minWidth:130,maxWidth:130}}>PROMEDIO POR TIPO</th>
+                <th style={{...thS,padding:"7px 4px",whiteSpace:"normal",lineHeight:1.2}}>MANTENIMIENTO<br/>ACUMULADO 2026</th>
+                <th style={{...thS,padding:"7px 3px",whiteSpace:"normal",lineHeight:1.2}}>HS EFECTIVAS<br/>2026</th>
+                <th style={{...thS,padding:"7px 4px",whiteSpace:"normal",lineHeight:1.2}}>AMORTIZACIÓN / ALQUILER<br/>(USD/H)</th>
+                <th style={{...thS,padding:"7px 3px",whiteSpace:"normal",lineHeight:1.2}}>MANT.<br/>(USD/HS)</th>
+                <th style={{...thS,padding:"7px 3px",whiteSpace:"normal",lineHeight:1.2}}>TOTAL<br/>(USD/HS)</th>
+                <th style={{...thS,padding:"7px 3px",whiteSpace:"normal",lineHeight:1.2}}>% MANT.</th>
+                <th style={{...thS,padding:"7px 3px",textAlign:"center",whiteSpace:"normal",lineHeight:1.2}}>PROMEDIO<br/>POR TIPO</th>
               </tr></thead>
               <tbody>{amortizacionHistoricaVisibleRows.map((x,i)=>{
                 const groupTop={};
                 const manual=useListaVidaUtil[x.equipo]===false;
                 return <tr key={x.equipo} style={{height:52,background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)"}}>
-                  <td style={{...tdL,...groupTop,color:C.blue,fontWeight:800,whiteSpace:"nowrap",width:92,minWidth:92,maxWidth:92}}>{x.equipo}</td>
-                  <td style={{...tdS,...groupTop,textAlign:"left",color:C.textSub,fontWeight:600,whiteSpace:"nowrap",width:82,minWidth:82,maxWidth:82}}>DELTA</td>
-                  <td style={{...tdS,...groupTop,textAlign:"left",color:C.textSub,fontWeight:700,whiteSpace:"nowrap",width:150,minWidth:150,maxWidth:150}}>{x.tipo}</td>
-                  <td style={{...tdS,...groupTop,textAlign:"left",color:C.textSub,whiteSpace:"nowrap",width:86,minWidth:86,maxWidth:86}}>{x.modelo||"—"}</td>
-                  <td style={{...tdS,...groupTop,fontWeight:800,whiteSpace:"nowrap",width:150,minWidth:150,maxWidth:150}}>{x.valor>0?`U$S ${fmtNum(Math.round(x.valor))}`:"—"}</td>
-                  <td style={{...tdS,...groupTop,padding:"4px 6px",minWidth:185,width:185,whiteSpace:"nowrap"}}>
+                  <td style={{...tdL,...groupTop,padding:"7px 4px",color:C.blue,fontWeight:800,whiteSpace:"nowrap"}}>{x.equipo}</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 3px",color:C.textSub,fontWeight:600,whiteSpace:"nowrap"}}>DELTA</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 4px",textAlign:"left",color:C.textSub,fontWeight:700,whiteSpace:"nowrap"}}>{x.tipo}</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 3px",color:C.textSub,whiteSpace:"nowrap"}}>{x.modelo||"—"}</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 4px",fontWeight:800,whiteSpace:"nowrap"}}>{x.valor>0?`U$S ${fmtNum(Math.round(x.valor))}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,padding:"4px 3px",whiteSpace:"nowrap"}}>
                     <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}>
                       <input
                         type="checkbox"
@@ -3852,18 +3855,18 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                             const value=Number(raw)||0;
                             setVidaUtilState(state=>({lista:{...state.lista,[x.equipo]:false},override:{...state.override,[x.equipo]:value}}));
                           }}
-                          style={{width:72,background:"rgba(0,0,0,0.6)",border:"1px solid #f5c518aa",borderRadius:5,color:"#f5c518",fontWeight:700,fontSize:12,padding:"3px 6px",outline:"none",textAlign:"right",fontFamily:"Inter"}}
+                          style={{width:"min(72px,70%)",background:"rgba(0,0,0,0.6)",border:"1px solid #f5c518aa",borderRadius:5,color:"#f5c518",fontWeight:700,fontSize:12,padding:"3px 4px",outline:"none",textAlign:"right",fontFamily:"Inter"}}
                         />
-                      ):<span style={{color:C.textSub,minWidth:60,textAlign:"right"}}>{x.vida>0?fmtNum(Math.round(x.vida)):"—"}</span>}
+                      ):<span style={{color:C.textSub,textAlign:"right"}}>{x.vida>0?fmtNum(Math.round(x.vida)):"—"}</span>}
                     </div>
                   </td>
-                  <td style={{...tdS,...groupTop,color:C.purple,fontWeight:800,whiteSpace:"nowrap",minWidth:190,width:190}}>{x.mantenimiento>0?`U$S ${fmtNum(Math.round(x.mantenimiento))}`:"—"}</td>
-                  <td style={{...tdS,...groupTop,fontWeight:800,whiteSpace:"nowrap",width:120,minWidth:120,maxWidth:120}}>{x.horas>0?fmtNum(x.horas):"—"}</td>
-                  <td style={{...tdS,...groupTop,color:C.yellow,fontWeight:800,whiteSpace:"nowrap",minWidth:190,width:190}}>{x.amort>0?`U$S ${Number(x.amort).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
-                  <td style={{...tdS,...groupTop,color:C.purple,fontWeight:800,whiteSpace:"nowrap",width:110,minWidth:110,maxWidth:110}}>{x.horas>0?`U$S ${Number(x.mantHs).toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
-                  <td style={{...tdS,...groupTop,color:"#ff1717",fontWeight:900,whiteSpace:"nowrap",width:110,minWidth:110,maxWidth:110}}>{x.totalHs>0?`U$S ${Number(x.totalHs).toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
-                  <td style={{...tdS,...groupTop,color:C.textSub,whiteSpace:"nowrap",width:82,minWidth:82,maxWidth:82}}>{x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—"}</td>
-                  {x._firstTipoDisplay&&<td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,background:"rgba(59,130,246,.16)",color:C.blue,fontWeight:900,fontSize:15,borderLeft:`1px solid ${C.blue}55`,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,verticalAlign:"middle",whiteSpace:"nowrap",width:130,minWidth:130,maxWidth:130}}>{x.promedioEquipo>0?(x.promedioEquipo*100).toFixed(0)+"%":"—"}</td>}
+                  <td style={{...tdS,...groupTop,padding:"7px 4px",color:C.purple,fontWeight:800,whiteSpace:"nowrap"}}>{x.mantenimiento>0?`U$S ${fmtNum(Math.round(x.mantenimiento))}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 3px",fontWeight:800,whiteSpace:"nowrap"}}>{x.horas>0?fmtNum(x.horas):"—"}</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 4px",color:C.yellow,fontWeight:800,whiteSpace:"nowrap"}}>{x.amort>0?`U$S ${Number(x.amort).toLocaleString("es-AR",{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 3px",color:C.purple,fontWeight:800,whiteSpace:"nowrap"}}>{x.horas>0?`U$S ${Number(x.mantHs).toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 3px",color:"#ff1717",fontWeight:900,whiteSpace:"nowrap"}}>{x.totalHs>0?`U$S ${Number(x.totalHs).toLocaleString("es-AR",{maximumFractionDigits:0})}`:"—"}</td>
+                  <td style={{...tdS,...groupTop,padding:"7px 3px",color:C.textSub,whiteSpace:"nowrap"}}>{x.pctMant>0?(x.pctMant*100).toFixed(2)+"%":"—"}</td>
+                  {x._firstTipoDisplay&&<td rowSpan={x._grupoSizeDisplay||1} style={{...tdS,padding:"7px 3px",background:"rgba(59,130,246,.16)",color:C.blue,fontWeight:900,fontSize:15,borderLeft:`1px solid ${C.blue}55`,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,verticalAlign:"middle",whiteSpace:"nowrap"}}>{x.promedioEquipo>0?(x.promedioEquipo*100).toFixed(0)+"%":"—"}</td>}
                 </tr>;
               })}</tbody>
             </table>
