@@ -108,7 +108,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const [tab,setTab]=React.useState(initialCostosMantState.tab||"t1");
   const renderStartedAt=performance.now();
   diagCount("Render · InformeCostosView");
-  React.useEffect(()=>{
+  React.useLayoutEffect(()=>{
     const elapsed=performance.now()-renderStartedAt;
     diagTiming("Render/commit · InformeCostosView",elapsed,{tab});
   });
@@ -2350,27 +2350,38 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const [amortizacionWorkerUpdating,setAmortizacionWorkerUpdating]=React.useState(false);
   const [amortizacionWorkerReady,setAmortizacionWorkerReady]=React.useState(false);
   const amortizacionWorkerRequestRef=React.useRef(0);
+  const amortizacionWorkerInitRef=React.useRef(0);
   const amortizacionPayloadSigRef=React.useRef("");
-  const amortizacionWorkerSourceRef=React.useRef(null);
+  const amortizacionWorkerSourceRef=React.useRef("");
   const amortizacionResultCacheRef=React.useRef(new Map());
   const rowsAmortizacionWorkerPayload=React.useMemo(()=>(rowsAmortizacionConHH||[]).map(x=>({
     ...x,
     metaTipo:metaEquipoCosto(x.equipo).tipo||"",
     metaFamilia:metaEquipoCosto(x.equipo).familia||""
   })),[rowsAmortizacionConHH,metaEquipoCosto]);
+  // Identidad semántica de la fuente. Comparar el array por referencia provocaba
+  // INIT repetidos cuando React reconstruía derivados equivalentes.
+  const amortizacionWorkerSourceKey=React.useMemo(()=>JSON.stringify(rowsAmortizacionWorkerPayload.map(x=>[
+    x.equipo,x.tipo,x.propiedad,Number(x.amort)||0,Number(x.mantUSDhs)||0,Number(x.pctMant)||0,
+    Number(x.vidaListaMaestra||x.vidaBase||x.vida)||0,x.metaTipo,x.metaFamilia
+  ])),[rowsAmortizacionWorkerPayload]);
   React.useEffect(()=>{
     if(!amortizacionCalcActive)return;
-    if(amortizacionWorkerSourceRef.current===rowsAmortizacionWorkerPayload){setAmortizacionWorkerReady(true);return;}
-    let cancelled=false;
+    if(amortizacionWorkerSourceRef.current===amortizacionWorkerSourceKey)return;
+    const initToken=++amortizacionWorkerInitRef.current;
+    // Reservar la versión antes de enviar impide que renders concurrentes manden
+    // el mismo INIT mientras la primera promesa todavía está pendiente.
+    amortizacionWorkerSourceRef.current=amortizacionWorkerSourceKey;
     setAmortizacionWorkerReady(false);
     dmCategoriasCommand("INIT_AMORTIZATION_ROWS",{rows:rowsAmortizacionWorkerPayload}).then(()=>{
-      if(cancelled)return;
-      amortizacionWorkerSourceRef.current=rowsAmortizacionWorkerPayload;
+      if(initToken!==amortizacionWorkerInitRef.current)return;
       amortizacionResultCacheRef.current.clear();
       setAmortizacionWorkerReady(true);
-    }).catch(err=>console.error("No se pudo inicializar Amortización en el Worker",err));
-    return()=>{cancelled=true;};
-  },[amortizacionCalcActive,rowsAmortizacionWorkerPayload]);
+    }).catch(err=>{
+      if(amortizacionWorkerSourceRef.current===amortizacionWorkerSourceKey)amortizacionWorkerSourceRef.current="";
+      console.error("No se pudo inicializar Amortización en el Worker",err);
+    });
+  },[amortizacionCalcActive,amortizacionWorkerSourceKey,rowsAmortizacionWorkerPayload]);
   React.useEffect(()=>{
     if(!amortizacionCalcActive||!amortizacionWorkerReady)return;
     const payloadSig=JSON.stringify({

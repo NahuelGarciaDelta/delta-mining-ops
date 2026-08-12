@@ -2,6 +2,7 @@ import { diagCount, diagEvent, diagTiming } from "./informeCostosDiagnostics.js"
 let worker = null;
 let requestId = 0;
 const pending = new Map();
+const inFlight = new Map();
 
 function rejectAll(error) {
   for (const { reject } of pending.values()) reject(error);
@@ -50,10 +51,15 @@ export function getInformeCostosWorker() {
 export function informeCostosCommand(type, payload = {}, transfer = []) {
   const currentWorker = getInformeCostosWorker();
   const currentRequestId = ++requestId;
-
-  return new Promise((resolve, reject) => {
-    let payloadBytes = 0;
-    try { payloadBytes = JSON.stringify(payload).length; } catch (_) {}
+  let serializedPayload="";
+  try { serializedPayload=JSON.stringify(payload); } catch (_) {}
+  const requestKey=transfer.length?"":`${type}|${serializedPayload}`;
+  if(requestKey&&inFlight.has(requestKey)){
+    diagCount(`Solicitudes Worker deduplicadas · ${type}`);
+    return inFlight.get(requestKey);
+  }
+  const command=new Promise((resolve, reject) => {
+    const payloadBytes = serializedPayload.length;
     const startedAt=performance.now();
     const postedAt=performance.timeOrigin+startedAt;
     pending.set(currentRequestId, { resolve, reject, type, startedAt, postedAt, payloadBytes });
@@ -64,11 +70,18 @@ export function informeCostosCommand(type, payload = {}, transfer = []) {
       transfer,
     );
   });
+  if(!requestKey)return command;
+  const tracked=command.finally(()=>{
+    if(inFlight.get(requestKey)===tracked)inFlight.delete(requestKey);
+  });
+  inFlight.set(requestKey,tracked);
+  return tracked;
 }
 
 export function terminateInformeCostosWorker() {
   if (!worker) return;
   worker.terminate();
   worker = null;
+  inFlight.clear();
   rejectAll(new Error("Motor de Informe de Costos reiniciado"));
 }
