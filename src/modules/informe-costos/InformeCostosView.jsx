@@ -3939,6 +3939,7 @@ function dmDatasetFingerprint(rows){
 function sameInformeCostosProps(prev,next){
   return prev.usdRate===next.usdRate&&
     prev.deps===next.deps&&
+    prev.equipmentUniverse===next.equipmentUniverse&&
     (prev.rma15===next.rma15||dmDatasetFingerprint(prev.rma15)===dmDatasetFingerprint(next.rma15))&&
     (prev.rop02===next.rop02||dmDatasetFingerprint(prev.rop02)===dmDatasetFingerprint(next.rop02))&&
     (prev.insumos===next.insumos||dmDatasetFingerprint(prev.insumos)===dmDatasetFingerprint(next.insumos))&&
@@ -3953,7 +3954,7 @@ function rowHasExcludedMaintenanceCostCode(row){
 
 function ViewCostosMant(props){
   const preparedRma15=React.useMemo(()=>prepareMaintenanceCostRows(props.rma15),[props.rma15]);
-  const equiposConMantenimiento2026=React.useMemo(()=>buildEquipmentWithMaintenance2026(preparedRma15),[preparedRma15]);
+  const equiposConMantenimiento2026=React.useMemo(()=>props.equipmentUniverse instanceof Set?props.equipmentUniverse:buildEquipmentWithMaintenance2026(preparedRma15),[props.equipmentUniverse,preparedRma15]);
   const filteredRma15=React.useMemo(()=>preparedRma15.filter(row=>
     !isExcludedFromMaintenanceCostReport(row?.maquina||row?.equipo||row?.interno||row?.codigo)&&belongsToMaintenanceUniverse2026(row,equiposConMantenimiento2026)
   ),[preparedRma15,equiposConMantenimiento2026]);

@@ -471,7 +471,7 @@ function ViewDistribucionMantenimientos({rma15}){
   );
 }
 
-function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
+function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState,remoteTotal=0,remoteHasMore=false,onRemoteMore,onRemoteExport}){
   const { C, Card, Badge, MultiSel, Sel, DateIn, PeriodMonthYear, TabBtn, StatCard, SortableTH, BtnExcel, Icon, fmtNum, fmtUSD, fmtFecha, normDate, uniq, matchMulti, multiIsAll, tipoMatchMachineROP05, normalizeInsumoCode, positionTip, sortRowsForTable, appAlert, appConfirm, proyColor, getValue, generarExcelMantenimiento, ROP05_TIPOS_MAQUINA, CodeMultiSearch } = __deps;
   const{modo,proyecto,tipoMant,maquina,fechaD,fechaH,fechaDia,filtroCosto,insumoFiltro,verGastosExcesivos=false,codigoGastoFiltro="todos"}=extState;
   const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
@@ -487,7 +487,8 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
   const setCodigoGastoFiltro=v=>set("codigoGastoFiltro",v);
   const tipoMaquina=extState?.tipoMaquina||"todas";
   const setTipoMaquina=v=>set("tipoMaquina",v);
-  const [rma15Sorts,setRma15Sorts]=React.useState({});
+  const rma15Sorts=extState?.rma15Sorts||{};
+  const setRma15Sorts=updater=>setExtState(state=>({...state,rma15Sorts:typeof updater==="function"?updater(state?.rma15Sorts||{}):updater}));
 
   // Normalizar tipo para comparación case-insensitive
   const normTipo=v=>String(v||"").trim().toLowerCase();
@@ -795,7 +796,7 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
             <button onClick={()=>set("verGastosExcesivos",!verGastosExcesivos)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${verGastosExcesivos?C.yellow:C.border}`,background:verGastosExcesivos?C.yellowDim:C.surface,color:verGastosExcesivos?C.yellow:C.textSub,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
               💰 Gastos excesivos
             </button>
-            <button onClick={()=>{const label=(fechaDia||fechaD||new Date().toISOString().slice(0,10)).replace(/-/g,"");generarExcelMantenimiento(filtered,usdRate,label);}} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+            <button onClick={async()=>{const all=onRemoteExport?await onRemoteExport():filtered;const rows=all.filter(r=>matchMulti(r.proyecto,proyecto,"todos")).filter(r=>matchMulti(normTipo(r.tipoMant),Array.isArray(tipoMant)?tipoMant.map(normTipo):tipoMant,"todos")).filter(r=>matchMulti(r.maquina,maquina,"todas")).filter(r=>multiIsAll(insumoFiltro,"todos")||r.insumos?.some(i=>matchMulti(String(i.codigo||""),insumoFiltro,"todos")));const label=(fechaDia||fechaD||new Date().toISOString().slice(0,10)).replace(/-/g,"");generarExcelMantenimiento(rows,usdRate,label);}} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
               📄 Generar Reporte
             </button>
           </div>
@@ -938,6 +939,7 @@ function ViewMantenimiento({rma15,insumos,usdRate,extState,setExtState}){
               );
             })()}
           </div>
+          {(remoteTotal>0||remoteHasMore)&&<div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:10,padding:12,borderTop:`1px solid ${C.border}`}}><span style={{fontSize:12,color:C.textMuted}}>Mostrando {rma15.length} de {remoteTotal} registros</span>{remoteHasMore&&<button onClick={onRemoteMore} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Mostrar 250 más</button>}</div>}
         </Card>
         );
       })()}

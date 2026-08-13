@@ -158,7 +158,7 @@ function doGet(e) {
 
     if (action === "health") return buildResponse(handleHealth());
     if (action === "diag") return buildResponse(handleDiag());
-    if (action === "sync" || action === "versions") return buildResponse(handleSyncVersions_());
+    if (action === "sync" || action === "versions" || action === "get_data_versions") return buildResponse(handleSyncVersions_());
     if (action === "usuarios" || action === "users" || action === "auth_users") return buildResponse(handleUsuariosAutorizados_());
     if (action === "mantenimiento_programado" || action === "pm_programado") return buildResponse(handleGetMantenimientoProgramado_());
     if (action === "estados_solicitudes") return buildResponse(handleGetEstadosSolicitudes_());
@@ -172,6 +172,12 @@ function doGet(e) {
     }
     if (action === "get_equipment_movements") return buildResponse(handleGetEquipmentMovements_(false));
     if (action === "get_active_equipment_movements") return buildResponse(handleGetEquipmentMovements_(true));
+    if (action === "query_dataset") return buildResponse(handleQueryDataset_(p));
+    if (action === "get_equipment_history") return buildResponse(handleEquipmentHistory_(p));
+    if (action === "get_rop02_latest_by_equipment_project") return buildResponse(handleRop02LatestByEquipmentProject_(p));
+    if (action === "get_rop02_monthly_summary") return buildResponse(handleGetRop02MonthlySummary_(p));
+    if (action === "get_rma15_equipment_universe") return buildResponse(handleRma15EquipmentUniverse_(p));
+    if (action === "get_rma15_open_ot_summary") return buildResponse(handleRma15OpenOtSummary_(p));
 
     if (action === "all") {
       return buildResponse(handleAll(p));
@@ -433,7 +439,7 @@ function movementRowObject_(headers, row) {
 function handleGetEquipmentMovements_(onlyActive) {
   var sheet = ensureMovimientosEquiposSheet();
   var last = sheet.getLastRow();
-  if (last < 2) return {ok:true, action:onlyActive?"get_active_equipment_movements":"get_equipment_movements", data:[], activeMovementByEquipment:{}, rows:0, fetchedAt:new Date().toISOString()};
+  if (last < 2) return {ok:true, action:onlyActive?"get_active_equipment_movements":"get_equipment_movements", data:[], activeMovementByEquipment:{}, rows:0, meta:{serverVersion:getDatasetVersion_("movimientos_equipos")}, fetchedAt:new Date().toISOString()};
   var headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0];
   var values = sheet.getRange(2,1,last-1,sheet.getLastColumn()).getValues();
   var all = values.map(function(row){return movementRowObject_(headers,row);}).filter(function(m){return m.id;});
@@ -441,7 +447,7 @@ function handleGetEquipmentMovements_(onlyActive) {
   var activeMap = {};
   all.forEach(function(m){if(m.activo && m.estado !== "CANCELADO" && m.estado !== "SUPERADO") activeMap[m.internoNormalizado + "|" + m.proyectoOrigen] = m;});
   var data = onlyActive ? Object.keys(activeMap).map(function(k){return activeMap[k];}) : all;
-  return {ok:true, action:onlyActive?"get_active_equipment_movements":"get_equipment_movements", data:data, activeMovementByEquipment:activeMap, rows:data.length, fetchedAt:new Date().toISOString()};
+  return {ok:true, action:onlyActive?"get_active_equipment_movements":"get_equipment_movements", data:data, activeMovementByEquipment:activeMap, rows:data.length, meta:{serverVersion:getDatasetVersion_("movimientos_equipos")}, fetchedAt:new Date().toISOString()};
 }
 
 function handleSaveEquipmentMovement_(movement) {
@@ -476,7 +482,8 @@ function handleSaveEquipmentMovement_(movement) {
     var values = [Utilities.getUuid(),new Date(),interno,normalized,origin,destination,tipo,motivo,String(movement.observacion||"").trim(),String(movement.usuario||"Usuario").trim(),String(movement.fechaUltimoRop02||"").slice(0,10),"ACEPTADO",true];
     sheet.appendRow(values);
     SpreadsheetApp.flush();
-    return {ok:true,action:"save_equipment_movement",movement:movementRowObject_(MOVIMIENTOS_EQUIPOS_HEADERS_,values),savedAt:new Date().toISOString()};
+    var movementVersion = bumpDatasetVersion_("movimientos_equipos", true);
+    return {ok:true,action:"save_equipment_movement",movement:movementRowObject_(MOVIMIENTOS_EQUIPOS_HEADERS_,values),version:movementVersion,savedAt:new Date().toISOString()};
   } finally { lock.releaseLock(); }
 }
 
@@ -492,7 +499,8 @@ function handleCancelEquipmentMovement_(id, usuario) {
     var ids = sheet.getRange(2,idCol,Math.max(0,sheet.getLastRow()-1),1).getDisplayValues();
     for (var i=0;i<ids.length;i++) if(String(ids[i][0]) === id){
       sheet.getRange(i+2,stateCol).setValue("CANCELADO"); sheet.getRange(i+2,activeCol).setValue(false); SpreadsheetApp.flush();
-      return {ok:true,action:"cancel_equipment_movement",id:id,usuario:String(usuario||""),cancelledAt:new Date().toISOString()};
+      var movementVersion = bumpDatasetVersion_("movimientos_equipos", true);
+      return {ok:true,action:"cancel_equipment_movement",id:id,usuario:String(usuario||""),version:movementVersion,cancelledAt:new Date().toISOString()};
     }
     throw new Error("No se encontró el movimiento " + id + ".");
   } finally { lock.releaseLock(); }
@@ -551,6 +559,245 @@ function handleSingle(key, params) {
   } catch (cacheWriteErr) {}
   return response;
 }
+
+/*******************************************************
+ * CONSULTAS HISTORICAS FILTRADAS / PARTICIONABLES
+ *******************************************************/
+// Las particiones futuras se agregan sin cambiar React. Ejemplo:
+// 2027:[{key:"rop02_jm_2027",id:"...",gid:"...",sheet:"ROP02_2027",proyecto:"JOSE MARIA",headerRow:4}]
+var ROP02_PARTITIONS_BY_YEAR_ = {};
+
+function queryIsoDate_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return formatDate(value);
+  var text = String(value || "").trim();
+  var iso = text.match(/^(\d{4})[-\/]([01]?\d)[-\/]([0-3]?\d)/);
+  if (iso) return iso[1] + "-" + String(iso[2]).padStart(2,"0") + "-" + String(iso[3]).padStart(2,"0");
+  var local = text.match(/^([0-3]?\d)[-\/]([01]?\d)[-\/](\d{4})/);
+  if (local) return local[3] + "-" + String(local[2]).padStart(2,"0") + "-" + String(local[1]).padStart(2,"0");
+  return "";
+}
+
+function queryCanonical_(value) {
+  var code = normalizeText_(value).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  code = code.replace(/JM$/, "");
+  if (code === "RCP0039") code = "RPC0039";
+  return code;
+}
+
+function queryProject_(value) {
+  var project=normalizeText_(value);
+  if(project==="jm"||project.indexOf("jose maria")>=0)return"jose maria";
+  if(project==="fs"||project==="fds"||project.indexOf("filo del sol")>=0)return"filo del sol";
+  if(project.indexOf("filo sur")>=0)return"filo sur";
+  if(project.indexOf("zorro")>=0)return"el zorro";
+  return project;
+}
+
+function queryValue_(row, candidates) {
+  var keys = Object.keys(row || {}), wanted = candidates.map(normalizeText_);
+  for (var i=0;i<keys.length;i++) {
+    var normalized = normalizeText_(keys[i]);
+    for (var j=0;j<wanted.length;j++) if (normalized === wanted[j]) return row[keys[i]];
+  }
+  for (var x=0;x<keys.length;x++) {
+    var partial = normalizeText_(keys[x]);
+    for (var y=0;y<wanted.length;y++) if (partial.indexOf(wanted[y]) >= 0) return row[keys[x]];
+  }
+  return "";
+}
+
+function queryConfigRow_(config, headers, values) {
+  var row = {};
+  headers.forEach(function(header,index){
+    var value=values[index]; row[header]=value instanceof Date?formatDate(value):(value==null?"":String(value).trim());
+  });
+  if (config.proyecto) { row.Proyecto=row.Proyecto||config.proyecto; row.proyecto=row.proyecto||config.proyecto; }
+  return row;
+}
+
+function getRop02SourcesForRange_(desde, hasta) {
+  var startYear = Number(String(desde||"").slice(0,4)), endYear = Number(String(hasta||desde||"").slice(0,4));
+  if (!startYear || !endYear) return ["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"].map(function(key){return {key:key,config:SHEETS_CONFIG[key]};});
+  var partitioned=[];
+  for(var year=startYear;year<=endYear;year++) (ROP02_PARTITIONS_BY_YEAR_[year]||[]).forEach(function(config){partitioned.push({key:config.key||("rop02_"+year),config:config});});
+  return partitioned.length?partitioned:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"].map(function(key){return {key:key,config:SHEETS_CONFIG[key]};});
+}
+
+function querySourcesForDataset_(dataset, desde, hasta) {
+  dataset=String(dataset||"").toLowerCase();
+  if(dataset==="rop02")return getRop02SourcesForRange_(desde,hasta);
+  if(dataset==="rma15")return ["rma15_fs","rma15_jm"].map(function(key){return{key:key,config:SHEETS_CONFIG[key]};});
+  if(dataset==="rop05")return[{key:"rop05",config:SHEETS_CONFIG.rop05}];
+  if(SHEETS_CONFIG[dataset])return[{key:dataset,config:SHEETS_CONFIG[dataset]}];
+  throw new Error("Dataset no permitido para consulta: "+dataset);
+}
+
+function readFilteredQuerySource_(entry, params) {
+  var config=entry.config, ss=SpreadsheetApp.openById(config.id), sheet=findSheetByGidOrName(ss,config.gid,config.sheet);
+  if(!sheet)return{rows:[],rowsRead:0};
+  var lastRow=sheet.getLastRow(), lastCol=sheet.getLastColumn(), headerRow=Number(config.headerRow||1);
+  if(lastRow<=headerRow||lastCol<1)return{rows:[],rowsRead:0};
+  var headers=sheet.getRange(headerRow,1,1,lastCol).getValues()[0].map(function(h,i){return String(h||"").trim()||("col_"+i);});
+  var values=sheet.getRange(headerRow+1,1,lastRow-headerRow,lastCol).getValues();
+  var desde=queryIsoDate_(params.desde), hasta=queryIsoDate_(params.hasta), equipo=queryCanonical_(params.equipo);
+  var proyecto=queryProject_(params.proyecto), supervisor=normalizeText_(params.supervisor),operario=normalizeText_(params.operario),estado=normalizeText_(params.estado),tipo=normalizeText_(params.tipo),tarea=normalizeText_(params.tarea),unidad=normalizeText_(params.unidad);
+  var rows=values.map(function(valuesRow){return queryConfigRow_(config,headers,valuesRow);}).filter(function(row){
+    var fecha=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha de OT","Fecha"]));
+    var interno=queryCanonical_(queryValue_(row,["Codigo Int","CODIGO N° INTERNO","Codigo N Interno","Codigo interno del equipo","Interno"]));
+    var rowProject=queryProject_(queryValue_(row,["Proyecto","Lugar"] )||config.proyecto);
+    var rowSupervisor=normalizeText_(queryValue_(row,["Supervisor Delta","Supervisor"]));
+    var rowOperario=normalizeText_(queryValue_(row,["Operario","Chofer"])),rowEstado=normalizeText_(queryValue_(row,["Descripcion de los trabajos realizados","Estado","Operativo"])),rowTipo=normalizeText_(queryValue_(row,["Tipo de mantenimiento","Tipo Mantenimiento","Tipo Equipo","Tipo"])),rowTarea=normalizeText_(queryValue_(row,["Tarea","Trabajo"])),rowUnidad=normalizeText_(queryValue_(row,["Unidad","Unidad de productividad"]));
+    var classifiedState=normalizeText_(rop02StateForSummary_(row).state);
+    return (!desde||fecha>=desde)&&(!hasta||fecha<=hasta)&&(!equipo||interno===equipo)&&(!proyecto||rowProject===proyecto)&&(!supervisor||rowSupervisor.indexOf(supervisor)>=0)&&(!operario||rowOperario.indexOf(operario)>=0)&&(!estado||classifiedState===estado||rowEstado.indexOf(estado)>=0)&&(!tipo||rowTipo.indexOf(tipo)>=0)&&(!tarea||rowTarea.indexOf(tarea)>=0)&&(!unidad||rowUnidad.indexOf(unidad)>=0);
+  });
+  return{rows:rows,rowsRead:values.length};
+}
+
+function handleQueryDataset_(params) {
+  var startedAt=new Date().getTime();
+  params=params||{};
+  var dataset=String(params.dataset||params.source||"").toLowerCase(), limit=getLimit_(params,250), offset=getOffset_(params);
+  var sources=querySourcesForDataset_(dataset,params.desde,params.hasta), rows=[], versions={},rowsRead=0;
+  sources.forEach(function(entry){var result=readFilteredQuerySource_(entry,params);rows=rows.concat(result.rows);rowsRead+=result.rowsRead;versions[entry.key]=getDatasetVersion_(entry.key);});
+  var sortBy=String(params.sortBy||"fecha"),direction=String(params.sortDirection||"asc").toLowerCase()==="desc"?-1:1;
+  var sortCandidates={fecha:["Fecha del Parte Diario","Fecha de OT","Fecha"],maquina:["Codigo Int","CODIGO NÂ° INTERNO","Codigo N Interno","Codigo interno del equipo","Interno","Equipo"],tipoMant:["Tipo de mantenimiento","Tipo Mantenimiento","Tipo"],intervencion:["Intervencion","IntervenciÃ³n","Reparacion","ReparaciÃ³n"],operativo:["Operativo","Estado operativo","Estado"],costoTotal:["Costo total","Costo Total"],observaciones:["Observaciones","Observacion","ObservaciÃ³n"],proyecto:["Proyecto","Lugar"]};
+  rows.sort(function(a,b){var candidates=sortCandidates[sortBy]||[sortBy],av=sortBy==="fecha"?queryIsoDate_(queryValue_(a,candidates)):String(queryValue_(a,candidates)||""),bv=sortBy==="fecha"?queryIsoDate_(queryValue_(b,candidates)):String(queryValue_(b,candidates)||"");return av.localeCompare(bv,"es",{numeric:true,sensitivity:"base"})*direction;});
+  var total=rows.length, page=limit==null?rows.slice(offset):rows.slice(offset,offset+limit);
+  return{ok:true,action:"query_dataset",dataset:dataset,data:page,rows:page.length,total:total,rowsRead:rowsRead,rowsFiltered:total,backendMs:new Date().getTime()-startedAt,offset:offset,limit:limit,hasMore:offset+page.length<total,nextOffset:offset+page.length<total?offset+page.length:null,sortBy:sortBy,sortDirection:direction===-1?"desc":"asc",versions:versions,filters:{desde:queryIsoDate_(params.desde),hasta:queryIsoDate_(params.hasta),proyecto:String(params.proyecto||""),equipo:String(params.equipo||""),supervisor:String(params.supervisor||""),operario:String(params.operario||""),estado:String(params.estado||""),tipo:String(params.tipo||""),tarea:String(params.tarea||""),unidad:String(params.unidad||"")}};
+}
+
+function handleEquipmentHistory_(params) {
+  if(!String(params.equipo||"").trim())throw new Error("equipo es obligatorio");
+  var base={equipo:params.equipo,desde:params.desde,hasta:params.hasta,limit:"all",offset:0};
+  var rop02=handleQueryDataset_(Object.assign({},base,{dataset:"rop02"}));
+  var rop05=handleQueryDataset_(Object.assign({},base,{dataset:"rop05"}));
+  var rma15=handleQueryDataset_(Object.assign({},base,{dataset:"rma15"}));
+  var movements=handleGetEquipmentMovements_(false).data.filter(function(m){return queryCanonical_(m.internoNormalizado||m.interno)===queryCanonical_(params.equipo);});
+  return{ok:true,action:"get_equipment_history",equipo:String(params.equipo),rop02:rop02.data,rop05:rop05.data,rma15:rma15.data,movements:movements,versions:{rop02:rop02.versions,rop05:rop05.versions,rma15:rma15.versions,movimientos_equipos:getDatasetVersion_("movimientos_equipos")}};
+}
+
+function handleRma15EquipmentUniverse_(params) {
+  params=params||{};
+  var year=String(params.year||"2026"),desde=year+"-01-01",hasta=year+"-12-31";
+  var query=handleQueryDataset_({dataset:"rma15",desde:desde,hasta:hasta,limit:"all"}),seen={},equipos=[];
+  query.data.forEach(function(row){
+    var code=queryCanonical_(queryValue_(row,["Codigo Int","CODIGO NÂ° INTERNO","Codigo N Interno","Codigo interno del equipo","Interno","Equipo"]));
+    if(code&&!seen[code]){seen[code]=true;equipos.push(code);}
+  });
+  equipos.sort();
+  return{ok:true,action:"get_rma15_equipment_universe",year:year,data:equipos,total:equipos.length,versions:query.versions};
+}
+
+function handleRma15OpenOtSummary_() {
+  var query=handleQueryDataset_({dataset:"rma15",limit:"all",sortBy:"fecha",sortDirection:"asc"}),groups={};
+  query.data.forEach(function(row,index){
+    var code=queryCanonical_(queryValue_(row,["Codigo Int","CODIGO NÂ° INTERNO","Codigo N Interno","Codigo interno del equipo","Interno","Equipo"])),fecha=queryIsoDate_(queryValue_(row,["Fecha de OT","Fecha"]));
+    if(!code||!fecha)return;
+    var rawState=String(queryValue_(row,["Operativo","Estado operativo","Estado"])||""),state=normalizeText_(rawState),noOperativo=state==="no"||state==="fuera de servicio"||state==="false"||state==="0";
+    var record={interno:code,fechaISO:fecha,time:fecha,index:index,noOperativo:noOperativo,lugar:String(queryValue_(row,["Proyecto","Lugar","Proyecto/Lugar"])||""),ot:String(queryValue_(row,["NÂ° OT","NÂº OT","OT","Orden","Orden de trabajo"])||""),estado:rawState};
+    (groups[code]||(groups[code]=[])).push(record);
+  });
+  var items=[];
+  Object.keys(groups).forEach(function(code){var rows=groups[code].sort(function(a,b){return a.fechaISO.localeCompare(b.fechaISO)||a.index-b.index;}),current=rows[rows.length-1];if(!current.noOperativo)return;var start=current;for(var i=rows.length-2;i>=0;i--){if(!rows[i].noOperativo)break;start=rows[i];}items.push({interno:code,lugar:current.lugar,fechaNoOperativo:start.fechaISO,ot:current.ot,estado:current.estado});});
+  items.sort(function(a,b){return String(a.fechaNoOperativo).localeCompare(String(b.fechaNoOperativo))||a.interno.localeCompare(b.interno);});
+  return{ok:true,action:"get_rma15_open_ot_summary",data:items,total:items.length,versions:query.versions};
+}
+
+function handleRop02LatestByEquipmentProject_(params) {
+  var snapshot=readRop02AcceleratorSheet_(ROP02_LATEST_SHEET_);
+  var snapshotReady=PropertiesService.getScriptProperties().getProperty("DM_ROP02_LATEST_READY")==="1";
+  if(snapshotReady&&snapshot.length){var filteredSnapshot=filterAcceleratorRows_(snapshot,params),referenceDate=snapshot.reduce(function(max,row){return String(row.ULTIMA_FECHA||"")>max?String(row.ULTIMA_FECHA):max;},"");return{ok:true,action:"get_rop02_latest_by_equipment_project",ready:true,data:filteredSnapshot,referenceDate:referenceDate,source:"snapshot",versions:{rop02_latest_snapshot:getDatasetVersion_("rop02_latest_snapshot")}};}
+  var query=handleQueryDataset_({dataset:"rop02",desde:params.desde||"",hasta:params.hasta||"",limit:"all"}), summary={};
+  query.data.forEach(function(row){
+    var equipo=queryCanonical_(queryValue_(row,["Codigo Interno del Equipo","Codigo Int","Interno"]));
+    var proyecto=String(queryValue_(row,["Proyecto","Lugar"])||"").trim(), fecha=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha"]));
+    if(!equipo||!proyecto||!fecha)return;
+    var key=equipo+"|"+normalizeText_(proyecto), current=summary[key]||{equipo:equipo,proyecto:proyecto,ultimaCarga:"",ultimoEstado:"",supervisor:"",cargas7d:0};
+    if(fecha>=current.ultimaCarga){current.ultimaCarga=fecha;current.ultimoEstado=String(queryValue_(row,["Descripcion de los trabajos realizados","Estado"])||"");current.supervisor=String(queryValue_(row,["Supervisor Delta","Supervisor"])||"");}
+    summary[key]=current;
+  });
+  var maxDate=Object.keys(summary).reduce(function(max,key){return summary[key].ultimaCarga>max?summary[key].ultimaCarga:max;},"");
+  if(maxDate){var threshold=new Date(maxDate+"T12:00:00");threshold.setDate(threshold.getDate()-6);var min=formatDate(threshold);query.data.forEach(function(row){var equipo=queryCanonical_(queryValue_(row,["Codigo Interno del Equipo","Codigo Int","Interno"])),proyecto=normalizeText_(queryValue_(row,["Proyecto","Lugar"])),fecha=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha"])),key=equipo+"|"+proyecto;if(summary[key]&&fecha>=min&&fecha<=maxDate)summary[key].cargas7d++;});}
+  return{ok:true,action:"get_rop02_latest_by_equipment_project",data:Object.keys(summary).map(function(key){return summary[key];}),referenceDate:maxDate,versions:query.versions};
+}
+
+/*******************************************************
+ * ACELERADORES ROP02: RESUMEN MENSUAL + ULTIMO ESTADO
+ *******************************************************/
+var ROP02_ACCELERATOR_DB_ID_=MOVIMIENTOS_EQUIPOS_DB_ID_;
+var ROP02_MONTHLY_SHEET_="ROP02_RESUMEN_MENSUAL";
+var ROP02_LATEST_SHEET_="ROP02_ULTIMO_ESTADO";
+var ROP02_MONTHLY_HEADERS_=["PERIODO","FECHA_DESDE","FECHA_HASTA","INTERNO","PROYECTO","HORAS_TRABAJADAS","DIAS_TRABAJO","DIAS_OD","DIAS_FS","DIAS_EM","CANTIDAD_REGISTROS","UPDATED_AT"];
+var ROP02_LATEST_HEADERS_=["INTERNO","PROYECTO","ULTIMA_FECHA","ULTIMO_ESTADO","HORAS","SUPERVISOR","CARGAS_7D","UPDATED_AT"];
+
+function ensureRop02AcceleratorSheet_(name,headers){
+  var ss=SpreadsheetApp.openById(ROP02_ACCELERATOR_DB_ID_),sheet=ss.getSheetByName(name);
+  if(!sheet)sheet=ss.insertSheet(name);
+  if(sheet.getLastRow()===0)sheet.getRange(1,1,1,headers.length).setValues([headers]);
+  return sheet;
+}
+function readRop02AcceleratorSheet_(name){
+  var ss=SpreadsheetApp.openById(ROP02_ACCELERATOR_DB_ID_),sheet=ss.getSheetByName(name);
+  if(!sheet||sheet.getLastRow()<2)return[];
+  var values=sheet.getDataRange().getValues(),headers=values.shift().map(String);
+  return values.map(function(row){var out={};headers.forEach(function(h,i){var v=row[i];out[h]=v instanceof Date?formatDate(v):v;});return out;});
+}
+function operationalPeriodForDate_(iso){
+  var d=new Date(String(iso)+"T12:00:00");if(isNaN(d.getTime()))return null;
+  var year=d.getFullYear(),month=d.getMonth()+1;if(d.getDate()>25){month++;if(month===13){month=1;year++;}}
+  var start=new Date(year,month-2,26,12),end=new Date(year,month-1,25,12),fmt=function(x){return formatDate(x);};
+  return{periodo:year+"-"+String(month).padStart(2,"0"),desde:fmt(start),hasta:fmt(end)};
+}
+function rop02StateForSummary_(row){
+  var hours=Number(String(queryValue_(row,["Cant. Hs.","Cantidad de horas","Hs","Horas"])||"0").replace(",","."))||0;
+  var text=normalizeText_(queryValue_(row,["Descripcion de los trabajos realizados","Observaciones","Estado"]));
+  var state=hours>0?"TRABAJO":text==="fs"||text.indexOf("fuera de servicio")>=0?"FS":text==="od"||text.indexOf("orden del dia")>=0?"OD":text==="em"||text.indexOf("mantenimiento")>=0?"EM":"TRABAJO";
+  return{hours:hours,state:state};
+}
+function replaceAcceleratorRows_(sheet,headers,keepFn,newRows){
+  var existing=sheet.getLastRow()>1?sheet.getRange(2,1,sheet.getLastRow()-1,headers.length).getValues():[];
+  var kept=existing.filter(keepFn),all=kept.concat(newRows);
+  if(sheet.getLastRow()>1)sheet.getRange(2,1,sheet.getLastRow()-1,headers.length).clearContent();
+  if(all.length)sheet.getRange(2,1,all.length,headers.length).setValues(all);
+  SpreadsheetApp.flush();
+}
+function refreshRop02MonthlyPeriod_(period){
+  var range=typeof period==="string"?operationalPeriodForDate_(period+"-15"):period;if(!range)throw new Error("Periodo operativo invalido");
+  var query=handleQueryDataset_({dataset:"rop02",desde:range.desde,hasta:range.hasta,limit:"all"}),groups={};
+  query.data.forEach(function(row){
+    var code=queryCanonical_(queryValue_(row,["Codigo Interno del Equipo","Codigo Int","Interno"])),project=String(queryValue_(row,["Proyecto","Lugar"])||"").trim(),date=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha"]));if(!code||!project||!date)return;
+    var key=code+"|"+queryProject_(project),g=groups[key]||{code:code,project:project,hours:0,records:0,days:{}};var state=rop02StateForSummary_(row);g.hours+=state.hours;g.records++;g.days[date]=g.days[date]||{};g.days[date][state.state]=true;groups[key]=g;
+  });
+  var now=new Date(),rows=Object.keys(groups).map(function(key){var g=groups[key],counts={TRABAJO:0,OD:0,FS:0,EM:0};Object.keys(g.days).forEach(function(date){Object.keys(g.days[date]).forEach(function(state){if(counts[state]!==undefined)counts[state]++;});});return[range.periodo,range.desde,range.hasta,g.code,g.project,g.hours,counts.TRABAJO,counts.OD,counts.FS,counts.EM,g.records,now];});
+  var sheet=ensureRop02AcceleratorSheet_(ROP02_MONTHLY_SHEET_,ROP02_MONTHLY_HEADERS_);replaceAcceleratorRows_(sheet,ROP02_MONTHLY_HEADERS_,function(row){return String(row[0])!==range.periodo;},rows);bumpDatasetVersion_("rop02_monthly_summary");return{periodo:range.periodo,rows:rows.length};
+}
+function rebuildRop02MonthlySummary(){
+  PropertiesService.getScriptProperties().setProperty("DM_ROP02_MONTHLY_READY","0");
+  var all=handleQueryDataset_({dataset:"rop02",limit:"all"}).data,groups={};
+  all.forEach(function(row){var date=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha"])),period=date&&operationalPeriodForDate_(date),code=queryCanonical_(queryValue_(row,["Codigo Interno del Equipo","Codigo Int","Interno"])),project=String(queryValue_(row,["Proyecto","Lugar"])||"").trim();if(!period||!code||!project)return;var key=period.periodo+"|"+code+"|"+queryProject_(project),g=groups[key]||{period:period,code:code,project:project,hours:0,records:0,days:{}};var state=rop02StateForSummary_(row);g.hours+=state.hours;g.records++;g.days[date]=g.days[date]||{};g.days[date][state.state]=true;groups[key]=g;});
+  var now=new Date(),rows=Object.keys(groups).sort().map(function(key){var g=groups[key],counts={TRABAJO:0,OD:0,FS:0,EM:0};Object.keys(g.days).forEach(function(date){Object.keys(g.days[date]).forEach(function(state){if(counts[state]!==undefined)counts[state]++;});});return[g.period.periodo,g.period.desde,g.period.hasta,g.code,g.project,g.hours,counts.TRABAJO,counts.OD,counts.FS,counts.EM,g.records,now];});
+  var sheet=ensureRop02AcceleratorSheet_(ROP02_MONTHLY_SHEET_,ROP02_MONTHLY_HEADERS_);replaceAcceleratorRows_(sheet,ROP02_MONTHLY_HEADERS_,function(){return false;},rows);bumpDatasetVersion_("rop02_monthly_summary");PropertiesService.getScriptProperties().setProperty("DM_ROP02_MONTHLY_READY","1");return{periods:Object.keys(groups).reduce(function(set,key){set[key.split("|")[0]]=true;return set;},{}),rows:rows.length};
+}
+function refreshRop02LatestEquipmentProject_(equipment,project){
+  var query=handleQueryDataset_({dataset:"rop02",equipo:equipment,proyecto:project,limit:"all"}),latest=null,dates={};query.data.forEach(function(row){var date=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha"]));if(!date)return;dates[date]=true;if(!latest||date>latest.date)latest={date:date,rows:[row]};else if(date===latest.date)latest.rows.push(row);});
+  var sheet=ensureRop02AcceleratorSheet_(ROP02_LATEST_SHEET_,ROP02_LATEST_HEADERS_),canon=queryCanonical_(equipment),projectKey=queryProject_(project),rows=[];
+  if(latest){var snapshotDates=readRop02AcceleratorSheet_(ROP02_LATEST_SHEET_).map(function(row){return String(row.ULTIMA_FECHA||"");}),globalMax=snapshotDates.concat([latest.date]).sort().pop()||latest.date,threshold=new Date(globalMax+"T12:00:00");threshold.setDate(threshold.getDate()-6);var min=formatDate(threshold),state=aggregateLatestRop02Rows_(latest.rows);rows.push([canon,String(queryValue_(latest.rows[latest.rows.length-1],["Proyecto","Lugar"])||project),latest.date,state.state,state.hours,state.supervisor,Object.keys(dates).filter(function(date){return date>=min&&date<=globalMax;}).length,new Date()]);}
+  replaceAcceleratorRows_(sheet,ROP02_LATEST_HEADERS_,function(row){return !(queryCanonical_(row[0])===canon&&queryProject_(row[1])===projectKey);},rows);if(latest)refreshRop02SnapshotRecentCounts_(globalMax);bumpDatasetVersion_("rop02_latest_snapshot");return{equipment:canon,project:project,rows:rows.length};
+}
+function aggregateLatestRop02Rows_(rows){var hours=0,states={},supervisor="";(rows||[]).forEach(function(row){var item=rop02StateForSummary_(row);hours+=item.hours;states[item.state]=true;supervisor=String(queryValue_(row,["Supervisor Delta","Supervisor"])||supervisor);});var state=hours>0?"TRABAJO":states.FS&&Object.keys(states).length===1?"FS":states.OD?"OD":states.EM?"EM":"TRABAJO";return{hours:hours,state:state,supervisor:supervisor};}
+function refreshRop02SnapshotRecentCounts_(referenceDate){
+  if(!referenceDate)return;var threshold=new Date(referenceDate+"T12:00:00");threshold.setDate(threshold.getDate()-6);var desde=formatDate(threshold),recent=handleQueryDataset_({dataset:"rop02",desde:desde,hasta:referenceDate,limit:"all"}).data,counts={};
+  recent.forEach(function(row){var code=queryCanonical_(queryValue_(row,["Codigo Interno del Equipo","Codigo Int","Interno"])),project=queryProject_(queryValue_(row,["Proyecto","Lugar"])),date=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha"])),key=code+"|"+project;if(!code||!project||!date)return;counts[key]=counts[key]||{};counts[key][date]=true;});
+  var sheet=ensureRop02AcceleratorSheet_(ROP02_LATEST_SHEET_,ROP02_LATEST_HEADERS_);if(sheet.getLastRow()<2)return;var values=sheet.getRange(2,1,sheet.getLastRow()-1,ROP02_LATEST_HEADERS_.length).getValues();values.forEach(function(row){var key=queryCanonical_(row[0])+"|"+queryProject_(row[1]);row[6]=Object.keys(counts[key]||{}).length;});sheet.getRange(2,1,values.length,ROP02_LATEST_HEADERS_.length).setValues(values);
+}
+function rebuildRop02LatestSnapshot(){
+  PropertiesService.getScriptProperties().setProperty("DM_ROP02_LATEST_READY","0");
+  var query=handleQueryDataset_({dataset:"rop02",limit:"all"}),combos={},globalMax="";query.data.forEach(function(row){var code=queryCanonical_(queryValue_(row,["Codigo Interno del Equipo","Codigo Int","Interno"])),project=String(queryValue_(row,["Proyecto","Lugar"])||"").trim(),date=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha"]));if(!code||!project||!date)return;if(date>globalMax)globalMax=date;var key=code+"|"+queryProject_(project),g=combos[key]||{code:code,project:project,dates:{},latest:null};g.dates[date]=true;if(!g.latest||date>g.latest.date)g.latest={date:date,rows:[row]};else if(date===g.latest.date)g.latest.rows.push(row);combos[key]=g;});
+  var threshold=new Date(globalMax+"T12:00:00");threshold.setDate(threshold.getDate()-6);var min=formatDate(threshold),now=new Date(),rows=Object.keys(combos).sort().map(function(key){var g=combos[key],state=aggregateLatestRop02Rows_(g.latest.rows);return[g.code,g.project,g.latest.date,state.state,state.hours,state.supervisor,Object.keys(g.dates).filter(function(date){return date>=min&&date<=globalMax;}).length,now];});
+  var sheet=ensureRop02AcceleratorSheet_(ROP02_LATEST_SHEET_,ROP02_LATEST_HEADERS_);replaceAcceleratorRows_(sheet,ROP02_LATEST_HEADERS_,function(){return false;},rows);bumpDatasetVersion_("rop02_latest_snapshot");PropertiesService.getScriptProperties().setProperty("DM_ROP02_LATEST_READY","1");return{rows:rows.length,referenceDate:globalMax};
+}
+function filterAcceleratorRows_(rows,params){return rows.filter(function(row){return (!params.equipo||queryCanonical_(row.INTERNO)===queryCanonical_(params.equipo))&&(!params.proyecto||queryProject_(row.PROYECTO)===queryProject_(params.proyecto))&&(!params.desde||String(row.ULTIMA_FECHA||row.FECHA_HASTA||"")>=params.desde)&&(!params.hasta||String(row.ULTIMA_FECHA||row.FECHA_DESDE||"")<=params.hasta);});}
+function handleGetRop02MonthlySummary_(params){var rows=filterAcceleratorRows_(readRop02AcceleratorSheet_(ROP02_MONTHLY_SHEET_),params||{}),offset=getOffset_(params),limit=getLimit_(params,250),page=limit==null?rows.slice(offset):rows.slice(offset,offset+limit);return{ok:true,action:"get_rop02_monthly_summary",ready:PropertiesService.getScriptProperties().getProperty("DM_ROP02_MONTHLY_READY")==="1",data:page,total:rows.length,offset:offset,limit:limit,hasMore:offset+page.length<rows.length,nextOffset:offset+page.length<rows.length?offset+page.length:null,versions:{rop02_monthly_summary:getDatasetVersion_("rop02_monthly_summary")}};}
 
 function handleAll(params) {
   var result = {
@@ -3238,14 +3485,14 @@ function getDatasetVersion_(key) {
   return isNaN(n) || n < 1 ? 1 : n;
 }
 
-function bumpDatasetVersion_(key) {
-  if (!SHEETS_CONFIG[key]) return null;
+function bumpDatasetVersion_(key, lockAlreadyHeld) {
+  if (!SHEETS_CONFIG[key] && ["movimientos_equipos","rop02_monthly_summary","rop02_latest_snapshot"].indexOf(key) < 0 && String(key).indexOf("rop02_") !== 0) return null;
 
-  var lock = LockService.getScriptLock();
-  var locked = false;
+  var lock = lockAlreadyHeld ? null : LockService.getScriptLock();
+  var locked = !!lockAlreadyHeld;
 
   try {
-    locked = lock.tryLock(5000);
+    if (!lockAlreadyHeld) locked = lock.tryLock(5000);
     if (!locked) throw new Error("No se pudo obtener el bloqueo para actualizar la versión de " + key + ".");
 
     var props = PropertiesService.getScriptProperties();
@@ -3260,7 +3507,7 @@ function bumpDatasetVersion_(key) {
 
     return next;
   } finally {
-    if (locked) {
+    if (locked && !lockAlreadyHeld) {
       try { lock.releaseLock(); } catch (releaseErr) {}
     }
   }
@@ -3270,6 +3517,7 @@ function bumpAllDatasetVersions_() {
   Object.keys(SHEETS_CONFIG).forEach(function (key) {
     bumpDatasetVersion_(key);
   });
+  bumpDatasetVersion_("movimientos_equipos");
 }
 
 function handleSyncVersions_() {
@@ -3281,19 +3529,30 @@ function handleSyncVersions_() {
     versions[key] = getDatasetVersion_(key);
     updatedAt[key] = props.getProperty("DM_UPDATED_" + key) || null;
   });
+  versions.movimientos_equipos = getDatasetVersion_("movimientos_equipos");
+  updatedAt.movimientos_equipos = props.getProperty("DM_UPDATED_movimientos_equipos") || null;
+  ["rop02_monthly_summary","rop02_latest_snapshot"].forEach(function(key){versions[key]=getDatasetVersion_(key);updatedAt[key]=props.getProperty("DM_UPDATED_"+key)||null;});
+
+  var datasets = {};
+  Object.keys(versions).forEach(function(key){
+    datasets[key] = {version:versions[key], updatedAt:updatedAt[key] || null};
+  });
 
   return {
     ok: true,
     versions: versions,
     updatedAt: updatedAt,
+    datasets: datasets,
     serverTime: new Date().toISOString()
   };
 }
 
 function datasetKeysForSpreadsheetId_(spreadsheetId) {
-  return Object.keys(SHEETS_CONFIG).filter(function (key) {
+  var keys = Object.keys(SHEETS_CONFIG).filter(function (key) {
     return String(SHEETS_CONFIG[key].id) === String(spreadsheetId);
   });
+  if (String(spreadsheetId) === String(MOVIMIENTOS_EQUIPOS_DB_ID_)) keys.push("movimientos_equipos");
+  return keys;
 }
 
 function onDatasetSheetChange_(e) {
@@ -3305,9 +3564,26 @@ function onDatasetSheetChange_(e) {
       bumpDatasetVersion_(key);
     });
 
+    refreshRop02AcceleratorsForEvent_(e, keys);
+
     clearAllCache_();
   } catch (err) {
     console.error("Error actualizando versiones:", err);
+  }
+}
+
+function refreshRop02AcceleratorsForEvent_(e, keys) {
+  if (!e || !e.range || !(keys || []).some(function(key){ return String(key).indexOf("rop02_") === 0; })) return;
+  try {
+    var sheet=e.range.getSheet(), rowNumber=e.range.getRow(), ropKeys=(keys||[]).filter(function(key){return String(key).indexOf("rop02_")===0;}), sourceKey=ropKeys.filter(function(key){var cfg=SHEETS_CONFIG[key];return cfg&&(String(cfg.sheet)===String(sheet.getName())||String(cfg.gid)===String(sheet.getSheetId()));})[0]||ropKeys[0], config=SHEETS_CONFIG[sourceKey];
+    if(!config||rowNumber<=Number(config.headerRow||1))return;
+    var lastCol=sheet.getLastColumn(),headers=sheet.getRange(Number(config.headerRow||1),1,1,lastCol).getValues()[0].map(String),values=sheet.getRange(rowNumber,1,1,lastCol).getValues()[0],row=queryConfigRow_(config,headers,values);
+    var date=queryIsoDate_(queryValue_(row,["Fecha del Parte Diario","Fecha"])),equipment=queryValue_(row,["Codigo Interno del Equipo","Codigo Int","Interno"]),project=queryValue_(row,["Proyecto","Lugar"])||config.proyecto;
+    var period=date&&operationalPeriodForDate_(date);
+    if(period)refreshRop02MonthlyPeriod_(period);
+    if(equipment&&project)refreshRop02LatestEquipmentProject_(equipment,project);
+  } catch (acceleratorError) {
+    console.error("No se pudieron actualizar aceleradores ROP02:",acceleratorError);
   }
 }
 
@@ -3324,6 +3600,7 @@ function setupSyncTriggers_() {
   Object.keys(SHEETS_CONFIG).forEach(function (key) {
     spreadsheetIds[SHEETS_CONFIG[key].id] = true;
   });
+  spreadsheetIds[MOVIMIENTOS_EQUIPOS_DB_ID_] = true;
 
   var created = [];
   var errors = [];
