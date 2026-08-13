@@ -2,6 +2,7 @@ import React, {useMemo, useState, useEffect} from "react";
 import * as XLSX from "xlsx";
 import { C as UI_C } from "../../components/ui/index.jsx";
 import { getHoursExtremes } from "./hoursExtremes.js";
+import { getMonthlyCutoffRange } from "./monthlyCutoffRange.js";
 
 let C=UI_C, Icon, Spinner, Badge, StatCard, Card, Table, Sel, MultiSel, DateIn, PeriodMonthYear, TabBtn, AlertBanner, HelpTip;
 let fmtNum, fmtFecha, uniq, normDate, cleanMachine, canonicalEquivalentMachineCode, isRop02ControlMachineExcluded, dmMatchTipoMaquinaSeleccion, dmTipoMaquinaOptions, matchMulti, multiIsAll, multiIncludes, normalizeMachineCode, getMachineType, isExcluded, excelFromCols, proyColor, semaforo, appAlert;
@@ -243,18 +244,17 @@ function ViewCambiosTurnoInner({rop02All=[]}){
 
   const periodoHorasTurno=useMemo(()=>{
     const anio=Number(filtroAnioHoras)||hoy.getFullYear();
-    const mesNum=Number(filtroMesHoras)||0;
+    const mesIdx=Number(filtroMesHoras)||0;
     // Período operativo: del 26 del mes anterior al 25 del mes seleccionado.
     // Ejemplo: Junio 2026 = 26/05/2026 al 25/06/2026.
-    const inicio=new Date(anio,mesNum-2,26,12);
-    const fin=new Date(anio,mesNum-1,25,12);
-    const diasPeriodo=diffTurnoDays(fin,inicio)+1;
+    const rango=getMonthlyCutoffRange(mesIdx,anio);
+    const diasPeriodo=diffTurnoDays(rango.end,rango.start)+1;
     return {
-      desde:turnoISO(inicio),
-      hasta:turnoISO(fin),
+      desde:rango.startISO,
+      hasta:rango.endISO,
       diasPeriodo,
-      label:`${MESES_TURNO[mesNum]} ${anio}`,
-      rangoLabel:`${fmtFecha(turnoISO(inicio))} al ${fmtFecha(turnoISO(fin))}`
+      label:`${MESES_TURNO[mesIdx]} ${anio}`,
+      rangoLabel:`${fmtFecha(rango.startISO)} al ${fmtFecha(rango.endISO)}`
     };
   },[filtroMesHoras,filtroAnioHoras]);
 

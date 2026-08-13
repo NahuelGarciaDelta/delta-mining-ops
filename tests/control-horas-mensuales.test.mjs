@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { getHoursExtremes } from "../src/modules/analytics/hoursExtremes.js";
+import { getMonthlyCutoffRange } from "../src/modules/analytics/monthlyCutoffRange.js";
 
 const appSource=fs.readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
 const analyticsSource=fs.readFileSync(new URL("../src/modules/analytics/OperationalAnalytics.jsx",import.meta.url),"utf8");
@@ -9,6 +10,21 @@ const analyticsSource=fs.readFileSync(new URL("../src/modules/analytics/Operatio
 test("la navegación usa Control de horas mensuales",()=>{
   assert.match(appSource,/label:"Control de horas mensuales"/);
   assert.match(appSource,/titles\.cambiosTurno="Control de horas mensuales"/);
+});
+
+test("el filtro MES usa el corte 26 del mes anterior al 25 del mes seleccionado",()=>{
+  const casos=[
+    {mes:7,anio:2026,startISO:"2026-07-26",endISO:"2026-08-25"},
+    {mes:8,anio:2026,startISO:"2026-08-26",endISO:"2026-09-25"},
+    {mes:9,anio:2026,startISO:"2026-09-26",endISO:"2026-10-25"},
+    {mes:0,anio:2027,startISO:"2026-12-26",endISO:"2027-01-25"},
+  ];
+  for(const caso of casos){
+    const rango=getMonthlyCutoffRange(caso.mes,caso.anio);
+    assert.equal(rango.startISO,caso.startISO);
+    assert.equal(rango.endISO,caso.endISO);
+  }
+  assert.match(analyticsSource,/getMonthlyCutoffRange\(mesIdx,anio\)/);
 });
 
 test("la vista elimina Orden de grupos y Duración del turno",()=>{
