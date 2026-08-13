@@ -1,4 +1,3 @@
-const ATRASO_STORAGE_KEY="delta_rop02_atrasos_admitidos_v2";
 const BAJO_SAN_JUAN_NORM="bajo a san juan";
 
 const normText=value=>String(value??"")
@@ -59,10 +58,6 @@ const canonicalEquipmentCode=value=>{
 
 export function isBajoSanJuanJustification(value){
   return normText(value)===BAJO_SAN_JUAN_NORM;
-}
-
-export function readAtrasoAdmitidos(storage=globalThis.localStorage){
-  try{return JSON.parse(storage?.getItem?.(ATRASO_STORAGE_KEY)||"{}")||{};}catch(_){return{};}
 }
 
 export function getMaxRop02Date(rop02Rows=[],options={}){
@@ -127,7 +122,8 @@ export function calculateAtrasoRop02(rop02Rows=[],admitidos={},options={}){
       supervisor:current.supervisor,ultimaCarga,diasSinCarga,
       diasConCarga:[...current.fechas].filter(fecha=>fecha>=ventanaDesde&&fecha<=fechaMaximaROP02).length,
       registros:current.registros,causa:String(saved.causa||"").trim(),
-      admitido:Boolean(saved.admitido||saved.causa),fechaAdmitido:saved.fechaAdmitido||"",usuario:saved.usuario||""
+      admitido:Boolean(saved.admitido||saved.causa),fechaAdmitido:saved.fechaAdmitido||"",usuario:saved.usuario||"",
+      proyectoDestino:saved.proyectoDestino||"",tipoMovimiento:saved.tipoMovimiento||"",observacion:saved.observacion||""
     });
   }
   atrasados.sort((a,b)=>b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));

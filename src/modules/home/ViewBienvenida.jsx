@@ -7,7 +7,8 @@ import { fetchStockData } from "../../services/stockService.js";
 import { canonicalEquivalentMachineCode } from "../../shared/domain/index.jsx";
 import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
-import { buildLatestRop02ByCode, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap, readAtrasoAdmitidos } from "./homeAvailability.js";
+import { buildLatestRop02ByCode, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap } from "./homeAvailability.js";
+import {useEquipmentMovements} from "../../services/equipmentMovements.js";
 
 const norm=v=>String(v??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 const getVal=(row,cands)=>{const keys=Object.keys(row||{});for(const cand of cands){const w=norm(cand);for(const k of keys){const nk=norm(k);if(nk===w||nk.includes(w)||w.includes(nk))return row[k];}}return "";};
@@ -34,7 +35,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
   const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
-  const [admitidosAtraso,setAdmitidosAtraso]=useState(()=>readAtrasoAdmitidos());
+  const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(rop02All,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
   const summaryRef=useRef(null);
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(id);},[]);
@@ -48,13 +49,6 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     }).catch(()=>{});
     const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(run,{timeout:900}):window.setTimeout(run,120);
     return()=>{alive=false;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
-  },[]);
-  useEffect(()=>{
-    const sync=()=>setAdmitidosAtraso(readAtrasoAdmitidos());
-    window.addEventListener("storage",sync);
-    window.addEventListener("focus",sync);
-    window.addEventListener("dm-atrasos-updated",sync);
-    return()=>{window.removeEventListener("storage",sync);window.removeEventListener("focus",sync);window.removeEventListener("dm-atrasos-updated",sync);};
   },[]);
   useEffect(()=>{
     const close=event=>{if(summaryRef.current&&!summaryRef.current.contains(event.target))setActiveSummaryKey(null);};
@@ -158,15 +152,15 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     if(cancelled)return;
     bienvenidaSummaryCache={data:nextData,loading:{
       flota:rop.length===0,
-      disponibilidad:rop.length===0,
-      ot:rma.length===0,
+      disponibilidad:rop.length===0||!movimientosLoaded||Boolean(movimientosError),
+      ot:rma.length===0||!movimientosLoaded||Boolean(movimientosError),
       stock:bienvenidaStockCache===null,
     }};
     startTransition(()=>setSummaryState(bienvenidaSummaryCache));
     };
     const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:700}):window.setTimeout(calculate,40);
     return()=>{cancelled=true;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
-  },[listaEquipos,rop02All,rma15,sharedStockRows,admitidosAtraso]);
+  },[listaEquipos,rop02All,rma15,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
   const stats=summaryState.data||EMPTY_SUMMARY;
   const summaryLoading=summaryState.loading||{};
 

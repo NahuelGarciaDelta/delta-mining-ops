@@ -6,6 +6,7 @@ import ComparisonStrip from "../../components/ComparisonStrip.jsx";
 import {WeatherSummary} from "../weather/WeatherModule.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
 import { calculateAtrasoRop02 } from "../home/homeAvailability.js";
+import {cancelEquipmentMovement,saveEquipmentMovement,useEquipmentMovements} from "../../services/equipmentMovements.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -4244,7 +4245,6 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
 
 
 function ViewAtrasoROP02({rop02All}){
-  const STORAGE_KEY="delta_rop02_atrasos_admitidos_v2";
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded && normalizeMachineCode(r.maquina)!=="CAA-0002" && r.fecha),[rop02All]);
   const [modoFiltro,setModoFiltro]=useState("periodo");
   const [fechaFiltro,setFechaFiltro]=useState("");
@@ -4253,11 +4253,13 @@ function ViewAtrasoROP02({rop02All}){
   const [tipoMaquinaFiltro,setTipoMaquinaFiltro]=useState("todas");
   const [proyectoFiltro,setProyectoFiltro]=useState("todos");
   const [maquinaFiltro,setMaquinaFiltro]=useState("todas");
-  const [admitidos,setAdmitidos]=useState(()=>{try{return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}");}catch{return{};}});
+  const {admitidos,movements,loading:movimientosLoading,error:movimientosError}=useEquipmentMovements(rop02Prod,["atrasoROP02","controlROP02"]);
   const [modalAtraso,setModalAtraso]=useState(null);
   const [motivoTipo,setMotivoTipo]=useState("Bajó a San Juan");
   const [motivoOtro,setMotivoOtro]=useState("");
-  const saveAdmitidos=useCallback((next)=>{setAdmitidos(next);try{localStorage.setItem(STORAGE_KEY,JSON.stringify(next));}catch{}},[]);
+  const [proyectoDestino,setProyectoDestino]=useState("");
+  const [savingMovimiento,setSavingMovimiento]=useState(false);
+  const [movimientoMsg,setMovimientoMsg]=useState("");
   const hoyISO=useMemo(()=>{
     const d=new Date();
     d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
@@ -4381,36 +4383,33 @@ function ViewAtrasoROP02({rop02All}){
     setModalAtraso(row);
     setMotivoTipo(row.causa||"Bajó a San Juan");
     setMotivoOtro("");
+    setProyectoDestino("");
+    setMovimientoMsg("");
   };
 
-  const confirmarJustificacion=()=>{
+  const confirmarJustificacion=async()=>{
     if(!modalAtraso)return;
     const causa=motivoTipo==="Otro"
       ? String(motivoOtro||"").trim()
       : String(motivoTipo||"").trim();
     if(!causa){appAlert("Ingresá un motivo para justificar el equipo.");return;}
+    if(motivoTipo==="Cambio de proyecto"&&!proyectoDestino){appAlert("Seleccioná el proyecto destino.");return;}
     const usuario=sessionStorage.getItem("dm_user")||"Usuario";
-    saveAdmitidos({...admitidos,[modalAtraso.id]:{
-      admitido:true,
-      causa,
-      fechaAdmitido:new Date().toISOString(),
-      usuario,
-      maquina:modalAtraso.maquina,
-      tipo:modalAtraso.tipo,
-      proyecto:modalAtraso.proyecto,
-      supervisor:modalAtraso.supervisor,
-      ultimaCarga:modalAtraso.ultimaCarga,
-      diasSinCarga:modalAtraso.diasSinCarga
-    }});
-    window.dispatchEvent(new CustomEvent("dm-atrasos-updated"));
-    setModalAtraso(null);
+    const tipoMovimiento=motivoTipo==="Bajó a San Juan"?"BAJO_SAN_JUAN":motivoTipo==="Cambio de proyecto"?"CAMBIO_PROYECTO":motivoTipo==="Desmovilizado"?"DESMOVILIZADO":"OTRO";
+    setSavingMovimiento(true);setMovimientoMsg("");
+    try{
+      await saveEquipmentMovement({interno:modalAtraso.maquina,internoNormalizado:modalAtraso.codigo,proyectoOrigen:modalAtraso.proyecto,proyectoDestino:tipoMovimiento==="BAJO_SAN_JUAN"?"SAN JUAN":proyectoDestino,tipoMovimiento,motivo:causa,observacion:motivoTipo==="Otro"?motivoOtro:"",usuario,fechaUltimoRop02:modalAtraso.ultimaCarga});
+      setMovimientoMsg("Guardado correctamente.");
+      setTimeout(()=>setModalAtraso(null),450);
+    }catch(error){setMovimientoMsg(error?.message||"No se pudo guardar el movimiento.");}
+    finally{setSavingMovimiento(false);}
   };
 
-  const restaurar=(row)=>{
-    const next={...admitidos};
-    delete next[row.id];
-    saveAdmitidos(next);
-    window.dispatchEvent(new CustomEvent("dm-atrasos-updated"));
+  const restaurar=async(row)=>{
+    const movementId=admitidos[row.id]?.movementId;
+    if(!movementId)return;
+    try{await cancelEquipmentMovement(movementId,sessionStorage.getItem("dm_user")||"Usuario");}
+    catch(error){appAlert(error?.message||"No se pudo cancelar el movimiento.");}
   };
 
   const accionBtn=(row)=><button onClick={()=>abrirJustificacion(row)} style={{border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.yellow,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Justificar</button>;
@@ -4443,12 +4442,14 @@ function ViewAtrasoROP02({rop02All}){
     {key:"ultimaCarga",label:"Última carga",render:v=>fmtFecha(v)},
     {key:"diasSinCarga",label:"Días de atraso",render:v=><span style={{color:C.yellow,fontWeight:900}}>{v}</span>},
     {key:"causa",label:"Motivo",wrap:true,render:v=><span style={{color:C.green,fontWeight:700}}>{v||"—"}</span>},
+    {key:"proyectoDestino",label:"Destino",render:v=>v||"—"},
     {key:"fechaAdmitido",label:"Fecha aceptación",render:v=>v?new Date(v).toLocaleString("es-AR"):"—"},
     {key:"usuario",label:"Aceptó",render:v=>v||"Usuario"},
     {key:"accion",label:"Acción",render:(_,r)=><button onClick={()=>restaurar(r)} style={{border:`1px solid ${C.green}55`,background:C.greenDim,color:C.green,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Restaurar</button>},
   ],[admitidos]);
 
-  const atrasadosPendientes=atrasosFiltrados.filter(r=>!r.admitido);
+  const movimientosNoDisponibles=movimientosLoading||(movimientosError&&!movements.length);
+  const atrasadosPendientes=movimientosNoDisponibles?[]:atrasosFiltrados.filter(r=>!r.admitido);
   const atrasadosAceptados=atrasosFiltrados.filter(r=>r.admitido);
   const saltosSinCausa=saltosFiltrados.filter(r=>!r.admitido).length;
   const atrasoGeneral=resumenFiltrado.diasAtraso!==null&&resumenFiltrado.diasAtraso>1;
@@ -4478,6 +4479,8 @@ function ViewAtrasoROP02({rop02All}){
       {atrasoGeneral&&<AlertBanner type="warn">Pasó más de 1 día desde la última carga de ROP02 para los filtros seleccionados. Última carga detectada: <strong>{fmtFecha(resumenFiltrado.ultimaFecha)}</strong> ({resumenFiltrado.diasAtraso} días).</AlertBanner>}
       {!atrasoGeneral&&resumenFiltrado.ultimaFecha&&<AlertBanner type="success">La carga de ROP02 está al día para los filtros seleccionados. Última carga detectada: <strong>{fmtFecha(resumenFiltrado.ultimaFecha)}</strong>.</AlertBanner>}
       {!resumenFiltrado.ultimaFecha&&<AlertBanner type="warn">No se detectaron cargas de ROP02 para los filtros seleccionados.</AlertBanner>}
+      {movimientosLoading&&<AlertBanner type="info">Cargando movimientos compartidos de equipos...</AlertBanner>}
+      {movimientosError&&<AlertBanner type="error">No fue posible cargar movimientos de equipos. Se ocultan los pendientes para evitar falsos positivos.</AlertBanner>}
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
         <StatCard icon="hours" label="Última carga" value={resumenFiltrado.ultimaFecha?fmtFecha(resumenFiltrado.ultimaFecha):"—"} sub={resumenFiltrado.diasAtraso!==null?`${resumenFiltrado.diasAtraso} días desde la última carga`:"Sin datos"} color={atrasoGeneral?C.red:C.green} small/>
@@ -4509,16 +4512,17 @@ function ViewAtrasoROP02({rop02All}){
             Motivo
             <select value={motivoTipo} onChange={e=>setMotivoTipo(e.target.value)} style={{background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px"}}>
               <option>Bajó a San Juan</option>
-              <option>En taller</option>
-              <option>Fuera de servicio</option>
-              <option>En mantenimiento</option>
+              <option>Cambio de proyecto</option>
+              <option>Desmovilizado</option>
               <option>Otro</option>
             </select>
           </label>
+          {motivoTipo==="Cambio de proyecto"&&<label style={{display:"flex",flexDirection:"column",gap:7,fontSize:12,fontWeight:800,color:C.textSub}}>Proyecto destino<select value={proyectoDestino} onChange={e=>setProyectoDestino(e.target.value)} style={{background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px"}}><option value="">Seleccionar...</option>{uniq(["JOSE MARIA","FILO DEL SOL","FILO SUR","EL ZORRO",...proyectosFiltro]).map(p=><option key={p} value={p}>{p}</option>)}</select></label>}
           {motivoTipo==="Otro"&&<textarea value={motivoOtro} onChange={e=>setMotivoOtro(e.target.value)} placeholder="Escribí el motivo..." rows={3} style={{background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",resize:"vertical"}}/>}
+          {movimientoMsg&&<div style={{fontSize:12,fontWeight:800,color:movimientoMsg.includes("correctamente")?C.green:C.red}}>{movimientoMsg}</div>}
           <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
             <button onClick={()=>setModalAtraso(null)} style={{border:`1px solid ${C.border}`,background:"transparent",color:C.textSub,borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Cancelar</button>
-            <button onClick={confirmarJustificacion} style={{border:`1px solid ${C.green}66`,background:C.greenDim,color:C.green,borderRadius:8,padding:"9px 14px",fontWeight:900,cursor:"pointer"}}>Aceptar</button>
+            <button disabled={savingMovimiento} onClick={confirmarJustificacion} style={{border:`1px solid ${C.green}66`,background:C.greenDim,color:C.green,borderRadius:8,padding:"9px 14px",fontWeight:900,cursor:savingMovimiento?"wait":"pointer",opacity:savingMovimiento?0.65:1}}>{savingMovimiento?"Guardando...":"Aceptar"}</button>
           </div>
         </div>
       </div>}

@@ -170,6 +170,8 @@ function doGet(e) {
     if (action === "licitaciones_compartidas" || action === "cargar_licitaciones") {
       return buildResponse(handleGetLicitacionesCompartidas_());
     }
+    if (action === "get_equipment_movements") return buildResponse(handleGetEquipmentMovements_(false));
+    if (action === "get_active_equipment_movements") return buildResponse(handleGetEquipmentMovements_(true));
 
     if (action === "all") {
       return buildResponse(handleAll(p));
@@ -340,6 +342,12 @@ function doPost(e) {
     if (action === "save_pm_repuesto") {
       return buildResponse(handleSavePMRepuesto_(payload.repuesto || {}));
     }
+    if (action === "save_equipment_movement") {
+      return buildResponse(handleSaveEquipmentMovement_(payload.movement || payload.movimiento || payload));
+    }
+    if (action === "cancel_equipment_movement") {
+      return buildResponse(handleCancelEquipmentMovement_(payload.id || payload.movementId || "", payload.usuario || ""));
+    }
 
     return buildResponse({
       ok: false,
@@ -352,6 +360,129 @@ function doPost(e) {
       error: { code: "POST_ERROR", message: err.message }
     });
   }
+}
+
+/*******************************************************
+ * MOVIMIENTOS COMPARTIDOS DE EQUIPOS
+ *******************************************************/
+var MOVIMIENTOS_EQUIPOS_DB_ID_ = "1eEgggHdcH0YhGnmlogN63nQgStNl2xoV0bkfF_DTPYU";
+var MOVIMIENTOS_EQUIPOS_SHEET_ = "MOVIMIENTOS_EQUIPOS";
+var MOVIMIENTOS_EQUIPOS_HEADERS_ = [
+  "ID","FECHA_HORA","INTERNO","INTERNO_NORMALIZADO","PROYECTO_ORIGEN","PROYECTO_DESTINO",
+  "TIPO_MOVIMIENTO","MOTIVO","OBSERVACION","USUARIO","FECHA_ULTIMO_ROP02","ESTADO","ACTIVO"
+];
+
+function ensureMovimientosEquiposSheet() {
+  var ss = SpreadsheetApp.openById(MOVIMIENTOS_EQUIPOS_DB_ID_);
+  var sheet = ss.getSheetByName(MOVIMIENTOS_EQUIPOS_SHEET_);
+  if (!sheet) sheet = ss.insertSheet(MOVIMIENTOS_EQUIPOS_SHEET_);
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, MOVIMIENTOS_EQUIPOS_HEADERS_.length).setValues([MOVIMIENTOS_EQUIPOS_HEADERS_]);
+    sheet.setFrozenRows(1);
+  } else {
+    var existing = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getDisplayValues()[0];
+    var missing = MOVIMIENTOS_EQUIPOS_HEADERS_.filter(function(h){ return existing.indexOf(h) < 0; });
+    if (missing.length) sheet.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
+  }
+  return sheet;
+}
+
+function normalizeEquipmentMovementCode_(value) {
+  var raw = String(value || "").trim().toUpperCase().replace(/\s*\(.*?\)/g, "").replace(/[-_\s]+JM$/i, "");
+  var compact = raw.replace(/[^A-Z0-9]/g, "");
+  var match = compact.match(/^([A-Z]{2,4})(\d{1,6})$/);
+  return match ? match[1] + "-" + ("0000" + match[2]).slice(-Math.max(4, match[2].length)) : raw;
+}
+
+function normalizeMovementText_(value) {
+  return String(value || "").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+}
+
+function movementType_(value, motivo) {
+  var type = normalizeMovementText_(value).replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  var reason = normalizeMovementText_(motivo);
+  if (!type && reason === "BAJO A SAN JUAN") type = "BAJO_SAN_JUAN";
+  if (["BAJO_SAN_JUAN","CAMBIO_PROYECTO","DESMOVILIZADO","OTRO"].indexOf(type) < 0) type = "OTRO";
+  return type;
+}
+
+function movementRowObject_(headers, row) {
+  var out = {};
+  headers.forEach(function(h, i){ out[h] = row[i]; });
+  var when = out.FECHA_HORA instanceof Date ? out.FECHA_HORA.toISOString() : String(out.FECHA_HORA || "");
+  return {
+    id:String(out.ID || ""), fechaHora:when, interno:String(out.INTERNO || ""),
+    internoNormalizado:String(out.INTERNO_NORMALIZADO || ""), proyectoOrigen:String(out.PROYECTO_ORIGEN || ""),
+    proyectoDestino:String(out.PROYECTO_DESTINO || ""), tipoMovimiento:String(out.TIPO_MOVIMIENTO || ""),
+    motivo:String(out.MOTIVO || ""), observacion:String(out.OBSERVACION || ""), usuario:String(out.USUARIO || ""),
+    fechaUltimoRop02:out.FECHA_ULTIMO_ROP02 instanceof Date ? Utilities.formatDate(out.FECHA_ULTIMO_ROP02, "GMT", "yyyy-MM-dd") : String(out.FECHA_ULTIMO_ROP02 || "").slice(0,10),
+    estado:String(out.ESTADO || ""), activo:out.ACTIVO === true || normalizeMovementText_(out.ACTIVO) === "TRUE"
+  };
+}
+
+function handleGetEquipmentMovements_(onlyActive) {
+  var sheet = ensureMovimientosEquiposSheet();
+  var last = sheet.getLastRow();
+  if (last < 2) return {ok:true, action:onlyActive?"get_active_equipment_movements":"get_equipment_movements", data:[], activeMovementByEquipment:{}, rows:0, fetchedAt:new Date().toISOString()};
+  var headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0];
+  var values = sheet.getRange(2,1,last-1,sheet.getLastColumn()).getValues();
+  var all = values.map(function(row){return movementRowObject_(headers,row);}).filter(function(m){return m.id;});
+  all.sort(function(a,b){return String(a.fechaHora).localeCompare(String(b.fechaHora));});
+  var activeMap = {};
+  all.forEach(function(m){if(m.activo && m.estado !== "CANCELADO" && m.estado !== "SUPERADO") activeMap[m.internoNormalizado] = m;});
+  var data = onlyActive ? Object.keys(activeMap).map(function(k){return activeMap[k];}) : all;
+  return {ok:true, action:onlyActive?"get_active_equipment_movements":"get_equipment_movements", data:data, activeMovementByEquipment:activeMap, rows:data.length, fetchedAt:new Date().toISOString()};
+}
+
+function handleSaveEquipmentMovement_(movement) {
+  movement = movement || {};
+  var interno = String(movement.interno || "").trim();
+  var motivo = String(movement.motivo || "").trim();
+  var requestedType = String(movement.tipoMovimiento || "").trim();
+  if (!interno) throw new Error("INTERNO es obligatorio.");
+  if (!requestedType) throw new Error("TIPO_MOVIMIENTO es obligatorio.");
+  if (!motivo) throw new Error("MOTIVO es obligatorio.");
+  var tipo = movementType_(requestedType, motivo);
+  var normalized = normalizeEquipmentMovementCode_(movement.internoNormalizado || interno);
+  if (!normalized) throw new Error("INTERNO_NORMALIZADO inválido.");
+  var destination = normalizeMovementText_(movement.proyectoDestino || (tipo === "BAJO_SAN_JUAN" ? "SAN JUAN" : ""));
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    var sheet = ensureMovimientosEquiposSheet();
+    if (sheet.getLastRow() >= 2) {
+      var headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0];
+      var codeCol = headers.indexOf("INTERNO_NORMALIZADO") + 1, stateCol = headers.indexOf("ESTADO") + 1, activeCol = headers.indexOf("ACTIVO") + 1;
+      var existingRows = sheet.getRange(2,1,sheet.getLastRow()-1,sheet.getLastColumn()).getValues();
+      existingRows.forEach(function(row,index){
+        if (String(row[codeCol-1]) === normalized && (row[activeCol-1] === true || normalizeMovementText_(row[activeCol-1]) === "TRUE")) {
+          sheet.getRange(index+2,stateCol).setValue("SUPERADO");
+          sheet.getRange(index+2,activeCol).setValue(false);
+        }
+      });
+    }
+    var values = [Utilities.getUuid(),new Date(),interno,normalized,normalizeMovementText_(movement.proyectoOrigen),destination,tipo,motivo,String(movement.observacion||"").trim(),String(movement.usuario||"Usuario").trim(),String(movement.fechaUltimoRop02||"").slice(0,10),"ACEPTADO",true];
+    sheet.appendRow(values);
+    SpreadsheetApp.flush();
+    return {ok:true,action:"save_equipment_movement",movement:movementRowObject_(MOVIMIENTOS_EQUIPOS_HEADERS_,values),savedAt:new Date().toISOString()};
+  } finally { lock.releaseLock(); }
+}
+
+function handleCancelEquipmentMovement_(id, usuario) {
+  id = String(id || "").trim();
+  if (!id) throw new Error("ID de movimiento obligatorio.");
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    var sheet = ensureMovimientosEquiposSheet();
+    if (sheet.getLastRow() < 2) throw new Error("No hay movimientos para cancelar.");
+    var headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0];
+    var idCol = headers.indexOf("ID") + 1, stateCol = headers.indexOf("ESTADO") + 1, activeCol = headers.indexOf("ACTIVO") + 1;
+    var ids = sheet.getRange(2,idCol,Math.max(0,sheet.getLastRow()-1),1).getDisplayValues();
+    for (var i=0;i<ids.length;i++) if(String(ids[i][0]) === id){
+      sheet.getRange(i+2,stateCol).setValue("CANCELADO"); sheet.getRange(i+2,activeCol).setValue(false); SpreadsheetApp.flush();
+      return {ok:true,action:"cancel_equipment_movement",id:id,usuario:String(usuario||""),cancelledAt:new Date().toISOString()};
+    }
+    throw new Error("No se encontró el movimiento " + id + ".");
+  } finally { lock.releaseLock(); }
 }
 
 function handleSingle(key, params) {
@@ -1046,10 +1177,6 @@ function usuarioActivoValor_(v){
   return !(a==="NO"||a==="FALSE"||a==="0"||a==="INACTIVO"||a==="BAJA");
 }
 
-function usuarioNormalizarArea_(v){
-  return String(v||"").trim().toUpperCase();
-}
-
 function handleAuthenticateUser_(email,password){
   var info=getUsuariosSheetInfo_();
   var rowNum=findUsuarioRowByEmail_(info,email);
@@ -1059,7 +1186,7 @@ function handleAuthenticateUser_(email,password){
   var stored=String(row[info.passwordIdx]||"");
   var expected=stored||"DELTA.MINING.APP";
   if(String(password||"")!==expected)return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
-  var user={email:String(row[info.emailIdx]||"").trim().toLowerCase(),rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),nombre:String(row[info.nombreIdx]||"").trim(),area:usuarioNormalizarArea_(row[info.areaIdx])};
+  var user={email:String(row[info.emailIdx]||"").trim().toLowerCase(),rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),nombre:String(row[info.nombreIdx]||"").trim(),area:String(row[info.areaIdx]||"").trim()};
   return {ok:true,user:user,mustChangePassword:!stored,authToken:stockExcelIssueAuthToken_(user.email)};
 }
 
@@ -1083,8 +1210,8 @@ function handleUpdateUserProfile_(payload){
     }
     var nombre=String(payload.nombre||"").trim();
     var currentRole=String(row[info.rolIdx]||"USUARIO").trim().toUpperCase();
-    var currentArea=usuarioNormalizarArea_(row[info.areaIdx]);
-    var requestedArea=usuarioNormalizarArea_(payload.area);
+    var currentArea=String(row[info.areaIdx]||"").trim().toUpperCase();
+    var requestedArea=String(payload.area||"").trim().toUpperCase();
     var canChangeArea=(currentRole==="ADMIN"||currentRole==="ADMINISTRADOR");
     var area=canChangeArea?requestedArea:currentArea;
     if(nombre)info.sheet.getRange(rowNum,info.nombreIdx+1).setValue(nombre);
@@ -4308,28 +4435,488 @@ function handleSavePMRepuesto_(r) {
  * DASHBOARD STOCK COMPARTIDO - GOOGLE SHEETS
  * Base: raba03 / STOCK CRITICO / STOCK_META
  *******************************************************/
-var STOCK_EXCEL_DATA_HEADERS_=["ID","CODIGO_ARTICULO","DESCRIPCION","DESCRIPCION_ADICIONAL","DESCRIPCION_DEPOSITO","CONTROL_STOCK","SALDO_CONTROL_STOCK","STOCK_MAXIMO","STOCK_MINIMO"];
-var STOCK_EXCEL_META_HEADERS_=["VERSION","ACTIVE_SHEET","FILE_NAME","SOURCE_SHEET","ROW_COUNT","UPDATED_AT","UPDATED_BY","VALID_ROWS","REJECTED_ROWS","DUPLICATE_CODES"];
-var STOCK_HISTORY_HEADERS_=["VERSION","FILE_NAME","SOURCE_SHEET","ROW_COUNT","UPDATED_BY","UPDATED_AT","REJECTED_ROWS","DUPLICATE_CODES","RESULT"];
-var STOCK_MAIN_SHEET_="STOCK CRITICO",STOCK_TEMP_SHEET_="STOCK_TEMP",STOCK_HISTORY_SHEET_="STOCK_HISTORIAL";
-function stockExcelNorm_(v){return String(v||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();}
-function stockExcelDb_(){return SpreadsheetApp.openById("1CYXvmXk7XknGWq4TUJyTAaXz_TH1JOWcl2Zm7XurFTI");}
-function stockExcelSheet_(name,headers){var ss=stockExcelDb_(),sheet=ss.getSheetByName(name)||ss.insertSheet(name);if(sheet.getLastRow()<1)sheet.getRange(1,1,1,headers.length).setValues([headers]).setFontWeight("bold");sheet.setFrozenRows(1);return sheet;}
-function stockExcelMetaSheet_(){return stockExcelSheet_("STOCK_META",STOCK_EXCEL_META_HEADERS_);}
-function stockExcelReadMeta_(){var sheet=stockExcelMetaSheet_();if(sheet.getLastRow()<2)return{version:0,active:false};var oldHeaders=sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0].map(String),row=sheet.getRange(2,1,1,oldHeaders.length).getDisplayValues()[0],map={};oldHeaders.forEach(function(h,i){map[stockExcelNorm_(h)]=row[i];});return{version:Number(map.version||0),active:String(map.active_sheet||"")==STOCK_MAIN_SHEET_,activeSheet:map.active_sheet||"",fileName:map.file_name||"",sourceSheet:map.source_sheet||"",rowCount:Number(map.row_count||0),updatedAt:map.updated_at||"",updatedBy:map.updated_by||"",validRows:Number(map.valid_rows||map.row_count||0),rejectedRows:Number(map.rejected_rows||0),duplicateCodes:Number(map.duplicate_codes||0)};}
-function stockExcelWriteMeta_(meta){var sheet=stockExcelMetaSheet_();sheet.clearContents();sheet.getRange(1,1,1,STOCK_EXCEL_META_HEADERS_.length).setValues([STOCK_EXCEL_META_HEADERS_]).setFontWeight("bold");sheet.getRange(2,1,1,STOCK_EXCEL_META_HEADERS_.length).setValues([[Number(meta.version||0),meta.activeSheet||"",meta.fileName||"",meta.sourceSheet||"",Number(meta.rowCount||0),meta.updatedAt||new Date().toISOString(),meta.updatedBy||"",Number(meta.validRows||0),Number(meta.rejectedRows||0),Number(meta.duplicateCodes||0)]]);sheet.setFrozenRows(1);SpreadsheetApp.flush();}
-function stockExcelHistory_(meta,result){var sheet=stockExcelSheet_(STOCK_HISTORY_SHEET_,STOCK_HISTORY_HEADERS_);sheet.appendRow([Number(meta.version||0),meta.fileName||"",meta.sourceSheet||"",Number(meta.rowCount||0),meta.updatedBy||"",meta.updatedAt||new Date().toISOString(),Number(meta.rejectedRows||0),Number(meta.duplicateCodes||0),result]);}
-function stockExcelUser_(email){var wanted=String(email||"").trim().toLowerCase();if(!wanted)return null;var info=getUsuariosSheetInfo_(),rowNum=findUsuarioRowByEmail_(info,wanted);if(rowNum<0)return null;var row=info.sheet.getRange(rowNum,1,1,info.headers.length).getDisplayValues()[0];if(!usuarioActivoValor_(row[info.activoIdx]))return null;return{email:wanted,role:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),area:stockExcelNorm_(row[info.areaIdx]||"").toUpperCase()};}
-function stockExcelAuthorize_(payload,adminOnly){var actor=payload&&payload.actor||{},email=stockExcelVerifyAuthToken_(actor.token);if(!email||email!==String(actor.email||"").trim().toLowerCase())throw new Error("La sesión no es válida o expiró. Volvé a iniciar sesión.");var user=stockExcelUser_(email);if(!user)throw new Error("Usuario no autorizado para modificar Stock.");var admin=user.role==="ADMIN"||user.role==="ADMINISTRADOR";if(adminOnly&&!admin)throw new Error("Solo un administrador puede eliminar el Stock compartido.");if(!admin&&["ABASTECIMIENTO","OFICINA TECNICA"].indexOf(user.area)<0)throw new Error("Tu perfil no tiene permisos de edición en Abastecimiento.");return user;}
-function stockExcelAuthSecret_(){var props=PropertiesService.getScriptProperties(),secret=props.getProperty("APP_AUTH_TOKEN_SECRET");if(!secret){secret=Utilities.getUuid()+Utilities.getUuid();props.setProperty("APP_AUTH_TOKEN_SECRET",secret);}return secret;}
-function stockExcelIssueAuthToken_(email){var body=Utilities.base64EncodeWebSafe(JSON.stringify({email:String(email||"").trim().toLowerCase(),exp:new Date().getTime()+43200000}),Utilities.Charset.UTF_8).replace(/=+$/g,""),sig=Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(body,stockExcelAuthSecret_())).replace(/=+$/g,"");return body+"."+sig;}
-function stockExcelVerifyAuthToken_(token){try{var parts=String(token||"").split(".");if(parts.length!==2)return"";var expected=Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(parts[0],stockExcelAuthSecret_())).replace(/=+$/g,"");if(expected!==parts[1])return"";var data=JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());return Number(data.exp||0)>=new Date().getTime()?String(data.email||"").trim().toLowerCase():"";}catch(e){return"";}}
-function stockExcelText_(v){var text=String(v==null?"":v);return/^[=+\-@]/.test(text)?"'"+text:text;}
-function stockExcelValidateRows_(rows){if(!Array.isArray(rows)||!rows.length)throw new Error("El Excel no contiene filas válidas.");if(rows.length>50000)throw new Error("El Excel supera el máximo de 50.000 filas.");var seen={},duplicates=0,invalid=0,deposits={"DEPOSITO CENTRAL":1,"DEPOSITO BATIDERO":1,"DEPOSITO FILO DEL SOL":1},matrix=[];rows.forEach(function(r,i){var code=String(r.codigoArticulo||"").trim(),dep=String(r.descripcionDeposito||"").trim().toUpperCase(),nums=[r.saldoControlStock,r.stockMaximo,r.stockMinimo].map(Number);if(!code)throw new Error("Existe una fila con código vacío.");if(seen[code.toUpperCase()]){duplicates++;throw new Error("Existen códigos duplicados en las filas recibidas.");}seen[code.toUpperCase()]=1;if(!deposits[dep])throw new Error("Depósito no reconocido: "+dep);if(!nums.every(function(n){return isFinite(n);})) {invalid++;throw new Error("Existe un valor numérico inválido.");}if(nums[2]>nums[1])throw new Error("STOCK_MINIMO no puede superar STOCK_MAXIMO.");matrix.push(["stock-"+(i+1),stockExcelText_(code),stockExcelText_(r.descripcion),stockExcelText_(r.descripcionAdicional),stockExcelText_(dep),stockExcelText_(r.controlStock),nums[0],nums[1],nums[2]]);});return{matrix:matrix,duplicates:duplicates,invalid:invalid};}
-function stockExcelRowsFromSheet_(sheet){if(!sheet||sheet.getLastRow()<2)return[];return sheet.getRange(2,1,sheet.getLastRow()-1,STOCK_EXCEL_DATA_HEADERS_.length).getValues().map(function(r){return{id:r[0],codigoArticulo:r[1],descripcion:r[2],descripcionAdicional:r[3],descripcionDeposito:r[4],controlStock:r[5],saldoControlStock:Number(r[6]||0),stockMaximo:Number(r[7]||0),stockMinimo:Number(r[8]||0)};});}
-function handleStockExcelStatus_(){return handleStockExcelData_();}
-function handleStockExcelData_(){var meta=stockExcelReadMeta_(),sheet=stockExcelDb_().getSheetByName(STOCK_MAIN_SHEET_);return{ok:true,meta:meta,rows:meta.active&&sheet?stockExcelRowsFromSheet_(sheet):[]};}
-function handleGetStockActive_(){return handleStockExcelData_();}
-function handleUploadStock_(payload){return handleStockExcelUpload_(payload);}
-function handleStockExcelUpload_(payload){var lock=LockService.getScriptLock();if(!lock.tryLock(30000))throw new Error("Hay otra carga de Stock en curso. Intentá nuevamente.");var oldMeta=stockExcelReadMeta_(),user=null,backup=null,temp=null;try{user=stockExcelAuthorize_(payload,false);var name=String(payload.fileName||"").trim();if(!/\.(xlsx|xls)$/i.test(name))throw new Error("Solo se admiten archivos .xlsx o .xls.");var checked=stockExcelValidateRows_(payload.rows),ss=stockExcelDb_();temp=ss.getSheetByName(STOCK_TEMP_SHEET_)||ss.insertSheet(STOCK_TEMP_SHEET_);temp.clearContents();temp.getRange(1,1,1,STOCK_EXCEL_DATA_HEADERS_.length).setValues([STOCK_EXCEL_DATA_HEADERS_]).setFontWeight("bold");temp.getRange(2,1,checked.matrix.length,checked.matrix[0].length).setValues(checked.matrix);temp.setFrozenRows(1);SpreadsheetApp.flush();if(temp.getLastRow()-1!==checked.matrix.length)throw new Error("La cantidad escrita no coincide con las filas recibidas.");var main=ss.getSheetByName(STOCK_MAIN_SHEET_);if(main){backup=main;backup.setName("STOCK CRITICO BACKUP "+new Date().getTime());}temp.setName(STOCK_MAIN_SHEET_);var meta={version:Number(oldMeta.version||0)+1,activeSheet:STOCK_MAIN_SHEET_,fileName:name,sourceSheet:String(payload.sheetName||""),rowCount:checked.matrix.length,updatedAt:new Date().toISOString(),updatedBy:user.email,validRows:checked.matrix.length,rejectedRows:0,duplicateCodes:checked.duplicates};stockExcelWriteMeta_(meta);stockExcelHistory_(meta,"OK");if(backup)ss.deleteSheet(backup);stockExcelSheet_(STOCK_TEMP_SHEET_,STOCK_EXCEL_DATA_HEADERS_).clearContents();stockExcelSheet_(STOCK_TEMP_SHEET_,STOCK_EXCEL_DATA_HEADERS_);return{ok:true,meta:meta,rows:stockExcelRowsFromSheet_(ss.getSheetByName(STOCK_MAIN_SHEET_))};}catch(error){try{var rollbackSs=stockExcelDb_();if(backup){var currentMain=rollbackSs.getSheetByName(STOCK_MAIN_SHEET_);if(currentMain&&currentMain!==backup)currentMain.setName(STOCK_TEMP_SHEET_);backup.setName(STOCK_MAIN_SHEET_);}}catch(rollbackError){}try{stockExcelHistory_({version:Number(oldMeta.version||0)+1,fileName:payload.fileName||"",sourceSheet:payload.sheetName||"",rowCount:Array.isArray(payload.rows)?payload.rows.length:0,updatedBy:user?user.email:"",updatedAt:new Date().toISOString(),rejectedRows:0,duplicateCodes:0},"ERROR: "+error.message);}catch(historyError){}throw error;}finally{try{lock.releaseLock();}catch(e){}}}
-function handleStockExcelClear_(payload){var lock=LockService.getScriptLock();if(!lock.tryLock(30000))throw new Error("Hay otra operación de Stock en curso. Intentá nuevamente.");try{var user=stockExcelAuthorize_(payload,true),old=stockExcelReadMeta_(),sheet=stockExcelSheet_(STOCK_MAIN_SHEET_,STOCK_EXCEL_DATA_HEADERS_);sheet.clearContents();sheet.getRange(1,1,1,STOCK_EXCEL_DATA_HEADERS_.length).setValues([STOCK_EXCEL_DATA_HEADERS_]).setFontWeight("bold");sheet.setFrozenRows(1);var meta={version:Number(old.version||0)+1,activeSheet:"",fileName:"",sourceSheet:"",rowCount:0,updatedAt:new Date().toISOString(),updatedBy:user.email,validRows:0,rejectedRows:0,duplicateCodes:0};stockExcelWriteMeta_(meta);stockExcelHistory_(meta,"CLEARED");return{ok:true,meta:meta,rows:[]};}finally{try{lock.releaseLock();}catch(e){}}}
+var STOCK_EXCEL_DATA_HEADERS_ = [
+  "ID",
+  "CODIGO_ARTICULO",
+  "DESCRIPCION",
+  "DESCRIPCION_ADICIONAL",
+  "DESCRIPCION_DEPOSITO",
+  "CONTROL_STOCK",
+  "SALDO_CONTROL_STOCK",
+  "STOCK_MAXIMO",
+  "STOCK_MINIMO"
+];
+
+var STOCK_EXCEL_META_HEADERS_ = [
+  "VERSION",
+  "ACTIVE_SHEET",
+  "FILE_NAME",
+  "SOURCE_SHEET",
+  "ROW_COUNT",
+  "UPDATED_AT",
+  "UPDATED_BY",
+  "VALID_ROWS",
+  "REJECTED_ROWS",
+  "DUPLICATE_CODES"
+];
+
+var STOCK_HISTORY_HEADERS_ = [
+  "VERSION",
+  "FILE_NAME",
+  "SOURCE_SHEET",
+  "ROW_COUNT",
+  "UPDATED_BY",
+  "UPDATED_AT",
+  "REJECTED_ROWS",
+  "DUPLICATE_CODES",
+  "RESULT"
+];
+
+var STOCK_MAIN_SHEET_ = "STOCK CRITICO";
+var STOCK_TEMP_SHEET_ = "STOCK_TEMP";
+var STOCK_HISTORY_SHEET_ = "STOCK_HISTORIAL";
+
+function stockExcelNorm_(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function stockExcelDb_() {
+  var config = SHEETS_CONFIG.raba03;
+  if (!config || !config.id) {
+    throw new Error("No está configurada la base RABA03 para Stock.");
+  }
+  return SpreadsheetApp.openById(config.id);
+}
+
+function stockExcelSheet_(name, headers) {
+  var spreadsheet = stockExcelDb_();
+  var sheet = spreadsheet.getSheetByName(name) || spreadsheet.insertSheet(name);
+
+  if (sheet.getLastRow() < 1) {
+    sheet.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setFontWeight("bold");
+  }
+
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
+function stockExcelMetaSheet_() {
+  return stockExcelSheet_("STOCK_META", STOCK_EXCEL_META_HEADERS_);
+}
+
+function stockExcelReadMeta_() {
+  var sheet = stockExcelMetaSheet_();
+  if (sheet.getLastRow() < 2) {
+    return { version: 0, active: false };
+  }
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  var row = sheet.getRange(2, 1, 1, headers.length).getDisplayValues()[0];
+  var valuesByHeader = {};
+
+  headers.forEach(function (header, index) {
+    valuesByHeader[stockExcelNorm_(header)] = row[index];
+  });
+
+  var activeSheet = String(valuesByHeader["active sheet"] || "");
+  return {
+    version: Number(valuesByHeader["version"] || 0),
+    active: activeSheet === STOCK_MAIN_SHEET_,
+    activeSheet: activeSheet,
+    fileName: valuesByHeader["file name"] || "",
+    sourceSheet: valuesByHeader["source sheet"] || "",
+    rowCount: Number(valuesByHeader["row count"] || 0),
+    updatedAt: valuesByHeader["updated at"] || "",
+    updatedBy: valuesByHeader["updated by"] || "",
+    validRows: Number(valuesByHeader["valid rows"] || valuesByHeader["row count"] || 0),
+    rejectedRows: Number(valuesByHeader["rejected rows"] || 0),
+    duplicateCodes: Number(valuesByHeader["duplicate codes"] || 0)
+  };
+}
+
+function stockExcelWriteMeta_(meta) {
+  var sheet = stockExcelMetaSheet_();
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, STOCK_EXCEL_META_HEADERS_.length)
+    .setValues([STOCK_EXCEL_META_HEADERS_])
+    .setFontWeight("bold");
+  sheet.getRange(2, 1, 1, STOCK_EXCEL_META_HEADERS_.length).setValues([[
+    Number(meta.version || 0),
+    meta.activeSheet || "",
+    meta.fileName || "",
+    meta.sourceSheet || "",
+    Number(meta.rowCount || 0),
+    meta.updatedAt || new Date().toISOString(),
+    meta.updatedBy || "",
+    Number(meta.validRows || 0),
+    Number(meta.rejectedRows || 0),
+    Number(meta.duplicateCodes || 0)
+  ]]);
+  sheet.setFrozenRows(1);
+  SpreadsheetApp.flush();
+}
+
+function stockExcelHistory_(meta, result) {
+  var sheet = stockExcelSheet_(STOCK_HISTORY_SHEET_, STOCK_HISTORY_HEADERS_);
+  sheet.appendRow([
+    Number(meta.version || 0),
+    meta.fileName || "",
+    meta.sourceSheet || "",
+    Number(meta.rowCount || 0),
+    meta.updatedBy || "",
+    meta.updatedAt || new Date().toISOString(),
+    Number(meta.rejectedRows || 0),
+    Number(meta.duplicateCodes || 0),
+    result
+  ]);
+}
+
+function stockExcelUser_(email) {
+  var wanted = String(email || "").trim().toLowerCase();
+  if (!wanted) return null;
+
+  var info = getUsuariosSheetInfo_();
+  var rowNumber = findUsuarioRowByEmail_(info, wanted);
+  if (rowNumber < 0) return null;
+
+  var row = info.sheet.getRange(rowNumber, 1, 1, info.headers.length).getDisplayValues()[0];
+  if (!usuarioActivoValor_(row[info.activoIdx])) return null;
+
+  return {
+    email: wanted,
+    role: String(row[info.rolIdx] || "USUARIO").trim().toUpperCase(),
+    area: stockExcelNorm_(row[info.areaIdx] || "").toUpperCase()
+  };
+}
+
+function stockExcelAuthorize_(payload, adminOnly) {
+  payload = payload || {};
+  var actor = payload.actor || payload.user || {};
+  var token = actor.token || actor.authToken || payload.token || payload.authToken || "";
+  var actorEmail = actor.email || payload.email || payload.userEmail || "";
+  var verifiedEmail = stockExcelVerifyAuthToken_(token);
+
+  if (!verifiedEmail || verifiedEmail !== String(actorEmail).trim().toLowerCase()) {
+    throw new Error("La sesión no es válida o expiró. Volvé a iniciar sesión.");
+  }
+
+  var user = stockExcelUser_(verifiedEmail);
+  if (!user) throw new Error("Usuario no autorizado para modificar Stock.");
+
+  var isAdmin = user.role === "ADMIN" || user.role === "ADMINISTRADOR";
+  if (adminOnly && !isAdmin) {
+    throw new Error("Solo un administrador puede eliminar el Stock compartido.");
+  }
+
+  if (!isAdmin && ["ABASTECIMIENTO", "OFICINA TECNICA"].indexOf(user.area) < 0) {
+    throw new Error("Tu perfil no tiene permisos de edición en Abastecimiento.");
+  }
+
+  return user;
+}
+
+function stockExcelAuthSecret_() {
+  var properties = PropertiesService.getScriptProperties();
+  var secret = properties.getProperty("APP_AUTH_TOKEN_SECRET");
+  if (!secret) {
+    secret = Utilities.getUuid() + Utilities.getUuid();
+    properties.setProperty("APP_AUTH_TOKEN_SECRET", secret);
+  }
+  return secret;
+}
+
+function stockExcelIssueAuthToken_(email) {
+  var body = Utilities.base64EncodeWebSafe(JSON.stringify({
+    email: String(email || "").trim().toLowerCase(),
+    exp: new Date().getTime() + 43200000
+  }), Utilities.Charset.UTF_8).replace(/=+$/g, "");
+  var signature = Utilities.base64EncodeWebSafe(
+    Utilities.computeHmacSha256Signature(body, stockExcelAuthSecret_())
+  ).replace(/=+$/g, "");
+  return body + "." + signature;
+}
+
+function stockExcelVerifyAuthToken_(token) {
+  try {
+    var parts = String(token || "").split(".");
+    if (parts.length !== 2) return "";
+
+    var expected = Utilities.base64EncodeWebSafe(
+      Utilities.computeHmacSha256Signature(parts[0], stockExcelAuthSecret_())
+    ).replace(/=+$/g, "");
+    if (expected !== parts[1]) return "";
+
+    var data = JSON.parse(
+      Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString()
+    );
+    if (Number(data.exp || 0) < new Date().getTime()) return "";
+    return String(data.email || "").trim().toLowerCase();
+  } catch (error) {
+    return "";
+  }
+}
+
+function stockExcelText_(value) {
+  var text = String(value == null ? "" : value);
+  return /^[=+\-@]/.test(text) ? "'" + text : text;
+}
+
+function stockExcelValidateRows_(rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    throw new Error("El Excel no contiene filas válidas.");
+  }
+  if (rows.length > 50000) {
+    throw new Error("El Excel supera el máximo de 50.000 filas.");
+  }
+
+  var seen = {};
+  var deposits = {
+    "DEPOSITO CENTRAL": true,
+    "DEPOSITO BATIDERO": true,
+    "DEPOSITO FILO DEL SOL": true
+  };
+  var matrix = [];
+
+  rows.forEach(function (row, index) {
+    var code = String(row.codigoArticulo || "").trim();
+    var deposit = String(row.descripcionDeposito || "").trim().toUpperCase();
+    var balance = Number(row.saldoControlStock);
+    var maximum = Number(row.stockMaximo);
+    var minimum = Number(row.stockMinimo);
+
+    if (!code) throw new Error("Existe una fila con código vacío.");
+    if (seen[code.toUpperCase()]) {
+      throw new Error("Existen códigos duplicados en las filas recibidas: " + code);
+    }
+    seen[code.toUpperCase()] = true;
+
+    if (!deposits[deposit]) {
+      throw new Error("Depósito no reconocido: " + deposit);
+    }
+    if (![balance, maximum, minimum].every(function (number) { return isFinite(number); })) {
+      throw new Error("Existe un valor numérico inválido en el código " + code + ".");
+    }
+    if (minimum > maximum) {
+      throw new Error("STOCK_MINIMO no puede superar STOCK_MAXIMO en el código " + code + ".");
+    }
+
+    matrix.push([
+      "stock-" + (index + 1),
+      stockExcelText_(code),
+      stockExcelText_(row.descripcion),
+      stockExcelText_(row.descripcionAdicional),
+      stockExcelText_(deposit),
+      stockExcelText_(row.controlStock),
+      balance,
+      maximum,
+      minimum
+    ]);
+  });
+
+  return { matrix: matrix, duplicates: 0, invalid: 0 };
+}
+
+function stockExcelRowsFromSheet_(sheet) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return sheet.getRange(
+    2,
+    1,
+    sheet.getLastRow() - 1,
+    STOCK_EXCEL_DATA_HEADERS_.length
+  ).getValues().map(function (row) {
+    return {
+      id: row[0],
+      codigoArticulo: row[1],
+      descripcion: row[2],
+      descripcionAdicional: row[3],
+      descripcionDeposito: row[4],
+      controlStock: row[5],
+      saldoControlStock: Number(row[6] || 0),
+      stockMaximo: Number(row[7] || 0),
+      stockMinimo: Number(row[8] || 0)
+    };
+  });
+}
+
+function handleStockExcelStatus_() {
+  return { ok: true, meta: stockExcelReadMeta_() };
+}
+
+function handleStockExcelData_() {
+  var meta = stockExcelReadMeta_();
+  var sheet = stockExcelDb_().getSheetByName(STOCK_MAIN_SHEET_);
+  return {
+    ok: true,
+    meta: meta,
+    rows: meta.active && sheet ? stockExcelRowsFromSheet_(sheet) : []
+  };
+}
+
+function handleGetStockActive_() {
+  return handleStockExcelData_();
+}
+
+function handleUploadStock_(payload) {
+  return handleStockExcelUpload_(payload);
+}
+
+function handleStockExcelUpload_(payload) {
+  payload = payload || {};
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    throw new Error("Hay otra carga de Stock en curso. Intentá nuevamente.");
+  }
+
+  var oldMeta = stockExcelReadMeta_();
+  var user = null;
+  var backup = null;
+  var promotedTemp = null;
+
+  try {
+    user = stockExcelAuthorize_(payload, false);
+    var fileName = String(payload.fileName || (payload.file && payload.file.name) || "").trim();
+    if (!/\.(xlsx|xls)$/i.test(fileName)) {
+      throw new Error("Solo se admiten archivos .xlsx o .xls.");
+    }
+
+    var checked = stockExcelValidateRows_(payload.rows);
+    var spreadsheet = stockExcelDb_();
+    var temp = spreadsheet.getSheetByName(STOCK_TEMP_SHEET_) || spreadsheet.insertSheet(STOCK_TEMP_SHEET_);
+
+    temp.clearContents();
+    temp.getRange(1, 1, 1, STOCK_EXCEL_DATA_HEADERS_.length)
+      .setValues([STOCK_EXCEL_DATA_HEADERS_])
+      .setFontWeight("bold");
+    temp.getRange(2, 1, checked.matrix.length, checked.matrix[0].length)
+      .setValues(checked.matrix);
+    temp.setFrozenRows(1);
+    SpreadsheetApp.flush();
+
+    if (temp.getLastRow() - 1 !== checked.matrix.length) {
+      throw new Error("La cantidad escrita no coincide con las filas recibidas.");
+    }
+
+    var main = spreadsheet.getSheetByName(STOCK_MAIN_SHEET_);
+    if (main) {
+      backup = main;
+      backup.setName("STOCK CRITICO BACKUP " + new Date().getTime());
+    }
+
+    temp.setName(STOCK_MAIN_SHEET_);
+    promotedTemp = temp;
+
+    var meta = {
+      version: Number(oldMeta.version || 0) + 1,
+      activeSheet: STOCK_MAIN_SHEET_,
+      fileName: fileName,
+      sourceSheet: String(payload.sheetName || ""),
+      rowCount: checked.matrix.length,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.email,
+      validRows: checked.matrix.length,
+      rejectedRows: 0,
+      duplicateCodes: checked.duplicates
+    };
+
+    stockExcelWriteMeta_(meta);
+    stockExcelHistory_(meta, "OK");
+
+    var freshTemp = stockExcelSheet_(STOCK_TEMP_SHEET_, STOCK_EXCEL_DATA_HEADERS_);
+    freshTemp.clearContents();
+    freshTemp.getRange(1, 1, 1, STOCK_EXCEL_DATA_HEADERS_.length)
+      .setValues([STOCK_EXCEL_DATA_HEADERS_])
+      .setFontWeight("bold");
+    freshTemp.setFrozenRows(1);
+    if (backup) spreadsheet.deleteSheet(backup);
+
+    return {
+      ok: true,
+      meta: meta,
+      rows: stockExcelRowsFromSheet_(spreadsheet.getSheetByName(STOCK_MAIN_SHEET_))
+    };
+  } catch (error) {
+    try {
+      var rollbackSpreadsheet = stockExcelDb_();
+      if (backup) {
+        var currentMain = rollbackSpreadsheet.getSheetByName(STOCK_MAIN_SHEET_);
+        var currentTemp = rollbackSpreadsheet.getSheetByName(STOCK_TEMP_SHEET_);
+        if (currentTemp && currentTemp !== currentMain) {
+          rollbackSpreadsheet.deleteSheet(currentTemp);
+        }
+        if (currentMain && currentMain !== backup) {
+          currentMain.setName(STOCK_TEMP_SHEET_);
+        }
+        backup.setName(STOCK_MAIN_SHEET_);
+      } else if (promotedTemp) {
+        var orphanTemp = rollbackSpreadsheet.getSheetByName(STOCK_TEMP_SHEET_);
+        if (orphanTemp && orphanTemp !== promotedTemp) {
+          rollbackSpreadsheet.deleteSheet(orphanTemp);
+        }
+        promotedTemp.setName(STOCK_TEMP_SHEET_);
+      }
+      stockExcelWriteMeta_(oldMeta);
+    } catch (rollbackError) {}
+
+    try {
+      stockExcelHistory_({
+        version: Number(oldMeta.version || 0) + 1,
+        fileName: payload.fileName || (payload.file && payload.file.name) || "",
+        sourceSheet: payload.sheetName || "",
+        rowCount: Array.isArray(payload.rows) ? payload.rows.length : 0,
+        updatedBy: user ? user.email : "",
+        updatedAt: new Date().toISOString(),
+        rejectedRows: 0,
+        duplicateCodes: 0
+      }, "ERROR: " + error.message);
+    } catch (historyError) {}
+
+    throw error;
+  } finally {
+    try { lock.releaseLock(); } catch (releaseError) {}
+  }
+}
+
+function handleStockExcelClear_(payload) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    throw new Error("Hay otra operación de Stock en curso. Intentá nuevamente.");
+  }
+
+  try {
+    var user = stockExcelAuthorize_(payload, true);
+    var oldMeta = stockExcelReadMeta_();
+    var sheet = stockExcelSheet_(STOCK_MAIN_SHEET_, STOCK_EXCEL_DATA_HEADERS_);
+
+    sheet.clearContents();
+    sheet.getRange(1, 1, 1, STOCK_EXCEL_DATA_HEADERS_.length)
+      .setValues([STOCK_EXCEL_DATA_HEADERS_])
+      .setFontWeight("bold");
+    sheet.setFrozenRows(1);
+
+    var meta = {
+      version: Number(oldMeta.version || 0) + 1,
+      activeSheet: "",
+      fileName: "",
+      sourceSheet: "",
+      rowCount: 0,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.email,
+      validRows: 0,
+      rejectedRows: 0,
+      duplicateCodes: 0
+    };
+
+    stockExcelWriteMeta_(meta);
+    stockExcelHistory_(meta, "CLEARED");
+    return { ok: true, meta: meta, rows: [] };
+  } finally {
+    try { lock.releaseLock(); } catch (releaseError) {}
+  }
+}
