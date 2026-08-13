@@ -8,6 +8,7 @@ export const VIEW_SOURCES = Object.freeze({
   controlErrores:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   ctrlEquipo:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   controlROP02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  atrasoROP02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   combustible:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   cambiosTurno:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   chc:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],

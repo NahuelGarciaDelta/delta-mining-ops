@@ -4,6 +4,7 @@ import { clearSharedStock, uploadStockExcel } from "../../services/stockService.
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { useSharedStock } from "./stock/useSharedStock.js";
 import { stockValidationSummary, validateStockWorkbook } from "./stock/stockValidation.js";
+import {useProgressiveRows} from "../../hooks/useProgressiveRows.js";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
 
@@ -99,7 +100,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   const STOCK_FILTER_COLUMNS = STOCK_CONTROL_COLUMNS.filter(c=>["codigoArticulo","descripcion","descripcionDeposito"].includes(c.key));
   const [stockFilters,setStockFilters]=useState({codigoArticulo:"todos",descripcion:"todos",descripcionDeposito:"todos"});
   const [stockSort,setStockSort]=useState({key:null,dir:null});
-  const [stockVisibleLimit,setStockVisibleLimit]=useState(350);
+  const [stockVisibleLimit,setStockVisibleLimit]=useState(250);
   const [codigoEdits,setCodigoEdits]=useState({});
   const [importModal,setImportModal]=useState({
     open:false,
@@ -133,7 +134,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   },[closedSolicitudes]);
 
   useEffect(()=>{
-    setStockVisibleLimit(350);
+    setStockVisibleLimit(250);
   },[stockFilters,stockSort]);
 
   const norm=useCallback((v)=>String(v||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim(),[]);
@@ -1166,6 +1167,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return String(av.v).localeCompare(String(bv.v),"es",{numeric:true,sensitivity:"base"})*dir;
     });
   },[filteredRows,sort]);
+  const progressiveMainRows=useProgressiveRows(sortedRows,{resetKey:tab});
 
   const stats=useMemo(()=>{
     const activos=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);
@@ -1784,7 +1786,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       const persisted=Array.isArray(result.rows)?result.rows:validation.rows;
       setStockRows(persisted);
       setStockMeta(result.meta||null);
-      setStockVisibleLimit(350);
+      setStockVisibleLimit(250);
       setTab("stock");
       setSuccessAlert({message:`Stock compartido actualizado: ${persisted.length} filas · versión ${result.meta?.version||"nueva"}`});
     }catch(err){
@@ -1802,7 +1804,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       setStockLoading(true);
       setError(null);
       const result=await clearSharedStock(APPS_SCRIPT_URL);
-      setStockRows([]);setStockMeta(result.meta||null);setStockVisibleLimit(350);
+      setStockRows([]);setStockMeta(result.meta||null);setStockVisibleLimit(250);
       setSuccessAlert({message:"El Stock compartido fue eliminado para todos los usuarios."});
     }catch(err){setError(`No se pudo eliminar el Stock compartido: ${err.message||err}`);}
     finally{setStockLoading(false);}
@@ -2240,7 +2242,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
               </tbody>
             </table>
             {visibleStockRows.length<sortedStockRows.length&&(<div style={{padding:12,textAlign:"center",borderTop:`1px solid ${C.border}`,background:"rgba(16,16,16,.82)"}}>
-              <button onClick={()=>setStockVisibleLimit(v=>v+350)} style={{height:34,border:`1px solid ${C.border}`,background:"rgba(255,255,255,.06)",color:C.text,borderRadius:10,padding:"0 14px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Ver más filas ({fmtNum(sortedStockRows.length-visibleStockRows.length)} restantes)</button>
+              <button onClick={()=>setStockVisibleLimit(v=>v+250)} style={{height:34,border:`1px solid ${C.border}`,background:"rgba(255,255,255,.06)",color:C.text,borderRadius:10,padding:"0 14px",fontSize:12,fontWeight:900,cursor:"pointer"}}>Mostrar 250 más ({fmtNum(sortedStockRows.length-visibleStockRows.length)} restantes)</button>
             </div>)}
           </div>
         </div>
@@ -2276,7 +2278,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
           </tr>
         </thead>
         <tbody>
-          {sortedRows.length?sortedRows.map(r=>{
+          {progressiveMainRows.totalCount?progressiveMainRows.visibleRows.map(r=>{
             const key=buildSolicitudKey(r);
             const rejectInfo=rejectedSolicitudes?.[key];
             const manualClosed=Boolean(closedSolicitudes?.[key]);
@@ -2320,7 +2322,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         </tbody>
       </table>
       </div>
-      <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(sortedRows.length)} ítems mostrados</div>
+      <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><span>Mostrando {fmtNum(progressiveMainRows.visibleCount)} de {fmtNum(progressiveMainRows.totalCount)} registros</span>{progressiveMainRows.hasMore&&<button type="button" onClick={progressiveMainRows.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 250 más</button>}</div>
     </div>
     );
   };

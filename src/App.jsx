@@ -193,6 +193,7 @@ export default function App(){
   const[loading,setLoading]=useState(false);
   const[syncing,setSyncing]=useState(false);
   const[rop02All,setRop02All]=useState([]);
+  const[rop02ControlAll,setRop02ControlAll]=useState([]);
   const[rop05,setRop05]=useState([]);
   const[lastUpdate,setLastUpdate]=useState(()=>savedAppData.updatedAt?new Date(savedAppData.updatedAt):null);
   const[sidebarOpen,setSidebarOpen]=useState(()=>savedOr("sidebarOpen",true));
@@ -396,7 +397,9 @@ export default function App(){
     if(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur || src.rop02_zorro){
       const allNames=[...allRop02.map(r=>r.supervisor),...allRop02.map(r=>r.operario),...rop05Raw.map(r=>r.supervisor)].filter(Boolean);
       buildCanonicalMap(allNames);
-      setRop02All(allRop02.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),supervisor:normName(r.supervisor),operario:normName(r.operario)})));
+      const normalizedRop02=allRop02.map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),supervisor:normName(r.supervisor),operario:normName(r.operario)}));
+      setRop02ControlAll(normalizedRop02);
+      setRop02All(normalizedRop02.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)));
     }
 
     const insumosMap={};
@@ -1035,7 +1038,7 @@ export default function App(){
               </div>
             )}
             {fatalError&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
-            {!fatalError&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
+            {!fatalError&&view!=="bienvenida"&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <LoadingMotoniveladora size={340}/>
@@ -1044,14 +1047,14 @@ export default function App(){
                 <div style={{color:C.textMuted,fontSize:13}}>Sincronizando información</div>
               </div>
             )}
-            {!fatalError&&(lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
+            {!fatalError&&(view==="bienvenida"||lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
                 {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
                 {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
                 {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}
                 {["listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
                   view={view} deps={createOficinaTecnicaDeps(BlockingDataLoader)} dataHydrated={dataHydrated} rawSources={rawSources}
-                  sourceHasData={sourceHasData} listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15}
+                  sourceHasData={sourceHasData} listaEquipos={listaEquipos} rop02All={rop02All} rop02ControlAll={rop02ControlAll} rop05={rop05} rma15={rma15}
                   control={control} dashSt={dashSt} setDashSt={setDashSt} health={health} loading={loading}
                   onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"])}
                   onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}

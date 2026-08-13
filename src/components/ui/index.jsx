@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
+import {DEFAULT_PROGRESSIVE_ROWS,useProgressiveRows} from "../../hooks/useProgressiveRows.js";
 import { ICON_PATHS } from "../../shared/icons.js";
 import { fmtNum, normDate, toNumber } from "../../shared/formatters.js";
 import { SafeTooltipHtml } from "../../shared/safeTooltip.jsx";
@@ -276,6 +277,7 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   const[density,setDensity]=useState(()=>{try{return localStorage.getItem("dm_table_density")||"normal"}catch(_){return"normal"}});
   const ROW_H=density==="compact"?30:density==="comfortable"?44:36;
   const[tableSearch,setTableSearch]=useState("");
+  const[debouncedTableSearch,setDebouncedTableSearch]=useState("");
   const[showColumns,setShowColumns]=useState(false);
   const[showColumnFilters,setShowColumnFilters]=useState(false);
   const[columnFilters,setColumnFilters]=useState({});
@@ -283,11 +285,11 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   const[pinnedFirstCol,setPinnedFirstCol]=useState(()=>readPrefs().pinnedFirstCol??stickyFirst);
   const[colWidths,setColWidths]=useState(()=>readPrefs().colWidths||{});
   useEffect(()=>{try{localStorage.setItem(storageKey,JSON.stringify({hiddenColumns:[...hiddenColumns],pinnedFirstCol,colWidths}))}catch(_){}},[storageKey,hiddenColumns,pinnedFirstCol,colWidths]);
-  const[scrollTop,setScrollTop]=useState(0);
   const[sortKey,setSortKey]=useState(null);
   const[sortDir,setSortDir]=useState("asc");
   const[hoverTip,setHoverTip]=useState(null);
   const[pinnedTip,setPinnedTip]=useState(null);
+  useEffect(()=>{const id=setTimeout(()=>setDebouncedTableSearch(tableSearch),250);return()=>clearTimeout(id)},[tableSearch]);
 
 
   // FIX VIBRACIÓN DE TABLAS:
@@ -297,12 +299,10 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   // empezaba a moverse de izquierda a derecha. Para tablas con texto multilínea
   // se desactiva la virtualización y se deja el layout estable.
   const visibleCols=useMemo(()=>cols.filter((c,i)=>!hiddenColumns.has(c.key||c.label||String(i))),[cols,hiddenColumns]);
-  const hasWrappedCols=useMemo(()=>visibleCols.some(c=>c.wrap),[visibleCols]);
-  const useVirtual=rows.length>250&&!hasWrappedCols;
+  const useVirtual=false;
   const onScroll=useCallback(e=>{
-    if(useVirtual)setScrollTop(e.target.scrollTop);
     setHoverTip(null);
-  },[useVirtual]);
+  },[]);
 
   // Ordenamiento global para TODAS las tablas:
   // Primer clic = menor a mayor para números/fechas y A→Z para textos.
@@ -363,7 +363,7 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   },[sortKey,sortDir,detectInitialDir]);
 
   const searchedRows=useMemo(()=>{
-    const q=String(tableSearch||"").trim().toLowerCase();
+    const q=String(debouncedTableSearch||"").trim().toLowerCase();
     return rows.filter(r=>{
       if(q&&!Object.values(r||{}).some(v=>v!==null&&v!==undefined&&typeof v!=="object"&&String(v).toLowerCase().includes(q)))return false;
       for(const c of visibleCols){
@@ -374,7 +374,7 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
       }
       return true;
     });
-  },[rows,tableSearch,columnFilters,visibleCols]);
+  },[rows,debouncedTableSearch,columnFilters,visibleCols]);
 
   const sortedRows=useMemo(()=>{
     if(!sortKey)return searchedRows;
@@ -398,12 +398,11 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
     });
   },[searchedRows,visibleCols,sortKey,sortDir,colSortId,normalizeSortValue]);
 
-  const bufferRows=8;
-  const visibleCount=Math.ceil(maxH/ROW_H);
-  const startIdx=useVirtual?Math.max(0,Math.floor(scrollTop/ROW_H)-bufferRows):0;
-  const endIdx=useVirtual?Math.min(sortedRows.length,startIdx+visibleCount+bufferRows*2):sortedRows.length;
-  const visibleRows=sortedRows.slice(startIdx,endIdx);
-  const offsetY=useVirtual?startIdx*ROW_H:0;
+  const progressive=useProgressiveRows(sortedRows,{resetKey:`${debouncedTableSearch}|${JSON.stringify(columnFilters)}|${sortKey}|${sortDir}`});
+  const visibleRows=progressive.visibleRows;
+  const startIdx=0;
+  const endIdx=visibleRows.length;
+  const offsetY=0;
 
   if(rows.length===0)return(
     <div style={{padding:"28px",textAlign:"center",color:C.textMuted,fontSize:12}}>{emptyMsg}</div>
@@ -515,6 +514,10 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
           </tbody>
         </table>
       </div>
+      {sortedRows.length>DEFAULT_PROGRESSIVE_ROWS&&<div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"9px 10px",borderTop:`1px solid ${C.border}55`,background:"rgba(0,0,0,.10)"}}>
+        <span style={{fontSize:10,color:C.textMuted}}>Mostrando {progressive.visibleCount.toLocaleString("es-AR")} de {progressive.totalCount.toLocaleString("es-AR")} registros</span>
+        {progressive.hasMore&&<button type="button" onClick={progressive.showMore} style={{padding:"5px 9px",borderRadius:7,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,cursor:"pointer",fontSize:10,fontWeight:800}}>Mostrar 250 más</button>}
+      </div>}
       <TableRowTooltip tip={pinnedTip||hoverTip} pinned={Boolean(pinnedTip)} />
     </>
   );

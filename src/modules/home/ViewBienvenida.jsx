@@ -1,28 +1,72 @@
-import React, {useEffect, useMemo, useState} from "react";
+import React, {startTransition, useEffect, useMemo, useRef, useState} from "react";
 import { Icon } from "../../components/ui/index.jsx";
 import { APP_BUILD_LABEL } from "../../app/version.js";
 import { APPS_SCRIPT_URL } from "../../config/app.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
 import { fetchStockData } from "../../services/stockService.js";
+import { canonicalEquivalentMachineCode } from "../../shared/domain/index.jsx";
 import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
+import { buildLatestRop02ByCode, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap, readAtrasoAdmitidos } from "./homeAvailability.js";
 
 const norm=v=>String(v??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 const getVal=(row,cands)=>{const keys=Object.keys(row||{});for(const cand of cands){const w=norm(cand);for(const k of keys){const nk=norm(k);if(nk===w||nk.includes(w)||w.includes(nk))return row[k];}}return "";};
 const toNum=v=>{const n=Number(String(v??"").replace(/\./g,"").replace(",",".").replace(/[^0-9.-]/g,""));return Number.isFinite(n)?n:0;};
 const codeOf=r=>String(getVal(r,["Maquina","Máquina","Interno","Código Interno","Codigo nuevo","Código nuevo","Codigo de Drusila","Código de Drusila","Codigo Int"])||"").trim().toUpperCase().replace(/-JM$/i,"");
 const dateOf=r=>{const raw=getVal(r,["Fecha","Fecha OT","Fecha del Parte Diario","Fecha de solicitud"]);if(!raw)return null;const s=String(raw);const d=/^\d{4}-\d{2}-\d{2}/.test(s)?new Date(`${s.slice(0,10)}T12:00:00`):new Date(s);return Number.isNaN(d.getTime())?null:d;};
+const isoOfDate=d=>d&&!Number.isNaN(d.getTime())?`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`:"";
+const fmtDateISO=iso=>/^\d{4}-\d{2}-\d{2}$/.test(String(iso||""))?`${iso.slice(8,10)}/${iso.slice(5,7)}/${iso.slice(0,4)}`:"—";
+const isValidInterno=code=>{const c=String(code||"").trim();return c&&c!=="-"&&/[A-Z]/i.test(c)&&/\d/.test(c);};
+const isNoOperativoValue=value=>["no","fuera de servicio","false","0"].includes(norm(value));
+const EMPTY_SUMMARY_DETAILS={
+  equiposViales:{count:0,items:[]},camiones:{count:0,items:[]},camionetas:{count:0,items:[]},
+  equiposFS:{count:0,items:[]},disponibilidad:{percentage:null,available:0,unavailable:0,count:0,items:[]},
+  otAbiertas:{count:0,items:[]},stockCritico:{count:0,items:[]},
+};
+const EMPTY_SUMMARY={viales:null,camiones:null,camionetas:null,equiposFS:null,disponibilidad:null,otAbiertas:null,stockCritico:null,details:EMPTY_SUMMARY_DETAILS};
+let bienvenidaSummaryCache=null;
+let bienvenidaStockCache=null;
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
 
 export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false}){
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
-  const [sharedStockRows,setSharedStockRows]=useState([]);
+  const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
+  const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
+  const [admitidosAtraso,setAdmitidosAtraso]=useState(()=>readAtrasoAdmitidos());
+  const [activeSummaryKey,setActiveSummaryKey]=useState(null);
+  const summaryRef=useRef(null);
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(id);},[]);
-  useEffect(()=>{let alive=true;fetchStockData(APPS_SCRIPT_URL).then(r=>{if(alive)setSharedStockRows(Array.isArray(r.rows)?r.rows:[]);}).catch(()=>{});return()=>{alive=false;};},[]);
+  useEffect(()=>{
+    if(bienvenidaStockCache)return;
+    let alive=true;
+    const run=()=>fetchStockData(APPS_SCRIPT_URL).then(r=>{
+      if(!alive)return;
+      bienvenidaStockCache=Array.isArray(r.rows)?r.rows:[];
+      startTransition(()=>setSharedStockRows(bienvenidaStockCache));
+    }).catch(()=>{});
+    const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(run,{timeout:900}):window.setTimeout(run,120);
+    return()=>{alive=false;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
+  },[]);
+  useEffect(()=>{
+    const sync=()=>setAdmitidosAtraso(readAtrasoAdmitidos());
+    window.addEventListener("storage",sync);
+    window.addEventListener("focus",sync);
+    window.addEventListener("dm-atrasos-updated",sync);
+    return()=>{window.removeEventListener("storage",sync);window.removeEventListener("focus",sync);window.removeEventListener("dm-atrasos-updated",sync);};
+  },[]);
+  useEffect(()=>{
+    const close=event=>{if(summaryRef.current&&!summaryRef.current.contains(event.target))setActiveSummaryKey(null);};
+    const onKey=event=>{if(event.key==="Escape")setActiveSummaryKey(null);};
+    document.addEventListener("mousedown",close);
+    document.addEventListener("keydown",onKey);
+    return()=>{document.removeEventListener("mousedown",close);document.removeEventListener("keydown",onKey);};
+  },[]);
 
-  const stats=useMemo(()=>{
+  useEffect(()=>{
+    let cancelled=false;
+    const calculate=()=>{
     const equipos=Array.isArray(listaEquipos)?listaEquipos:[];
     const rop=Array.isArray(rop02All)?rop02All:[];
     const rma=Array.isArray(rma15)?rma15:[];
@@ -48,26 +92,83 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       return "vial";
     };
 
-    const activos=new Set();
-    rop.forEach(r=>{const d=dateOf(r);const c=codeOf(r);if(c&&d&&d>=seven)activos.add(normalizeCode(c));});
-    const operativos={viales:0,camiones:0,camionetas:0};
-    activos.forEach(c=>{const type=classifyActive(c);if(type==="camioneta")operativos.camionetas++;else if(type==="camion")operativos.camiones++;else operativos.viales++;});
+    const activos=new Map();
+    rop.forEach(r=>{const d=dateOf(r), rawCode=codeOf(r), c=canonicalEquivalentMachineCode(rawCode);if(c&&d&&d>=seven&&!activos.has(c))activos.set(c,{interno:c,lugar:r.proyecto||""});});
+    const operativos={viales:[],camiones:[],camionetas:[]};
+    activos.forEach(item=>{const type=classifyActive(item.interno);if(type==="camioneta")operativos.camionetas.push(item);else if(type==="camion")operativos.camiones.push(item);else operativos.viales.push(item);});
+    Object.values(operativos).forEach(items=>items.sort((a,b)=>String(a.interno).localeCompare(String(b.interno))));
 
-    const latest=new Map();rma.forEach(r=>{const c=normalizeCode(codeOf(r));const d=dateOf(r);if(!c||!d)return;const prev=latest.get(c);if(!prev||d>prev.d)latest.set(c,{d,row:r});});
-    let oper=0,total=0,abiertas=0;latest.forEach(({row})=>{const op=norm(getVal(row,["Operativo","Estado operativo","Estado"]));if(op){total++;if(["si","sí","operativo","true","1"].includes(op))oper++;else if(["no","fuera de servicio","false","0"].includes(op))abiertas++;}});
-    const disponibilidad=total?Math.round(oper/total*100):null;
+    const latestRop02ByCode=buildLatestRop02ByCode(rop,{normalizeEquipmentCode:canonicalEquivalentMachineCode});
+    const exclusionMap=getBajoSanJuanExclusionMap(admitidosAtraso,latestRop02ByCode);
+    const availabilityResult=calculateHomeAvailabilityFromRop02(rop,admitidosAtraso,{normalizeEquipmentCode:canonicalEquivalentMachineCode,exclusionMap})||{};
+    const availability={
+      disponibilidad:availabilityResult.disponibilidad??null,
+      disponibles:Number(availabilityResult.disponibles)||0,
+      noDisponibles:Number(availabilityResult.noDisponibles)||0,
+      items:Array.isArray(availabilityResult.items)?availabilityResult.items:[],
+      fsItems:Array.isArray(availabilityResult.fsItems)?availabilityResult.fsItems:[],
+      ...availabilityResult,
+    };
+    availability.items=Array.isArray(availability.items)?availability.items:[];
+    availability.fsItems=Array.isArray(availability.fsItems)?availability.fsItems:[];
+    const rmaRecords=[];
+    rma.forEach((row,index)=>{
+      const interno=canonicalEquivalentMachineCode(codeOf(row));
+      const fecha=dateOf(row);
+      if(!isValidInterno(interno)||!fecha)return;
+      const estadoOperativo=getVal(row,["Operativo","Estado operativo","Estado"]);
+      const estadoNorm=norm(estadoOperativo);
+      if(!estadoNorm)return;
+      const record={
+        row,index,interno,fechaISO:isoOfDate(fecha),time:fecha.getTime(),
+        noOperativo:isNoOperativoValue(estadoOperativo),
+        lugar:getVal(row,["Proyecto","Lugar","Proyecto/Lugar"])||"",
+        ot:getVal(row,["N° OT","Nº OT","OT","Orden","Orden de trabajo"])||"",
+        estado:estadoOperativo||""
+      };
+      rmaRecords.push(record);
+    });
+    const otAbiertasItems=calculateOpenOtItems(rmaRecords,exclusionMap);
     let stockCritico=null;
+    let stockCriticoItems=[];
       if(sharedStockRows.length){
-        stockCritico=sharedStockRows.filter(r=>{
+        stockCriticoItems=sharedStockRows.filter(r=>{
           const deposito=String(r?.descripcionDeposito||"").trim().toUpperCase();
           if(deposito&&!(["DEPOSITO CENTRAL","DEPOSITO BATIDERO","DEPOSITO FILO DEL SOL"].includes(deposito)))return false;
           const saldo=toNum(r?.saldoControlStock);
           const minimo=toNum(r?.stockMinimo);
           return minimo>0&&saldo<minimo;
-        }).length;
+        }).map(r=>({articulo:r?.descripcionArticulo||r?.articulo||r?.codigoArticulo||r?.codigo||"Artículo",codigo:r?.codigoArticulo||r?.codigo||"",deposito:r?.descripcionDeposito||"",stockActual:r?.saldoControlStock,stockMinimo:r?.stockMinimo}));
+        stockCritico=stockCriticoItems.length;
       }
-    return {...operativos,disponibilidad,otAbiertas:abiertas,stockCritico};
-  },[listaEquipos,rop02All,rma15,rawSources,sharedStockRows]);
+    const nextData={
+      viales:operativos.viales.length,camiones:operativos.camiones.length,camionetas:operativos.camionetas.length,
+      equiposFS:availability.fsItems?.length??0,disponibilidad:availability.disponibilidad,availability,
+      otAbiertas:otAbiertasItems?.length??0,stockCritico,
+      details:{
+        equiposViales:{count:operativos.viales.length,items:operativos.viales},
+        camiones:{count:operativos.camiones.length,items:operativos.camiones},
+        camionetas:{count:operativos.camionetas.length,items:operativos.camionetas},
+        equiposFS:{count:availability.fsItems?.length??0,items:availability.fsItems??[]},
+        disponibilidad:{percentage:availability.disponibilidad,available:availability.disponibles,unavailable:availability.noDisponibles,count:availability.items?.length??0,items:availability.items??[]},
+        otAbiertas:{count:otAbiertasItems?.length??0,items:otAbiertasItems??[]},
+        stockCritico:{count:stockCriticoItems?.length??0,items:stockCriticoItems??[]},
+      }
+    };
+    if(cancelled)return;
+    bienvenidaSummaryCache={data:nextData,loading:{
+      flota:rop.length===0,
+      disponibilidad:rop.length===0,
+      ot:rma.length===0,
+      stock:bienvenidaStockCache===null,
+    }};
+    startTransition(()=>setSummaryState(bienvenidaSummaryCache));
+    };
+    const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:700}):window.setTimeout(calculate,40);
+    return()=>{cancelled=true;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
+  },[listaEquipos,rop02All,rma15,sharedStockRows,admitidosAtraso]);
+  const stats=summaryState.data||EMPTY_SUMMARY;
+  const summaryLoading=summaryState.loading||{};
 
   const quick=esAdministrativo?[
     {label:"Control",desc:"Errores, consistencia y solicitudes.",icon:"shieldCheck",color:"#3b82f6",module:"administrativoErrores",view:"controlErrores"},
@@ -145,7 +246,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   };
 
   return <div className="dm-home" style={{position:"relative",minHeight:"100dvh",background:"#071018",fontFamily:"Inter,Arial,sans-serif",color:"#fff"}}>
-    <style>{`html,body,#root{min-width:0;min-height:100%;overflow-x:hidden}.dm-home{display:grid;grid-template-columns:218px minmax(0,1fr)}.dm-home>aside{position:sticky!important;height:100dvh;grid-column:1}.dm-home>main{position:relative!important;inset:auto!important;grid-column:2;min-width:0;min-height:100dvh;overflow-y:auto}.dm-home>main>div:first-child{flex-wrap:wrap}.dm-home-quick{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}.dm-home-hero{display:grid!important;grid-template-columns:minmax(0,1fr) 252px;gap:24px}.dm-home-summary{position:relative!important;inset:auto!important;transform:none!important;width:100%!important}.dm-panel-shell{padding:clamp(14px,2.2vw,30px)!important}@media(max-width:980px){.dm-home{grid-template-columns:84px minmax(0,1fr)}.dm-home>aside{width:84px!important}.dm-home>main{padding:20px!important}.dm-home-hero{grid-template-columns:1fr}.dm-home-summary{max-width:none}.dm-home>main>div:first-child{justify-content:flex-start!important}}@media(max-width:620px){.dm-home{display:block;padding-bottom:68px}.dm-home>aside{position:fixed!important;left:0!important;right:0!important;top:auto!important;bottom:0!important;width:100%!important;height:64px!important;z-index:20}.dm-home>aside>div:first-child,.dm-home>aside>div:last-child{display:none!important}.dm-home>aside>div:nth-child(2){height:64px;padding:6px!important;display:flex!important;flex-direction:row!important;overflow-x:auto}.dm-home>aside button{min-width:52px!important;height:50px!important;padding:0!important;justify-content:center!important}.dm-home>main{padding:14px!important;min-height:auto!important}.dm-home>main>div:first-child{gap:10px!important}.dm-home>main>div:first-child>*:nth-child(n+4){display:none}.dm-home-hero-copy{padding:28px 4px 16px}.dm-home-hero-copy br{display:none}.dm-home-quick{grid-template-columns:1fr 1fr!important}.dm-home-quick button{height:auto!important;min-height:112px}.dm-panel-shell{border-radius:14px!important}}@media(max-width:390px){.dm-home-quick{grid-template-columns:1fr!important}}`}</style>
+    <style>{`html,body,#root{min-width:0;min-height:100%;overflow-x:hidden}.dm-home{display:grid;grid-template-columns:218px minmax(0,1fr)}.dm-home>aside{position:sticky!important;height:100dvh;grid-column:1}.dm-home>main{position:relative!important;inset:auto!important;grid-column:2;min-width:0;min-height:100dvh;overflow-y:auto}.dm-home>main>div:first-child{flex-wrap:wrap}.dm-home-quick{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))!important}.dm-home-hero{display:grid!important;grid-template-columns:minmax(0,1fr) 252px;gap:24px}.dm-home-summary{position:relative!important;inset:auto!important;transform:none!important;width:100%!important}.dm-panel-shell{padding:clamp(14px,2.2vw,30px)!important}@media(max-width:980px){.dm-home{grid-template-columns:84px minmax(0,1fr)}.dm-home>aside{width:84px!important}.dm-home>main{padding:20px!important}.dm-home-hero{grid-template-columns:1fr}.dm-home-summary{max-width:none}.dm-summary-popover{left:0!important;right:auto!important;top:calc(100% + 10px)!important;width:min(360px,calc(100vw - 28px))!important}.dm-home>main>div:first-child{justify-content:flex-start!important}}@media(max-width:620px){.dm-home{display:block;padding-bottom:68px}.dm-home>aside{position:fixed!important;left:0!important;right:0!important;top:auto!important;bottom:0!important;width:100%!important;height:64px!important;z-index:20}.dm-home>aside>div:first-child,.dm-home>aside>div:last-child{display:none!important}.dm-home>aside>div:nth-child(2){height:64px;padding:6px!important;display:flex!important;flex-direction:row!important;overflow-x:auto}.dm-home>aside button{min-width:52px!important;height:50px!important;padding:0!important;justify-content:center!important}.dm-home>main{padding:14px!important;min-height:auto!important}.dm-home>main>div:first-child{gap:10px!important}.dm-home>main>div:first-child>*:nth-child(n+4){display:none}.dm-home-hero-copy{padding:28px 4px 16px}.dm-home-hero-copy br{display:none}.dm-home-quick{grid-template-columns:1fr 1fr!important}.dm-home-quick button{height:auto!important;min-height:112px}.dm-panel-shell{border-radius:14px!important}}@media(max-width:390px){.dm-home-quick{grid-template-columns:1fr!important}}`}</style>
     <style>{`@media(max-width:620px){.dm-home>main>div:first-child>*{display:flex!important}.dm-home>main>div:first-child{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center}.dm-home>main>div:first-child>div{min-width:0}.dm-home>main>div:first-child>div:nth-of-type(3){grid-column:1/-1}.dm-home>main>div:first-child>div:nth-of-type(3)>div:last-child{white-space:normal!important}.dm-home-hero-copy{margin:0!important;max-width:100%!important}.dm-home-summary>div:last-child{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px}.dm-home-summary>div:last-child>div{min-width:0}.dm-agenda{width:100%;max-width:100%;min-width:0}.dm-agenda-main>*{min-width:0}.dm-agenda-day{min-width:0}.dm-agenda-event{max-width:100%}}`}</style>
     <img src="/img/embedded/home-welcome-b80067ac.jpg" alt="Delta Mining" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",objectPosition:"center",filter:"brightness(.78) saturate(.86)"}}/>
     <div style={{position:"absolute",inset:0,background:"linear-gradient(90deg,rgba(3,12,20,.28) 0 12%,rgba(3,10,17,.22) 27%,rgba(3,10,17,.12) 64%,rgba(3,10,17,.42) 100%)"}}/>
@@ -180,16 +281,18 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
               <div style={{fontSize:18,lineHeight:1.5,color:"rgba(255,255,255,.88)",maxWidth:500}}>Accedé a la información y herramientas<br/>que impulsan cada proyecto, cada equipo<br/>y cada logro.</div>
             </div>
 
-            <div className="dm-home-summary" style={{position:"absolute",right:0,top:"50%",transform:"translateY(-45%)",width:252,borderRadius:10,background:"rgba(5,18,29,.62)",border:"1px solid rgba(255,255,255,.10)",boxShadow:"0 18px 45px rgba(0,0,0,.26)",overflow:"hidden",backdropFilter:"blur(18px) saturate(115%)",WebkitBackdropFilter:"blur(18px) saturate(115%)"}}>
+            <div ref={summaryRef} className="dm-home-summary" style={{position:"absolute",right:0,top:"50%",transform:"translateY(-45%)",width:252,borderRadius:10,background:"rgba(5,18,29,.62)",border:"1px solid rgba(255,255,255,.10)",boxShadow:"0 18px 45px rgba(0,0,0,.26)",overflow:"visible",backdropFilter:"blur(18px) saturate(115%)",WebkitBackdropFilter:"blur(18px) saturate(115%)"}}>
               <div style={{padding:"17px 18px",fontSize:14,fontWeight:900,borderBottom:"1px solid rgba(255,255,255,.07)",display:"flex",alignItems:"center",gap:8}}><Icon name="dashboard" size={16} color="#fff"/>RESUMEN GENERAL</div>
               <div style={{padding:"9px 14px 13px"}}>
-                <SummaryRow icon="truck" color="#e7edf2" label="Equipos viales operativos" value={stats.viales??"—"}/>
-                <SummaryRow icon="truck" color="#60a5fa" label="Camiones operativos" value={stats.camiones??"—"}/>
-                <SummaryRow icon="car" color="#22d3ee" label="Camionetas operativas" value={stats.camionetas??"—"}/>
-                <SummaryRow icon="hours" color="#22d3ee" label="Disponibilidad" value={stats.disponibilidad==null?"—":`${stats.disponibilidad}%`}/>
-                <SummaryRow icon="wrench" color="#e7edf2" label="OT abiertas" value={stats.otAbiertas??"—"}/>
-                <SummaryRow icon="package" color="#f5a000" label="Stock crítico" value={stats.stockCritico??"—"}/>
+                <SummaryRow active={activeSummaryKey==="equiposViales"} onClick={()=>setActiveSummaryKey(k=>k==="equiposViales"?null:"equiposViales")} icon="truck" color="#e7edf2" label="Equipos viales operativos" value={summaryLoading.flota?"Cargando…":stats.viales}/>
+                <SummaryRow active={activeSummaryKey==="camiones"} onClick={()=>setActiveSummaryKey(k=>k==="camiones"?null:"camiones")} icon="truck" color="#60a5fa" label="Camiones operativos" value={summaryLoading.flota?"Cargando…":stats.camiones}/>
+                <SummaryRow active={activeSummaryKey==="camionetas"} onClick={()=>setActiveSummaryKey(k=>k==="camionetas"?null:"camionetas")} icon="car" color="#22d3ee" label="Camionetas operativas" value={summaryLoading.flota?"Cargando…":stats.camionetas}/>
+                <SummaryRow active={activeSummaryKey==="equiposFS"} onClick={()=>setActiveSummaryKey(k=>k==="equiposFS"?null:"equiposFS")} icon="warn" color="#ef4444" label="Equipos FS" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposFS}/>
+                <SummaryRow active={activeSummaryKey==="disponibilidad"} onClick={()=>setActiveSummaryKey(k=>k==="disponibilidad"?null:"disponibilidad")} icon="hours" color="#22d3ee" label="Disponibilidad" value={summaryLoading.disponibilidad?"Cargando…":stats.disponibilidad==null?"—":`${stats.disponibilidad}%`} title="Calculada según el último registro ROP02 disponible de cada equipo dentro de los últimos 7 días. Trabajo u OD = disponible; FS = no disponible. Se excluyen equipos justificados como 'Bajó a San Juan'."/>
+                <SummaryRow active={activeSummaryKey==="otAbiertas"} onClick={()=>setActiveSummaryKey(k=>k==="otAbiertas"?null:"otAbiertas")} icon="wrench" color="#e7edf2" label="OT abiertas" value={summaryLoading.ot?"Cargando…":stats.otAbiertas}/>
+                <SummaryRow active={activeSummaryKey==="stockCritico"} onClick={()=>setActiveSummaryKey(k=>k==="stockCritico"?null:"stockCritico")} icon="package" color="#f5a000" label="Stock crítico" value={summaryLoading.stock?"Cargando…":stats.stockCritico}/>
               </div>
+              {activeSummaryKey&&<SummaryPopover summaryKey={activeSummaryKey} details={stats.details?.[activeSummaryKey]}/>}
             </div>
           </section>
 
@@ -210,7 +313,36 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
 const navStyle=active=>({width:"100%",height:46,border:"none",color:active?"#fff":"#d8dee4",display:"flex",alignItems:"center",gap:12,padding:"0 12px",fontSize:13,fontWeight:active?800:700,cursor:"pointer",textAlign:"left",position:"relative",overflow:"hidden"});
 function TopInfo({icon,value,sub}){return <div style={{display:"flex",alignItems:"center",gap:10}}><div style={{fontSize:27,lineHeight:1,color:"#eef2f5"}}>{icon}</div><div><div style={{fontSize:15,fontWeight:700,whiteSpace:"nowrap"}}>{value}</div><div style={{fontSize:11,color:"rgba(255,255,255,.72)",marginTop:2,textTransform:"capitalize"}}>{sub}</div></div></div>;}
 function Sep(){return <div style={{width:1,height:30,background:"rgba(255,255,255,.34)"}}/>;}
-function SummaryRow({icon,color,label,value}){return <div style={{display:"flex",alignItems:"center",gap:12,padding:"9px 0"}}><MiniIcon name={icon} color={color}/><div style={{flex:1}}><div style={{fontSize:11,fontWeight:700,color:"#e7edf1"}}>{label}</div><div style={{fontSize:25,lineHeight:1.1,marginTop:2}}>{value}</div></div></div>;}
+function SummaryRow({icon,color,label,value,title,onClick,active}){return <button type="button" title={title} onClick={onClick} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"9px 6px",margin:"0 -6px",border:`1px solid ${active?"rgba(255,255,255,.14)":"transparent"}`,borderRadius:8,background:active?"rgba(255,255,255,.07)":"transparent",color:"#fff",cursor:"pointer",textAlign:"left",transition:"background .15s ease,border-color .15s ease"}} onMouseEnter={e=>{if(!active)e.currentTarget.style.background="rgba(255,255,255,.045)";}} onMouseLeave={e=>{if(!active)e.currentTarget.style.background="transparent";}}><MiniIcon name={icon} color={color}/><div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:700,color:"#e7edf1"}}>{label}</div><div style={{fontSize:25,lineHeight:1.1,marginTop:2}}>{value}</div></div></button>;}
+function prettyLugar(v){
+  const n=norm(v);
+  if(n==="jose maria")return"José María";
+  if(n==="filo del sol")return"Filo del Sol";
+  if(n==="filo sur")return"Filo Sur";
+  if(n==="el zorro")return"El Zorro";
+  return String(v||"—");
+}
+function SummaryPopover({summaryKey,details={}}){
+  const titles={equiposViales:"Equipos viales operativos",camiones:"Camiones operativos",camionetas:"Camionetas operativas",equiposFS:"Equipos fuera de servicio",disponibilidad:"Detalle de disponibilidad",otAbiertas:"OT abiertas",stockCritico:"Stock crítico"};
+  const items=Array.isArray(details.items)?details.items:[];
+  const isAvailability=summaryKey==="disponibilidad";
+  const isStock=summaryKey==="stockCritico";
+  const isOt=summaryKey==="otAbiertas";
+  return <div className="dm-summary-popover" style={{position:"absolute",right:"calc(100% + 12px)",top:0,zIndex:50,width:isOt?420:360,maxWidth:"min(420px,calc(100vw - 32px))",maxHeight:430,borderRadius:12,border:"1px solid rgba(255,255,255,.12)",background:"rgba(5,18,29,.96)",boxShadow:"0 20px 55px rgba(0,0,0,.42)",overflow:"hidden"}}>
+    <div style={{padding:"12px 14px",borderBottom:"1px solid rgba(255,255,255,.08)",fontSize:13,fontWeight:900,color:"#fff"}}>{titles[summaryKey]||"Detalle"}</div>
+    {isAvailability&&<div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,.07)",fontSize:10,color:"#cbd5e1"}}><span>Disponibles: <b style={{color:"#22c55e"}}>{details.available??0}</b></span><span>FS: <b style={{color:"#ef4444"}}>{details.unavailable??0}</b></span><span>Total: <b style={{color:"#fff"}}>{details.count??items.length}</b></span></div>}
+    {isOt&&items.length>0&&<div style={{display:"grid",gridTemplateColumns:"92px minmax(0,1fr) 86px",gap:8,padding:"8px 16px 6px",borderBottom:"1px solid rgba(255,255,255,.06)",fontSize:9,fontWeight:900,letterSpacing:".08em",color:"#94a3b8"}}><span>INTERNO</span><span>LUGAR</span><span style={{textAlign:"right"}}>DESDE</span></div>}
+    <div style={{maxHeight:isAvailability?330:374,overflowY:"auto",padding:items.length?8:14}}>
+      {!items.length?<div style={{fontSize:12,color:"#94a3b8",lineHeight:1.5}}>No hay registros para este indicador.</div>:items.map((item,index)=><SummaryDetailRow key={`${summaryKey}-${item.interno||item.codigo||item.articulo}-${index}`} item={item} isAvailability={isAvailability} isStock={isStock} isOt={isOt}/>)}
+    </div>
+  </div>;
+}
+function SummaryDetailRow({item,isAvailability,isStock,isOt}){
+  if(isStock)return <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.4fr) minmax(90px,.9fr)",gap:8,padding:"7px 8px",borderBottom:"1px solid rgba(255,255,255,.06)",fontSize:11,color:"#dbe4ea"}}><span style={{minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:800}}>{item.articulo||item.codigo||"Artículo"}</span><span style={{color:"#94a3b8",textAlign:"right"}}>{prettyLugar(item.deposito)}</span><span style={{gridColumn:"1/-1",fontSize:10,color:"#94a3b8"}}>Stock {item.stockActual??"—"} / mínimo {item.stockMinimo??"—"}</span></div>;
+  if(isOt)return <div style={{display:"grid",gridTemplateColumns:"92px minmax(0,1fr) 86px",gap:8,padding:"7px 8px",borderBottom:"1px solid rgba(255,255,255,.06)",fontSize:11,color:"#dbe4ea",alignItems:"center"}}><span style={{fontWeight:900,color:"#fff"}}>{item.interno||"—"}</span><span style={{color:"#94a3b8",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prettyLugar(item.lugar)}</span><span style={{textAlign:"right",fontWeight:800,color:"#e2e8f0"}}>{fmtDateISO(item.fechaNoOperativo)}</span>{item.ot&&<span style={{gridColumn:"1/-1",fontSize:10,color:"#94a3b8"}}>OT: {item.ot}{item.estado?` · ${item.estado}`:""}</span>}</div>;
+  const estado=String(item.estado||"");
+  return <div style={{display:"grid",gridTemplateColumns:isAvailability?"88px 1fr 70px":"88px 1fr",gap:8,padding:"7px 8px",borderBottom:"1px solid rgba(255,255,255,.06)",fontSize:11,color:"#dbe4ea",alignItems:"center"}}><span style={{fontWeight:900,color:"#fff"}}>{item.interno||"—"}</span><span style={{color:"#94a3b8",minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{prettyLugar(item.lugar)}</span>{isAvailability&&<span style={{textAlign:"right",fontWeight:900,color:estado==="FS"?"#ef4444":"#22c55e"}}>{estado||"—"}</span>}{!isAvailability&&item.ultimoROP02&&<span style={{gridColumn:"1/-1",fontSize:10,color:"#94a3b8"}}>Último ROP02: {item.ultimoROP02}</span>}{item.ot&&<span style={{gridColumn:"1/-1",fontSize:10,color:"#94a3b8"}}>OT: {item.ot}{item.estado?` · ${item.estado}`:""}</span>}</div>;
+}
 function OperationalAgenda({month,onMonthChange,data,onNavigate}){
   const year=month.getFullYear(),monthIndex=month.getMonth();
   const toDateKey=value=>{const text=String(value||"").trim();return /^\d{4}-\d{2}-\d{2}/.test(text)?text.slice(0,10):"";};

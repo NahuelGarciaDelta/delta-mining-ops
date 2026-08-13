@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import ComparisonStrip from "../../components/ComparisonStrip.jsx";
 import {WeatherSummary} from "../weather/WeatherModule.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
+import { calculateAtrasoRop02 } from "../home/homeAvailability.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -4295,24 +4296,15 @@ function ViewAtrasoROP02({rop02All}){
       if(r.supervisor)porEquipo[k].supervisor=r.supervisor;
     });
 
-    // Equipo atrasado: venía registrándose en la ventana previa de 7 días y su
-    // última carga tiene 2 días o más respecto de hoy.
-    const inicioVentana=addDays(hoyISO,-8);
-    const finVentana=addDays(hoyISO,-1);
-    const atrasados=Object.values(porEquipo).map(v=>{
-      const fechasEq=[...v.fechas].sort();
-      const ultimaCarga=fechasEq[fechasEq.length-1]||"";
-      const diasSinCarga=ultimaCarga?diffDias(hoyISO,ultimaCarga):0;
-      const fechasVentana=fechasEq.filter(f=>f>=inicioVentana&&f<=finVentana);
-      const id=`atrasado_${v.codigo}_${ultimaCarga}`;
-      const saved=admitidos[id]||{};
-      return{
-        id,tipo:"Atrasado",codigo:v.codigo,maquina:v.maquina,proyecto:v.proyecto,supervisor:v.supervisor,
-        ultimaCarga,diasSinCarga,diasConCarga:fechasVentana.length,registros:v.registros,
-        causa:String(saved.causa||"").trim(),admitido:Boolean(saved.admitido||saved.causa),fechaAdmitido:saved.fechaAdmitido||"",usuario:saved.usuario||""
-      };
-    }).filter(r=>r.diasSinCarga>=2&&r.diasConCarga>=1)
-      .sort((a,b)=>b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));
+    // Equipo atrasado: tiene historial y su última carga quedó al menos 2 días
+    // detrás de la fecha máxima global; la ventana reciente es sólo informativa.
+    const atrasoActual=calculateAtrasoRop02(rop02Prod,admitidos,{
+      normalizeEquipmentCode:keyEquipoAtraso,
+      isEligible:()=>true,
+    });
+    const atrasados=atrasoActual.atrasados;
+    const inicioVentana=atrasoActual.ventanaDesde;
+    const finVentana=atrasoActual.ventanaHasta;
 
     const desdeSaltos=ultimaFecha?addDays(ultimaFecha,-45):"";
     const saltos=[];
@@ -4410,6 +4402,7 @@ function ViewAtrasoROP02({rop02All}){
       ultimaCarga:modalAtraso.ultimaCarga,
       diasSinCarga:modalAtraso.diasSinCarga
     }});
+    window.dispatchEvent(new CustomEvent("dm-atrasos-updated"));
     setModalAtraso(null);
   };
 
@@ -4417,6 +4410,7 @@ function ViewAtrasoROP02({rop02All}){
     const next={...admitidos};
     delete next[row.id];
     saveAdmitidos(next);
+    window.dispatchEvent(new CustomEvent("dm-atrasos-updated"));
   };
 
   const accionBtn=(row)=><button onClick={()=>abrirJustificacion(row)} style={{border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.yellow,borderRadius:7,padding:"5px 9px",fontSize:11,fontWeight:800,cursor:"pointer"}}>Justificar</button>;
@@ -4493,10 +4487,10 @@ function ViewAtrasoROP02({rop02All}){
         <StatCard icon="warn" label="Saltos sin causa" value={saltosSinCausa} sub="Cortes intermedios por equipo" color={saltosSinCausa?C.red:C.green} small/>
       </div>
 
-      {atrasadosPendientes.length>0&&<AlertBanner type="warn">Se detectaron equipos que tuvieron carga en los 7 días anteriores y ahora llevan 2 días o más sin aparecer. Revisalos y presioná <strong>Justificar</strong> cuando la falta sea válida, por ejemplo porque el equipo bajó a San Juan.</AlertBanner>}
+      {atrasadosPendientes.length>0&&<AlertBanner type="warn">Se detectaron equipos con historial ROP02 cuya última carga quedó 2 días o más detrás de la fecha máxima cargada. Revisalos y presioná <strong>Justificar</strong> cuando la falta sea válida, por ejemplo porque el equipo bajó a San Juan.</AlertBanner>}
 
       <Card title={`Equipos atrasados (${atrasadosPendientes.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols.filter(c=>c.key!=="accion"),atrasadosPendientes,"Equipos_Atrasados_ROP02")}/>}>
-        <Table cols={cols} rows={atrasadosPendientes} maxH={560} emptyMsg="No se detectaron equipos atrasados según las cargas de los últimos 7 días"/>
+        <Table cols={cols} rows={atrasadosPendientes} maxH={560} emptyMsg="No se detectaron equipos atrasados en el historial ROP02"/>
       </Card>
 
       <Card title={`Equipos aceptados (${atrasadosAceptados.length})`} action={<BtnExcel onClick={()=>excelFromCols(colsAceptados.filter(c=>c.key!=="accion"),atrasadosAceptados,"Equipos_Aceptados_ROP02")}/>}>
@@ -4529,12 +4523,12 @@ function ViewAtrasoROP02({rop02All}){
         </div>
       </div>}
 
-      <AlertBanner type="info">Criterio usado: un equipo se marca atrasado cuando tuvo al menos una carga dentro de los 7 días anteriores y lleva 2 días o más sin volver a cargarse. Los equipos justificados quedan en “Equipos aceptados”; al restaurarlos vuelven a “Equipos atrasados” y a su Excel.</AlertBanner>
+      <AlertBanner type="info">Criterio usado: un equipo con historial ROP02 se marca atrasado cuando su última carga quedó 2 días o más detrás de la fecha máxima global. La ventana de 7 días informa actividad reciente, pero no elimina equipos del control. Los equipos justificados quedan en “Equipos aceptados”; al restaurarlos vuelven a “Equipos atrasados” y a su Excel.</AlertBanner>
     </div>
   );
 }
 
-function ViewControlROP02({rop02All,tabState,setTabState,stControlErrores,setStControlErrores,stCtrlEquipo,setStCtrlEquipo}){
+function ViewControlROP02({rop02All,rop02ControlAll=rop02All,tabState,setTabState,stControlErrores,setStControlErrores,stCtrlEquipo,setStCtrlEquipo}){
   const tab=tabState?.tab||"errores";
   const setTab=t=>setTabState(s=>({...s,tab:t}));
   return(
@@ -4548,7 +4542,7 @@ function ViewControlROP02({rop02All,tabState,setTabState,stControlErrores,setStC
       </Card>
       {tab==="errores"&&<ControlDeErrores rop02All={rop02All} extState={stControlErrores} setExtState={setStControlErrores}/>} 
       {tab==="equipo"&&<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>} 
-      {tab==="atraso"&&<ViewAtrasoROP02 rop02All={rop02All}/>} 
+      {tab==="atraso"&&<ViewAtrasoROP02 rop02All={rop02ControlAll}/>}
     </div>
   );
 }
@@ -5836,7 +5830,7 @@ export function OficinaTecnicaModule({
   dataHydrated=false,
   rawSources={},
   sourceHasData=()=>false,
-  listaEquipos=[],rop02All=[],rop05=[],rma15=[],control={},dashSt,setDashSt,
+  listaEquipos=[],rop02All=[],rop02ControlAll=[],rop05=[],rma15=[],control={},dashSt,setDashSt,
   onReloadLista,
   st02,setSt02,stHorometros,setStHorometros,stVeh,setStVeh,
   stControlROP02,setStControlROP02,stControlErrores,setStControlErrores,
@@ -5855,10 +5849,10 @@ export function OficinaTecnicaModule({
   if(view==="rop02")return dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02}/>:<Loader label="Cargando ROP02..."/>;
   if(view==="horometros")return dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<Loader label="Cargando Horómetros..."/>;
   if(view==="vehiculos")return dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} listaEquipos={listaEquipos} extState={stVeh} setExtState={setStVeh}/>:<Loader label="Cargando Vehículos..."/>;
-  if(view==="controlROP02")return dataHydrated&&rop02All.length>0?<ViewControlROP02 rop02All={rop02All} tabState={stControlROP02} setTabState={setStControlROP02} stControlErrores={stControlErrores} setStControlErrores={setStControlErrores} stCtrlEquipo={stCtrlEquipo} setStCtrlEquipo={setStCtrlEquipo}/>:<Loader label="Cargando Control de ROP02..."/>;
+  if(view==="controlROP02")return dataHydrated&&(rop02All.length>0||rop02ControlAll.length>0)?<ViewControlROP02 rop02All={rop02All} rop02ControlAll={rop02ControlAll} tabState={stControlROP02} setTabState={setStControlROP02} stControlErrores={stControlErrores} setStControlErrores={setStControlErrores} stCtrlEquipo={stCtrlEquipo} setStCtrlEquipo={setStCtrlEquipo}/>:<Loader label="Cargando Control de ROP02..."/>;
   if(view==="controlErrores")return dataHydrated&&rop02All.length>0?<ControlDeErrores rop02All={rop02All} extState={stControlErrores} setExtState={setStControlErrores}/>:<Loader label="Cargando Control de errores..."/>;
   if(view==="ctrlEquipo")return dataHydrated&&rop02All.length>0?<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>:<Loader label="Cargando Control por Equipo..."/>;
-  if(view==="atrasoROP02")return dataHydrated&&rop02All.length>0?<ViewAtrasoROP02 rop02All={rop02All}/>:<Loader label="Cargando Atraso ROP02..."/>;
+  if(view==="atrasoROP02")return dataHydrated&&rop02ControlAll.length>0?<ViewAtrasoROP02 rop02All={rop02ControlAll}/>:<Loader label="Cargando Atraso ROP02..."/>;
   if(view==="combustible")return dataHydrated&&rop02All.length>0?<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>:<Loader label="Cargando Combustible..."/>;
   if(view==="rop05")return dataHydrated&&rop05.length>0?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<Loader label="Cargando Productividad..."/>;
   if(view==="rop05Discriminacion")return dataHydrated&&rop05.length>0?<ViewROP05Discriminacion rop05={rop05} extState={st05} setExtState={setSt05}/>:<Loader label="Cargando Discriminación por tarea..."/>;

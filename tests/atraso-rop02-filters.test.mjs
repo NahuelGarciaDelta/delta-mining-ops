@@ -24,3 +24,12 @@ test("Atraso ROP02 aplica los filtros también a tarjetas, tablas y exportacione
   assert.match(source, /excelFromCols\(cols\.filter\(c=>c\.key!=="accion"\),atrasadosPendientes/);
   assert.match(source, /excelFromCols\(colsSaltos\.filter\(c=>c\.key!=="accion"\),saltosFiltrados/);
 });
+
+test("Atraso recibe el historial ROP02 global antes del recorte por proyecto", () => {
+  const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+  const viewSources = fs.readFileSync(new URL("../src/config/viewSources.js", import.meta.url), "utf8");
+  assert.match(appSource,/setRop02ControlAll\(normalizedRop02\)/);
+  assert.match(appSource,/rop02ControlAll=\{rop02ControlAll\}/);
+  assert.match(source,/ViewAtrasoROP02 rop02All=\{rop02ControlAll\}/);
+  assert.match(viewSources,/atrasoROP02:\["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"\]/);
+});
