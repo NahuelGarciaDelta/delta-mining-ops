@@ -398,6 +398,15 @@ function normalizeMovementText_(value) {
   return String(value || "").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 }
 
+function normalizeMovementProject_(value) {
+  var raw = normalizeMovementText_(value);
+  if (raw === "FS" || raw === "FDS" || raw === "FILO" || raw === "FILO DE SOL" || raw.indexOf("FILO DEL SOL") >= 0 || raw.indexOf("VICUNA") >= 0) return "FILO DEL SOL";
+  if (raw === "JM" || raw.indexOf("JOSE MARIA") >= 0) return "JOSE MARIA";
+  if (raw === "ZORRO" || raw.indexOf("EL ZORRO") >= 0) return "EL ZORRO";
+  if (raw === "FILOSUR" || raw.indexOf("FILO SUR") >= 0) return "FILO SUR";
+  return raw;
+}
+
 function movementType_(value, motivo) {
   var type = normalizeMovementText_(value).replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   var reason = normalizeMovementText_(motivo);
@@ -412,8 +421,8 @@ function movementRowObject_(headers, row) {
   var when = out.FECHA_HORA instanceof Date ? out.FECHA_HORA.toISOString() : String(out.FECHA_HORA || "");
   return {
     id:String(out.ID || ""), fechaHora:when, interno:String(out.INTERNO || ""),
-    internoNormalizado:String(out.INTERNO_NORMALIZADO || ""), proyectoOrigen:String(out.PROYECTO_ORIGEN || ""),
-    proyectoDestino:String(out.PROYECTO_DESTINO || ""), tipoMovimiento:String(out.TIPO_MOVIMIENTO || ""),
+    internoNormalizado:String(out.INTERNO_NORMALIZADO || ""), proyectoOrigen:normalizeMovementProject_(out.PROYECTO_ORIGEN),
+    proyectoDestino:normalizeMovementProject_(out.PROYECTO_DESTINO), tipoMovimiento:String(out.TIPO_MOVIMIENTO || ""),
     motivo:String(out.MOTIVO || ""), observacion:String(out.OBSERVACION || ""), usuario:String(out.USUARIO || ""),
     fechaUltimoRop02:out.FECHA_ULTIMO_ROP02 instanceof Date ? Utilities.formatDate(out.FECHA_ULTIMO_ROP02, "GMT", "yyyy-MM-dd") : String(out.FECHA_ULTIMO_ROP02 || "").slice(0,10),
     estado:String(out.ESTADO || ""), activo:out.ACTIVO === true || normalizeMovementText_(out.ACTIVO) === "TRUE"
@@ -429,7 +438,7 @@ function handleGetEquipmentMovements_(onlyActive) {
   var all = values.map(function(row){return movementRowObject_(headers,row);}).filter(function(m){return m.id;});
   all.sort(function(a,b){return String(a.fechaHora).localeCompare(String(b.fechaHora));});
   var activeMap = {};
-  all.forEach(function(m){if(m.activo && m.estado !== "CANCELADO" && m.estado !== "SUPERADO") activeMap[m.internoNormalizado] = m;});
+  all.forEach(function(m){if(m.activo && m.estado !== "CANCELADO" && m.estado !== "SUPERADO") activeMap[m.internoNormalizado + "|" + m.proyectoOrigen] = m;});
   var data = onlyActive ? Object.keys(activeMap).map(function(k){return activeMap[k];}) : all;
   return {ok:true, action:onlyActive?"get_active_equipment_movements":"get_equipment_movements", data:data, activeMovementByEquipment:activeMap, rows:data.length, fetchedAt:new Date().toISOString()};
 }
@@ -445,7 +454,8 @@ function handleSaveEquipmentMovement_(movement) {
   var tipo = movementType_(requestedType, motivo);
   var normalized = normalizeEquipmentMovementCode_(movement.internoNormalizado || interno);
   if (!normalized) throw new Error("INTERNO_NORMALIZADO inválido.");
-  var destination = normalizeMovementText_(movement.proyectoDestino || (tipo === "BAJO_SAN_JUAN" ? "SAN JUAN" : ""));
+  var origin = normalizeMovementProject_(movement.proyectoOrigen);
+  var destination = normalizeMovementProject_(movement.proyectoDestino || (tipo === "BAJO_SAN_JUAN" ? "SAN JUAN" : ""));
   var lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     var sheet = ensureMovimientosEquiposSheet();
@@ -454,13 +464,15 @@ function handleSaveEquipmentMovement_(movement) {
       var codeCol = headers.indexOf("INTERNO_NORMALIZADO") + 1, stateCol = headers.indexOf("ESTADO") + 1, activeCol = headers.indexOf("ACTIVO") + 1;
       var existingRows = sheet.getRange(2,1,sheet.getLastRow()-1,sheet.getLastColumn()).getValues();
       existingRows.forEach(function(row,index){
-        if (String(row[codeCol-1]) === normalized && (row[activeCol-1] === true || normalizeMovementText_(row[activeCol-1]) === "TRUE")) {
+        var originCol = headers.indexOf("PROYECTO_ORIGEN") + 1;
+        var sameOrigin = normalizeMovementProject_(row[originCol-1]) === origin;
+        if (String(row[codeCol-1]) === normalized && sameOrigin && (row[activeCol-1] === true || normalizeMovementText_(row[activeCol-1]) === "TRUE")) {
           sheet.getRange(index+2,stateCol).setValue("SUPERADO");
           sheet.getRange(index+2,activeCol).setValue(false);
         }
       });
     }
-    var values = [Utilities.getUuid(),new Date(),interno,normalized,normalizeMovementText_(movement.proyectoOrigen),destination,tipo,motivo,String(movement.observacion||"").trim(),String(movement.usuario||"Usuario").trim(),String(movement.fechaUltimoRop02||"").slice(0,10),"ACEPTADO",true];
+    var values = [Utilities.getUuid(),new Date(),interno,normalized,origin,destination,tipo,motivo,String(movement.observacion||"").trim(),String(movement.usuario||"Usuario").trim(),String(movement.fechaUltimoRop02||"").slice(0,10),"ACEPTADO",true];
     sheet.appendRow(values);
     SpreadsheetApp.flush();
     return {ok:true,action:"save_equipment_movement",movement:movementRowObject_(MOVIMIENTOS_EQUIPOS_HEADERS_,values),savedAt:new Date().toISOString()};

@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import ComparisonStrip from "../../components/ComparisonStrip.jsx";
 import {WeatherSummary} from "../weather/WeatherModule.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
-import { calculateAtrasoRop02 } from "../home/homeAvailability.js";
+import { calculateAtrasoRop02, equipmentProjectKey, normalizeRop02Project } from "../home/homeAvailability.js";
 import {cancelEquipmentMovement,saveEquipmentMovement,useEquipmentMovements} from "../../services/equipmentMovements.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
@@ -4285,17 +4285,17 @@ function ViewAtrasoROP02({rop02All}){
     const ultimaFecha=fechas[fechas.length-1]||"";
     const diasAtraso=ultimaFecha?diffDias(hoyISO,ultimaFecha):null;
     const rowsUltima=ultimaFecha?rop02Prod.filter(r=>r.fecha===ultimaFecha):[];
-    const presentesUltima=new Set(rowsUltima.map(r=>keyEquipoAtraso(r.maquina)).filter(Boolean));
+    const presentesUltima=new Set(rowsUltima.map(r=>equipmentProjectKey(keyEquipoAtraso(r.maquina),r.proyecto)).filter(Boolean));
 
-    const porEquipo={};
+    const recordsByEquipmentProject=new Map();
     rop02Prod.forEach(r=>{
-      const k=keyEquipoAtraso(r.maquina);
-      if(!k)return;
-      if(!porEquipo[k])porEquipo[k]={codigo:k,maquina:r.maquina,proyecto:r.proyecto,supervisor:r.supervisor,fechas:new Set(),registros:0};
-      porEquipo[k].fechas.add(r.fecha);
-      porEquipo[k].registros+=1;
-      if(r.proyecto)porEquipo[k].proyecto=r.proyecto;
-      if(r.supervisor)porEquipo[k].supervisor=r.supervisor;
+      const codigo=keyEquipoAtraso(r.maquina), proyecto=normalizeRop02Project(r.proyecto);
+      if(!codigo||!proyecto)return;
+      const k=equipmentProjectKey(codigo,proyecto);
+      const current=recordsByEquipmentProject.get(k)||{codigo,maquina:r.maquina,proyecto,supervisor:"",fechas:new Set(),registros:0,ultimaCarga:""};
+      current.fechas.add(r.fecha);current.registros+=1;
+      if(r.fecha>=current.ultimaCarga){current.ultimaCarga=r.fecha;if(r.supervisor)current.supervisor=r.supervisor;current.maquina=r.maquina||current.maquina;}
+      recordsByEquipmentProject.set(k,current);
     });
 
     // Equipo atrasado: tiene historial y su última carga quedó al menos 2 días
@@ -4310,7 +4310,7 @@ function ViewAtrasoROP02({rop02All}){
 
     const desdeSaltos=ultimaFecha?addDays(ultimaFecha,-45):"";
     const saltos=[];
-    Object.values(porEquipo).forEach(v=>{
+    recordsByEquipmentProject.forEach(v=>{
       const fechasEq=[...v.fechas].filter(f=>!desdeSaltos||f>=desdeSaltos).sort();
       if(fechasEq.length<2)return;
       for(let i=1;i<fechasEq.length;i++){
@@ -4318,13 +4318,14 @@ function ViewAtrasoROP02({rop02All}){
         const hasta=fechasEq[i];
         const diasSalto=diffDias(hasta,desde)-1;
         if(diasSalto<=0)continue;
-        const id=`salto_${v.codigo}_${desde}_${hasta}`;
-        const saved=admitidos[id]||{};
+        const id=`salto_${v.codigo}_${v.proyecto}_${desde}_${hasta}`;
+        const saved=admitidos[id]||admitidos[`atrasado_${v.codigo}_${v.proyecto}_${desde}`]||{};
         saltos.push({
           id,tipo:"Salto",codigo:v.codigo,maquina:v.maquina,proyecto:v.proyecto,supervisor:v.supervisor,
           ultimaCarga:desde,proximaCarga:hasta,diasSinCarga:diasSalto,
           diasSinCargaDetalle:fechasEntre(desde,hasta).join(", "),
-          causa:String(saved.causa||"").trim(),admitido:Boolean(saved.admitido||saved.causa),fechaAdmitido:saved.fechaAdmitido||""
+          causa:String(saved.causa||"").trim(),admitido:Boolean(saved.admitido||saved.causa),fechaAdmitido:saved.fechaAdmitido||"",
+          movementId:saved.movementId||"",proyectoDestino:saved.proyectoDestino||"",usuario:saved.usuario||""
         });
       }
     });
@@ -4406,7 +4407,7 @@ function ViewAtrasoROP02({rop02All}){
   };
 
   const restaurar=async(row)=>{
-    const movementId=admitidos[row.id]?.movementId;
+    const movementId=row.movementId||admitidos[row.id]?.movementId;
     if(!movementId)return;
     try{await cancelEquipmentMovement(movementId,sessionStorage.getItem("dm_user")||"Usuario");}
     catch(error){appAlert(error?.message||"No se pudo cancelar el movimiento.");}

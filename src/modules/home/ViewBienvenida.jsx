@@ -7,7 +7,7 @@ import { fetchStockData } from "../../services/stockService.js";
 import { canonicalEquivalentMachineCode } from "../../shared/domain/index.jsx";
 import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
-import { buildLatestRop02ByCode, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap } from "./homeAvailability.js";
+import { equipmentProjectKey, normalizeRop02Project, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap } from "./homeAvailability.js";
 import {useEquipmentMovements} from "../../services/equipmentMovements.js";
 
 const norm=v=>String(v??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
@@ -92,8 +92,13 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     activos.forEach(item=>{const type=classifyActive(item.interno);if(type==="camioneta")operativos.camionetas.push(item);else if(type==="camion")operativos.camiones.push(item);else operativos.viales.push(item);});
     Object.values(operativos).forEach(items=>items.sort((a,b)=>String(a.interno).localeCompare(String(b.interno))));
 
-    const latestRop02ByCode=buildLatestRop02ByCode(rop,{normalizeEquipmentCode:canonicalEquivalentMachineCode});
-    const exclusionMap=getBajoSanJuanExclusionMap(admitidosAtraso,latestRop02ByCode);
+    const latestRop02ByEquipmentProject=new Map();
+    rop.forEach(row=>{
+      const code=canonicalEquivalentMachineCode(codeOf(row)),project=normalizeRop02Project(row.proyecto),date=isoOfDate(dateOf(row));
+      const key=equipmentProjectKey(code,project);
+      if(code&&project&&date&&(!latestRop02ByEquipmentProject.has(key)||date>latestRop02ByEquipmentProject.get(key)))latestRop02ByEquipmentProject.set(key,date);
+    });
+    const exclusionMap=getBajoSanJuanExclusionMap(admitidosAtraso,latestRop02ByEquipmentProject);
     const availabilityResult=calculateHomeAvailabilityFromRop02(rop,admitidosAtraso,{normalizeEquipmentCode:canonicalEquivalentMachineCode,exclusionMap})||{};
     const availability={
       disponibilidad:availabilityResult.disponibilidad??null,

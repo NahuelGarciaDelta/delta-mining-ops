@@ -23,7 +23,20 @@ test("una carga ROP02 posterior supera el movimiento sin borrar historial",()=>{
 test("movimiento vigente alimenta Equipos aceptados con el id persistente",()=>{
   const active=new Map([["PCA-0021",{id:"uuid",interno:"PCA-0021-JM",motivo:"Bajó a San Juan",fechaHora:"2026-08-01T10:00:00Z",usuario:"a@delta.com",fechaUltimoRop02:"2026-07-30",proyectoOrigen:"JOSE MARIA",proyectoDestino:"SAN JUAN",tipoMovimiento:"BAJO_SAN_JUAN"}]]);
   const admitidos=movementsToAtrasoMap(active);
-  assert.equal(admitidos["atrasado_PCA-0021_2026-07-30"].movementId,"uuid");
+  assert.equal(admitidos["atrasado_PCA-0021_JOSE MARIA_2026-07-30"].movementId,"uuid");
+});
+
+test("movimientos del mismo equipo permanecen independientes por proyecto origen",()=>{
+  const movements=[
+    {id:"zorro",fechaHora:"2026-08-01T10:00:00Z",internoNormalizado:"TOP-0072",proyectoOrigen:"EL ZORRO",motivo:"Cambio de proyecto",fechaUltimoRop02:"2026-07-18",estado:"ACEPTADO",activo:true},
+    {id:"fds",fechaHora:"2026-08-02T10:00:00Z",internoNormalizado:"TOP-0072",proyectoOrigen:"FDS",motivo:"Otro",fechaUltimoRop02:"2026-08-01",estado:"ACEPTADO",activo:true},
+  ];
+  const active=getMovimientoVigentePorEquipo(movements,new Map([
+    ["TOP-0072|EL ZORRO","2026-07-18"],
+    ["TOP-0072|FILO DEL SOL","2026-08-01"],
+  ]));
+  assert.equal(active.get("TOP-0072|EL ZORRO")?.id,"zorro");
+  assert.equal(active.get("TOP-0072|FILO DEL SOL")?.id,"fds");
 });
 
 test("Apps Script conserva router, lock, UUID, hoja y headers obligatorios",()=>{

@@ -3,7 +3,7 @@ import {APPS_SCRIPT_URL} from "../config/app.js";
 import {fetchAction} from "./appsScriptApi.js";
 import {postToAppsScript} from "./writeActions.js";
 import {registerRefreshTask} from "./refreshManager.js";
-import {buildLatestRop02ByCode} from "../modules/home/homeAvailability.js";
+import {equipmentProjectKey,normalizeRop02Project} from "../modules/home/homeAvailability.js";
 import {getMovimientoVigentePorEquipo,movementsToAtrasoMap,normalizeEquipmentMovementCode} from "./equipmentMovementsDomain.js";
 
 export {getMovimientoVigentePorEquipo,movementsToAtrasoMap} from "./equipmentMovementsDomain.js";
@@ -36,8 +36,18 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
   const[snapshot,setSnapshot]=useState(cache);
   useEffect(()=>{listeners.add(setSnapshot);loadEquipmentMovements().catch(()=>{});return()=>listeners.delete(setSnapshot)},[]);
   useEffect(()=>registerRefreshTask("equipment-movements",()=>loadEquipmentMovements({force:true}),{views,priority:15}),[JSON.stringify(views)]);
-  const latestRop02ByCode=useMemo(()=>buildLatestRop02ByCode(rop02Rows,{normalizeEquipmentCode:normalizeEquipmentMovementCode}),[rop02Rows]);
-  const activeMovementByEquipment=useMemo(()=>getMovimientoVigentePorEquipo(snapshot.data,latestRop02ByCode),[snapshot.data,latestRop02ByCode]);
+  const latestRop02ByEquipmentProject=useMemo(()=>{
+    const latest=new Map();
+    for(const row of Array.isArray(rop02Rows)?rop02Rows:[]){
+      const code=normalizeEquipmentMovementCode(row?.maquina||row?._internoRaw);
+      const project=normalizeRop02Project(row?.proyecto||row?.lugar);
+      const date=String(row?.fecha||"").slice(0,10);
+      const key=equipmentProjectKey(code,project);
+      if(code&&project&&date&&(!latest.has(key)||date>latest.get(key)))latest.set(key,date);
+    }
+    return latest;
+  },[rop02Rows]);
+  const activeMovementByEquipment=useMemo(()=>getMovimientoVigentePorEquipo(snapshot.data,latestRop02ByEquipmentProject),[snapshot.data,latestRop02ByEquipmentProject]);
   const admitidos=useMemo(()=>movementsToAtrasoMap(activeMovementByEquipment),[activeMovementByEquipment]);
   return{...snapshot,loading:Boolean(snapshot.loading)||!snapshot.loaded,movements:snapshot.data,activeMovementByEquipment,admitidos,reload:useCallback(()=>loadEquipmentMovements({force:true}),[])};
 }

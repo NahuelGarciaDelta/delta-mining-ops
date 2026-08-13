@@ -84,39 +84,54 @@ export function buildLatestRop02ByCode(rop02Rows=[],options={}){
   return latest;
 }
 
+export function normalizeRop02Project(value){
+  const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
+  if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw==="FILO DE SOL"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";
+  if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";
+  if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";
+  if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";
+  return raw;
+}
+
+export const equipmentProjectKey=(code,project)=>`${String(code||"").trim()}|${normalizeRop02Project(project)}`;
+
 export function calculateAtrasoRop02(rop02Rows=[],admitidos={},options={}){
   const normalizeCode=options.normalizeEquipmentCode||canonicalEquipmentCode;
+  const normalizeProject=options.normalizeProject||normalizeRop02Project;
   const minDays=Number.isFinite(options.minDays)?options.minDays:2;
   const eligible=options.isEligible||((row)=>!row?._excluded);
   const validRows=(rop02Rows||[]).filter(row=>eligible(row)&&dateISO(row?.fecha));
   const fechaMaximaROP02=getMaxRop02Date(validRows,{normalizeEquipmentCode:normalizeCode});
   if(!fechaMaximaROP02)return {fechaMaximaROP02:"",atrasados:[],latestRop02ByCode:new Map()};
   const ventanaDesde=addDaysISO(fechaMaximaROP02,-6);
-  const porEquipo=new Map();
+  const recordsByEquipmentProject=new Map();
   for(const row of validRows){
     const code=normalizeCode(row.maquina||row._internoRaw);
+    const project=normalizeProject(row.proyecto||row.lugar)||"SIN PROYECTO";
     const fecha=dateISO(row.fecha);
-    if(!code||!fecha)continue;
-    const current=porEquipo.get(code)||{codigo:code,maquina:row.maquina||code,proyecto:"",supervisor:"",fechas:new Set(),registros:0};
+    if(!code||!project||!fecha)continue;
+    const movementKey=equipmentProjectKey(code,project);
+    const current=recordsByEquipmentProject.get(movementKey)||{movementKey,codigo:code,maquina:row.maquina||code,proyecto:project,supervisor:"",fechas:new Set(),registros:0};
     current.fechas.add(fecha);
     current.registros+=1;
     if(fecha>=String(current.ultimaCarga||"")){
       current.ultimaCarga=fecha;
       current.maquina=row.maquina||current.maquina;
-      if(row.proyecto)current.proyecto=row.proyecto;
+      current.proyecto=project;
       if(row.supervisor)current.supervisor=row.supervisor;
     }
-    porEquipo.set(code,current);
+    recordsByEquipmentProject.set(movementKey,current);
   }
-  const latestRop02ByCode=new Map();
+  const latestRop02ByEquipmentProject=new Map();
   const atrasados=[];
-  for(const current of porEquipo.values()){
+  for(const current of recordsByEquipmentProject.values()){
     const ultimaCarga=current.ultimaCarga||"";
-    latestRop02ByCode.set(current.codigo,ultimaCarga);
+    latestRop02ByEquipmentProject.set(current.movementKey,ultimaCarga);
     const diasSinCarga=Math.floor((new Date(`${fechaMaximaROP02}T00:00:00`)-new Date(`${ultimaCarga}T00:00:00`))/86400000);
     if(!ultimaCarga||ultimaCarga>=fechaMaximaROP02||diasSinCarga<minDays)continue;
-    const id=`atrasado_${current.codigo}_${ultimaCarga}`;
-    const saved=admitidos?.[id]||{};
+    const id=`atrasado_${current.codigo}_${current.proyecto}_${ultimaCarga}`;
+    const legacyId=`atrasado_${current.codigo}_${ultimaCarga}`;
+    const saved=admitidos?.[id]||admitidos?.[legacyId]||{};
     atrasados.push({
       id,tipo:"Atrasado",codigo:current.codigo,maquina:current.maquina,proyecto:current.proyecto,
       supervisor:current.supervisor,ultimaCarga,diasSinCarga,
@@ -127,7 +142,7 @@ export function calculateAtrasoRop02(rop02Rows=[],admitidos={},options={}){
     });
   }
   atrasados.sort((a,b)=>b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));
-  return {fechaMaximaROP02,ventanaDesde,ventanaHasta:fechaMaximaROP02,atrasados,latestRop02ByCode};
+  return {fechaMaximaROP02,ventanaDesde,ventanaHasta:fechaMaximaROP02,atrasados,latestRop02ByEquipmentProject,recordsByEquipmentProject};
 }
 
 export function currentAtrasoJustificationForEquipment(admitidos={},code,latestDate){
@@ -141,16 +156,22 @@ export function getBajoSanJuanExclusionMap(admitidos={},latestRop02ByCode=new Ma
   Object.entries(admitidos||{}).forEach(([key,saved])=>{
     const match=String(key).match(/^atrasado_(.+)_(\d{4}-\d{2}-\d{2})$/);
     if(!match||!isBajoSanJuanJustification(saved?.causa))return;
-    const code=match[1];
+    const code=String(saved?.codigo||saved?.maquina||match[1]).trim();
+    const project=normalizeRop02Project(saved?.proyecto);
+    const movementKey=project?equipmentProjectKey(code,project):code;
     const ultimaCarga=match[2];
     const fechaJustificacion=dateISO(saved?.fechaAdmitido);
     if(fechaJustificacion&&fechaJustificacion<ultimaCarga)return;
-    const latest=latestRop02ByCode instanceof Map?latestRop02ByCode.get(code):latestRop02ByCode?.[code];
+    const latest=latestRop02ByCode instanceof Map?(latestRop02ByCode.get(movementKey)||latestRop02ByCode.get(code)):latestRop02ByCode?.[movementKey]||latestRop02ByCode?.[code];
     if(latest&&latest>ultimaCarga)return;
-    const prev=out.get(code);
-    if(!prev||ultimaCarga>prev.ultimaCarga)out.set(code,{code,ultimaCarga,causa:String(saved.causa||"").trim(),saved});
+    const prev=out.get(movementKey);
+    if(!prev||ultimaCarga>prev.ultimaCarga)out.set(movementKey,{code,project,ultimaCarga,causa:String(saved.causa||"").trim(),saved});
   });
   return out;
+}
+
+function exclusionHasEquipmentProject(exclusionMap,code,project){
+  return exclusionMap.has(equipmentProjectKey(code,project))||exclusionMap.has(code);
 }
 
 export function isEquipoExcluidoPorBajaSanJuan(admitidos={},code,latestRop02Date=""){
@@ -168,7 +189,7 @@ export function calculateOpenOtItems(records=[],exclusionMap=new Map()){
   byEquipment.forEach(equipmentRecords=>{
     const sorted=[...equipmentRecords].sort((a,b)=>a.time-b.time||a.index-b.index);
     const current=sorted[sorted.length-1];
-    if(!current?.noOperativo||exclusionMap.has(current.interno))return;
+    if(!current?.noOperativo||exclusionHasEquipmentProject(exclusionMap,current.interno,current.lugar))return;
     let start=current;
     for(let i=sorted.length-2;i>=0;i--){
       if(!sorted[i].noOperativo)break;
@@ -235,7 +256,7 @@ export function calculateHomeAvailabilityFromRop02(rop02Rows=[],admitidos={},opt
   const items=[];
   const fsItems=[];
   for(const item of porEquipo.values()){
-    if(exclusionMap.has(item.code)){
+    if(exclusionHasEquipmentProject(exclusionMap,item.code,item.lugar)){
       excluidosBajoSanJuan+=1;
       continue;
     }
