@@ -4505,7 +4505,7 @@ function ViewAtrasoROP02({rop02All}){
         <Table cols={colsSaltos} rows={saltosFiltrados} maxH={520} emptyMsg="No se detectaron saltos intermedios de carga por equipo con los filtros seleccionados"/>
       </Card>
 
-      {modalAtraso&&<div style={{position:"fixed",inset:0,zIndex:9999,background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      {modalAtraso&&ReactDOM.createPortal(<div style={{position:"fixed",inset:0,zIndex:2147483647,background:"rgba(0,0,0,.62)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,boxSizing:"border-box"}}>
         <div style={{width:"min(520px,96vw)",background:"#232323",opacity:1,backdropFilter:"none",WebkitBackdropFilter:"none",border:`1px solid ${C.border}`,borderRadius:14,boxShadow:"0 20px 60px rgba(0,0,0,.45)",padding:20,display:"flex",flexDirection:"column",gap:14}}>
           <div style={{fontSize:18,fontWeight:900,color:C.text}}>Justificar ausencia de equipo</div>
           <div style={{fontSize:13,color:C.textSub}}>Equipo: <strong style={{color:C.purple}}>{modalAtraso.maquina}</strong> · Última carga: <strong>{fmtFecha(modalAtraso.ultimaCarga)}</strong></div>
@@ -4526,7 +4526,7 @@ function ViewAtrasoROP02({rop02All}){
             <button disabled={savingMovimiento} onClick={confirmarJustificacion} style={{border:`1px solid ${C.green}66`,background:C.greenDim,color:C.green,borderRadius:8,padding:"9px 14px",fontWeight:900,cursor:savingMovimiento?"wait":"pointer",opacity:savingMovimiento?0.65:1}}>{savingMovimiento?"Guardando...":"Aceptar"}</button>
           </div>
         </div>
-      </div>}
+      </div>,document.body)}
 
       <AlertBanner type="info">Criterio usado: un equipo con historial ROP02 se marca atrasado cuando su última carga quedó 2 días o más detrás de la fecha máxima global. La ventana de 7 días informa actividad reciente, pero no elimina equipos del control. Los equipos justificados quedan en “Equipos aceptados”; al restaurarlos vuelven a “Equipos atrasados” y a su Excel.</AlertBanner>
     </div>
