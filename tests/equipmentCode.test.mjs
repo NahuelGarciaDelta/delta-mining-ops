@@ -15,3 +15,9 @@ test("no mezcla internos parcialmente parecidos", () => {
 test("cleanEquipmentCode conserva el formato legible sin sufijo JM", () => {
   assert.equal(cleanEquipmentCode(" rpc-0016-jm "), "RPC-0016");
 });
+
+test("RCP-0039 es únicamente un alias de escritura de RPC-0039", () => {
+  assert.equal(canonicalEquipmentCode("RCP-0039"), "RPC0039");
+  assert.equal(canonicalEquipmentCode("RCP0039-JM"), "RPC0039");
+  assert.equal(sameEquipmentCode("RCP-0039", "RPC-0039"), true);
+});

@@ -9,10 +9,11 @@ export function cleanEquipmentCode(value) {
 }
 
 export function canonicalEquipmentCode(value) {
-  return cleanEquipmentCode(value)
+  const canonical=cleanEquipmentCode(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^A-Z0-9]/g, "");
+  return canonical==="RCP0039"?"RPC0039":canonical;
 }
 
 export function normalizeEquipmentMatchKey(value) {
@@ -28,6 +29,7 @@ export function sameEquipmentCode(a, b) {
 const MAINTENANCE_COST_EXCLUDED_CODES = new Set(["CFN01010"]);
 
 const MAINTENANCE_COST_CODE_ALIASES = new Map([
+  ["RPC0039", "RPC-0039"],
   ["CFN0101", "PCA-0101"],
   ["CFN0041", "PCA-0081"],
   ["CFN0043", "PCA-0093"],

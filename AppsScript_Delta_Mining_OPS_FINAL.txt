@@ -391,7 +391,8 @@ function normalizeEquipmentMovementCode_(value) {
   var raw = String(value || "").trim().toUpperCase().replace(/\s*\(.*?\)/g, "").replace(/[-_\s]+JM$/i, "");
   var compact = raw.replace(/[^A-Z0-9]/g, "");
   var match = compact.match(/^([A-Z]{2,4})(\d{1,6})$/);
-  return match ? match[1] + "-" + ("0000" + match[2]).slice(-Math.max(4, match[2].length)) : raw;
+  var normalized = match ? match[1] + "-" + ("0000" + match[2]).slice(-Math.max(4, match[2].length)) : raw;
+  return normalized === "RCP-0039" ? "RPC-0039" : normalized;
 }
 
 function normalizeMovementText_(value) {
@@ -1755,13 +1756,14 @@ function headerIndex_(headers, header) {
 }
 
 function normalizeMachineCode_(v) {
-  return String(v || "")
+  var normalized = String(v || "")
     .toUpperCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[()]/g, " ")
     .replace(/[^A-Z0-9]+/g, "")
     .trim();
+  return normalized === "RCP0039" ? "RPC0039" : normalized;
 }
 
 function normalizeWriteValue_(v) {

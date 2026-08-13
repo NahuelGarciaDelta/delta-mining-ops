@@ -5,6 +5,8 @@ import { fetchAction } from "../../services/appsScriptApi.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { byDateFilter } from "../../shared/domain/index.jsx";
 import { cleanEquipmentCode, canonicalEquipmentCode } from "./equipmentCode.js";
+import {indexPersistedMovementsByEquipment,mergeEquipmentMovements} from "./equipmentMovementHistory.js";
+import {useEquipmentMovements} from "../../services/equipmentMovements.js";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
 
 function norm(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[^A-Z0-9]/g,"");}
@@ -52,6 +54,7 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const [fechaH,setFechaH]=useState("");
   const [selectedMonth,setSelectedMonth]=useState("");
   const [activeTab,setActiveTab]=useState("resumen");
+  const {movements:sharedMovements}=useEquipmentMovements(rop02All,["equipmentProfile"]);
 
   // El selector debe responder de inmediato. La ficha pesada se actualiza en el
   // frame siguiente para que el navegador pueda pintar primero la opción elegida.
@@ -85,6 +88,7 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const rma15Index=useMemo(()=>buildCodeIndex(rma15,sourceCode,(a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))),[rma15]);
   const pmRegIndex=useMemo(()=>buildCodeIndex(pm.registros||[],r=>pick(r,["Interno","Codigo","Equipo"]),(a,b)=>String(pick(b,["Fecha","Fecha PM"])||"").localeCompare(String(pick(a,["Fecha","Fecha PM"])||""))),[pm.registros]);
   const pmCfgIndex=useMemo(()=>{const m=new Map();for(const r of pm.config||[]){const k=canonicalEquipmentCode(pick(r,["Interno","Codigo","Equipo"]));if(k)m.set(k,r);}return m;},[pm.config]);
+  const movementIndex=useMemo(()=>indexPersistedMovementsByEquipment(sharedMovements),[sharedMovements]);
 
   const allCodes=useMemo(()=>{
     const catalog=new Map();
@@ -106,10 +110,11 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
     for(const bucket of rop02Index.values())if(bucket[0])add(sourceCode(bucket[0]));
     for(const bucket of rop05Index.values())if(bucket[0])add(sourceCode(bucket[0]));
     for(const bucket of rma15Index.values())if(bucket[0])add(sourceCode(bucket[0]));
+    for(const bucket of movementIndex.values())if(bucket[0])add(bucket[0].internoNormalizado||bucket[0].interno);
     (pm.config||[]).forEach(r=>add(pick(r,["Interno","Codigo","Equipo"])));
     for(const bucket of pmRegIndex.values())if(bucket[0])add(pick(bucket[0],["Interno","Codigo","Equipo"]));
     return [...catalog.values()].sort((a,b)=>a.label.localeCompare(b.label,"es",{numeric:true,sensitivity:"base"}));
-  },[listaEquipos,rop02Index,rop05Index,rma15Index,pm.config,pmRegIndex,masterIndex]);
+  },[listaEquipos,rop02Index,rop05Index,rma15Index,pm.config,pmRegIndex,masterIndex,movementIndex]);
 
   // Si llega RPC-0016-JM, el selector utiliza RPC-0016; ambos comparten la misma clave.
   const selectedKey=detailKey;
@@ -191,11 +196,8 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
     return{lastH,lastDate,interval,next,since,remaining,status};
   },[pmCfgIndex,selectedKey,pmReg,summary.currentH]);
   const projectMovements=useMemo(()=>{
-    const sorted=[...op].sort((a,b)=>String(a.fecha||"").localeCompare(String(b.fecha||"")));
-    const out=[];let prev="";
-    for(const r of sorted){const pr=String(r.proyecto||"").trim();if(!pr||pr===prev)continue;out.push({fecha:r.fecha,desde:prev||"—",hasta:pr});prev=pr;}
-    return out.reverse().slice(0,30);
-  },[op]);
+    return mergeEquipmentMovements(op,movementIndex.get(selectedKey)||[],selectedKey);
+  },[op,movementIndex,selectedKey]);
   const project=summary.lastOp.proyecto||pick(master||{},["Proyecto","Lugar","Sitio"])||"—";
   const marca=pick(master||{},["Marca"]),modelo=pick(master||{},["Modelo"]),familia=pick(master||{},["Familia","Tipo"]),propiedad=pick(master||{},["Propiedad"]);
   const acquisition=pick(master||{},["Costo local en dólares sin IVA","Costo adquisición","Costo adquisicion"]);
@@ -230,7 +232,7 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const rop02Cols=useMemo(()=>[{key:"fecha",label:"Fecha",width:100},{key:"interno",label:"Interno",width:105},{key:"proyecto",label:"Proyecto",width:120},{key:"turno",label:"Turno",width:70},{key:"hi",label:"HI",width:85,render:v=>fmt(v)},{key:"hf",label:"HF",width:85,render:v=>fmt(v)},{key:"horas",label:"Horas",width:75,render:(v,row)=><strong style={{color:row?.estadoTipo==="TRABAJO"?C.green:C.text}}>{fmt(v)}</strong>},{key:"estado",label:"Estado",width:105,render:(v,row)=>{const type=row?.estadoTipo||"SIN REGISTRO";const color=type==="TRABAJO"?C.green:type==="OD"?C.yellow:type==="FS"?C.red:type==="EM"?C.purple:C.textMuted;const label=type==="TRABAJO"?"TRABAJO":type;return <span style={{display:"inline-flex",alignItems:"center",gap:6,color,fontWeight:900,background:`${color}18`,border:`1px solid ${color}55`,borderRadius:999,padding:"3px 8px"}}><span style={{width:6,height:6,borderRadius:"50%",background:color}}/>{label}</span>}},{key:"operador",label:"Operador",width:150},{key:"observaciones",label:"Observaciones",wrap:true,minWidth:220}],[]);
   const rop05Rows=useMemo(()=>filteredProd.slice().reverse().slice(0,150).map((r,i)=>({id:`prod-${i}`,fecha:r.fecha,interno:detailCode||sourceCode(r),proyecto:r.proyecto,tarea:r.tarea||r.actividad||r.tipoTrabajo,horas:r.cantHs??r.horasProductivas??r.hs??r.horas,cantidad:r.cantidad??r.cant??r.produccion,unidad:r.unidad,operador:r.operador||r.chofer||r.conductor})),[filteredProd,detailCode]);
   const rop05Cols=useMemo(()=>[{key:"fecha",label:"Fecha",width:100},{key:"interno",label:"Interno",width:105},{key:"proyecto",label:"Proyecto",width:120},{key:"tarea",label:"Tarea",wrap:true,minWidth:220},{key:"horas",label:"Horas",width:80,render:v=>fmt(v)},{key:"cantidad",label:"Cantidad",width:95,render:v=>fmt(v)},{key:"unidad",label:"Unidad",width:85},{key:"operador",label:"Operador",width:150}],[]);
-  const movementCols=useMemo(()=>[{key:"fecha",label:"Fecha",width:110},{key:"desde",label:"Proyecto anterior",width:160},{key:"hasta",label:"Nuevo proyecto",width:160}],[]);
+  const movementCols=useMemo(()=>[{key:"fecha",label:"Fecha",width:110},{key:"desde",label:"Proyecto anterior",width:150},{key:"hasta",label:"Nuevo proyecto",width:150},{key:"motivo",label:"Motivo",wrap:true,minWidth:170,render:(value,row)=><span title={[value,row?.observacion,row?.usuario].filter(Boolean).join(" · ")}>{value||"Detectado por ROP02"}</span>}],[]);
 
   const applyOperationalMonth=(month)=>{
     setSelectedMonth(month);

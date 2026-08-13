@@ -416,6 +416,7 @@ function canonicalEquivalentMachineCode(code){
   // Equivalencias históricas confirmadas. Se usa el código vigente como
   // identidad única en todas las tablas, incluida Amortización.
   const equivalencias={
+    "RCP-0039":"RPC-0039",
     "CFN-0101":"PCA-0101",
     "CFN-0041":"PCA-0081",
     "CFN-0043":"PCA-0093",

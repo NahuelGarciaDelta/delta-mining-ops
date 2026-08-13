@@ -11,6 +11,13 @@ import { buildVisibleCategoryRowSpans } from "./utils/categoryRowSpan.js";
 import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, belongsToMaintenanceUniverse2026, clampInformeCostosDate, indexMaintenanceCostRows, maintenanceEquipmentCode, prepareMaintenanceCostRows, prepareRop02CostRows, queryEquipmentRangeIndex } from "./utils/equipmentUniverse2026.js";
 import { matchesAmortizationTypeFilter } from "./engine/InformeCostosEngine.js";
 import { buildCostEquipmentOptions, buildCostPropertyOptions } from "./utils/costGroups.js";
+import { terminateInformeCostosWorker } from "./services/informeCostosWorkerClient.js";
+
+const setBoundedCache=(cache,key,value,maxEntries=6)=>{
+  if(cache.has(key))cache.delete(key);
+  cache.set(key,value);
+  while(cache.size>maxEntries)cache.delete(cache.keys().next().value);
+};
 
 function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
   const [snapshot,setSnapshot]=React.useState(()=>diagSnapshot());
@@ -64,6 +71,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const {
     AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn, HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput:BaseParamInput, PeriodMonthYear, SortableTH, appAlert, appConfirm, buildMonthKeysCosto, byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand, esMaquinaCosto, findColumnKey, fmtNum, getMachineType, getValue, mainMachineCode, matchMulti, monthKeyCosto, monthLabelCosto, multiIsAll, normalizeInsumoCode, normalizeMachineCode, normalizeMultiValue, positionTip, proyColor, sortRowsForTable, tipoEquipoCosto, toNumber, uniq
   } = deps;
+  React.useEffect(()=>()=>terminateInformeCostosWorker(),[]);
   const esEquipoMaquinaCosto=React.useCallback((maquina,tipo,familia="")=>
     isMaintenanceCostMachine({code:maquina,type:tipo,family:familia})||esMaquinaCosto(tipo,maquina,familia),
   [esMaquinaCosto]);
@@ -1792,7 +1800,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       sort:costosMantSorts.manoObra||null
     }).then(result=>{
       if(cancelled||token!==manoObraWorkerReqRef.current)return;
-      manoObraResultCacheRef.current.set(payloadSig,result||{});
+      setBoundedCache(manoObraResultCacheRef.current,payloadSig,result||{});
       const apply=()=>{
         setRowsManoObra(result?.rows||[]);
         setRowsManoObraTotales(result?.totals||[]);
@@ -2408,7 +2416,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       if(requestToken!==amortizacionWorkerRequestRef.current)return;
       if(cancelled)return;
       const out=Array.isArray(result?.rows)?result.rows:[];
-      amortizacionResultCacheRef.current.set(payloadSig,out);
+      setBoundedCache(amortizacionResultCacheRef.current,payloadSig,out);
       rowsAmortizacionFiltCacheRef.current=out;
       // Con la tabla virtualizada el commit ya es liviano; actualizar de forma
       // normal evita que React postergue indefinidamente el resultado del filtro.

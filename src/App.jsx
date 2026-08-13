@@ -237,43 +237,8 @@ export default function App(){
   useEffect(()=>{const openWeather=()=>{setActiveModule("home");setView("bienvenida");};window.addEventListener("dm-open-weather",openWeather);return()=>window.removeEventListener("dm-open-weather",openWeather);},[]);
 
 
-  // Precarga silenciosa desde caché local: al abrir la app, las vistas ya tienen
-  // datos disponibles antes de consultar Google Sheets. La sincronización real
-  // sigue ocurriendo en segundo plano al entrar a cada módulo.
-  useEffect(()=>{
-    let cancelled=false;
-    const allSources=[...new Set(Object.values(VIEW_SOURCES).flat())];
-    const run=async()=>{
-      const recordMap=await readCachedSourceRecords(allSources).catch(()=>({}));
-      if(cancelled)return;
-      const valid=Object.entries(recordMap||{}).filter(([,rec])=>rec?.value?.ok&&Array.isArray(rec.value.data));
-      if(!valid.length)return;
-      startTransition(()=>{
-        setRawSources(prev=>{
-          const next={...prev};let changed=false;
-          valid.forEach(([key,rec])=>{if(!(next[key]?.ok&&Array.isArray(next[key].data))){next[key]=rec.value;changed=true;}});
-          if(!changed)return prev;
-          rawSourcesRef.current=next;
-          return next;
-        });
-        setLoadedSources(prev=>{
-          const next={...prev};let changed=false;
-          valid.forEach(([key])=>{if(!next[key]){next[key]=true;changed=true;}});
-          if(!changed)return prev;
-          loadedSourcesRef.current=next;
-          return next;
-        });
-      });
-      const times=valid.map(([,rec])=>new Date(rec.updatedAt||0).getTime()).filter(Number.isFinite);
-      if(times.length)setLastUpdate(new Date(Math.max(...times)));
-    };
-    const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(run,{timeout:500}):window.setTimeout(run,120);
-    return()=>{
-      cancelled=true;
-      if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);
-      else window.clearTimeout(id);
-    };
-  },[]);
+  // loadSources hidrata únicamente las fuentes de la vista activa. Precargar aquí
+  // todos los históricos duplicaba grandes datasets en memoria desde Bienvenida.
 
   const sourceHasData=useCallback((key)=>{
     const src=rawSources&&rawSources[key];

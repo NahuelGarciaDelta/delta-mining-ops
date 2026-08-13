@@ -111,6 +111,20 @@ test("TOP-0036 y PCA-0021 siguen visibles como atrasados aunque no cargaron en l
   assert.equal(result.atrasados.find(item=>item.codigo==="TOP-0036").diasConCarga,0);
 });
 
+test("Atraso separa equipo y proyecto y conserva supervisor y ventana del origen",()=>{
+  const result=calculateAtrasoRop02([
+    {...row("TOP-0072","2026-07-18",8),proyecto:"EL ZORRO",supervisor:"Supervisor Zorro"},
+    {...row("TOP-0072","2026-08-11",8),proyecto:"FDS",supervisor:"Supervisor FDS"},
+  ]);
+  assert.equal(result.atrasados.length,1);
+  assert.equal(result.atrasados[0].codigo,"TOP-0072");
+  assert.equal(result.atrasados[0].proyecto,"EL ZORRO");
+  assert.equal(result.atrasados[0].ultimaCarga,"2026-07-18");
+  assert.equal(result.atrasados[0].diasConCarga,0);
+  assert.equal(result.atrasados[0].supervisor,"Supervisor Zorro");
+  assert.equal(result.recordsByEquipmentProject.has("TOP-0072|FILO DEL SOL"),true);
+});
+
 test("Atraso no inventa equipos sin historial y conserva los justificados como aceptados",()=>{
   const admitidos={
     "atrasado_PCA-0021_2026-07-30":{admitido:true,causa:"Bajó a San Juan",fechaAdmitido:"2026-08-11T12:00:00.000Z"},

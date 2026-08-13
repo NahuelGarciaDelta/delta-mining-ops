@@ -16,6 +16,11 @@ import {
 } from "../src/modules/informe-costos/engine/InformeCostosEngine.js";
 import fs from "node:fs";
 import { buildVisibleCategoryRowSpans } from "../src/modules/informe-costos/utils/categoryRowSpan.js";
+
+test("Informe de Costos consolida RCP-0039 dentro de RPC-0039",()=>{
+  assert.equal(canonicalEquipmentCode("RCP-0039"),canonicalEquipmentCode("RPC-0039"));
+  assert.equal(resolveEquipmentCodeAlias("RCP-0039"),"RPC-0039");
+});
 import { sumRoundedMonthlyTotals } from "../src/modules/informe-costos/utils/monthlyCostTotals.js";
 import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, indexMaintenanceCostRows, prepareMaintenanceCostRows, queryEquipmentRangeIndex, sumEffectiveRop02Hours2026 } from "../src/modules/informe-costos/utils/equipmentUniverse2026.js";
 import { buildCostEquipmentOptions, buildCostPropertyOptions } from "../src/modules/informe-costos/utils/costGroups.js";
