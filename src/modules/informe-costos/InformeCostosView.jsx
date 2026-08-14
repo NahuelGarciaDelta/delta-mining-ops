@@ -447,9 +447,13 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
 
   const hastaCostoMensual=dFechaH||"";
 
+  // Mantener el período mensual alineado con el filtro general Mes/Año.
+  // Al seleccionar un mes, PeriodMonthYear genera el corte operativo 26 → 25;
+  // ambas fechas deben llegar también a las tablas mensuales.
   React.useEffect(()=>{
+    setFechaDCostoMensual(dFechaD||"");
     setFechaHCostoMensual(dFechaH||"");
-  },[dFechaH]);
+  },[dFechaD,dFechaH]);
 
   const rma15PorFechaBase=React.useMemo(()=>byDateFilter(rma15||[],modoFecha,dFechaDia,dFechaD,dFechaH),[rma15,modoFecha,dFechaDia,dFechaD,dFechaH]);
   const rma15CostoMensualPorFechaBase=React.useMemo(()=>
@@ -3222,15 +3226,6 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const id=window.requestAnimationFrame(()=>diagTiming(`Pintado de tabla · ${tab}`,performance.now()-started,{tab}));
     return()=>window.cancelAnimationFrame(id);
   },[tab,costosRenderTab,rma15Filtrado?.length]);
-
-  React.useEffect(()=>{
-    if(!soloFiltroMesCostos)return;
-    const mismoMes=fechaD&&fechaH&&String(fechaD).slice(0,7)===String(fechaH).slice(0,7);
-    if((fechaD||fechaH)&&!mismoMes){
-      setFechaD("");
-      setFechaH("");
-    }
-  },[soloFiltroMesCostos,fechaD,fechaH]);
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
