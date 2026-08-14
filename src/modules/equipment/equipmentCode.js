@@ -76,6 +76,10 @@ const normalizeEquipmentType = value => String(value || "")
   .toUpperCase();
 
 const firstEquipmentFamilyWord = value => normalizeEquipmentType(value).split(" ")[0] || "";
+const startsWithEquipmentCodePrefix = (value, prefixes) => {
+  const code = canonicalEquipmentCode(value);
+  return prefixes.some(prefix => code.startsWith(prefix));
+};
 
 export function maintenanceCostTypeFromFamily({ code = "", family = "", type = "", category = "", description = "" } = {}) {
   const normalizedFamily = normalizeEquipmentType(family);
@@ -98,15 +102,14 @@ export function maintenanceCostTypeFromFamily({ code = "", family = "", type = "
   // se parezca al de un camión (por ejemplo CAT con Familia GENERADOR).
   if (normalizedFamily) return "OTROS";
 
-  const normalizedCode = cleanEquipmentCode(code);
   if (isTruckEquipmentCode(code) || firstEquipmentFamilyWord(type || category || description) === "CAMION") return "CAMIONES";
-  if (/^CTA/.test(normalizedCode) || /^AG[0-9]/.test(normalizedCode) || /^AH[0-9]/.test(normalizedCode)) return "CAMIONETAS";
-  if (/^MCA-/.test(normalizedCode) || /^MNC-/.test(normalizedCode)) return "MINICARGADORA";
-  if (/^EXC-/.test(normalizedCode)) return "EXCAVADORA";
-  if (/^PCA-/.test(normalizedCode) || /^CFN-/.test(normalizedCode)) return "CARGADORA FRONTAL";
-  if (/^MOT-/.test(normalizedCode)) return "MOTONIVELADORA";
-  if (/^TOP-/.test(normalizedCode)) return "TOPADORA";
-  if (/^RTP-/.test(normalizedCode)) return "RETROPALA";
+  if (startsWithEquipmentCodePrefix(code,["CTA"]) || /^AG[0-9]/.test(canonicalEquipmentCode(code)) || /^AH[0-9]/.test(canonicalEquipmentCode(code))) return "CAMIONETAS";
+  if (startsWithEquipmentCodePrefix(code,["MCA","MNC"])) return "MINICARGADORA";
+  if (startsWithEquipmentCodePrefix(code,["EXC"])) return "EXCAVADORA";
+  if (startsWithEquipmentCodePrefix(code,["PCA","CFN"])) return "CARGADORA FRONTAL";
+  if (startsWithEquipmentCodePrefix(code,["MOT"])) return "MOTONIVELADORA";
+  if (startsWithEquipmentCodePrefix(code,["TOP"])) return "TOPADORA";
+  if (startsWithEquipmentCodePrefix(code,["RTP"])) return "RETROPALA";
   return "OTROS";
 }
 
@@ -126,8 +129,14 @@ export function isMaintenanceCostMachine({ code = "", family = "", type = "", ca
   }
   if (isCompactorEquipment({ code, type, category, description })) return true;
   const normalized = normalizeEquipmentType(type || category || description);
-  return ["EXCAVADORA", "TOPADORA", "MOTONIVELADORA", "CARGADORA", "CARGADOR FRONTAL", "RETROPALA", "MINICARGADORA"]
-    .some(machineType => normalized.includes(machineType));
+  if (["EXCAVADORA", "TOPADORA", "MOTONIVELADORA", "CARGADORA", "CARGADOR FRONTAL", "RETROPALA", "MINICARGADORA"]
+    .some(machineType => normalized.includes(machineType))) return true;
+
+  // RMA15 y los históricos no siempre llegan con Familia/Tipo de Lista Maestra.
+  // El interno puede venir con o sin guion (EXC0048 / EXC-0048). En ese caso,
+  // los prefijos inequívocos de maquinaria vial son un respaldo seguro para que
+  // el filtro agrupado "Máquinas" no descarte registros válidos.
+  return startsWithEquipmentCodePrefix(code,["EXC","PCA","CFN","MOT","TOP","RTP","MCA","MNC","RPC","ROD"]);
 }
 
 export function isMaintenanceCostTruck({ code = "", family = "", type = "", category = "", description = "" } = {}) {
