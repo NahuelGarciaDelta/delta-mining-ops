@@ -1,10 +1,10 @@
 export const APP_FILTERS_STATE_KEY="dm_app_filters_state_v1";
-const APP_IDB_NAME="delta_mining_cache_backend_20260814_v3";
+const APP_IDB_NAME="delta_mining_cache_backend_20260814_v4";
 const APP_IDB_VERSION=1;
 const APP_IDB_STORE="datasets";
-const APP_CACHE_VERSION=3;
-const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v3";
-const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v3_";
+const APP_CACHE_VERSION=4;
+const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v4";
+const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v4_";
 
 let appCacheDBPromise_=null;
 const memoryCache_=new Map();
@@ -46,7 +46,10 @@ function normalizeRecord_(record){
   if(!record)return null;
   const data=record.data??record.value;
   if(!data)return null;
-  return {...record,data,value:undefined,version:Number(record.version||data?.meta?.serverVersion||0)};
+  // Compatibilidad del contrato de cache: App.jsx consume `record.value`, mientras
+  // la versión nueva persiste el payload bajo `record.data`. Exponer ambos evita
+  // perder el snapshot completo antes de fusionar una respuesta incremental.
+  return {...record,data,value:data,version:Number(record.version||data?.meta?.serverVersion||0)};
 }
 export async function readCachedSourceRecords(keys){
   const wanted=[...new Set((keys||[]).filter(Boolean))];
@@ -75,7 +78,7 @@ async function writeCachedSources(sources){
   if(!entries.length)return;
   const updatedAt=new Date().toISOString();
   const records=entries.map(([key,data])=>({key,data,updatedAt,count:Array.isArray(data?.data)?data.data.length:0,version:Number(data?.meta?.serverVersion||APP_CACHE_VERSION)}));
-  records.forEach(rec=>{memoryCache_.set(rec.key,rec);updateCacheManifest_(rec.key,rec);try{window.localStorage.removeItem(APP_LOCAL_CACHE_PREFIX+rec.key);}catch(_){}});
+  records.forEach(rec=>{memoryCache_.set(rec.key,normalizeRecord_(rec));updateCacheManifest_(rec.key,rec);try{window.localStorage.removeItem(APP_LOCAL_CACHE_PREFIX+rec.key);}catch(_){}});
   try{
     const db=await openAppCacheDB();
     const tx=db.transaction(APP_IDB_STORE,"readwrite");
