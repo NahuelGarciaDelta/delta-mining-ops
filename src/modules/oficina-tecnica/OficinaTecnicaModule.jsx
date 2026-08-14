@@ -5886,18 +5886,26 @@ export function OficinaTecnicaModule({
 }){
   applyDeps(deps);
   const remoteControllerRef=useRef(null);
-  const [remoteTable,setRemoteTable]=useState({dataset:"",rows:[],total:0,hasMore:false,loading:false,params:{}});
+  const [remoteTable,setRemoteTable]=useState({dataset:"",rows:[],total:0,hasMore:false,loading:false,loadedOnce:false,params:{}});
   if(!remoteControllerRef.current)remoteControllerRef.current=createHistoricalPagedController();
   const remoteDataset=view==="rop02"?"rop02":view==="rop05"?"rop05":"";
   const remoteState=view==="rop02"?st02:st05;
   const remoteParams=useMemo(()=>remoteTableParams(remoteState),[remoteState]);
   useEffect(()=>{
     if(!remoteDataset)return;
-    let alive=true;setRemoteTable(previous=>({...previous,dataset:remoteDataset,loading:true,params:remoteParams}));
+    let alive=true;
+    // Igual que Mantenimiento: al cambiar filtros se conserva la vista actual
+    // mientras se consulta el nuevo resultado en segundo plano.
+    setRemoteTable(previous=>{
+      if(previous.dataset===remoteDataset&&previous.loadedOnce){
+        return {...previous,loading:true,params:remoteParams};
+      }
+      return {dataset:remoteDataset,rows:[],total:0,hasMore:false,loading:true,loadedOnce:false,params:remoteParams};
+    });
     remoteControllerRef.current.loadFirst(remoteDataset,remoteParams).then(result=>{
       if(!alive||result.stale)return;
       const rows=remoteDataset==="rop02"?normalizeROP02(result.rows||[]):normalizeROP05(result.rows||[]);
-      setRemoteTable({dataset:remoteDataset,rows,total:result.total,hasMore:result.hasMore,loading:false,params:remoteParams});
+      setRemoteTable({dataset:remoteDataset,rows,total:result.total,hasMore:result.hasMore,loading:false,loadedOnce:true,params:remoteParams});
     }).catch(()=>{if(alive)setRemoteTable(previous=>({...previous,loading:false}));});
     return()=>{alive=false;};
   },[remoteDataset,remoteParams]);
@@ -5906,7 +5914,7 @@ export function OficinaTecnicaModule({
     return remoteControllerRef.current.loadMore(remoteDataset,remoteParams).then(result=>{
       if(result.stale)return;
       const rows=remoteDataset==="rop02"?normalizeROP02(result.rows||[]):normalizeROP05(result.rows||[]);
-      setRemoteTable({dataset:remoteDataset,rows,total:result.total,hasMore:result.hasMore,loading:false,params:remoteParams});
+      setRemoteTable({dataset:remoteDataset,rows,total:result.total,hasMore:result.hasMore,loading:false,loadedOnce:true,params:remoteParams});
     });
   },[remoteDataset,remoteParams]);
   const exportRemote=useCallback(async()=>{const rows=[];await fetchAllDatasetPages(remoteDataset,remoteParams,page=>{rows.push(...page);});return remoteDataset==="rop02"?normalizeROP02(rows):normalizeROP05(rows);},[remoteDataset,remoteParams]);
@@ -5917,7 +5925,12 @@ export function OficinaTecnicaModule({
   }
   if(view==="tallerCentral")return dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={onReloadLista}/>:<Loader label="Cargando Taller Central..."/>;
   if(view==="listaEquipos")return dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={onReloadLista}/>:<Loader label="Cargando Lista de Equipos..."/>;
-  if(view==="rop02")return remoteTable.dataset==="rop02"&&!remoteTable.loading?<ViewROP02 rop02All={remoteTable.rows} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02} remoteTotal={remoteTable.total} remoteHasMore={remoteTable.hasMore} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>:<Loader label="Cargando ROP02..."/>;
+  if(view==="rop02"){
+    // Loader completo solo en la primera entrada. Los cambios de filtro
+    // mantienen la pantalla montada y reemplazan los datos al finalizar.
+    if(remoteTable.dataset!=="rop02"||!remoteTable.loadedOnce)return <Loader label="Cargando ROP02..."/>;
+    return <ViewROP02 rop02All={remoteTable.rows} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02} remoteTotal={remoteTable.total} remoteHasMore={remoteTable.hasMore} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>;
+  }
   if(view==="horometros")return dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<Loader label="Cargando Horómetros..."/>;
   if(view==="vehiculos")return dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} listaEquipos={listaEquipos} extState={stVeh} setExtState={setStVeh}/>:<Loader label="Cargando Vehículos..."/>;
   if(view==="controlROP02")return dataHydrated&&(rop02All.length>0||rop02ControlAll.length>0)?<ViewControlROP02 rop02All={rop02All} rop02ControlAll={rop02ControlAll} tabState={stControlROP02} setTabState={setStControlROP02} stControlErrores={stControlErrores} setStControlErrores={setStControlErrores} stCtrlEquipo={stCtrlEquipo} setStCtrlEquipo={setStCtrlEquipo}/>:<Loader label="Cargando Control de ROP02..."/>;
@@ -5925,7 +5938,10 @@ export function OficinaTecnicaModule({
   if(view==="ctrlEquipo")return dataHydrated&&rop02All.length>0?<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>:<Loader label="Cargando Control por Equipo..."/>;
   if(view==="atrasoROP02")return <ViewAtrasoROP02 rop02All={rop02ControlAll} onLegacyFallback={onLoadAll}/>;
   if(view==="combustible")return dataHydrated&&rop02All.length>0?<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>:<Loader label="Cargando Combustible..."/>;
-  if(view==="rop05")return remoteTable.dataset==="rop05"&&!remoteTable.loading?<ViewROP05 rop05={remoteTable.rows} extState={st05} setExtState={setSt05} remoteTotal={remoteTable.total} remoteHasMore={remoteTable.hasMore} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>:<Loader label="Cargando Productividad..."/>;
+  if(view==="rop05"){
+    if(remoteTable.dataset!=="rop05"||!remoteTable.loadedOnce)return <Loader label="Cargando Productividad..."/>;
+    return <ViewROP05 rop05={remoteTable.rows} extState={st05} setExtState={setSt05} remoteTotal={remoteTable.total} remoteHasMore={remoteTable.hasMore} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>;
+  }
   if(view==="rop05Discriminacion")return dataHydrated&&rop05.length>0?<ViewROP05Discriminacion rop05={rop05} extState={st05} setExtState={setSt05}/>:<Loader label="Cargando Discriminación por tarea..."/>;
   if(view==="rma15CtrlEquipo")return dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<Loader label="Cargando Control por Equipo..."/>;
   if(view==="chc")return dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<Loader label="Cargando ICHC..."/>;
