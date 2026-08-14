@@ -1,8 +1,0 @@
-CORRECCIÓN FINAL — GASTOS EXCESIVOS
-
-Se eliminó por completo el uso de CodeMultiSearch dentro de la vista Gastos excesivos.
-El filtro de código ahora utiliza el componente estable MultiSel que ya usa el resto de la aplicación.
-Esto evita cualquier renderizado de componentes undefined y mantiene búsqueda, selección múltiple y opción Todos.
-
-Archivo modificado:
-src/modules/mantenimiento/MantenimientoModule.jsx

@@ -1,8 +1,0 @@
-La columna MANO DE OBRA de Costo mensual acumulado copia exactamente el valor
-visible en la tabla Mano de Obra, sin recalcular ni prorratear.
-
-Valores de referencia mostrados en las capturas:
-- MOT-0047: U$S 1.269
-- TOP-0032: U$S 1.204
-
-La vinculación usa proyecto + código canónico y, como respaldo, código canónico.

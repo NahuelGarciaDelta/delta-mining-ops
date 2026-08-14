@@ -1,9 +1,0 @@
-CAMBIO - COSTO MENSUAL ACUMULADO
-
-1. La tabla solo muestra equipos que tienen al menos un registro de mantenimiento durante 2026.
-2. Septiembre, Octubre, Noviembre y Diciembre de 2025 ya no se muestran como meses separados.
-3. Esos cuatro meses se consolidan en una única columna TOTAL 2025.
-4. TOTAL 2025 suma únicamente la columna Total de cada mes 2025.
-5. Los registros 2025 se conservan vinculados al interno consolidado vigente, por lo que no se pierden al cambiar códigos.
-6. Desde Enero 2026 los meses continúan visibles individualmente con Preventivo, Correctivo y Total.
-7. La exportación a Excel respeta el mismo formato.

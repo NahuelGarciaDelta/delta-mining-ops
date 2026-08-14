@@ -1,8 +1,0 @@
-Corrección aplicada:
-- Se eliminó la referencia inexistente a normalizeText dentro del cálculo de Mano de Obra del Costo mensual acumulado.
-- La normalización del proyecto ahora se realiza localmente, removiendo tildes, pasando a minúsculas y eliminando espacios extremos.
-- Esto evita el error: ReferenceError: normalizeText is not defined.
-
-Validación:
-- No quedan referencias a normalizeText en src/App.jsx.
-- El build no pudo ejecutarse en este entorno porque el registro npm disponible no contiene xlsx-js-style@1.2.0.

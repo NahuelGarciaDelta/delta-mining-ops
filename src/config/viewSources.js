@@ -1,10 +1,8 @@
-// Mantiene exactamente las dependencias funcionales de la aplicación original.
-// fetchSource resuelve estas fuentes primero desde Supabase y usa Apps Script sólo como fallback.
 export const VIEW_SOURCES = Object.freeze({
   bienvenida:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rma15_fs","rma15_jm"],
   equipmentProfile:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"],
   dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
-  rop02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],
+  rop02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   horometros:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   vehiculos:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],
   controlErrores:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
@@ -15,8 +13,8 @@ export const VIEW_SOURCES = Object.freeze({
   cambiosTurno:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   chc:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   rop05:["rop05"],
-  ranking:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05"],
-  control:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05"],
+  ranking:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
+  control:["rop02_fs","rop02_jm","rop02_filosur","rop05"],
   mant:["insumos","rma15_fs","rma15_jm"],
   distMant:["rma15_fs","rma15_jm"],
   pmProgramado:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
@@ -29,11 +27,12 @@ export const VIEW_SOURCES = Object.freeze({
   pmGestion:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   pmConfig:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   pmHistorial:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+
   rma15CtrlEquipo:["insumos","rma15_fs","rma15_jm"],
-  costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  costosMant:["insumos","rma15_fs","rma15_jm","lista_equipos"],
   costosUnitarios:["insumos","rma15_fs","rma15_jm"],
-  listaEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
-  tallerCentral:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
+  listaEquipos:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
+  tallerCentral:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur"],
   licitaciones:["lista_equipos"],
   licitacionesNueva:["lista_equipos"],
   licitacionesControl:["lista_equipos"],

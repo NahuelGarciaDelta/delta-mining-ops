@@ -8,7 +8,7 @@ import { previousComparablePeriod } from "../../shared/periodCompare.js";
 import { calculateAtrasoRop02, equipmentProjectKey, normalizeRop02Project } from "../home/homeAvailability.js";
 import {cancelEquipmentMovement,saveEquipmentMovement,useEquipmentMovements} from "../../services/equipmentMovements.js";
 import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
-import {normalizeROP02,normalizeROP05} from "../../shared/domain/index.jsx";
+import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/index.jsx";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -4640,11 +4640,25 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
   // Recalcular inconsistencias: el cruce se hace sobre los conjuntos SIN filtro
   // de supervisor; luego se filtra el resultado por supervisor de cada registro.
   const filteredData=useMemo(()=>{
-    const key=r=>`${r.fecha}__${r.maquina}`;
-    const set05=new Set(filtered05Match.map(key));
-    const set02=new Set(filtered02Match.map(key));
-    let faltanEn05=filtered02Match.filter(r=>!set05.has(key(r)));
-    let faltanEn02=filtered05Match.filter(r=>!set02.has(key(r)));
+    const keys=row=>{
+      const fecha=normDate(row?.fecha);
+      if(!fecha)return[];
+      const variants=machineLookupVariants(row?.maquina||"");
+      if(!variants.length){
+        const fallback=cleanMachine(row?.maquina||"");
+        if(fallback)variants.push(fallback);
+      }
+      return variants.map(code=>`${fecha}__${String(code||"").trim().toUpperCase()}`);
+    };
+    const makeSet=rows=>{
+      const set=new Set();
+      rows.forEach(row=>keys(row).forEach(key=>set.add(key)));
+      return set;
+    };
+    const set05=makeSet(filtered05Match);
+    const set02=makeSet(filtered02Match);
+    let faltanEn05=filtered02Match.filter(r=>!keys(r).some(key=>set05.has(key)));
+    let faltanEn02=filtered05Match.filter(r=>!keys(r).some(key=>set02.has(key)));
     if(!multiIsAll(vals.supervisor,"todos")){
       faltanEn05=faltanEn05.filter(r=>matchMulti(r.supervisor,vals.supervisor,"todos"));
       faltanEn02=faltanEn02.filter(r=>matchMulti(r.supervisor,vals.supervisor,"todos"));
@@ -5994,6 +6008,32 @@ export function OficinaTecnicaModule({
     return rows;
   },[remoteDataset,loadFullDataset]);
 
+  // Control ROP05 vs ROP02 usa EXACTAMENTE los mismos históricos completos
+  // que las pestañas Equipos y Productividad. No depende de la copia legacy
+  // de rawSources, que podía quedar atrasada respecto de query_dataset.
+  const [controlRemote,setControlRemote]=useState({loaded:false,rop02:[],rop05:[]});
+  useEffect(()=>{
+    if(view!=="control")return;
+    let alive=true;
+    Promise.all([loadFullDataset("rop02"),loadFullDataset("rop05")])
+      .then(([rows02,rows05])=>{
+        if(!alive)return;
+        // Respetar el universo de proyectos ya habilitado para este usuario.
+        const allowedProjects=new Set((rop02All||[]).map(r=>r.proyecto).filter(Boolean));
+        const restrict=allowedProjects.size>0;
+        const next02=restrict?rows02.filter(r=>allowedProjects.has(r.proyecto)):rows02;
+        const next05=restrict?rows05.filter(r=>allowedProjects.has(r.proyecto)):rows05;
+        setControlRemote({loaded:true,rop02:next02,rop05:next05});
+      })
+      .catch(()=>{if(alive)setControlRemote({loaded:false,rop02:[],rop05:[]});});
+    return()=>{alive=false;};
+  },[view,loadFullDataset,rop02All]);
+
+  const controlLive=useMemo(
+    ()=>controlRemote.loaded?calcControl(controlRemote.rop02,controlRemote.rop05):control,
+    [controlRemote,control]
+  );
+
   if(!OFFICE_VIEW_NAMES.has(view))return null;
   if(view==="dashboard"){
     if(Object.keys(rawSources||{}).length===0)return <HealthDashboard health={health} loading={loading} onLoadAll={onLoadAll}/>;
@@ -6019,7 +6059,10 @@ export function OficinaTecnicaModule({
   if(view==="rop05Discriminacion")return dataHydrated&&rop05.length>0?<ViewROP05Discriminacion rop05={rop05} extState={st05} setExtState={setSt05}/>:<Loader label="Cargando Discriminación por tarea..."/>;
   if(view==="rma15CtrlEquipo")return dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<Loader label="Cargando Control por Equipo..."/>;
   if(view==="chc")return dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<Loader label="Cargando ICHC..."/>;
-  if(view==="control")return dataHydrated&&rop02All.length>0&&rop05.length>0?<ViewControl control={control} rop02All={rop02All} rop05={rop05} extState={stCtrl} setExtState={setStCtrl}/>:<Loader label="Cargando Control ROP05 vs ROP02..."/>;
+  if(view==="control"){
+    if(!controlRemote.loaded)return <Loader label="Cargando Control ROP05 vs ROP02..."/>;
+    return <ViewControl control={controlLive} rop02All={controlRemote.rop02} rop05={controlRemote.rop05} extState={stCtrl} setExtState={setStCtrl}/>;
+  }
   return null;
 }
 

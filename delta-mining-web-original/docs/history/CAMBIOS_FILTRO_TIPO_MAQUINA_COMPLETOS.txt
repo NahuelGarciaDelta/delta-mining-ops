@@ -1,8 +1,0 @@
-Se agregó/aseguró el filtro "Tipo de Máquina" en:
-- Equipos, tanto Por día como Por período.
-- Combustible, tanto Por día como Por período.
-- Productividad, Por día, Por período y Acumulado.
-- Mantenimiento, tanto Por día como Por período.
-- Consistencia ROP02 vs ROP05, tanto Por día como Por período.
-
-El filtro limita también las opciones del selector Máquina/Equipo y se limpia junto con los demás filtros.

@@ -1153,13 +1153,33 @@ function normalizeROP05(rows){
 }
 
 function esNoProductivo(e){const s=String(e||"").toUpperCase();return s==="FS"||s==="OD"||s==="EM"||s.includes("FUERA")||s.includes("OTRO")||s.includes("MANTENIMIENTO");}
+function controlMatchKeys_(row){
+  const fecha=normDate(row?.fecha);
+  if(!fecha)return[];
+  const variants=machineLookupVariants(row?.maquina||"");
+  if(!variants.length){
+    const fallback=cleanMachine(row?.maquina||"");
+    if(fallback)variants.push(fallback);
+  }
+  return variants.map(code=>`${fecha}__${String(code||"").trim().toUpperCase()}`);
+}
+function controlKeySet_(rows){
+  const set=new Set();
+  (rows||[]).forEach(row=>controlMatchKeys_(row).forEach(key=>set.add(key)));
+  return set;
+}
+function controlHasMatch_(row,set){
+  return controlMatchKeys_(row).some(key=>set.has(key));
+}
 function calcControl(rop02All,rop05){
   const productivos=(rop02All||[]).filter(r=>r.proyecto!=="EL ZORRO"&&!esNoProductivo(r.estado)&&!r._excluded);
   const prod05=(rop05||[]).filter(r=>!r._excluded);
-  const key=r=>`${r.fecha}__${r.maquina}`;
-  const set05=new Set(prod05.map(key));const set02=new Set(productivos.map(key));
-  const faltanEn05=productivos.filter(r=>!set05.has(key(r)));
-  const faltanEn02=prod05.filter(r=>!set02.has(key(r)));
+  // El cruce usa fecha normalizada + TODAS las variantes equivalentes del interno.
+  // Evita falsos "Sin producción" por alias, guiones, espacios o códigos entre paréntesis.
+  const set05=controlKeySet_(prod05);
+  const set02=controlKeySet_(productivos);
+  const faltanEn05=productivos.filter(r=>!controlHasMatch_(r,set05));
+  const faltanEn02=prod05.filter(r=>!controlHasMatch_(r,set02));
   const total=productivos.length+prod05.length;
   const problemas=faltanEn05.length+faltanEn02.length;
   const FECHA_CORTE_CONTROL_ROP="2026-06-01"; // después del 31/05
