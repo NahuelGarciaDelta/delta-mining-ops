@@ -54,7 +54,7 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
   const params={};
   if(force)params.force="1";
   if(since&&!force)params.since=since;
-  if(compact&&!['health','diag','clear_cache','sync','versions','get_data_versions'].includes(action))params.compact="1";
+  if(compact&&!['health','diag','clear_cache','sync','versions'].includes(action))params.compact="1";
   if(action==="rop05")params.limit="all";
 
   let lastErr=null;
@@ -86,22 +86,6 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
 export async function fetchHealth(url){return fetchAction(url,"health",{compact:false});}
 export async function fetchSource(url,source,{force=false,since=""}={}){return fetchAction(url,source,{force,compact:true,since});}
 export async function fetchSyncVersions(url){
-  try{return await fetchAction(url,"get_data_versions",{compact:false,retries:1});}
-  catch(_){
-    try{return await fetchAction(url,"sync",{compact:false,retries:1});}
-    catch(__){return null;}
-  }
-}
-
-export async function fetchDatasetQuery(url,params={}){
-  const controller=typeof AbortController!=="undefined"?new AbortController():null;
-  const timer=controller?setTimeout(()=>controller.abort(),60000):null;
-  try{
-    const response=await fetch(buildAppsScriptUrl(url,"query_dataset",params),{cache:"no-store",redirect:"follow",signal:controller?.signal});
-    if(!response.ok)throw new Error(`HTTP ${response.status} desde Apps Script`);
-    const text=await response.text();
-    let json;try{json=JSON.parse(text);}catch(_){throw new Error("Apps Script no devolvió JSON válido");}
-    if(!json?.ok)throw new Error(json?.error?.message||"Consulta de dataset inválida");
-    return{...json,payloadBytes:new Blob([text]).size};
-  }finally{if(timer)clearTimeout(timer);}
+  try{return await fetchAction(url,"sync",{compact:false,retries:2});}
+  catch(_){return null;}
 }

@@ -7,8 +7,6 @@ import {WeatherSummary} from "../weather/WeatherModule.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
 import { calculateAtrasoRop02, equipmentProjectKey, normalizeRop02Project } from "../home/homeAvailability.js";
 import {cancelEquipmentMovement,saveEquipmentMovement,useEquipmentMovements} from "../../services/equipmentMovements.js";
-import {createHistoricalPagedController,fetchAllDatasetPages,getRop02,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
-import {normalizeROP02,normalizeROP05} from "../../shared/domain/index.jsx";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -1618,7 +1616,7 @@ function HorometrosSection({rows}){
   );
 }
 
-function ViewROP02({rop02All,listaEquipos,extState,setExtState,remoteTotal=0,remoteHasMore=false,onRemoteMore,onRemoteExport}){
+function ViewROP02({rop02All,listaEquipos,extState,setExtState}){
   // Excluir camionetas y camiones de toda la vista ROP02
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded && normalizeMachineCode(r.maquina)!=="CAA-0002"),[rop02All]);
   const listaInfoIndex=useMemo(()=>buildListaEquipoInfoIndex(listaEquipos),[listaEquipos]);
@@ -1787,9 +1785,8 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState,remoteTotal=0,rem
           })}
         </div>
       )}
-      <Card title={`Registros (${remoteTotal||filtered.length})`} action={<BtnExcel onClick={async()=>{if(!onRemoteExport){excelFromCols(cols,filteredSorted,"Equipos_ROP02");return;}const rows=(await onRemoteExport()).filter(r=>!r._excluded&&normalizeMachineCode(r.maquina)!=="CAA-0002").filter(r=>multiIsAll(tipoMaquinaROP02,"todas")||tipoMatchMachineROP05(tipoMaquinaROP02,r.maquina)).filter(r=>multiIsAll(estado,"todos")||matchMulti(r.estado,estado,"todos")||matchMulti(String(r.horasRaw||"").trim().toUpperCase(),estado,"todos")).filter(r=>matchMulti(r.operario,vals.operario,"todos"));excelFromCols(cols,rows,"Equipos_ROP02");}}/>}>
+      <Card title={`Registros (${filtered.length})`} action={<BtnExcel onClick={()=>excelFromCols(cols,filteredSorted,"Equipos_ROP02")}/>}>
         <Table cols={cols} rows={filteredSorted} maxH={400} emptyMsg="Sin registros con los filtros seleccionados"/>
-        {(remoteTotal>0||remoteHasMore)&&<div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:10,padding:12,borderTop:`1px solid ${C.border}`}}><span style={{fontSize:12,color:C.textMuted}}>Mostrando {rop02All.length} de {remoteTotal} registros</span>{remoteHasMore&&<button onClick={onRemoteMore} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Mostrar 250 más</button>}</div>}
       </Card>
       <Card title="Flota de Equipos" style={{overflow:"visible"}}>
         <div style={{padding:"14px 16px",display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:12}}>
@@ -2406,12 +2403,12 @@ const ROP05_FK=[
 const ROP05_TABLE_HEADERS=[["fecha","Fecha",90],["maquina","Máquina",110],["tipo_maquina","Tipo",90],["tarea","Tarea",220],["horas","Horas",70],["cantidad","Cantidad",80],["unidad","Unidad",80],["proyecto","Proyecto",110]];
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ViewROP05({rop05,extState,setExtState,remoteTotal=0,remoteHasMore=false,onRemoteMore,onRemoteExport}){
+function ViewROP05({rop05,extState,setExtState}){
   const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,filtered:filteredBase05,opts,vals,set,reset,hayFiltros}=useFacetedFilters(rop05,ROP05_FK,extState,setExtState);
 
   // Filtro de tarea independiente — sus opciones dependen de la máquina seleccionada
-  const tarea=extState?.tarea||"todas",setTarea=value=>setExtState(state=>(state?.tarea||"todas")===value?state:{...state,tarea:value});
-  const tipoMaquina=extState?.tipoMaquina||"todas",setTipoMaquina=value=>setExtState(state=>(state?.tipoMaquina||"todas")===value?state:{...state,tipoMaquina:value});
+  const[tarea,setTarea]=useState("todas");
+  const[tipoMaquina,setTipoMaquina]=useState("todas");
   const[unidadGrafico,setUnidadGrafico]=useState("METROS LINEALES");
   const temporadaInicialROP05=useMemo(()=>rop05TemporadaDeFecha(rop05UltimaFecha(rop05)||new Date()),[rop05]);
   const[periodoAcumulado,setPeriodoAcumulado]=useState(()=>temporadaInicialROP05.periodo);
@@ -2622,7 +2619,7 @@ function ViewROP05({rop05,extState,setExtState,remoteTotal=0,remoteHasMore=false
             <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
             <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
             <TabBtn active={mode==="acumulado"} onClick={()=>setMode("acumulado")}>Acumulado</TabBtn>
-            <button onClick={async()=>{const base=onRemoteExport?await onRemoteExport():excelBaseRows;const rows=base.filter(r=>matchMulti(r.unidad,vals.unidad,"todas")).filter(r=>multiIsAll(tarea,"todas")||matchMulti(r.tarea,tarea,"todas")).filter(r=>multiIsAll(tipoMaquina,"todas")||tipoMatchMachineROP05(tipoMaquina,r.maquina));generarExcelProductividad(rows,fechaD,fechaH,mode,fecha,{periodoAcumulado,anioAcumulado});}} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+            <button onClick={()=>generarExcelProductividad(excelBaseRows,fechaD,fechaH,mode,fecha,{periodoAcumulado,anioAcumulado})} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
               📊 Generar Reporte
             </button>
             <button onClick={()=>imprimirGraficoIncidenciaROP05(filtered,{mode,fecha,fechaD,fechaH,rangoAcumulado})} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.yellow}66`,background:C.yellowDim,color:C.yellow,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
@@ -2910,13 +2907,13 @@ function ViewROP05({rop05,extState,setExtState,remoteTotal=0,remoteHasMore=false
               </tbody>
             </table>
           )}
-          {(filteredSorted.length>rop05RowsVisible.length||remoteHasMore)&&(
+          {filteredSorted.length>rop05RowsVisible.length&&(
             <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:10,padding:"12px",borderTop:`1px solid ${C.border}22`,background:"rgba(0,0,0,.20)"}}>
               <span style={{fontSize:12,color:C.textMuted}}>
-                Mostrando {rop05RowsVisible.length} de {remoteTotal||filteredSorted.length} registros
+                Mostrando {rop05RowsVisible.length} de {filteredSorted.length} registros
               </span>
               <button
-                onClick={()=>remoteHasMore?onRemoteMore?.().then(()=>setRop05VisibleLimit(v=>v+ROP05_PAGE_SIZE)):setRop05VisibleLimit(v=>Math.min(v+ROP05_PAGE_SIZE,filteredSorted.length))}
+                onClick={()=>setRop05VisibleLimit(v=>Math.min(v+ROP05_PAGE_SIZE,filteredSorted.length))}
                 style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}
               >
                 Mostrar 250 más
@@ -4247,35 +4244,8 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
 }
 
 
-function ViewAtrasoROP02({rop02All,onLegacyFallback}){
-  const [remoteRop02,setRemoteRop02]=useState(null);
-  const legacyFallbackRef=useRef(onLegacyFallback);
-  useEffect(()=>{legacyFallbackRef.current=onLegacyFallback;},[onLegacyFallback]);
-  useEffect(()=>{
-    let active=true;
-    const run=async()=>{
-      const latest=await getRop02LatestByEquipmentProject({});
-      const rawLatest=Array.isArray(latest.data)?latest.data:[];
-      const reference=String(latest.referenceDate||rawLatest.reduce((max,row)=>String(row.ULTIMA_FECHA||row.ultimaCarga||"")>max?String(row.ULTIMA_FECHA||row.ultimaCarga):max,""));
-      if(!reference)throw new Error("Snapshot ROP02 sin fecha de referencia");
-      const start=new Date(`${reference}T12:00:00`);start.setDate(start.getDate()-45);
-      const desde=`${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,"0")}-${String(start.getDate()).padStart(2,"0")}`;
-      const recent=await getRop02({desde,hasta:reference,limit:"all",sortBy:"fecha",sortDirection:"asc"});
-      const normalizedRecent=normalizeROP02(recent.data||[]);
-      const recentKeys=new Set(normalizedRecent.map(row=>equipmentProjectKey(canonicalEquivalentMachineCode(row.maquina),row.proyecto)));
-      const synthetic=rawLatest.map(row=>({
-        fecha:String(row.ULTIMA_FECHA||row.ultimaCarga||""),maquina:String(row.INTERNO||row.equipo||row.maquina||""),
-        proyecto:String(row.PROYECTO||row.proyecto||""),supervisor:String(row.SUPERVISOR||row.supervisor||""),
-        horas:Number(row.HORAS??row.horas??0),estado:String(row.ULTIMO_ESTADO||row.ultimoEstado||""),tipo_trabajo:String(row.ULTIMO_ESTADO||row.ultimoEstado||""),
-        _snapshot:true,_excluded:false
-      })).filter(row=>row.fecha&&row.maquina&&!recentKeys.has(equipmentProjectKey(canonicalEquivalentMachineCode(row.maquina),row.proyecto)));
-      if(active)setRemoteRop02([...normalizedRecent,...synthetic]);
-    };
-    run().catch(()=>{if(active){setRemoteRop02(null);legacyFallbackRef.current?.();}});
-    return()=>{active=false;};
-  },[]);
-  const atrasoSource=remoteRop02||rop02All;
-  const rop02Prod=useMemo(()=>atrasoSource.filter(r=>!r._excluded && normalizeMachineCode(r.maquina)!=="CAA-0002" && r.fecha),[atrasoSource]);
+function ViewAtrasoROP02({rop02All}){
+  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded && normalizeMachineCode(r.maquina)!=="CAA-0002" && r.fecha),[rop02All]);
   const [modoFiltro,setModoFiltro]=useState("periodo");
   const [fechaFiltro,setFechaFiltro]=useState("");
   const [fechaDesde,setFechaDesde]=useState("");
@@ -5859,17 +5829,6 @@ function Loader({label}){
   return BlockingDataLoader ? <BlockingDataLoader label={label}/> : null;
 }
 
-const remoteFilterValue=(value,empty)=>Array.isArray(value)?(value.length===1?value[0]:""):(value&&value!==empty?value:"");
-function remoteTableParams(state={}){
-  const vals=state.vals||{},mode=state.mode||"dia";
-  return{
-    desde:mode==="dia"?(state.fecha||""):(state.fechaD||""),hasta:mode==="dia"?(state.fecha||""):(state.fechaH||""),
-    proyecto:remoteFilterValue(vals.proyecto,"todos"),equipo:remoteFilterValue(vals.maquina,"todas"),supervisor:remoteFilterValue(vals.supervisor,"todos"),
-    operario:remoteFilterValue(vals.operario,"todos"),estado:remoteFilterValue(state.estado,"todos"),tipo:remoteFilterValue(state.tipoMaquina,"todas"),tarea:remoteFilterValue(state.tarea,"todas"),unidad:remoteFilterValue(vals.unidad,"todas"),
-    sortBy:state.sortBy||"fecha",sortDirection:state.sortDirection||"desc",
-  };
-}
-
 export function OficinaTecnicaModule({
   view,
   deps,
@@ -5885,31 +5844,6 @@ export function OficinaTecnicaModule({
   health,loading,onLoadAll,
 }){
   applyDeps(deps);
-  const remoteControllerRef=useRef(null);
-  const [remoteTable,setRemoteTable]=useState({dataset:"",rows:[],total:0,hasMore:false,loading:false,params:{}});
-  if(!remoteControllerRef.current)remoteControllerRef.current=createHistoricalPagedController();
-  const remoteDataset=view==="rop02"?"rop02":view==="rop05"?"rop05":"";
-  const remoteState=view==="rop02"?st02:st05;
-  const remoteParams=useMemo(()=>remoteTableParams(remoteState),[remoteState]);
-  useEffect(()=>{
-    if(!remoteDataset)return;
-    let alive=true;setRemoteTable(previous=>({...previous,dataset:remoteDataset,loading:true,params:remoteParams}));
-    remoteControllerRef.current.loadFirst(remoteDataset,remoteParams).then(result=>{
-      if(!alive||result.stale)return;
-      const rows=remoteDataset==="rop02"?normalizeROP02(result.rows||[]):normalizeROP05(result.rows||[]);
-      setRemoteTable({dataset:remoteDataset,rows,total:result.total,hasMore:result.hasMore,loading:false,params:remoteParams});
-    }).catch(()=>{if(alive)setRemoteTable(previous=>({...previous,loading:false}));});
-    return()=>{alive=false;};
-  },[remoteDataset,remoteParams]);
-  const loadMoreRemote=useCallback(()=>{
-    if(!remoteDataset)return Promise.resolve();
-    return remoteControllerRef.current.loadMore(remoteDataset,remoteParams).then(result=>{
-      if(result.stale)return;
-      const rows=remoteDataset==="rop02"?normalizeROP02(result.rows||[]):normalizeROP05(result.rows||[]);
-      setRemoteTable({dataset:remoteDataset,rows,total:result.total,hasMore:result.hasMore,loading:false,params:remoteParams});
-    });
-  },[remoteDataset,remoteParams]);
-  const exportRemote=useCallback(async()=>{const rows=[];await fetchAllDatasetPages(remoteDataset,remoteParams,page=>{rows.push(...page);});return remoteDataset==="rop02"?normalizeROP02(rows):normalizeROP05(rows);},[remoteDataset,remoteParams]);
   if(!OFFICE_VIEW_NAMES.has(view))return null;
   if(view==="dashboard"){
     if(Object.keys(rawSources||{}).length===0)return <HealthDashboard health={health} loading={loading} onLoadAll={onLoadAll}/>;
@@ -5917,15 +5851,15 @@ export function OficinaTecnicaModule({
   }
   if(view==="tallerCentral")return dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={onReloadLista}/>:<Loader label="Cargando Taller Central..."/>;
   if(view==="listaEquipos")return dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={onReloadLista}/>:<Loader label="Cargando Lista de Equipos..."/>;
-  if(view==="rop02")return remoteTable.dataset==="rop02"&&!remoteTable.loading?<ViewROP02 rop02All={remoteTable.rows} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02} remoteTotal={remoteTable.total} remoteHasMore={remoteTable.hasMore} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>:<Loader label="Cargando ROP02..."/>;
+  if(view==="rop02")return dataHydrated&&rop02All.length>0?<ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02}/>:<Loader label="Cargando ROP02..."/>;
   if(view==="horometros")return dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<Loader label="Cargando Horómetros..."/>;
   if(view==="vehiculos")return dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} listaEquipos={listaEquipos} extState={stVeh} setExtState={setStVeh}/>:<Loader label="Cargando Vehículos..."/>;
   if(view==="controlROP02")return dataHydrated&&(rop02All.length>0||rop02ControlAll.length>0)?<ViewControlROP02 rop02All={rop02All} rop02ControlAll={rop02ControlAll} tabState={stControlROP02} setTabState={setStControlROP02} stControlErrores={stControlErrores} setStControlErrores={setStControlErrores} stCtrlEquipo={stCtrlEquipo} setStCtrlEquipo={setStCtrlEquipo}/>:<Loader label="Cargando Control de ROP02..."/>;
   if(view==="controlErrores")return dataHydrated&&rop02All.length>0?<ControlDeErrores rop02All={rop02All} extState={stControlErrores} setExtState={setStControlErrores}/>:<Loader label="Cargando Control de errores..."/>;
   if(view==="ctrlEquipo")return dataHydrated&&rop02All.length>0?<ControlPorEquipo rop02All={rop02All} extState={stCtrlEquipo} setExtState={setStCtrlEquipo}/>:<Loader label="Cargando Control por Equipo..."/>;
-  if(view==="atrasoROP02")return <ViewAtrasoROP02 rop02All={rop02ControlAll} onLegacyFallback={onLoadAll}/>;
+  if(view==="atrasoROP02")return dataHydrated&&rop02ControlAll.length>0?<ViewAtrasoROP02 rop02All={rop02ControlAll}/>:<Loader label="Cargando Atraso ROP02..."/>;
   if(view==="combustible")return dataHydrated&&rop02All.length>0?<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>:<Loader label="Cargando Combustible..."/>;
-  if(view==="rop05")return remoteTable.dataset==="rop05"&&!remoteTable.loading?<ViewROP05 rop05={remoteTable.rows} extState={st05} setExtState={setSt05} remoteTotal={remoteTable.total} remoteHasMore={remoteTable.hasMore} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>:<Loader label="Cargando Productividad..."/>;
+  if(view==="rop05")return dataHydrated&&rop05.length>0?<ViewROP05 rop05={rop05} extState={st05} setExtState={setSt05}/>:<Loader label="Cargando Productividad..."/>;
   if(view==="rop05Discriminacion")return dataHydrated&&rop05.length>0?<ViewROP05Discriminacion rop05={rop05} extState={st05} setExtState={setSt05}/>:<Loader label="Cargando Discriminación por tarea..."/>;
   if(view==="rma15CtrlEquipo")return dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<Loader label="Cargando Control por Equipo..."/>;
   if(view==="chc")return dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<Loader label="Cargando ICHC..."/>;
