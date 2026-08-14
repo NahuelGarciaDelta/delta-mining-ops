@@ -1,6 +1,7 @@
 import {requireSupabase} from "../services/supabaseClient.js";
 
 const PAGE_SIZE=250;
+const SERVER_PAGE_SIZE=2000;
 const asArray=value=>Array.isArray(value)?value.filter(Boolean):(value?[value]:[]);
 function applyMulti(query,column,value){const values=asArray(value);if(values.length===1)return query.eq(column,values[0]);if(values.length>1)return query.in(column,values);return query;}
 function pageMeta(data,count,offset){const rows=(data||[]),total=Number(count||0),next=offset+rows.length;return{rows,total,hasMore:next<total,nextOffset:next<total?next:null};}
@@ -16,41 +17,61 @@ function rop05Legacy(row={}){
   };
 }
 function rma15Legacy(row={}){
-  return {...(row.raw_data||{}),"Fecha de OT":row.fecha_ot,"EQUIPO":row.equipo,"CODIGO N° INTERNO":row.interno,
+  const base={...(row.raw_data||{}),"Fecha de OT":row.fecha_ot,"EQUIPO":row.equipo,"CODIGO N° INTERNO":row.interno,
     "Km / hs":row.km_hs,"TIPO DE MANTENIMIENTO":row.tipo_mantenimiento,
     "¿EQUIPO QUEDO OPERATIVO?":row.equipo_operativo?"SI":"NO","TURNO EN QUE SE HIZO LA OT":row.turno,
     "LUGAR DONDE ESTAN LOS EQUIPOS":row.lugar,"OBSERVACIONES":row.observaciones,"MAIL AVISADO":row.mail_avisado,
     "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":row.intervencion,
     Proyecto:row.proyecto,
   };
+  const insumos=Array.isArray(row.rma15_insumos)?row.rma15_insumos:[];
+  insumos.forEach(item=>{
+    const pos=Number(item.posicion)||0;if(pos<1||pos>10)return;
+    base[`codigo ${pos}`]=item.codigo??"";base[`nombre ${pos}`]=item.nombre??"";base[`cantidad ${pos}`]=item.cantidad??0;
+  });
+  return base;
 }
 
-export async function getRop05Page(params={}){
-  const limit=params.limit==="all"?2000:Math.min(Math.max(Number(params.limit)||PAGE_SIZE,1),2000),offset=Math.max(Number(params.offset)||0,0);
+async function getRop05SinglePage(params={}){
+  const limit=Math.min(Math.max(Number(params.limit)||PAGE_SIZE,1),SERVER_PAGE_SIZE),offset=Math.max(Number(params.offset)||0,0);
   let q=requireSupabase().from("rop05").select("*",{count:"exact"});
   if(params.desde)q=q.gte("fecha",params.desde);if(params.hasta)q=q.lte("fecha",params.hasta);
   q=applyMulti(q,"proyecto",params.proyecto);q=applyMulti(q,"interno",params.equipo);q=applyMulti(q,"supervisor",params.supervisor);q=applyMulti(q,"tipo_equipo",params.tipo);q=applyMulti(q,"unidad",params.unidad);
   if(params.tarea){const values=asArray(params.tarea);if(values.length)q=q.or(values.map(v=>`tarea.ilike.%${String(v).replace(/[%_,()]/g," ")}%`).join(","));}
   const sort={fecha:"fecha",maquina:"interno",equipo:"interno",supervisor:"supervisor",proyecto:"proyecto",tarea:"tarea",unidad:"unidad",horas:"horas_productivas"}[params.sortBy]||"fecha";
-  q=q.order(sort,{ascending:String(params.sortDirection||"asc").toLowerCase()!=="desc"}).order("source_row",{ascending:true}).range(offset,offset+limit-1);
+  q=q.order(sort,{ascending:String(params.sortDirection||"asc").toLowerCase()!=="desc"}).order("source_dataset",{ascending:true}).order("source_row",{ascending:true}).range(offset,offset+limit-1);
   const {data,error,count}=await q;if(error)throw new Error(`Supabase ROP05: ${error.message}`);
   const meta=pageMeta(data,count,offset),rows=(data||[]).map(rop05Legacy);return{ok:true,data:rows,rows:rows.length,total:meta.total,hasMore:meta.hasMore,nextOffset:meta.nextOffset,source:"supabase"};
 }
 
-export async function getRma15Page(params={}){
-  const limit=params.limit==="all"?2000:Math.min(Math.max(Number(params.limit)||PAGE_SIZE,1),2000),offset=Math.max(Number(params.offset)||0,0);
+export async function getRop05Page(params={}){
+  if(params.limit!=="all")return getRop05SinglePage(params);
+  const all=[];let offset=Math.max(Number(params.offset)||0,0),total=0;
+  for(;;){const page=await getRop05SinglePage({...params,limit:SERVER_PAGE_SIZE,offset});total=page.total;all.push(...page.data);if(!page.hasMore||!page.data.length)break;offset=page.nextOffset;}
+  return{ok:true,data:all,rows:all.length,total,hasMore:false,nextOffset:null,source:"supabase"};
+}
+
+async function getRma15SinglePage(params={}){
+  const limit=Math.min(Math.max(Number(params.limit)||PAGE_SIZE,1),SERVER_PAGE_SIZE),offset=Math.max(Number(params.offset)||0,0);
   let q=requireSupabase().from("rma15_frontend").select("*",{count:"exact"});
   if(params.desde)q=q.gte("fecha_ot",params.desde);if(params.hasta)q=q.lte("fecha_ot",params.hasta);
   q=applyMulti(q,"proyecto",params.proyecto);q=applyMulti(q,"interno",params.equipo);q=applyMulti(q,"tipo_mantenimiento",params.tipo||params.tipoMant);
   const sort={fecha:"fecha_ot",maquina:"interno",equipo:"interno",proyecto:"proyecto",tipoMant:"tipo_mantenimiento",intervencion:"intervencion",operativo:"equipo_operativo"}[params.sortBy]||"fecha_ot";
-  q=q.order(sort,{ascending:String(params.sortDirection||"asc").toLowerCase()!=="desc"}).order("source_row",{ascending:true}).range(offset,offset+limit-1);
+  q=q.order(sort,{ascending:String(params.sortDirection||"asc").toLowerCase()!=="desc"}).order("source_dataset",{ascending:true}).order("source_row",{ascending:true}).range(offset,offset+limit-1);
   const {data,error,count}=await q;if(error)throw new Error(`Supabase RMA15: ${error.message}`);
   const meta=pageMeta(data,count,offset),rows=(data||[]).map(rma15Legacy);return{ok:true,data:rows,rows:rows.length,total:meta.total,hasMore:meta.hasMore,nextOffset:meta.nextOffset,source:"supabase"};
 }
 
-async function fetchAllPages(fetcher,params,onPage=()=>{}){let offset=0,total=0;do{const page=await fetcher({...params,limit:2000,offset});total=page.total;await onPage(page.data,{offset:page.nextOffset,total,hasMore:page.hasMore});if(!page.hasMore||!page.data.length)break;offset=page.nextOffset;}while(offset<total);return{total};}
-export const fetchAllRop05Pages=(params,onPage)=>fetchAllPages(getRop05Page,params,onPage);
-export const fetchAllRma15Pages=(params,onPage)=>fetchAllPages(getRma15Page,params,onPage);
+export async function getRma15Page(params={}){
+  if(params.limit!=="all")return getRma15SinglePage(params);
+  const all=[];let offset=Math.max(Number(params.offset)||0,0),total=0;
+  for(;;){const page=await getRma15SinglePage({...params,limit:SERVER_PAGE_SIZE,offset});total=page.total;all.push(...page.data);if(!page.hasMore||!page.data.length)break;offset=page.nextOffset;}
+  return{ok:true,data:all,rows:all.length,total,hasMore:false,nextOffset:null,source:"supabase"};
+}
+
+async function fetchAllPages(fetcher,params,onPage=()=>{}){let offset=0,total=0;do{const page=await fetcher({...params,limit:SERVER_PAGE_SIZE,offset});total=page.total;await onPage(page.data,{offset:page.nextOffset,total,hasMore:page.hasMore});if(!page.hasMore||!page.data.length)break;offset=page.nextOffset;}while(offset<total);return{total};}
+export const fetchAllRop05Pages=(params,onPage)=>fetchAllPages(getRop05SinglePage,params,onPage);
+export const fetchAllRma15Pages=(params,onPage)=>fetchAllPages(getRma15SinglePage,params,onPage);
 
 async function fetchAllRma15Rows(selectColumns,configure=query=>query){
   const all=[],PAGE=1000;
