@@ -7,7 +7,7 @@ import {WeatherSummary} from "../weather/WeatherModule.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
 import { calculateAtrasoRop02, equipmentProjectKey, normalizeRop02Project } from "../home/homeAvailability.js";
 import {cancelEquipmentMovement,saveEquipmentMovement,useEquipmentMovements} from "../../services/equipmentMovements.js";
-import {createHistoricalPagedController,fetchAllDatasetPages,getRop02,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
+import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 import {normalizeROP02,normalizeROP05} from "../../shared/domain/index.jsx";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
@@ -5885,39 +5885,115 @@ export function OficinaTecnicaModule({
   health,loading,onLoadAll,
 }){
   applyDeps(deps);
-  const remoteControllerRef=useRef(null);
-  const [remoteTable,setRemoteTable]=useState({dataset:"",rows:[],total:0,hasMore:false,loading:false,loadedOnce:false,params:{}});
-  if(!remoteControllerRef.current)remoteControllerRef.current=createHistoricalPagedController();
+  // ROP02 / ROP05: carga completa una sola vez por pestaña.
+  // Los filtros NO vuelven a consultar Apps Script: se aplican localmente,
+  // igual que en Mantenimiento.
+  const [remoteTable,setRemoteTable]=useState({
+    dataset:"",
+    rows:[],
+    total:0,
+    hasMore:false,
+    loading:false,
+    loadedOnce:false,
+    error:""
+  });
+  const fullDatasetCacheRef=useRef({rop02:null,rop05:null});
+  const fullDatasetPendingRef=useRef({rop02:null,rop05:null});
   const remoteDataset=view==="rop02"?"rop02":view==="rop05"?"rop05":"";
-  const remoteState=view==="rop02"?st02:st05;
-  const remoteParams=useMemo(()=>remoteTableParams(remoteState),[remoteState]);
+
+  const loadFullDataset=useCallback(async(dataset,{force=false}={})=>{
+    if(!dataset)return [];
+    if(!force&&fullDatasetCacheRef.current[dataset]){
+      return fullDatasetCacheRef.current[dataset];
+    }
+    if(!force&&fullDatasetPendingRef.current[dataset]){
+      return fullDatasetPendingRef.current[dataset];
+    }
+
+    const task=(async()=>{
+      const getter=dataset==="rop02"?getRop02:getRop05;
+      const result=await getter({
+        limit:"all",
+        offset:0,
+        sortBy:"fecha",
+        sortDirection:"desc"
+      });
+      const raw=Array.isArray(result?.data)?result.data:[];
+      const rows=dataset==="rop02"?normalizeROP02(raw):normalizeROP05(raw);
+      fullDatasetCacheRef.current[dataset]=rows;
+      return rows;
+    })();
+
+    fullDatasetPendingRef.current[dataset]=task;
+    try{
+      return await task;
+    }finally{
+      if(fullDatasetPendingRef.current[dataset]===task){
+        fullDatasetPendingRef.current[dataset]=null;
+      }
+    }
+  },[]);
+
   useEffect(()=>{
     if(!remoteDataset)return;
     let alive=true;
-    // Igual que Mantenimiento: al cambiar filtros se conserva la vista actual
-    // mientras se consulta el nuevo resultado en segundo plano.
-    setRemoteTable(previous=>{
-      if(previous.dataset===remoteDataset&&previous.loadedOnce){
-        return {...previous,loading:true,params:remoteParams};
-      }
-      return {dataset:remoteDataset,rows:[],total:0,hasMore:false,loading:true,loadedOnce:false,params:remoteParams};
+
+    const cached=fullDatasetCacheRef.current[remoteDataset];
+    if(cached){
+      setRemoteTable({
+        dataset:remoteDataset,
+        rows:cached,
+        total:cached.length,
+        hasMore:false,
+        loading:false,
+        loadedOnce:true,
+        error:""
+      });
+      return()=>{alive=false;};
+    }
+
+    setRemoteTable(previous=>({
+      dataset:remoteDataset,
+      rows:previous.dataset===remoteDataset?previous.rows:[],
+      total:previous.dataset===remoteDataset?previous.total:0,
+      hasMore:false,
+      loading:true,
+      loadedOnce:previous.dataset===remoteDataset&&previous.loadedOnce,
+      error:""
+    }));
+
+    loadFullDataset(remoteDataset).then(rows=>{
+      if(!alive)return;
+      setRemoteTable({
+        dataset:remoteDataset,
+        rows,
+        total:rows.length,
+        hasMore:false,
+        loading:false,
+        loadedOnce:true,
+        error:""
+      });
+    }).catch(error=>{
+      if(!alive)return;
+      setRemoteTable(previous=>({
+        ...previous,
+        dataset:remoteDataset,
+        loading:false,
+        error:error?.message||"No se pudieron cargar los datos"
+      }));
     });
-    remoteControllerRef.current.loadFirst(remoteDataset,remoteParams).then(result=>{
-      if(!alive||result.stale)return;
-      const rows=remoteDataset==="rop02"?normalizeROP02(result.rows||[]):normalizeROP05(result.rows||[]);
-      setRemoteTable({dataset:remoteDataset,rows,total:result.total,hasMore:result.hasMore,loading:false,loadedOnce:true,params:remoteParams});
-    }).catch(()=>{if(alive)setRemoteTable(previous=>({...previous,loading:false}));});
+
     return()=>{alive=false;};
-  },[remoteDataset,remoteParams]);
-  const loadMoreRemote=useCallback(()=>{
-    if(!remoteDataset)return Promise.resolve();
-    return remoteControllerRef.current.loadMore(remoteDataset,remoteParams).then(result=>{
-      if(result.stale)return;
-      const rows=remoteDataset==="rop02"?normalizeROP02(result.rows||[]):normalizeROP05(result.rows||[]);
-      setRemoteTable({dataset:remoteDataset,rows,total:result.total,hasMore:result.hasMore,loading:false,loadedOnce:true,params:remoteParams});
-    });
-  },[remoteDataset,remoteParams]);
-  const exportRemote=useCallback(async()=>{const rows=[];await fetchAllDatasetPages(remoteDataset,remoteParams,page=>{rows.push(...page);});return remoteDataset==="rop02"?normalizeROP02(rows):normalizeROP05(rows);},[remoteDataset,remoteParams]);
+  },[remoteDataset,loadFullDataset]);
+
+  // Ya no hay paginación remota al filtrar. Toda la base está en memoria.
+  const loadMoreRemote=useCallback(()=>Promise.resolve(),[]);
+  const exportRemote=useCallback(async()=>{
+    if(!remoteDataset)return[];
+    const rows=fullDatasetCacheRef.current[remoteDataset]||await loadFullDataset(remoteDataset);
+    return rows;
+  },[remoteDataset,loadFullDataset]);
+
   if(!OFFICE_VIEW_NAMES.has(view))return null;
   if(view==="dashboard"){
     if(Object.keys(rawSources||{}).length===0)return <HealthDashboard health={health} loading={loading} onLoadAll={onLoadAll}/>;
@@ -5926,10 +6002,8 @@ export function OficinaTecnicaModule({
   if(view==="tallerCentral")return dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={onReloadLista}/>:<Loader label="Cargando Taller Central..."/>;
   if(view==="listaEquipos")return dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={onReloadLista}/>:<Loader label="Cargando Lista de Equipos..."/>;
   if(view==="rop02"){
-    // Loader completo solo en la primera entrada. Los cambios de filtro
-    // mantienen la pantalla montada y reemplazan los datos al finalizar.
     if(remoteTable.dataset!=="rop02"||!remoteTable.loadedOnce)return <Loader label="Cargando ROP02..."/>;
-    return <ViewROP02 rop02All={remoteTable.rows} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02} remoteTotal={remoteTable.total} remoteHasMore={remoteTable.hasMore} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>;
+    return <ViewROP02 rop02All={remoteTable.rows} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02} remoteTotal={remoteTable.total} remoteHasMore={false} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>;
   }
   if(view==="horometros")return dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<Loader label="Cargando Horómetros..."/>;
   if(view==="vehiculos")return dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} listaEquipos={listaEquipos} extState={stVeh} setExtState={setStVeh}/>:<Loader label="Cargando Vehículos..."/>;
@@ -5940,7 +6014,7 @@ export function OficinaTecnicaModule({
   if(view==="combustible")return dataHydrated&&rop02All.length>0?<ViewCombustible rop02All={rop02All} extState={stComb} setExtState={setStComb}/>:<Loader label="Cargando Combustible..."/>;
   if(view==="rop05"){
     if(remoteTable.dataset!=="rop05"||!remoteTable.loadedOnce)return <Loader label="Cargando Productividad..."/>;
-    return <ViewROP05 rop05={remoteTable.rows} extState={st05} setExtState={setSt05} remoteTotal={remoteTable.total} remoteHasMore={remoteTable.hasMore} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>;
+    return <ViewROP05 rop05={remoteTable.rows} extState={st05} setExtState={setSt05} remoteTotal={remoteTable.total} remoteHasMore={false} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>;
   }
   if(view==="rop05Discriminacion")return dataHydrated&&rop05.length>0?<ViewROP05Discriminacion rop05={rop05} extState={st05} setExtState={setSt05}/>:<Loader label="Cargando Discriminación por tarea..."/>;
   if(view==="rma15CtrlEquipo")return dataHydrated&&rma15.length>0?<ControlRMA15PorEquipo rma15={rma15} extState={stRma15CtrlEquipo} setExtState={setStRma15CtrlEquipo}/>:<Loader label="Cargando Control por Equipo..."/>;
