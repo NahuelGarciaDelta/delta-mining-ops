@@ -56,6 +56,18 @@ const canonicalEquipmentCode=value=>{
   return equivalences[code]||code;
 };
 
+export function isHomeAvailabilityVehicleCode(value){
+  const code=canonicalEquipmentCode(value).replace(/[^A-Z0-9]/g,"");
+  if(!code)return false;
+  if(/^CTA/.test(code))return true;
+  if(/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return true;
+  if(["CAC","CAR","CAV","CAA"].some(prefix=>code.startsWith(prefix)))return true;
+  // CAT no es inequívoco porque también se usa para generadores. CAT-0073 sí es
+  // un camión confirmado y se excluye explícitamente del indicador.
+  if(code==="CAT0073")return true;
+  return false;
+}
+
 export function isBajoSanJuanJustification(value){
   return normText(value)===BAJO_SAN_JUAN_NORM;
 }
@@ -212,7 +224,12 @@ function rowState(row){
 
 export function calculateHomeAvailabilityFromRop02(rop02Rows=[],admitidos={},options={}){
   const normalizeCode=options.normalizeEquipmentCode||canonicalEquipmentCode;
-  const fechaMaximaROP02=getMaxRop02Date(rop02Rows,{normalizeEquipmentCode:normalizeCode});
+  const eligibleRows=(rop02Rows||[]).filter(row=>{
+    if(row?._excluded)return false;
+    const code=normalizeCode(row.maquina||row._internoRaw);
+    return code&&!isHomeAvailabilityVehicleCode(code);
+  });
+  const fechaMaximaROP02=getMaxRop02Date(eligibleRows,{normalizeEquipmentCode:normalizeCode});
   if(!fechaMaximaROP02)return {
     disponibilidad:null,
     fechaMaximaROP02:"",
@@ -228,10 +245,9 @@ export function calculateHomeAvailabilityFromRop02(rop02Rows=[],admitidos={},opt
   };
 
   const ventanaDesde=addDaysISO(fechaMaximaROP02,-6);
-  const exclusionMap=options.exclusionMap||getBajoSanJuanExclusionMap(admitidos,buildLatestRop02ByCode(rop02Rows,{normalizeEquipmentCode:normalizeCode}));
+  const exclusionMap=options.exclusionMap||getBajoSanJuanExclusionMap(admitidos,buildLatestRop02ByCode(eligibleRows,{normalizeEquipmentCode:normalizeCode}));
   const porEquipo=new Map();
-  for(const row of rop02Rows||[]){
-    if(row?._excluded)continue;
+  for(const row of eligibleRows){
     const fecha=dateISO(row.fecha);
     if(!fecha||fecha<ventanaDesde||fecha>fechaMaximaROP02)continue;
     const code=normalizeCode(row.maquina||row._internoRaw);
