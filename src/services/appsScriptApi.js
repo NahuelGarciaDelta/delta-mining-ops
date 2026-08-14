@@ -1,3 +1,5 @@
+import {fetchSupabaseMirrorSource,isSupabaseMirrorSource} from "./supabaseMirrorSource.js";
+
 export function expandCompactSource(src){
   if(!src||!src.compact||!Array.isArray(src.headers)||!Array.isArray(src.rows))return src;
   return {
@@ -84,7 +86,17 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
 }
 
 export async function fetchHealth(url){return fetchAction(url,"health",{compact:false});}
-export async function fetchSource(url,source,{force=false,since=""}={}){return fetchAction(url,source,{force,compact:true,since});}
+export async function fetchSource(url,source,{force=false,since=""}={}){
+  if(isSupabaseMirrorSource(source)){
+    try{
+      const mirrored=await fetchSupabaseMirrorSource(source);
+      if(mirrored)return mirrored;
+    }catch(error){
+      if(import.meta.env.DEV)console.warn(`[supabase-mirror] ${source}: ${error?.message||error}`);
+    }
+  }
+  return fetchAction(url,source,{force,compact:true,since});
+}
 export async function fetchSyncVersions(url){
   try{return await fetchAction(url,"get_data_versions",{compact:false,retries:1});}
   catch(_){
