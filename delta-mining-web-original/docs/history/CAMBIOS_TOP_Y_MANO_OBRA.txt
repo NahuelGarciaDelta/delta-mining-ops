@@ -1,0 +1,19 @@
+CAMBIOS APLICADOS
+
+1. Nueva equivalencia histórica:
+   TOP-0059 -> TOP-0058
+
+2. Equivalencia reforzada:
+   TOP-0014 -> TOP-0032
+
+3. Mano de obra corregida:
+   La búsqueda de mano de obra ahora usa la misma identidad canónica que el
+   agrupamiento de costos. Esto corrige especialmente MOT-0047 y TOP-0032,
+   evitando que sus costos de mano de obra queden asociados al interno viejo.
+
+La corrección se aplica al costo mensual, costo horario y tablas/exportaciones
+que consumen getManoObraCostoMensual.
+
+VALIDACION
+Se intentó ejecutar npm install para realizar el build, pero el registro disponible
+no contiene xlsx-js-style@1.2.0 (error 404). No se modificaron dependencias.

@@ -1,0 +1,8 @@
+CAMBIOS - LECTURA DE REMITOS DE VARIAS PAGINAS
+
+- El lector PDF ahora procesa todas las paginas del remito de forma independiente.
+- Los articulos encontrados en todas las paginas se unifican en una sola carga.
+- Se eliminan duplicados solo cuando coinciden codigo, descripcion y cantidad.
+- Si dos paginas son copias identicas, sus articulos se cargan una sola vez.
+- Si el mismo codigo aparece con distinta cantidad o descripcion, se conserva como una fila diferente.
+- Los datos generales del remito (comprobante, fecha, origen, destino y observaciones) se toman de la primera pagina.

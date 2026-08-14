@@ -1,0 +1,7 @@
+Equivalencias aplicadas antes del agrupamiento de costos:
+- CFN-0041 -> PCA-0081
+- CFN-0043 -> PCA-0093
+- CFN-0044 -> PCA-0095
+- CFN-0045 -> PCA-0095 (respaldo por posible variante histórica)
+
+Los costos preventivos, correctivos y totales de todos los meses se suman a la fila PCA correspondiente. Las filas CFN dejan de mostrarse por separado en Costo mensual acumulado y en las vistas derivadas que usan la identidad canónica.

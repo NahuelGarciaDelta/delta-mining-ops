@@ -1,0 +1,19 @@
+CAMBIO REALIZADO
+
+Se actualizaron los filtros de año de la aplicación para garantizar que estén disponibles los años:
+- 2026
+- 2027
+- 2028
+
+Se modificaron los selectores compartidos y los módulos que generaban años dinámicamente:
+- Mantenimiento Programado
+- Mantenimiento / RMA15
+- Oficina Técnica / ROP02 / ROP05
+- Cambio de turno / Analytics
+- Componentes compartidos de período Mes/Año
+
+Los años existentes en los datos históricos se conservan cuando corresponde.
+
+VALIDACIÓN
+npm run validate
+Resultado: OK, 53 archivos JS/JSX y todos los imports locales resuelven.

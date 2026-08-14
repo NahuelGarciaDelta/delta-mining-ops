@@ -1,0 +1,9 @@
+Equivalencias históricas agregadas en Informe de Costos:
+
+EXC-0014 -> EXC-0034
+EXC-0019 -> EXC-0048
+MOT-0024 -> MOT-0047
+RTP-0010 -> RTP-0016
+RTP-0012 -> RTP-0024
+
+Los costos preventivos, correctivos y totales de los códigos antiguos se consolidan en el código nuevo antes del agrupamiento mensual. Los códigos antiguos dejan de mostrarse como filas separadas en las vistas que utilizan la función de canonicalización del Informe de Costos.

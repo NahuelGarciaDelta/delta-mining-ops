@@ -1,0 +1,23 @@
+Cambios realizados:
+
+1. Menú de Abastecimiento reorganizado:
+   - Abastecimiento
+     - Dashboard
+     - RABA03
+     - Remito
+   - Solicitudes
+     - Realizadas
+     - Parciales
+     - Cerradas
+     - Rechazadas
+     - Envíos sin solicitud
+   - Editar códigos
+   - Stock crítico
+     - Dashboard Stock
+     - Control de stock
+
+2. Nueva vista "Envíos sin solicitud":
+   - Compara los códigos de cada artículo de los remitos contra todos los códigos existentes en las solicitudes RABA03.
+   - Muestra únicamente artículos cuyo código no existe en ninguna solicitud.
+   - Columnas: Código de artículo, Descripción, Cant. enviada, Fecha de envío.
+   - Incluye contador y exportación a Excel.

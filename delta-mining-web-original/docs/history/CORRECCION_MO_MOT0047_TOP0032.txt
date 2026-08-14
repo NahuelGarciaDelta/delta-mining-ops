@@ -1,0 +1,6 @@
+Corrección de Mano de Obra en Costo mensual acumulado
+
+- MOT-0047 y TOP-0032 ahora calculan la mano de obra directamente sobre su fila consolidada.
+- Se eliminó la búsqueda indirecta por interno, que podía fallar después de unificar códigos viejos y nuevos.
+- Fórmula aplicada: subtotal de mano de obra del proyecto × (mantenimiento promedio del equipo / mantenimiento promedio total del proyecto).
+- La misma lógica se aplica a todos los equipos de la tabla.

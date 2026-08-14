@@ -1,0 +1,30 @@
+DELTA MINING OPS — PRECARGA GLOBAL
+
+OBJETIVO
+Que las pestañas no esperen a que entres para recién empezar a descargar sus datos.
+
+QUÉ HACE
+- Bienvenida abre normalmente.
+- Cuando el navegador queda libre, se precargan en segundo plano:
+  * Lista Maestra
+  * ROP02 Filo del Sol
+  * ROP02 José María
+  * ROP02 Filo Sur
+  * ROP02 El Zorro
+  * ROP05
+  * RMA15 Filo del Sol
+  * RMA15 José María
+  * Insumos
+- También se calienta el caché histórico query_dataset de ROP02, ROP05 y RMA15.
+- Las pestañas posteriores reutilizan memoria / IndexedDB.
+- No muestra una pantalla de carga por la precarga global.
+
+INSTALACIÓN
+1. Descomprimir TODO dentro de la raíz del proyecto.
+2. Ejecutar APLICAR_PRECARGA_GLOBAL.bat.
+3. Esperar BUILD OK.
+
+PUSH
+git add src/App.jsx src/services/globalPreload.js
+git commit -m "Precargar datos de toda la app en segundo plano"
+git push origin main

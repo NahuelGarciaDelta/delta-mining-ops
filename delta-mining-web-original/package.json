@@ -1,0 +1,31 @@
+{
+  "name": "delta-mining-web",
+  "version": "3.9.8",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "node --check src/workers/informeCostos.worker.js && node --check src/modules/informe-costos/engine/InformeCostosEngine.js",
+    "validate": "node scripts/validate-local-imports.mjs && node --check src/workers/informeCostos.worker.js && node --check src/modules/informe-costos/engine/InformeCostosEngine.js && npm run lint:security && npm test",
+    "test": "node --test tests/*.test.mjs",
+    "lint:security": "node scripts/security-audit.mjs",
+    "lint:eslint": "eslint .",
+    "lint": "npm run lint:security && npm run lint:eslint",
+    "format": "prettier --write \"src/**/*.{js,jsx}\" \"tests/**/*.mjs\" \"scripts/**/*.mjs\"",
+    "format:check": "prettier --check \"src/**/*.{js,jsx}\" \"tests/**/*.mjs\" \"scripts/**/*.mjs\""
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.12.7",
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "vite": "5.4.14",
+    "eslint": "9.17.0",
+    "prettier": "3.4.2"
+  }
+}

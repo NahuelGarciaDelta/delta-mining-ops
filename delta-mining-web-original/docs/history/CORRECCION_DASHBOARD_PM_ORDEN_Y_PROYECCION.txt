@@ -1,0 +1,16 @@
+CORRECCIÓN DASHBOARD DE MANTENIMIENTO PROGRAMADO
+
+Archivo principal modificado:
+- src/modules/mantenimiento/MantenimientoProgramadoView.jsx
+
+Cambios:
+1. Los gráficos del Dashboard se movieron al comienzo de la pestaña, inmediatamente después de los indicadores.
+2. El gráfico de PM realizados se muestra en formato mensual amplio y comienza en abril de 2026.
+3. Los equipos que ya están en estado PM URGENTE o PM ATRASADO se muestran únicamente en "PM que deben realizarse con urgencia".
+4. "PM posibles en el próximo turno" solo proyecta equipos que todavía no están urgentes ni atrasados.
+5. Se conservan las proyecciones de +80 h y +120 h para el próximo turno.
+6. Se mantiene el Apps Script actual entregado por el usuario, incluido como AppsScript_Delta_Mining_Actual.txt.
+
+Validación:
+- npm run validate: OK.
+- npm run build: no pudo ejecutarse porque Vite no está instalado en este entorno (vite: not found).

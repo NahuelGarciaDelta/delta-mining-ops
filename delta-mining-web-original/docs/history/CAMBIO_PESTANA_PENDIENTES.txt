@@ -1,0 +1,10 @@
+CAMBIO REALIZADO
+
+Se agregó la pestaña "Pendientes" debajo de "Realizadas" en el grupo "Solicitudes" del módulo Abastecimiento.
+
+La pestaña utiliza la vista existente abastecimientoPendientes y conserva su lógica original.
+
+VALIDACIÓN
+- Se verificó que la vista ya estaba implementada y mapeada al estado interno "pendientes".
+- Se verificó que el título y el render de AbastecimientoModule ya contemplaban abastecimientoPendientes.
+- El build no pudo ejecutarse en este entorno porque npm no pudo descargar xlsx-js-style@1.2.0 desde el registro disponible (error 404).
