@@ -24,6 +24,7 @@ import ModuleErrorBoundary from "./components/ModuleErrorBoundary.jsx";
 import OfflineBanner from "./components/OfflineBanner.jsx";
 import { useOnlineStatus } from "./hooks/useOnlineStatus.js";
 import { runRefreshTasks } from "./services/refreshManager.js";
+import { preloadHistoricalDatasets } from "./services/globalPreload.js";
 import { can, getPermissionSnapshot } from "./services/permissionService.js";
 import { APP_BUILD_LABEL } from "./app/version.js";
 import { EquipmentProfileView } from "./modules/equipment/index.js";
@@ -157,6 +158,10 @@ import {
 
 import { ABASTECIMIENTO_DEPS, COSTOS_UNITARIOS_DEPS, INFORME_COSTOS_DEPS, LICITACIONES_DEPS, MANTENIMIENTO_DEPS, OPERATIONAL_ANALYTICS_DEPS, createOficinaTecnicaDeps } from "./config/moduleDeps.jsx";
 
+const ALL_APP_PRELOAD_SOURCES=Object.freeze(
+  Array.from(new Set(Object.values(VIEW_SOURCES).flat()))
+);
+
 export default function App(){
   useGlobalThreeStateTableSort();
   useGlobalEquipmentProfileLinks();
@@ -237,8 +242,9 @@ export default function App(){
   useEffect(()=>{const openWeather=()=>{setActiveModule("home");setView("bienvenida");};window.addEventListener("dm-open-weather",openWeather);return()=>window.removeEventListener("dm-open-weather",openWeather);},[]);
 
 
-  // loadSources hidrata únicamente las fuentes de la vista activa. Precargar aquí
-  // todos los históricos duplicaba grandes datasets en memoria desde Bienvenida.
+  // Las fuentes de la vista activa siguen teniendo prioridad, pero además la app
+  // precarga en segundo plano todas las fuentes compartidas para que las demás
+  // pestañas abran con datos ya disponibles.
 
   const sourceHasData=useCallback((key)=>{
     const src=rawSources&&rawSources[key];
@@ -577,6 +583,49 @@ export default function App(){
       if(background||hasVisible)endBackgroundSync();
     }
   },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
+
+  // ─── Precarga global ─────────────────────────────────────────────────────
+  // Al autenticarse, llena en segundo plano el cache de TODAS las fuentes comunes.
+  // No bloquea Bienvenida ni muestra loaders. Las vistas posteriores reutilizan
+  // memoria / local cache y solo comprueban versiones en el servidor.
+  const globalPreloadRef=useRef(false);
+  useEffect(()=>{
+    if(!auth||globalPreloadRef.current)return;
+    globalPreloadRef.current=true;
+    try{sessionStorage.setItem("dm_global_preload_started","1");}catch(_){}
+
+    let cancelled=false;
+    let idleId=null;
+    let timeoutId=null;
+
+    const run=async()=>{
+      if(cancelled)return;
+      try{
+        // Primero las fuentes normales que comparten prácticamente todas las vistas.
+        await loadSources(ALL_APP_PRELOAD_SOURCES,{background:true});
+      }catch(_){}
+
+      if(cancelled)return;
+
+      // Después calienta también el cache usado por query_dataset
+      // (ROP02 / ROP05 / RMA15 históricos).
+      try{await preloadHistoricalDatasets();}catch(_){}
+    };
+
+    if(typeof window.requestIdleCallback==="function"){
+      idleId=window.requestIdleCallback(run,{timeout:1500});
+    }else{
+      timeoutId=window.setTimeout(run,350);
+    }
+
+    return()=>{
+      cancelled=true;
+      if(idleId!=null&&typeof window.cancelIdleCallback==="function"){
+        window.cancelIdleCallback(idleId);
+      }
+      if(timeoutId!=null)window.clearTimeout(timeoutId);
+    };
+  },[auth,loadSources]);
 
   const refreshCurrentView=useCallback(async({background=false,reason="manual"}={})=>{
     const refreshedAt=Date.now();
