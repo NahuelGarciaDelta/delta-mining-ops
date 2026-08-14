@@ -13,7 +13,6 @@ import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcur
 import { clearAuthenticatedSession, getAuthenticatedUser } from "./services/authSession.js";
 import { appAlert, appConfirm } from "./services/dialogService.js";
 import { APP_FILTERS_STATE_KEY, readSavedAppFilters, readSavedDataSources, saveDataSourcesToStorage, getCachedSourceTimestamp, mergeIncrementalSource, readCachedSourceRecords, readCachedSource, writeCachedSource } from "./services/appCache.js";
-import {shouldDownloadDataset} from "./data/datasetSync.js";
 import { useGlobalThreeStateTableSort } from "./hooks/useGlobalThreeStateTableSort.js";
 import { useGlobalEquipmentProfileLinks } from "./hooks/useGlobalEquipmentProfileLinks.js";
 import { usePwaInstall } from "./app/usePwaInstall.js";
@@ -447,7 +446,7 @@ export default function App(){
     keys.forEach(key=>hydratedCacheKeysRef.current.add(key));
     const recordMap=await readCachedSourceRecords(keys).catch(()=>({}));
     const records=keys.map(key=>[key,recordMap[key]||null]);
-    const valid=records.filter(([,rec])=>rec?.data?.ok&&Array.isArray(rec.data.data));
+    const valid=records.filter(([,rec])=>rec?.value?.ok&&Array.isArray(rec.value.data));
     if(!valid.length)return recordMap;
 
     startTransition(()=>{
@@ -455,7 +454,7 @@ export default function App(){
         let changed=false;
         const next={...prev};
         valid.forEach(([key,rec])=>{
-          if(!(next[key]?.ok&&Array.isArray(next[key].data))){next[key]=rec.data;changed=true;}
+          if(!(next[key]?.ok&&Array.isArray(next[key].data))){next[key]=rec.value;changed=true;}
         });
         if(!changed)return prev;
         rawSourcesRef.current=next;
@@ -478,14 +477,15 @@ export default function App(){
 
   const fetchOneSource=useCallback(async(key,{force=false,serverVersions={},cacheRecords={}}={})=>{
     const existingRequest=sourceRequestsRef.current.get(key);
-    if(existingRequest)return existingRequest;
+    if(existingRequest&&!force)return existingRequest;
 
     const task=(async()=>{
       const cacheRecord=cacheRecords[key]||await readCachedSource(key).catch(()=>null);
-      const localSource=rawSourcesRef.current?.[key]||cacheRecord?.data||null;
+      const localSource=rawSourcesRef.current?.[key]||cacheRecord?.value||null;
+      const localVersion=Number(localSource?.meta?.serverVersion||cacheRecord?.value?.meta?.serverVersion||0);
       const serverVersion=Number(serverVersions[key]||0);
 
-      if(!shouldDownloadDataset({source:localSource,record:cacheRecord,serverVersion,force})){
+      if(!force&&localSource?.ok&&Array.isArray(localSource.data)&&serverVersion>0&&localVersion===serverVersion){
         lastCheckedBySourceRef.current[key]=Date.now();
         return {key,value:localSource,skipped:true};
       }
@@ -506,14 +506,14 @@ export default function App(){
     finally{if(sourceRequestsRef.current.get(key)===task)sourceRequestsRef.current.delete(key);}
   },[]);
 
-  const loadSources=useCallback(async(sources,{force=false,background=true,revalidate=false}={})=>{
+  const loadSources=useCallback(async(sources,{force=false,background=true}={})=>{
     const requested=[...new Set((sources||[]).filter(Boolean))];
     if(!requested.length)return;
 
     setFatalError(null);
     const cacheRecords=await hydrateSourcesFromCache(requested);
     const now=Date.now();
-    const toCheck=(force||revalidate)?requested:requested.filter(key=>{
+    const toCheck=force?requested:requested.filter(key=>{
       const hasData=rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data);
       const fresh=now-Number(lastCheckedBySourceRef.current[key]||0)<SYNC_FRESH_MS;
       return !hasData||!fresh;
@@ -583,7 +583,7 @@ export default function App(){
     const sources=VIEW_SOURCES[view]||[];
     if(!background)setLoading(true);
     try{
-      if(sources.length)await loadSources(sources,{background,revalidate:true});
+      if(sources.length)await loadSources(sources,{force:true,background});
       else if(view==="bienvenida")await loadInitial();
 
       // Único motor de actualización: los módulos con endpoints propios registran
@@ -613,16 +613,6 @@ export default function App(){
       else window.clearTimeout(id);
     };
   },[view,loadSources,loadInitial]);
-
-  useEffect(()=>{
-    const dropRop02=["bienvenida","dashboard","costosMant","rop02"].includes(view),dropRop05=view==="rop05",dropRma15=["bienvenida","dashboard","costosMant","mant"].includes(view);
-    if(!dropRop02&&!dropRop05&&!dropRma15)return;
-    const remove=new Set([...(dropRop02?["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"]:[]),...(dropRop05?["rop05"]:[]),...(dropRma15?["rma15_fs","rma15_jm"]:[])]);
-    setRawSources(previous=>{const next={...previous};let changed=false;remove.forEach(key=>{if(key in next){delete next[key];changed=true;}});if(changed)rawSourcesRef.current=next;return changed?next:previous;});
-    if(dropRop02){setRop02All([]);setRop02ControlAll([]);}
-    if(dropRop05)setRop05([]);
-    if(dropRma15)setRma15([]);
-  },[view]);
 
   // ─── Auto-refresh global: recarga la vista activa cada 5 minutos ─────────────
   // Llama a loadData (mismo comportamiento que el botón "Actualizar", con force)
@@ -1025,7 +1015,7 @@ export default function App(){
             {!fatalError&&(view==="bienvenida"||lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
                 {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
-                {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
+                {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
                 {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}
                 {["listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
                   view={view} deps={createOficinaTecnicaDeps(BlockingDataLoader)} dataHydrated={dataHydrated} rawSources={rawSources}
@@ -1045,7 +1035,7 @@ export default function App(){
                 {view==="mant"&&(viewDataReady?<ModuleErrorBoundary name="Mantenimiento" onRetry={loadData}><MantenimientoRoute mode="mantenimiento" deps={MANTENIMIENTO_DEPS} rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando" />)}
                 {view==="distMant"&&(dataHydrated&&rma15.length>0?<ModuleErrorBoundary name="Distribución de mantenimientos" onRetry={loadData}><MantenimientoRoute mode="distribucion" deps={MANTENIMIENTO_DEPS} rma15={rma15}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
                 {["pmProgramado","pmDashboard","pmPlanificador","pmProgramacion","pmPanel","pmRealizado","pmRepuestos","pmGestion","pmConfig","pmHistorial"].includes(view)&&(dataHydrated&&listaEquipos.length>0?<ModuleErrorBoundary name="Mantenimiento Programado" onRetry={loadData}><MantenimientoRoute mode="programado" readOnly={!can("edit","MANTENIMIENTO")} deps={MANTENIMIENTO_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} initialTab={({pmProgramado:"dashboard",pmDashboard:"dashboard",pmPlanificador:"planificador",pmProgramacion:"programacion",pmPanel:"panel",pmRealizado:"realizado",pmRepuestos:"repuestos",pmGestion:"gestion",pmConfig:"config",pmHistorial:"historial"})[view]} onTabChange={tab=>navigateToView(({dashboard:"pmDashboard",planificador:"pmPlanificador",programacion:"pmProgramacion",panel:"pmPanel",realizado:"pmRealizado",repuestos:"pmRepuestos",gestion:"pmGestion",config:"pmConfig",historial:"pmHistorial"})[tab]||"pmDashboard")}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
-                {view==="costosMant"&&(dataHydrated&&listaEquipos.length>0?<ModuleErrorBoundary name="Informe de Costos" onRetry={loadData}><InformeCostosRoute readOnly={!can("edit","OFICINA TÉCNICA")} rma15={rma15} rop02={rop02All} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate} deps={INFORME_COSTOS_DEPS}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
+                {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ModuleErrorBoundary name="Informe de Costos" onRetry={loadData}><InformeCostosRoute readOnly={!can("edit","OFICINA TÉCNICA")} rma15={rma15} rop02={rop02All} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate} deps={INFORME_COSTOS_DEPS}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ModuleErrorBoundary name="Costos Unitarios" onRetry={loadData}><ViewCostosUnitarios deps={COSTOS_UNITARIOS_DEPS} insumos={insumos} rma15={rma15} usdRate={usdRate}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<ModuleErrorBoundary name="Abastecimiento" onRetry={loadData}><AbastecimientoRoute deps={ABASTECIMIENTO_DEPS} readOnly={!can("edit","ABASTECIMIENTO")} assignedProject={proyectoUsuario} initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoEnviosSinSolicitud:"enviosSinSolicitud",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/></ModuleErrorBoundary>) }
                 {["licitaciones","licitacionesNueva","licitacionesControl","licitacionesEquipos","licitacionesDatosEquipos"].includes(view)&&<ModuleErrorBoundary name="Licitaciones" onRetry={loadData}><LicitacionesRoute readOnly={!can("edit","LICITACIONES")} canDelete={can("delete","LICITACIONES")} canExport={can("export","LICITACIONES")} deps={LICITACIONES_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} rma15={rma15} usdRate={usdRate} initialTab={({"licitaciones":"nueva","licitacionesNueva":"nueva","licitacionesControl":"control","licitacionesEquipos":"equipos","licitacionesDatosEquipos":"datosEquipos"})[view]}/></ModuleErrorBoundary>}

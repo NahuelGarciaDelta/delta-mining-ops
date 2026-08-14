@@ -9,6 +9,7 @@ import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
 import { equipmentProjectKey, normalizeRop02Project, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap } from "./homeAvailability.js";
 import {useEquipmentMovements} from "../../services/equipmentMovements.js";
+import {getRma15,getRma15OpenOtSummary,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 
 const norm=v=>String(v??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 const getVal=(row,cands)=>{const keys=Object.keys(row||{});for(const cand of cands){const w=norm(cand);for(const k of keys){const nk=norm(k);if(nk===w||nk.includes(w)||w.includes(nk))return row[k];}}return "";};
@@ -35,7 +36,29 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
   const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
-  const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(rop02All,["bienvenida"]);
+  const [snapshotRop02,setSnapshotRop02]=useState(null);
+  const [openOtSummary,setOpenOtSummary]=useState(null);
+  const [fallbackRma15,setFallbackRma15]=useState(null);
+  useEffect(()=>{
+    let alive=true;
+    getRop02LatestByEquipmentProject({}).then(response=>{
+      if(!alive||!Array.isArray(response?.data))return;
+      const rows=response.data.map(row=>{const stateText=norm(row.ULTIMO_ESTADO||row.ultimoEstado||"");const estado=stateText==="fs"||stateText.includes("fuera de servicio")?"FS":stateText==="od"||stateText.includes("orden del dia")?"OD":stateText==="em"||stateText.includes("mantenimiento")?"EM":"TRABAJO";return{
+        fecha:String(row.ULTIMA_FECHA||row.ultimaCarga||"").slice(0,10),
+        maquina:row.INTERNO||row.equipo||"",
+        proyecto:row.PROYECTO||row.proyecto||"",
+        estado,
+        horas:toNum(row.HORAS??row.horas??0),
+        supervisor:row.SUPERVISOR||row.supervisor||"",
+        _snapshotActive:Number(row.CARGAS_7D??row.cargas7d??0)>0,
+      }});
+      startTransition(()=>setSnapshotRop02(rows));
+    }).catch(()=>{});
+    return()=>{alive=false;};
+  },[]);
+  useEffect(()=>{let alive=true;getRma15OpenOtSummary({}).then(response=>{if(alive&&Array.isArray(response?.data))setOpenOtSummary(response.data);}).catch(()=>getRma15({limit:"all",sortBy:"fecha",sortDirection:"asc"}).then(response=>{if(alive)setFallbackRma15(response.data||[]);}).catch(()=>{}));return()=>{alive=false;};},[]);
+  const effectiveRop02=Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]);
+  const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
   const summaryRef=useRef(null);
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(id);},[]);
@@ -62,9 +85,10 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     let cancelled=false;
     const calculate=()=>{
     const equipos=Array.isArray(listaEquipos)?listaEquipos:[];
-    const rop=Array.isArray(rop02All)?rop02All:[];
-    const rma=Array.isArray(rma15)?rma15:[];
-    const seven=new Date();seven.setDate(seven.getDate()-7);seven.setHours(0,0,0,0);
+    const rop=effectiveRop02;
+    const rma=Array.isArray(fallbackRma15)?fallbackRma15:(Array.isArray(rma15)?rma15:[]);
+    const maxRopDate=rop.reduce((max,row)=>{const d=dateOf(row);return d&&(!max||d>max)?d:max;},null);
+    const seven=maxRopDate?new Date(maxRopDate):new Date();seven.setDate(seven.getDate()-6);seven.setHours(0,0,0,0);
 
     const normalizeCode=v=>String(v||"").trim().toUpperCase().replace(/\s+/g,"").replace(/-JM$/i,"");
     const listaByCode=new Map();
@@ -87,7 +111,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     };
 
     const activos=new Map();
-    rop.forEach(r=>{const d=dateOf(r), rawCode=codeOf(r), c=canonicalEquivalentMachineCode(rawCode);if(c&&d&&d>=seven&&!activos.has(c))activos.set(c,{interno:c,lugar:r.proyecto||""});});
+    rop.forEach(r=>{const d=dateOf(r), rawCode=codeOf(r), c=canonicalEquivalentMachineCode(rawCode);if(c&&d&&(r._snapshotActive!==false)&&d>=seven&&!activos.has(c))activos.set(c,{interno:c,lugar:r.proyecto||""});});
     const operativos={viales:[],camiones:[],camionetas:[]};
     activos.forEach(item=>{const type=classifyActive(item.interno);if(type==="camioneta")operativos.camionetas.push(item);else if(type==="camion")operativos.camiones.push(item);else operativos.viales.push(item);});
     Object.values(operativos).forEach(items=>items.sort((a,b)=>String(a.interno).localeCompare(String(b.interno))));
@@ -127,7 +151,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       };
       rmaRecords.push(record);
     });
-    const otAbiertasItems=calculateOpenOtItems(rmaRecords,exclusionMap);
+    const otAbiertasItems=Array.isArray(openOtSummary)?openOtSummary.filter(item=>!exclusionMap.has(equipmentProjectKey(item.interno,item.lugar))&&!exclusionMap.has(item.interno)):calculateOpenOtItems(rmaRecords,exclusionMap);
     let stockCritico=null;
     let stockCriticoItems=[];
       if(sharedStockRows.length){
@@ -165,7 +189,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     };
     const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:700}):window.setTimeout(calculate,40);
     return()=>{cancelled=true;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
-  },[listaEquipos,rop02All,rma15,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
+  },[listaEquipos,effectiveRop02,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
   const stats=summaryState.data||EMPTY_SUMMARY;
   const summaryLoading=summaryState.loading||{};
 

@@ -5,8 +5,6 @@ import { fetchAction } from "../../services/appsScriptApi.js";
 import { fetchStockData } from "../../services/stockService.js";
 import { PM_INITIAL_SEED } from "../mantenimiento/pmInitialSeed.js";
 import FleetUtilizationPanel from "./FleetUtilizationPanel.jsx";
-import {getRma15,getRop02,getRop02MonthlySummary} from "../../data/historicalDataService.js";
-import {normalizeRMA15,normalizeROP02} from "../../shared/domain/index.jsx";
 import {
   Area,
   AreaChart,
@@ -106,7 +104,7 @@ function Delta({value,unit="%"}){if(value==null||!Number.isFinite(value))return 
 function Kpi({icon,label,value,sub,deltaValue,color=C.blue,help}){return <div style={{minWidth:0,padding:"14px 14px 12px",borderRadius:12,border:`1px solid ${color}55`,background:`linear-gradient(145deg,${color}18,rgba(12,20,27,.78))`,boxShadow:"0 8px 24px rgba(0,0,0,.12)"}}><div style={{display:"flex",gap:9,alignItems:"center",minHeight:30}}><span style={{width:31,height:31,borderRadius:"50%",display:"grid",placeItems:"center",background:`${color}18`,border:`1px solid ${color}70`,flexShrink:0}}><Icon name={icon} size={15} color={color}/></span><span style={{fontSize:10,color:C.textSub,lineHeight:1.25,fontWeight:700,display:"inline-flex",alignItems:"center",gap:6}}>{label}<Help text={help||`Información sobre ${label}`}/></span></div><div style={{fontSize:24,fontWeight:900,letterSpacing:"-.03em",marginTop:9,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{value}</div><div style={{fontSize:9.5,color:C.textMuted,marginTop:6,display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}><Delta value={deltaValue}/>{sub&&<span>vs {sub}</span>}</div></div>}
 function AlertRow({icon,color,title,description,count,onClick}){return <button type="button" onClick={onClick} style={{width:"100%",border:0,borderBottom:`1px solid ${C.border}`,background:"transparent",color:C.text,padding:"10px 12px",display:"grid",gridTemplateColumns:"34px 1fr auto 16px",gap:9,alignItems:"center",textAlign:"left",cursor:"pointer"}}><span style={{width:30,height:30,borderRadius:8,display:"grid",placeItems:"center",background:`${color}18`}}><Icon name={icon} size={16} color={color}/></span><span><strong style={{display:"block",fontSize:11}}>{title}</strong><span style={{fontSize:9,color:C.textMuted,lineHeight:1.35}}>{description}</span></span><strong style={{fontSize:20,color}}>{count}</strong><span style={{color:C.textMuted,fontSize:18}}>›</span></button>}
 
-export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumos={},rawSources={},usdRate=1,onNavigate}){
+export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],rawSources={},usdRate=1,onNavigate}){
   const today=new Date();
   const usdRateSafe=useMemo(()=>{
     const prop=Number(usdRate);
@@ -135,8 +133,6 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
     setComparisonMonth(previousReportingMonth(month));
   };
   const [remote,setRemote]=useState({pm:null,states:null,stock:null,raba:null});
-  const [monthlySummary,setMonthlySummary]=useState(null);
-  const [historicalRange,setHistoricalRange]=useState({rop02:null,rma15:null});
   const [stateEquipment,setStateEquipment]=useState("");
   useEffect(()=>{let alive=true;Promise.allSettled([
     fetchAction(APPS_SCRIPT_URL,"mantenimiento_programado"),
@@ -144,35 +140,16 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
     fetchStockData(APPS_SCRIPT_URL),
     fetchAction(APPS_SCRIPT_URL,"raba03",{force:true,compact:false}),
   ]).then(([pm,states,stock,raba])=>{if(!alive)return;setRemote({pm:pm.status==="fulfilled"&&pm.value?.ok?pm.value:null,states:states.status==="fulfilled"&&states.value?.ok?states.value:null,stock:stock.status==="fulfilled"&&stock.value?.ok?stock.value:null,raba:raba.status==="fulfilled"&&(raba.value?.ok||raba.value?.sources)?raba.value:null});});return()=>{alive=false};},[]);
-  useEffect(()=>{
-    let alive=true;
-    const year=Number(String(selectedMonth).slice(0,4))||new Date().getFullYear();
-    getRop02MonthlySummary({desde:`${year-1}-12-26`,hasta:`${year}-12-25`,limit:"all"}).then(response=>{
-      if(alive&&response?.ready===true&&Array.isArray(response.data))setMonthlySummary(response.data);
-    }).catch(()=>{});
-    return()=>{alive=false;};
-  },[selectedMonth]);
+
   const [prevFrom,prevTo]=useMemo(()=>{
     const chosen=reportingPeriodForMonth(comparisonMonth);
     if(chosen)return[chosen.start,chosen.end];
     return prevRange(from,to);
   },[from,to,comparisonMonth]);
-  useEffect(()=>{
-    let alive=true;
-    const year=Number(String(selectedMonth).slice(0,4))||new Date().getFullYear();
-    const desde=[`${year-1}-12-26`,prevFrom,from].filter(Boolean).sort()[0],hasta=[to,prevTo].filter(Boolean).sort().at(-1);
-    Promise.all([getRop02({desde,hasta,limit:"all",sortBy:"fecha",sortDirection:"asc"}),getRma15({desde,hasta,limit:"all",sortBy:"fecha",sortDirection:"asc"})]).then(([rop,rma])=>{
-      if(!alive)return;
-      setHistoricalRange({rop02:normalizeROP02(rop.data||[]),rma15:(rma.data||[]).map(row=>normalizeRMA15({...row,_proyectoForzado:row.Proyecto||row.proyecto||"S/D"},insumos))});
-    }).catch(()=>{});
-    return()=>{alive=false;};
-  },[selectedMonth,from,to,prevFrom,prevTo,insumos]);
-  const dashboardRop02=Array.isArray(historicalRange.rop02)?historicalRange.rop02:rop02All;
-  const dashboardRma15=Array.isArray(historicalRange.rma15)?historicalRange.rma15:rma15;
-  const current=useMemo(()=>safe(dashboardRop02).filter(r=>inRange(r,from,to)&&!r?._excluded),[dashboardRop02,from,to]);
-  const previous=useMemo(()=>safe(dashboardRop02).filter(r=>inRange(r,prevFrom,prevTo)&&!r?._excluded),[dashboardRop02,prevFrom,prevTo]);
-  const maintNow=useMemo(()=>safe(dashboardRma15).filter(r=>inRange(r,from,to)),[dashboardRma15,from,to]);
-  const maintPrev=useMemo(()=>safe(dashboardRma15).filter(r=>inRange(r,prevFrom,prevTo)),[dashboardRma15,prevFrom,prevTo]);
+  const current=useMemo(()=>safe(rop02All).filter(r=>inRange(r,from,to)&&!r?._excluded),[rop02All,from,to]);
+  const previous=useMemo(()=>safe(rop02All).filter(r=>inRange(r,prevFrom,prevTo)&&!r?._excluded),[rop02All,prevFrom,prevTo]);
+  const maintNow=useMemo(()=>safe(rma15).filter(r=>inRange(r,from,to)),[rma15,from,to]);
+  const maintPrev=useMemo(()=>safe(rma15).filter(r=>inRange(r,prevFrom,prevTo)),[rma15,prevFrom,prevTo]);
 
   const metrics=useMemo(()=>{
     const calc=rows=>{
@@ -196,7 +173,7 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
 
     const activeCodes=new Set(current.map(code).map(pmNorm).filter(Boolean));
     const latestH=new Map();
-    safe(dashboardRop02).forEach(r=>{
+    safe(rop02All).forEach(r=>{
       const d=rowDate(r),k=pmNorm(code(r));
       if(!d||d>to||!k||!activeCodes.has(k))return;
       const h=ropHorometer(r);if(h<=0)return;
@@ -224,14 +201,14 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
     const realizados=safe(registros).filter(r=>inRange(r,from,to)&&activeCodes.has(pmNorm(r?.interno))).length;
     const previstos=realizados+critical;
     return{total:equipos.length,critical,realizados,compliance:previstos?pct(realizados,previstos):(equipos.length?100:null),equipos};
-  },[remote.pm,dashboardRop02,current,from,to]);
+  },[remote.pm,rop02All,current,from,to]);
   const prevPmCompliance=null;
 
   const stateEquipmentOptions=useMemo(()=>{
     const set=new Set();
-    safe(dashboardRop02).forEach(r=>{if(!inRange(r,from,to)||r?._excluded)return;const c=code(r);if(c)set.add(c);});
+    safe(rop02All).forEach(r=>{if(!inRange(r,from,to)||r?._excluded)return;const c=code(r);if(c)set.add(c);});
     return [...set].sort((a,b)=>a.localeCompare(b,"es",{numeric:true,sensitivity:"base"}));
-  },[dashboardRop02,from,to]);
+  },[rop02All,from,to]);
   useEffect(()=>{
     if(stateEquipmentOptions.length===0){if(stateEquipment)setStateEquipment("");return;}
     if(!stateEquipmentOptions.includes(stateEquipment))setStateEquipment(stateEquipmentOptions[0]);
@@ -239,7 +216,7 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
 
   // Estado diario global: se conserva para las alertas generales del dashboard.
   const dayStates=useMemo(()=>{
-    const rows=safe(dashboardRop02).filter(r=>inRange(r,from,to)&&!r?._excluded);
+    const rows=safe(rop02All).filter(r=>inRange(r,from,to)&&!r?._excluded);
     const map=new Map();
     rows.forEach(r=>{
       const d=rowDate(r);if(!d)return;
@@ -256,12 +233,12 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
       else if(x.states.includes("OD"))state="OD";
       return{...x,state};
     });
-  },[dashboardRop02,from,to]);
+  },[rop02All,from,to]);
 
   // Estado diario del equipo elegido en la card. Este cálculo NO altera las métricas globales.
   const equipmentDayStates=useMemo(()=>{
     if(!stateEquipment)return[];
-    const rows=safe(dashboardRop02).filter(r=>inRange(r,from,to)&&!r?._excluded&&code(r)===stateEquipment);
+    const rows=safe(rop02All).filter(r=>inRange(r,from,to)&&!r?._excluded&&code(r)===stateEquipment);
     const map=new Map();
     rows.forEach(r=>{
       const d=rowDate(r);if(!d)return;
@@ -278,7 +255,7 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
       else if(x.states.includes("OD"))state="OD";
       return{...x,state};
     });
-  },[dashboardRop02,from,to,stateEquipment]);
+  },[rop02All,from,to,stateEquipment]);
 
   const projects=useMemo(()=>["JM","FS"].map(key=>{
     const rows=current.filter(r=>projectKey(r?.proyecto)===key);
@@ -337,23 +314,7 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
   const monthly=useMemo(()=>{
     const anchor=selectedMonth||reportingMonthForDate(new Date(`${to||from}T12:00:00`));
     const year=Number(String(anchor).slice(0,4))||today.getFullYear();
-    if(Array.isArray(monthlySummary)){
-      const grouped=new Map();
-      monthlySummary.forEach(row=>{
-        const period=String(row.PERIODO||"");
-        if(!period.startsWith(`${year}-`))return;
-        const current=grouped.get(period)||{JM:0,FS:0,total:0,records:0};
-        const hours=num(row.HORAS_TRABAJADAS),records=num(row.CANTIDAD_REGISTROS);
-        current.total+=hours;current.records+=records;
-        const project=projectKey(row.PROYECTO);if(project==="JM")current.JM+=hours;if(project==="FS")current.FS+=hours;
-        grouped.set(period,current);
-      });
-      const out=[];
-      for(let m=1;m<=12;m+=1){const month=`${year}-${String(m).padStart(2,"0")}`,period=reportingPeriodForMonth(month),data=grouped.get(month)||{JM:0,FS:0,total:0,records:0};out.push({month,...data,label:new Date(year,m-1,1,12).toLocaleDateString("es-AR",{month:"short"}).replace(".",""),periodLabel:`${period.start.slice(8,10)}/${period.start.slice(5,7)} – ${period.end.slice(8,10)}/${period.end.slice(5,7)}`});}
-      const lastData=out.reduce((idx,x,i)=>x.records?i:idx,-1),selectedIndex=Math.max(0,Math.min(11,Number(String(anchor).slice(5,7))-1));
-      return out.slice(0,Math.max(lastData,selectedIndex)+1);
-    }
-    const rows=safe(dashboardRop02).filter(r=>!r?._excluded);
+    const rows=safe(rop02All).filter(r=>!r?._excluded);
     const out=[];
     for(let m=1;m<=12;m+=1){
       const month=`${year}-${String(m).padStart(2,"0")}`;
@@ -372,7 +333,7 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
     const selectedIndex=Math.max(0,Math.min(11,Number(String(anchor).slice(5,7))-1));
     const last=Math.max(lastData,selectedIndex);
     return out.slice(0,last+1);
-  },[monthlySummary,dashboardRop02,selectedMonth,from,to]);
+  },[rop02All,selectedMonth,from,to]);
 
   const maintSplit=useMemo(()=>{let prev=0,corr=0,other=0;maintNow.forEach(r=>{const c=maintCostUsd(r);const t=maintType(r);if(t==="PREV")prev+=c;else if(t==="CORR")corr+=c;else other+=c;});return[{name:"Preventivo",value:prev,color:C.green},{name:"Correctivo",value:corr,color:C.red},{name:"Otros",value:other,color:C.textMuted}].filter(x=>x.value>0);},[maintNow,usdRateSafe]);
   const stateHours=useMemo(()=>{const m={TRABAJO:0,OD:0,EM:0,FS:0,"S/D":0};equipmentDayStates.forEach(r=>{m[m[r.state]!=null?r.state:"S/D"]+=1;});return m;},[equipmentDayStates]);
@@ -430,7 +391,7 @@ export default function ExecutiveDashboard({rop02All=[],rop05=[],rma15=[],insumo
       </Panel>
     </div>
 
-    <FleetUtilizationPanel rows={dashboardRop02} from={from} to={to}/>
+    <FleetUtilizationPanel rows={rop02All} from={from} to={to}/>
 
     <div className="dm-exec-bottom">
       <Panel title="Top 5 Equipos por Horas Trabajadas" help="Ranking de los cinco equipos con más horas dentro del rango Desde/Hasta seleccionado."><div style={{padding:"10px 12px 12px",overflowX:"auto"}}>{topEquipment.length?<table className="dm-exec-table"><thead><tr><th style={{textAlign:"left"}}>Equipo</th><th style={{textAlign:"left"}}>Proyecto</th><th style={{textAlign:"right"}}>Horas (h)</th><th style={{textAlign:"right"}}>% del total</th></tr></thead><tbody>{topEquipment.map(x=><tr key={x.name}><td style={{fontWeight:800}}>{x.name}</td><td>{projectKey(x.project)==="JM"?"José María":projectKey(x.project)==="FS"?"Filo del Sol":x.project||"S/D"}</td><td style={{textAlign:"right",fontWeight:800}}>{fmt(x.hours)}</td><td style={{textAlign:"right"}}>{fmt1(pct(x.hours,metrics.hours))}%</td></tr>)}<tr><td colSpan={2} style={{fontWeight:900}}>Total Top 5</td><td style={{textAlign:"right",fontWeight:900}}>{fmt(topEquipment.reduce((s,x)=>s+x.hours,0))}</td><td style={{textAlign:"right",fontWeight:900}}>{fmt1(pct(topEquipment.reduce((s,x)=>s+x.hours,0),metrics.hours))}%</td></tr></tbody></table>:<div style={{padding:20,color:C.textMuted,fontSize:11}}>Sin datos en el período.</div>}</div></Panel>

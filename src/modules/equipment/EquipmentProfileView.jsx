@@ -4,8 +4,6 @@ import { APPS_SCRIPT_URL } from "../../config/app.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { byDateFilter } from "../../shared/domain/index.jsx";
-import {normalizeROP02,normalizeROP05,normalizeRMA15} from "../../shared/domain/index.jsx";
-import {getEquipmentHistory} from "../../data/historicalDataService.js";
 import { cleanEquipmentCode, canonicalEquipmentCode } from "./equipmentCode.js";
 import {indexPersistedMovementsByEquipment,mergeEquipmentMovements} from "./equipmentMovementHistory.js";
 import {useEquipmentMovements} from "../../services/equipmentMovements.js";
@@ -56,7 +54,6 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const [fechaH,setFechaH]=useState("");
   const [selectedMonth,setSelectedMonth]=useState("");
   const [activeTab,setActiveTab]=useState("resumen");
-  const [queriedHistory,setQueriedHistory]=useState(null);
   const {movements:sharedMovements}=useEquipmentMovements(rop02All,["equipmentProfile"]);
 
   // El selector debe responder de inmediato. La ficha pesada se actualiza en el
@@ -82,29 +79,13 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
   const loadPm=React.useCallback(async()=>{const r=await fetchAction(APPS_SCRIPT_URL,"mantenimiento_programado");if(r?.ok)setPm({config:r.config||[],registros:r.registros||[]});return r;},[]);
   useEffect(()=>{loadPm().catch(()=>{});},[loadPm]);
   useEffect(()=>registerRefreshTask("equipment-profile",loadPm,{views:["equipmentProfile"],priority:20}),[loadPm]);
-  useEffect(()=>{
-    if(!detailKey){setQueriedHistory(null);return;}
-    let active=true;
-    getEquipmentHistory({equipo:detailKey,desde:fechaD,hasta:fechaH}).then(result=>{
-      if(!active)return;
-      setQueriedHistory({
-        rop02:normalizeROP02(result.rop02||[]),
-        rop05:normalizeROP05(result.rop05||[]),
-        rma15:(result.rma15||[]).map(row=>normalizeRMA15({...row,_proyectoForzado:row.Proyecto||row.proyecto||"S/D"},insumos))
-      });
-    }).catch(()=>{});
-    return()=>{active=false;};
-  },[detailKey,fechaD,fechaH,insumos]);
 
   // Índices construidos una sola vez por actualización de dataset. Cambiar de equipo
   // ya no recorre miles de filas de ROP02/RMA15/ROP05 en el hilo principal.
   const masterIndex=useMemo(()=>{const map=new Map();for(const row of listaEquipos){for(const c of codesOfMaster(row)){const key=canonicalEquipmentCode(c);if(key&&!map.has(key))map.set(key,row);}}return map;},[listaEquipos]);
-  const effectiveRop02=queriedHistory?.rop02||rop02All;
-  const effectiveRop05=queriedHistory?.rop05||rop05;
-  const effectiveRma15=queriedHistory?.rma15||rma15;
-  const rop02Index=useMemo(()=>buildCodeIndex(effectiveRop02,sourceCode,(a,b)=>String(a.fecha||"").localeCompare(String(b.fecha||""))),[effectiveRop02]);
-  const rop05Index=useMemo(()=>buildCodeIndex(effectiveRop05,sourceCode),[effectiveRop05]);
-  const rma15Index=useMemo(()=>buildCodeIndex(effectiveRma15,sourceCode,(a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))),[effectiveRma15]);
+  const rop02Index=useMemo(()=>buildCodeIndex(rop02All,sourceCode,(a,b)=>String(a.fecha||"").localeCompare(String(b.fecha||""))),[rop02All]);
+  const rop05Index=useMemo(()=>buildCodeIndex(rop05,sourceCode),[rop05]);
+  const rma15Index=useMemo(()=>buildCodeIndex(rma15,sourceCode,(a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))),[rma15]);
   const pmRegIndex=useMemo(()=>buildCodeIndex(pm.registros||[],r=>pick(r,["Interno","Codigo","Equipo"]),(a,b)=>String(pick(b,["Fecha","Fecha PM"])||"").localeCompare(String(pick(a,["Fecha","Fecha PM"])||""))),[pm.registros]);
   const pmCfgIndex=useMemo(()=>{const m=new Map();for(const r of pm.config||[]){const k=canonicalEquipmentCode(pick(r,["Interno","Codigo","Equipo"]));if(k)m.set(k,r);}return m;},[pm.config]);
   const movementIndex=useMemo(()=>indexPersistedMovementsByEquipment(sharedMovements),[sharedMovements]);
