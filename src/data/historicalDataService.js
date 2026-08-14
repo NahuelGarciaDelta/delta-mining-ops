@@ -67,7 +67,16 @@ async function fetchSpecialAction_(action,params={}){
 export const getRop02LatestByEquipmentProject=params=>fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
-export const getRma15OpenOtSummary=params=>fetchSpecialAction_("get_rma15_open_ot_summary",params);
+export async function getRma15OpenOtSummary(params={}){
+  const response=await fetchSpecialAction_("get_rma15_open_ot_summary",params);
+  // Un resumen vacío no debe reemplazar el cálculo local hecho sobre el RMA15
+  // completo. En Bienvenida se usa este rechazo para caer al dataset completo y
+  // conservar una OT abierta cuando el último registro del equipo sigue NO operativo.
+  if(!Array.isArray(response?.data)||response.data.length===0){
+    throw new Error("Resumen de OT abiertas vacío; recalcular desde RMA15 completo");
+  }
+  return response;
+}
 export async function getEquipmentHistory({equipo,desde="",hasta=""}){
   if(!String(equipo||"").trim())return{rop02:[],rop05:[],rma15:[]};
   const params={equipo,desde,hasta,limit:"all",offset:0};
