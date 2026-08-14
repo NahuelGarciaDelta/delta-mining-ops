@@ -2,6 +2,7 @@ import {requireSupabase} from "../services/supabaseClient.js";
 
 const TABLE="rop02_frontend";
 const PAGE_SIZE=250;
+const SERVER_PAGE_SIZE=2000;
 const SORT_COLUMNS={fecha:"fecha",maquina:"interno",interno:"interno",equipo:"equipo",operario:"operador",supervisor:"supervisor_delta",turno:"turno_trabajo",parte:"numero_parte",proyecto:"proyecto",horas:"cantidad_horas",combustible:"combustible"};
 
 function legacyRow(row={}){
@@ -37,16 +38,30 @@ function applyFilters(query,p={}){
   return query;
 }
 
-export async function getRop02Page(params={}){
-  const limit=params.limit==="all"?2000:Math.min(Math.max(Number(params.limit)||PAGE_SIZE,1),2000);
+async function getRop02SinglePage(params={}){
+  const limit=Math.min(Math.max(Number(params.limit)||PAGE_SIZE,1),SERVER_PAGE_SIZE);
   const offset=Math.max(Number(params.offset)||0,0);
   const sort=SORT_COLUMNS[params.sortBy]||"fecha",ascending=String(params.sortDirection||"desc").toLowerCase()==="asc";
   let query=requireSupabase().from(TABLE).select("*",{count:"exact"});
-  query=applyFilters(query,params).order(sort,{ascending}).order("source_key",{ascending:true}).range(offset,offset+limit-1);
+  query=applyFilters(query,params).order(sort,{ascending}).order("source_dataset",{ascending:true}).order("source_row",{ascending:true}).range(offset,offset+limit-1);
   const {data,error,count}=await query;
   if(error)throw new Error(`Supabase ROP02: ${error.message}`);
   const rows=(data||[]).map(legacyRow),total=Number(count||0),next=offset+rows.length;
   return{ok:true,data:rows,rows:rows.length,total,hasMore:next<total,nextOffset:next<total?next:null,source:"supabase"};
+}
+
+export async function getRop02Page(params={}){
+  if(params.limit!=="all")return getRop02SinglePage(params);
+  const all=[];
+  let offset=Math.max(Number(params.offset)||0,0),total=0;
+  for(;;){
+    const page=await getRop02SinglePage({...params,limit:SERVER_PAGE_SIZE,offset});
+    total=page.total;
+    all.push(...page.data);
+    if(!page.hasMore||!page.data.length)break;
+    offset=page.nextOffset;
+  }
+  return{ok:true,data:all,rows:all.length,total,hasMore:false,nextOffset:null,source:"supabase"};
 }
 
 export const getRop02ByDateRange=({desde,hasta,...rest})=>getRop02Page({desde,hasta,...rest});
@@ -78,7 +93,7 @@ export async function getRop02Stats(params={}){
 export async function fetchAllRop02Pages(params={},onPage=()=>{}){
   let offset=0,total=0;
   do{
-    const page=await getRop02Page({...params,limit:2000,offset});
+    const page=await getRop02SinglePage({...params,limit:SERVER_PAGE_SIZE,offset});
     total=page.total;await onPage(page.data,{offset:page.nextOffset,total,hasMore:page.hasMore});
     if(!page.hasMore||!page.data.length)break;
     offset=page.nextOffset;
