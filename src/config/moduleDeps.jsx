@@ -56,13 +56,35 @@ export const INFORME_COSTOS_DEPS = Object.freeze({
   proyColor, sortRowsForTable, tipoEquipoCosto, toNumber, uniq
 });
 
+// En la pestaña Vehículos, la Lista Maestra se usa únicamente para identificar
+// el vehículo (Código Nuevo/Drusila, familia y propiedad). La ubicación/proyecto
+// debe provenir SIEMPRE del registro ROP02 de cada fecha. Por eso se neutralizan
+// los campos de ubicación de la Lista Maestra y no se inyectan vehículos extra
+// sin ROP02 en las tarjetas de flota.
+const buildVehicleListaIndexForRop02 = listaEquipos => {
+  const base=buildVehicleListaIndex(listaEquipos);
+  const sanitize=item=>item?{
+    ...item,
+    _listaProyecto:item.proyecto||"",
+    _listaUbicacion:item.ubicacion||"",
+    _listaSitioAlquiler:item.sitioAlquiler||"",
+    proyecto:"",
+    ubicacion:"",
+    sitioAlquiler:"",
+  }:item;
+  const byAny=Object.fromEntries(
+    Object.entries(base?.byAny||{}).map(([key,item])=>[key,sanitize(item)])
+  );
+  return {...base,byAny,vehicles:[]};
+};
+
 export const createOficinaTecnicaDeps = BlockingDataLoader => Object.freeze({
   AlertBanner, Badge, BtnExcel, C, Card, ChartTip, DateIn, HealthDashboard:HealthDashboardBound,
   IMG_CARGADORA_FRONTAL, IMG_EXCAVADORA, IMG_MINICARGADORA, IMG_MOTONIVELADORA,
   IMG_RETROPALA, IMG_RODILLO_COMPACTADOR, IMG_TOPADORA, Icon, LISTA_COLUMNS,
   ListaEquipoFieldInput, MultiSel, PeriodMonthYear, Sel, Spinner, StatCard, SubTab, TabBtn, Table,
   VEH_CAMIONETA, VEH_COMBUSTIBLE, VEH_REGADOR, VEH_TRACTOR, VEH_VOLCADOR,
-  appAlert, appConfirm, buildHorometroMapForLista, buildListaEquipoInfoIndex, buildVehicleListaIndex,
+  appAlert, appConfirm, buildHorometroMapForLista, buildListaEquipoInfoIndex, buildVehicleListaIndex:buildVehicleListaIndexForRop02,
   byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmDisplayTarea,
   dmMatchTipoMaquinaSeleccion, dmNormalizeUnidad, dmTipoMaquinaOptions, excelFromCols, findColumnKey,
   fmtFecha, fmtNum, fmtPct, generarExcelICHC, generarExcelListaMaestra, generarReporteControl,
