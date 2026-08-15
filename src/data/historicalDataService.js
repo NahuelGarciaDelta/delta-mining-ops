@@ -15,6 +15,32 @@ function remember_(key,value){
   while(memory.size>MAX_MEMORY_QUERIES)memory.delete(memory.keys().next().value);
 }
 
+function normalizeHomeProject_(value){
+  const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
+  if(!raw||raw==="TODOS"||raw==="TODO")return "TODOS";
+  if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";
+  if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";
+  if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";
+  if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";
+  return raw;
+}
+
+function currentHomeProject_(){
+  if(typeof window==="undefined")return "TODOS";
+  return normalizeHomeProject_(window.__dmHomeSummaryProject||"TODOS");
+}
+
+function rowProject_(row){
+  return normalizeHomeProject_(row?.PROYECTO??row?.proyecto??row?.Proyecto??row?.LUGAR??row?.lugar??row?.Lugar??"");
+}
+
+function filterHomeProjectResponse_(response){
+  const project=currentHomeProject_();
+  if(project==="TODOS"||!Array.isArray(response?.data))return response;
+  const data=response.data.filter(row=>rowProject_(row)===project);
+  return {...response,data,rows:data.length,total:data.length};
+}
+
 export async function readDatasetQuery(dataset,params={}){
   const key=buildDatasetQueryKey(dataset,params);
   if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}
@@ -64,14 +90,20 @@ async function fetchSpecialAction_(action,params={}){
   if(!json?.ok)throw new Error(json?.error?.message||`Falló ${action}`);
   const value={...json,elapsedMs:Math.round(performance.now()-started),payloadBytes:new Blob([text]).size};await writeCachedSource(key,value);return value;
 }
-export const getRop02LatestByEquipmentProject=params=>fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);
+export async function getRop02LatestByEquipmentProject(params={}){
+  const response=await fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);
+  return filterHomeProjectResponse_(response);
+}
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
 export async function getRma15OpenOtSummary(params={}){
   const response=await fetchSpecialAction_("get_rma15_open_ot_summary",params);
-  // Un resumen vacío no debe reemplazar el cálculo local hecho sobre el RMA15
-  // completo. En Bienvenida se usa este rechazo para caer al dataset completo y
-  // conservar una OT abierta cuando el último registro del equipo sigue NO operativo.
+  const project=currentHomeProject_();
+  const filtered=filterHomeProjectResponse_(response);
+  // Con un proyecto seleccionado, un resultado vacío es válido: significa que
+  // ese proyecto no tiene OT abiertas. Solo en "Todos" se conserva el fallback
+  // histórico para protegernos de un resumen global vacío por error de backend.
+  if(project!=="TODOS")return filtered;
   if(!Array.isArray(response?.data)||response.data.length===0){
     throw new Error("Resumen de OT abiertas vacío; recalcular desde RMA15 completo");
   }
