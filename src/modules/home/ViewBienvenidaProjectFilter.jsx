@@ -12,8 +12,10 @@ const PROJECTS=[
   {value:"EL ZORRO",label:"El Zorro"},
 ];
 
+const EMPTY_RMA_SENTINEL={__dmHomeEmptyProject:true};
+
 const projectOf=row=>normalizeRop02Project(
-  row?.proyecto??row?.Proyecto??row?.lugar??row?.Lugar??row?.["Proyecto/Lugar"]??""
+  row?.proyecto??row?.Proyecto??row?.lugar??row?.Lugar??row?.["Proyecto/Lugar"]??row?._proyectoForzado??""
 );
 
 function readInitialProject(){
@@ -29,13 +31,24 @@ export default function ViewBienvenidaProjectFilter(props){
   const [project,setProject]=React.useState(readInitialProject);
   const [portalHost,setPortalHost]=React.useState(null);
 
-  React.useLayoutEffect(()=>{
-    window.__dmHomeSummaryProject=project;
+  // El filtrado lo resuelve este wrapper sobre los datasets ya cargados. Se evita
+  // que ViewBienvenida vuelva a pedir snapshots resumidos porque eso obligaba a
+  // remontar toda la pantalla para cambiar de proyecto y generaba el "vibrado".
+  if(typeof window!=="undefined"){
+    window.__dmHomeSummaryExternalFilter=true;
+    window.__dmHomeSummaryProject="TODOS";
+  }
+
+  React.useEffect(()=>{
     try{window.localStorage.setItem(STORAGE_KEY,project);}catch(_){}
-    return()=>{
-      if(window.__dmHomeSummaryProject===project)window.__dmHomeSummaryProject="TODOS";
-    };
   },[project]);
+
+  React.useEffect(()=>()=>{
+    if(typeof window!=="undefined"){
+      window.__dmHomeSummaryExternalFilter=false;
+      window.__dmHomeSummaryProject="TODOS";
+    }
+  },[]);
 
   React.useEffect(()=>{
     let frame=0;
@@ -46,15 +59,19 @@ export default function ViewBienvenidaProjectFilter(props){
     };
     findHost();
     return()=>window.cancelAnimationFrame(frame);
-  },[project]);
+  },[]);
 
   const filteredProps=React.useMemo(()=>{
     if(project==="TODOS")return props;
     const filterRows=rows=>Array.isArray(rows)?rows.filter(row=>projectOf(row)===project):rows;
+    const filteredRma=filterRows(props.rma15);
     return {
       ...props,
       rop02All:filterRows(props.rop02All),
-      rma15:filterRows(props.rma15),
+      // Un proyecto sin RMA15 es un resultado válido: el sentinel evita que la
+      // tarjeta OT abiertas quede eternamente en "Cargando…" y el cálculo lo
+      // ignora por no tener interno/fecha, mostrando 0.
+      rma15:Array.isArray(filteredRma)&&filteredRma.length?filteredRma:[EMPTY_RMA_SENTINEL],
     };
   },[props,project]);
 
@@ -87,7 +104,7 @@ export default function ViewBienvenidaProjectFilter(props){
   ):null;
 
   return <>
-    <ViewBienvenida key={`home_${project}`} {...filteredProps}/>
+    <ViewBienvenida {...filteredProps}/>
     {control}
   </>;
 }
