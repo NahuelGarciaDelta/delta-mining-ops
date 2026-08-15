@@ -45,6 +45,32 @@ function filterHomeProjectResponse_(response){
   return {...response,data,rows:data.length,total:data.length};
 }
 
+function normalizeEquipmentSnapshotCode_(value){
+  return String(value||"")
+    .trim()
+    .toUpperCase()
+    .replace(/\s*\(.*?\)/g,"")
+    .replace(/[^A-Z0-9]/g,"");
+}
+
+function isVehicleSnapshotRow_(row){
+  const code=normalizeEquipmentSnapshotCode_(row?.INTERNO??row?.equipo??row?.maquina??row?.Interno??"");
+  if(!code)return false;
+  if(/^CTA/.test(code))return true;
+  if(/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return true;
+  if(["CAC","CAR","CAV","CAA"].some(prefix=>code.startsWith(prefix)))return true;
+  // CAT también se usa para generadores, por eso no se excluye por prefijo.
+  // CAT-0073 es un camión confirmado en la flota.
+  if(code==="CAT0073")return true;
+  return false;
+}
+
+function filterEquipmentOnlySnapshot_(response){
+  if(!Array.isArray(response?.data))return response;
+  const data=response.data.filter(row=>!isVehicleSnapshotRow_(row));
+  return {...response,data,rows:data.length,total:data.length};
+}
+
 export async function readDatasetQuery(dataset,params={}){
   const key=buildDatasetQueryKey(dataset,params);
   if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}
@@ -101,7 +127,9 @@ export async function getRop02LatestByEquipmentProject(params={}){
   // consulta permite cambiar proyecto sin desmontar/recrear toda la pantalla.
   if(usesExternalHomeFilter_())throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");
   const response=await fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);
-  return filterHomeProjectResponse_(response);
+  // El snapshot se usa también para Atraso. Debe contener solamente equipos:
+  // se excluyen camionetas y camiones para que no aparezcan como atrasados o saltos.
+  return filterEquipmentOnlySnapshot_(filterHomeProjectResponse_(response));
 }
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
