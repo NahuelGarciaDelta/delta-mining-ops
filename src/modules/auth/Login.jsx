@@ -10,12 +10,14 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
     "fernando.c@deltamining.com.ar",
     "lucas.torres@deltamining.com.ar"
   ];
+  const AUTH_TIMEOUT_MS=20000;
 
   const[usuario,setUsuario]=React.useState("");
   const[pass,setPass]=React.useState("");
   const[error,setError]=React.useState("");
   const[shake,setShake]=React.useState(false);
   const[validando,setValidando]=React.useState(false);
+  const submitInFlightRef=React.useRef(false);
 
   const showError=(msg)=>{
     setError(msg);
@@ -52,6 +54,8 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
   };
 
   const handleSubmit=async()=>{
+    if(submitInFlightRef.current)return;
+
     const mail=normalizarMail(usuario);
     if(!mail){
       showError("Ingresá tu usuario");
@@ -62,13 +66,20 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
       return;
     }
 
+    submitInFlightRef.current=true;
     setValidando(true);
+    const controller=typeof AbortController!=="undefined"?new AbortController():null;
+    const timeoutId=controller?window.setTimeout(()=>controller.abort(),AUTH_TIMEOUT_MS):null;
+
     try{
       const response=await fetch(APPS_SCRIPT_URL,{
         method:"POST",
         headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-        body:new URLSearchParams({payload:JSON.stringify({action:"authenticate_user",email:mail,password:pass})})
+        body:new URLSearchParams({payload:JSON.stringify({action:"authenticate_user",email:mail,password:pass})}),
+        signal:controller?.signal
       });
+      if(!response.ok)throw new Error(`HTTP ${response.status}`);
+
       const json=await response.json();
       if(!json?.ok){
         showError(json?.error?.message||"Usuario o contraseña incorrectos");
@@ -78,8 +89,11 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
       saveAuthenticatedSession(authenticatedUser,{mustChangePassword:!!json.mustChangePassword,normalizeProject:dmNormalizeAssignedProject});
       onLogin(authenticatedUser);
     }catch(err){
-      showError("No se pudo validar el acceso. Revisá la conexión.");
+      if(err?.name==="AbortError")showError("La validación tardó demasiado. Intentá nuevamente.");
+      else showError("No se pudo validar el acceso. Revisá la conexión.");
     }finally{
+      if(timeoutId!==null)window.clearTimeout(timeoutId);
+      submitInFlightRef.current=false;
       setValidando(false);
     }
   };
@@ -128,19 +142,21 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
           <input
             type="email"
             value={usuario}
+            disabled={validando}
             onChange={e=>{setUsuario(e.target.value);setError("");}}
             onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
             placeholder="Usuario"
-            style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
+            style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box",opacity:validando?.7:1}}
             autoFocus
           />
           <input
             type="password"
             value={pass}
+            disabled={validando}
             onChange={e=>{setPass(e.target.value);setError("");}}
             onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
             placeholder="Contraseña"
-            style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box"}}
+            style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box",opacity:validando?.7:1}}
           />
           {error&&<div style={{fontSize:12,color:C.red,textAlign:"center"}}>{error}</div>}
           <button
