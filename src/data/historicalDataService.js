@@ -30,6 +30,10 @@ function currentHomeProject_(){
   return normalizeHomeProject_(window.__dmHomeSummaryProject||"TODOS");
 }
 
+function usesExternalHomeFilter_(){
+  return typeof window!=="undefined"&&window.__dmHomeSummaryExternalFilter===true;
+}
+
 function rowProject_(row){
   return normalizeHomeProject_(row?.PROYECTO??row?.proyecto??row?.Proyecto??row?.LUGAR??row?.lugar??row?.Lugar??"");
 }
@@ -90,19 +94,25 @@ async function fetchSpecialAction_(action,params={}){
   if(!json?.ok)throw new Error(json?.error?.message||`Falló ${action}`);
   const value={...json,elapsedMs:Math.round(performance.now()-started),payloadBytes:new Blob([text]).size};await writeCachedSource(key,value);return value;
 }
+
 export async function getRop02LatestByEquipmentProject(params={}){
+  // Con el filtro de Bienvenida nuevo, el componente trabaja directamente con
+  // rop02All filtrado y no necesita un snapshot independiente. Evitar esta
+  // consulta permite cambiar proyecto sin desmontar/recrear toda la pantalla.
+  if(usesExternalHomeFilter_())throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");
   const response=await fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);
   return filterHomeProjectResponse_(response);
 }
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
 export async function getRma15OpenOtSummary(params={}){
+  // Cuando Bienvenida filtra localmente, no se inyecta un resumen rápido que
+  // pueda llegar vacío y pisar una OT válida calculada desde RMA15. data:null
+  // hace que ViewBienvenida conserve su cálculo local por último estado.
+  if(usesExternalHomeFilter_())return{ok:true,data:null,externalFilter:true};
   const response=await fetchSpecialAction_("get_rma15_open_ot_summary",params);
   const project=currentHomeProject_();
   const filtered=filterHomeProjectResponse_(response);
-  // Con un proyecto seleccionado, un resultado vacío es válido: significa que
-  // ese proyecto no tiene OT abiertas. Solo en "Todos" se conserva el fallback
-  // histórico para protegernos de un resumen global vacío por error de backend.
   if(project!=="TODOS")return filtered;
   if(!Array.isArray(response?.data)||response.data.length===0){
     throw new Error("Resumen de OT abiertas vacío; recalcular desde RMA15 completo");
