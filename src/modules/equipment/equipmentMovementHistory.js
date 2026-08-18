@@ -7,6 +7,24 @@ const displayProject=value=>{const project=normalizeRop02Project(value);return p
 const displayDate=value=>{const iso=dateISO(value);if(!iso)return"—";const[y,m,d]=iso.split("-");return`${d}/${m}/${y}`;};
 const dayDistance=(a,b)=>Math.abs((new Date(`${a}T00:00:00`)-new Date(`${b}T00:00:00`))/86400000);
 const routeKey=row=>`${normalizeRop02Project(row.desdeRaw)}|${normalizeRop02Project(row.hastaRaw)}`;
+const metadataField=(raw,key)=>{const match=String(raw||"").match(new RegExp(`\\[${key}:([^\\]]*)\\]`,`i`));return match?String(match[1]||"").trim():"";};
+const stripTallerMetadata=raw=>String(raw||"").replace(/\[(?:DM_TALLER|TIPO|EQUIPO|MARCA|MODELO|PROPIEDAD|INTERNO|HOROMETRO|ORIGEN|DESTINO|INTERNO_DESTINO|MOTIVO|EQUIPO_ENTRA|MARCA_ENTRA|MODELO_ENTRA|PROPIEDAD_ENTRA|HOROMETRO_ENTRA|USUARIO):[^\]]*\]/gi,"").trim();
+const tallerMovementPresentation=movement=>{
+  const observation=String(movement?.observacion||"");
+  if(!observation.includes("[DM_TALLER:1]"))return null;
+  const type=metadataField(observation,"TIPO").toUpperCase();
+  const destinationCode=metadataField(observation,"INTERNO_DESTINO");
+  const metadataReason=metadataField(observation,"MOTIVO");
+  const userObservation=stripTallerMetadata(observation);
+  if(type==="CAMBIO_EQUIPO")return{destination:"SAN JUAN",reason:`Se cambia equipo por ${destinationCode||"equipo de reemplazo"}`};
+  if(type==="BAJA"){
+    const detail=userObservation||metadataReason||"motivo informado";
+    return{destination:"SAN JUAN",reason:`Se baja a SJ por ${detail}`};
+  }
+  if(type==="MOVILIZACION")return{destination:metadataField(observation,"DESTINO")||movement?.proyectoDestino||"",reason:destinationCode&&canonicalEquipmentCode(destinationCode)!==canonicalEquipmentCode(movement?.internoNormalizado||movement?.interno)?`Se moviliza y cambia interno a ${destinationCode}`:"Movilización de equipo"};
+  if(type==="SUBIDA")return{destination:metadataField(observation,"DESTINO")||movement?.proyectoDestino||"",reason:"Subida de equipo"};
+  return null;
+};
 
 export function inferRop02ProjectMovements(rows=[]){
   const sorted=[...(Array.isArray(rows)?rows:[])].sort((a,b)=>String(a.fecha||"").localeCompare(String(b.fecha||"")));
@@ -23,11 +41,12 @@ export function persistedProjectMovements(movements=[],equipmentCode=""){
     return origin===selected||destination===selected;
   }).map(movement=>{
     const type=String(movement.tipoMovimiento||"").toUpperCase(),origin=normalizeRop02Project(movement.proyectoOrigen);
-    const destination=normalizeRop02Project(movement.proyectoDestino)||(type==="BAJO_SAN_JUAN"?"SAN JUAN":type==="DESMOVILIZADO"?"DESMOVILIZADO":"");
+    const taller=tallerMovementPresentation(movement);
+    const destination=normalizeRop02Project(taller?.destination||movement.proyectoDestino)||(type==="BAJO_SAN_JUAN"?"SAN JUAN":type==="DESMOVILIZADO"?"DESMOVILIZADO":"");
     const destinationCode=getEquipmentMovementDestinationCode(movement);
     const destinationDate=getEquipmentMovementDestinationFirstDate(movement);
     const iso=dateISO(type==="CAMBIO_PROYECTO"&&destinationDate?destinationDate:movement.fechaHora);
-    return{fechaISO:iso,fecha:displayDate(iso),desdeRaw:origin,hastaRaw:destination,desde:displayProject(origin),hasta:displayProject(destination),source:"MANUAL",motivo:movement.motivo||type,observacion:movement.observacion||"",usuario:movement.usuario||"",id:movement.id||"",internoOrigen:canonicalEquipmentCode(movement.internoNormalizado||movement.interno),internoDestino:destinationCode};
+    return{fechaISO:iso,fecha:displayDate(iso),desdeRaw:origin,hastaRaw:destination,desde:displayProject(origin),hasta:displayProject(destination),source:"MANUAL",motivo:taller?.reason||movement.motivo||type,observacion:movement.observacion||"",usuario:movement.usuario||"",id:movement.id||"",internoOrigen:canonicalEquipmentCode(movement.internoNormalizado||movement.interno),internoDestino:destinationCode};
   }).filter(movement=>movement.fechaISO&&(movement.desdeRaw||movement.hastaRaw));
 }
 
