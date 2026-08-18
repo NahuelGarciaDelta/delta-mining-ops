@@ -10,8 +10,8 @@ const pick=(row,names)=>{
   for(const name of names){const wanted=norm(name),key=keys.find(k=>norm(k).includes(wanted)||wanted.includes(norm(k)));if(key)return row[key];}
   return "";
 };
-const MASTER_CODE_HEADERS=["Codigo nuevo","Código nuevo","Codigo de Drusila","Código de Drusila","Interno","Código interno","Codigo Int","Código viejo","Codigo viejo"];
-const masterCodes=row=>MASTER_CODE_HEADERS.map(header=>String(pick(row,[header])||"").trim()).filter(Boolean);
+const MASTER_CODE_HEADERS=["Codigo nuevo","Código nuevo","Codigo de Drusila","Código de Drusila","Código Drusila","Codigo Drusila","Interno","Código interno","Codigo Int","Código viejo","Codigo viejo"];
+const masterCodes=row=>MASTER_CODE_HEADERS.map(header=>String(pick(row,[header])||"").trim()).filter(Boolean).filter((value,index,array)=>array.findIndex(other=>canonicalEquipmentCode(other)===canonicalEquipmentCode(value))===index);
 const isoDate=value=>{
   const raw=String(value||"").trim();
   if(!raw)return "";
@@ -28,13 +28,50 @@ const fmtDate=iso=>/^\d{4}-\d{2}-\d{2}$/.test(String(iso||""))?`${iso.slice(8,10
 export default function EquipmentProfileWithLastRop02(props){
   const [selectedCode,setSelectedCode]=useState(()=>cleanEquipmentCode(props.initialCode||""));
 
+  // Una fila de Lista Maestra puede contener código nuevo, Drusila, interno y viejo.
+  // Todos esos identificadores representan UN solo equipo. El primer código de la
+  // fila (Código nuevo) es la identidad preferida de la ficha.
+  const codeAliases=useMemo(()=>{
+    const aliases=new Map();
+    for(const row of Array.isArray(props.listaEquipos)?props.listaEquipos:[]){
+      const codes=masterCodes(row);
+      if(!codes.length)continue;
+      const preferred=cleanEquipmentCode(codes[0]);
+      for(const raw of codes){
+        const key=canonicalEquipmentCode(raw);
+        if(key)aliases.set(key,preferred);
+      }
+    }
+    return aliases;
+  },[props.listaEquipos]);
+
+  const resolveCode=React.useCallback(raw=>{
+    const cleaned=cleanEquipmentCode(raw);
+    return codeAliases.get(canonicalEquipmentCode(cleaned))||cleaned;
+  },[codeAliases]);
+
+  // Normalizamos las fuentes antes de entregarlas a EquipmentProfileView. Así el
+  // historial ROP02/ROP05/RMA15 de códigos viejos se combina bajo el mismo interno
+  // y el selector no crea dos opciones visuales para la misma máquina.
+  const normalizeRows=React.useCallback(rows=>(Array.isArray(rows)?rows:[]).map(row=>{
+    const raw=sourceCode(row);
+    const preferred=resolveCode(raw);
+    if(!raw||canonicalEquipmentCode(raw)===canonicalEquipmentCode(preferred))return row;
+    return {...row,maquina:preferred,interno:preferred,codigo:preferred,"Codigo Int":preferred,"Código Interno del Equipo":preferred};
+  }),[resolveCode]);
+
+  const normalizedRop02=useMemo(()=>normalizeRows(props.rop02All),[props.rop02All,normalizeRows]);
+  const normalizedRop05=useMemo(()=>normalizeRows(props.rop05),[props.rop05,normalizeRows]);
+  const normalizedRma15=useMemo(()=>normalizeRows(props.rma15),[props.rma15,normalizeRows]);
+  const normalizedInitialCode=resolveCode(props.initialCode||"");
+
   useEffect(()=>{
-    if(props.initialCode)setSelectedCode(cleanEquipmentCode(props.initialCode));
-  },[props.initialCode]);
+    if(props.initialCode)setSelectedCode(normalizedInitialCode);
+  },[props.initialCode,normalizedInitialCode]);
 
   const latestByEquipment=useMemo(()=>{
     const latest=new Map();
-    for(const row of Array.isArray(props.rop02All)?props.rop02All:[]){
+    for(const row of normalizedRop02){
       const code=canonicalEquipmentCode(sourceCode(row));
       const date=isoDate(row?.fecha);
       if(!code||!date)continue;
@@ -42,20 +79,21 @@ export default function EquipmentProfileWithLastRop02(props){
       if(!current||date>current.date)latest.set(code,{date,project:String(row?.proyecto||row?.lugar||row?.Proyecto||row?.Lugar||"").trim()});
     }
     return latest;
-  },[props.rop02All]);
+  },[normalizedRop02]);
 
   const masterByEquipment=useMemo(()=>{
     const map=new Map();
     for(const row of Array.isArray(props.listaEquipos)?props.listaEquipos:[]){
       for(const rawCode of masterCodes(row)){
-        const code=canonicalEquipmentCode(rawCode);
+        const preferred=resolveCode(rawCode);
+        const code=canonicalEquipmentCode(preferred);
         if(code&&!map.has(code))map.set(code,row);
       }
     }
     return map;
-  },[props.listaEquipos]);
+  },[props.listaEquipos,resolveCode]);
 
-  const selectedKey=canonicalEquipmentCode(selectedCode);
+  const selectedKey=canonicalEquipmentCode(resolveCode(selectedCode));
   const latest=latestByEquipment.get(selectedKey)||null;
   const latestDate=latest?.date||"";
   const latestProject=String(latest?.project||"").trim();
@@ -67,8 +105,6 @@ export default function EquipmentProfileWithLastRop02(props){
     return `${base} (${latestProject})`;
   },[rentalPlace,latestProject]);
 
-  // Actualiza sólo los dos textos del encabezado una vez por cambio de equipo.
-  // No se usa MutationObserver para evitar loops de DOM y congelamientos.
   useEffect(()=>{
     let cancelled=false;
     const apply=()=>{
@@ -108,8 +144,9 @@ export default function EquipmentProfileWithLastRop02(props){
     if(target?.tagName!=="SELECT")return;
     if(!target.closest?.(".dm-equipment-filter-panel"))return;
     const value=String(target.value||"").trim();
-    setSelectedCode(value?cleanEquipmentCode(value):"");
+    setSelectedCode(value?resolveCode(value):"");
   };
 
-  return <div onChangeCapture={captureEquipmentChange}><EquipmentProfileView {...props}/></div>;
+  const normalizedProps={...props,initialCode:normalizedInitialCode,rop02All:normalizedRop02,rop05:normalizedRop05,rma15:normalizedRma15};
+  return <div onChangeCapture={captureEquipmentChange}><EquipmentProfileView {...normalizedProps}/></div>;
 }
