@@ -26,29 +26,24 @@ jobs:
                   raise SystemExit(f"No se encontró patrón requerido: {label}")
               return text.replace(old, new)
 
-          # 1) Estándar global: 100 filas iniciales y de incremento.
           hook = Path('src/hooks/useProgressiveRows.js')
           s = hook.read_text(encoding='utf-8')
-          s = replace_required(s, 'export const DEFAULT_PROGRESSIVE_ROWS=250;', 'export const DEFAULT_PROGRESSIVE_ROWS=100;', 'DEFAULT_PROGRESSIVE_ROWS')
+          s = s.replace('export const DEFAULT_PROGRESSIVE_ROWS=250;', 'export const DEFAULT_PROGRESSIVE_ROWS=100;')
           hook.write_text(s, encoding='utf-8')
 
-          # 2) Tabla común: texto coherente con el nuevo incremento.
           ui = Path('src/components/ui/index.jsx')
           s = ui.read_text(encoding='utf-8')
           s = s.replace('>Mostrar 250 más</button>', '>Ver 100 más</button>')
           ui.write_text(s, encoding='utf-8')
 
-          # 3) Abastecimiento: listas especiales que no pasan todas por Table común.
           path = Path('src/modules/abastecimiento/AbastecimientoModule.jsx')
           s = path.read_text(encoding='utf-8')
-
           s = replace_required(s, 'const [stockVisibleLimit,setStockVisibleLimit]=useState(250);', 'const [stockVisibleLimit,setStockVisibleLimit]=useState(100);', 'stock initial limit')
           s = s.replace('setStockVisibleLimit(250);', 'setStockVisibleLimit(100);')
           s = s.replace('setStockVisibleLimit(v=>v+250)', 'setStockVisibleLimit(v=>v+100)')
           s = s.replace('>Mostrar 250 más ({fmtNum(sortedStockRows.length-visibleStockRows.length)} restantes)</button>', '>Ver 100 más ({fmtNum(sortedStockRows.length-visibleStockRows.length)} restantes)</button>')
           s = s.replace('>Mostrar 250 más</button>', '>Ver 100 más</button>')
 
-          # Remitos cargados: render progresivo real, no sólo ocultamiento visual.
           if 'const progressiveRemitos=useProgressiveRows(filteredRemitos' not in s:
               marker = '\n  const buildSentByCode=useCallback((sourceRemitos=[])=>{'
               if marker not in s:
@@ -74,7 +69,6 @@ jobs:
   const renderEnviosSinSolicitud'''
           s = replace_required(s, remito_end, remito_new, 'footer remitos progresivos')
 
-          # Envíos sin solicitud también puede crecer indefinidamente.
           if 'const progressiveEnviosSinSolicitud=useProgressiveRows(enviosSinSolicitudRows' not in s:
               marker = '\n  const exportarEnviosSinSolicitud=useCallback(()=>{'
               if marker not in s:
@@ -100,28 +94,20 @@ jobs:
   return ('''
           s = replace_required(s, envios_end, envios_new, 'footer envíos sin solicitud')
 
-          # Editar códigos reutiliza el mismo progresivo de la tabla principal.
           s = replace_required(s, 'const editRows=sortedRows;', 'const editRows=progressiveMainRows.visibleRows;', 'editar códigos visible rows')
           edit_footer = '<div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(editRows.length)} solicitudes mostradas</div>'
           edit_footer_new = '<div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><span>Mostrando {fmtNum(progressiveMainRows.visibleCount)} de {fmtNum(progressiveMainRows.totalCount)} solicitudes</span>{progressiveMainRows.hasMore&&<button type="button" onClick={progressiveMainRows.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Ver 100 más</button>}</div>'
           s = replace_required(s, edit_footer, edit_footer_new, 'footer editar códigos')
 
           path.write_text(s, encoding='utf-8')
-
-          # Workflow de un solo uso: se elimina en el mismo commit que aplica el cambio.
           wf = Path('.github/workflows/normalize-progressive-rows.yml')
-          if wf.exists():
-              wf.unlink()
+          if wf.exists(): wf.unlink()
           PY
-
       - name: Commit normalized pagination
         run: |
           git config user.name "Delta Mining OPS Automation"
           git config user.email "actions@github.com"
           git add -A
-          if git diff --cached --quiet; then
-            echo "Sin cambios"
-            exit 0
-          fi
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m "Normalizar tablas a bloques de 100 filas"
           git push origin HEAD:main
