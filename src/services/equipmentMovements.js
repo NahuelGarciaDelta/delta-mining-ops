@@ -5,7 +5,7 @@ import {postToAppsScript} from "./writeActions.js";
 import {readCachedSource,writeCachedSource} from "./appCache.js";
 import {registerRefreshTask} from "./refreshManager.js";
 import {equipmentProjectKey,normalizeRop02Project} from "../modules/home/homeAvailability.js";
-import {getMovimientoVigentePorEquipo,movementsToAtrasoMap,normalizeEquipmentMovementCode} from "./equipmentMovementsDomain.js";
+import {appendEquipmentMovementLinkMetadata,getMovimientoVigentePorEquipo,movementsToAtrasoMap,normalizeEquipmentMovementCode} from "./equipmentMovementsDomain.js";
 
 export {getMovimientoVigentePorEquipo,movementsToAtrasoMap} from "./equipmentMovementsDomain.js";
 
@@ -44,7 +44,11 @@ export async function loadEquipmentMovements({force=false,revalidate=true}={}){
 }
 
 export async function saveEquipmentMovement(movement){
-  const response=await postToAppsScript({action:"save_equipment_movement",movement});
+  const prepared={...movement};
+  if(String(prepared.tipoMovimiento||"").toUpperCase()==="CAMBIO_PROYECTO"&&prepared.internoDestino){
+    prepared.observacion=appendEquipmentMovementLinkMetadata(prepared.observacion,prepared.internoDestino,prepared.fechaPrimerRop02Destino);
+  }
+  const response=await postToAppsScript({action:"save_equipment_movement",movement:prepared});
   const saved=response?.movement;
   if(saved){
     const next=cache.data.map(item=>item.activo&&item.internoNormalizado===saved.internoNormalizado&&item.proyectoOrigen===saved.proyectoOrigen
