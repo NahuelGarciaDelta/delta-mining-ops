@@ -62,8 +62,6 @@ export function isHomeAvailabilityVehicleCode(value){
   if(/^CTA/.test(code))return true;
   if(/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return true;
   if(["CAC","CAR","CAV","CAA"].some(prefix=>code.startsWith(prefix)))return true;
-  // CAT no es inequívoco porque también se usa para generadores. CAT-0073 sí es
-  // un camión confirmado y se excluye explícitamente del indicador.
   if(code==="CAT0073")return true;
   return false;
 }
@@ -167,7 +165,10 @@ export function getBajoSanJuanExclusionMap(admitidos={},latestRop02ByCode=new Ma
   const out=new Map();
   Object.entries(admitidos||{}).forEach(([key,saved])=>{
     const match=String(key).match(/^atrasado_(.+)_(\d{4}-\d{2}-\d{2})$/);
-    if(!match||!isBajoSanJuanJustification(saved?.causa))return;
+    // En el Resumen General una justificación vigente significa que el equipo ya
+    // no forma parte de la flota operativa del proyecto, sin importar el motivo
+    // elegido (Bajó a San Juan, Desmovilización, Otra, etc.).
+    if(!match||!String(saved?.causa||"").trim())return;
     const code=String(saved?.codigo||saved?.maquina||match[1]).trim();
     const project=normalizeRop02Project(saved?.proyecto);
     const movementKey=project?equipmentProjectKey(code,project):code;
