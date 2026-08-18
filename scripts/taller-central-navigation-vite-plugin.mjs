@@ -21,6 +21,25 @@ export function tallerCentralNavigationVitePlugin(){
         }
       }
 
+      if(id.endsWith('/src/modules/taller-central/TallerCentralMovementPage.jsx')){
+        s=s.replace(
+          'import {deleteTallerMovement,getTallerMovements,saveTallerMovement,updateTallerMovement} from "../../services/tallerMovements.js";',
+          'import {deleteTallerMovement,getCachedTallerMovements,getTallerMovements,saveTallerMovement,updateTallerMovement} from "../../services/tallerMovements.js";'
+        );
+        s=s.replace(
+          'const tipo=String(mode||"SUBIDA").toUpperCase();const[form,setForm]=useState(EMPTY),[rows,setRows]=useState([]),[saving,setSaving]=useState(false),[msg,setMsg]=useState(""),[editingId,setEditingId]=useState("");',
+          'const tipo=String(mode||"SUBIDA").toUpperCase();const[form,setForm]=useState(EMPTY),[rows,setRows]=useState(()=>getCachedTallerMovements(tipo).map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100)),[saving,setSaving]=useState(false),[msg,setMsg]=useState(""),[editingId,setEditingId]=useState("");'
+        );
+        s=s.replace(
+          'const load=async()=>{try{const all=await getTallerMovements();setRows(all.map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100));}catch(e){setMsg(e?.message||"No se pudo cargar el historial.");}};',
+          'const load=async()=>{try{const all=await getTallerMovements(tipo);const next=all.map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100);setRows(next);}catch(e){setMsg(e?.message||"No se pudo actualizar el historial. Se conservan los datos guardados.");}};'
+        );
+        s=s.replace(
+          'useEffect(()=>{setForm(EMPTY);setEditingId("");setMsg("");load();},[tipo]);',
+          'useEffect(()=>{setForm(EMPTY);setEditingId("");setMsg("");const cached=getCachedTallerMovements(tipo).map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100);if(cached.length)setRows(cached);load();},[tipo]);'
+        );
+      }
+
       if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')){
         const pattern=/function ViewTallerCentral\(\{listaEquipos=\[\],rop02All=\[\],onReloadLista\}\)\{[\s\S]*?\n\}\n\n\nconst OFFICE_VIEW_NAMES/;
         if(pattern.test(s)){
