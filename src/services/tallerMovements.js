@@ -8,11 +8,15 @@ const TYPE_ACTION={
   CAMBIO_EQUIPO:"get_taller_cambios_equipo",
   MOVILIZACION:"get_taller_movilizaciones",
 };
-const CACHE_PREFIX="dm_taller_movements_v2_";
+const CACHE_PREFIX="dm_taller_movements_v3_";
 const normalizeType=value=>String(value||"").trim().toUpperCase().replace(/\s+/g,"_");
 const normalizeRows=res=>Array.isArray(res?.data)?res.data:[];
 const rowType=row=>normalizeType(row?.TIPO||row?.tipo||row?.TIPO_MOVIMIENTO||row?.tipoMovimiento);
 const cacheKey=type=>`${CACHE_PREFIX}${normalizeType(type)}`;
+
+function isExactType(row,expected){
+  return rowType(row)===expected;
+}
 
 export function getCachedTallerMovements(type){
   const expected=normalizeType(type);
@@ -20,10 +24,7 @@ export function getCachedTallerMovements(type){
   try{
     const parsed=JSON.parse(localStorage.getItem(cacheKey(expected))||"[]");
     if(!Array.isArray(parsed))return[];
-    return parsed.filter(row=>{
-      const explicit=rowType(row);
-      return !explicit||explicit===expected;
-    }).map(row=>({...row,TIPO:rowType(row)||expected}));
+    return parsed.filter(row=>isExactType(row,expected));
   }catch(_){return[];}
 }
 
@@ -38,21 +39,16 @@ export async function getTallerMovements(type){
 
   try{
     const res=await fetchAction(APPS_SCRIPT_URL,action,{force:true,compact:false});
-    const remote=normalizeRows(res).filter(row=>{
-      const explicit=rowType(row);
-      return !explicit||explicit===expected;
-    }).map(row=>({...row,TIPO:rowType(row)||expected}));
+    const remote=normalizeRows(res).filter(row=>isExactType(row,expected));
     saveCache(expected,remote);
     return remote;
   }catch(primaryError){
     const cached=getCachedTallerMovements(expected);
     if(cached.length)return cached;
 
-    // Compatibilidad con implementaciones antiguas: solo se aceptan filas cuyo
-    // tipo explícito coincide con la pestaña actual. Nunca se reasigna el tipo.
     try{
       const legacy=await fetchAction(APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false});
-      const rows=normalizeRows(legacy).filter(row=>rowType(row)===expected);
+      const rows=normalizeRows(legacy).filter(row=>isExactType(row,expected));
       if(rows.length){saveCache(expected,rows);return rows;}
     }catch(_){}
     throw primaryError;
