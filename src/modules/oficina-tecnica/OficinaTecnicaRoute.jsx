@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
-import { getRop02 } from "../../data/historicalDataService.js";
+import { fetchDatasetPage, getRop02 } from "../../data/historicalDataService.js";
 import { normalizeROP02 } from "../../shared/domain/index.jsx";
 
 const LazyOficinaTecnica = React.lazy(()=>import("./OficinaTecnicaModule.jsx").then(m=>({default:m.OficinaTecnicaView})));
@@ -101,10 +101,6 @@ function mergeRop02Sources(baseRows,remoteRows){
   if(!remote.length)return base;
   if(!base.length)return remote;
 
-  // La hidratación general y la consulta remota pueden actualizarse en momentos
-  // distintos. Nunca reemplazar una por la otra: se unen y se eliminan duplicados
-  // para que una carga nueva recibida por "Actualizar" no quede tapada por un
-  // snapshot remoto anterior de la pestaña Equipos.
   const merged=[];
   const seen=new Set();
   for(const row of [...remote,...base]){
@@ -121,11 +117,42 @@ function mergeRop02Sources(baseRows,remoteRows){
   return merged;
 }
 
+function rop02SourceSignature(rows){
+  const data=Array.isArray(rows)?rows:[];
+  let maxDate="";
+  for(const row of data){
+    const date=String(row?.fecha||"").slice(0,10);
+    if(date>maxDate)maxDate=date;
+  }
+  return `${data.length}:${maxDate}`;
+}
+
 export function OficinaTecnicaRoute(props){
   const Fallback=props?.deps?.BlockingDataLoader;
   const atrasoView=isAtrasoView(props);
   const readOnlyAtraso=isAdministrativeAtraso(props);
   const [equiposRop02,setEquiposRop02]=useState(null);
+  const [rop02ViewRevision,setRop02ViewRevision]=useState(0);
+  const globalRop02Signature=useMemo(()=>rop02SourceSignature(props?.rop02All),[props?.rop02All]);
+
+  // La pantalla lateral "Equipos" corresponde a view="rop02" (no a listaEquipos).
+  // Esa vista mantiene un cache interno del dataset completo. Antes, aunque el botón
+  // Actualizar recibiera cargas nuevas, el componente seguía leyendo el snapshot viejo
+  // de IndexedDB. Forzamos una lectura REAL de red y, cuando llega, remontamos sólo
+  // este módulo para que su cache interno nazca con la versión recién descargada.
+  useEffect(()=>{
+    if(props?.view!=="rop02")return;
+    let active=true;
+    (async()=>{
+      try{
+        await fetchDatasetPage("rop02",{limit:"all",sortBy:"fecha",sortDirection:"asc",_t:String(Date.now())});
+        if(active)setRop02ViewRevision(value=>value+1);
+      }catch(error){
+        console.warn("No se pudo forzar la actualización remota de ROP02 para Equipos.",error);
+      }
+    })();
+    return()=>{active=false;};
+  },[props?.view,globalRop02Signature]);
 
   useEffect(()=>{
     if(props?.view!=="listaEquipos")return;
@@ -137,7 +164,7 @@ export function OficinaTecnicaRoute(props){
         const raw=Array.isArray(result?.data)?result.data:[];
         if(raw.length)setEquiposRop02(normalizeROP02(raw));
       }catch(error){
-        console.warn("No se pudo actualizar ROP02 para Equipos; se conserva la fuente cargada.",error);
+        console.warn("No se pudo actualizar ROP02 para Lista de Equipos; se conserva la fuente cargada.",error);
       }
     })();
     return()=>{active=false;};
@@ -159,7 +186,9 @@ export function OficinaTecnicaRoute(props){
     return nextProps;
   },[props,rop02Equipos,atrasoView,readOnlyAtraso]);
 
+  const moduleKey=props?.view==="rop02"?`rop02-fresh-${rop02ViewRevision}`:undefined;
+
   return <Suspense fallback={Fallback?<Fallback label="Cargando Oficina Técnica..."/>:null}>
-    <LazyOficinaTecnica {...routedProps}/>
+    <LazyOficinaTecnica key={moduleKey} {...routedProps}/>
   </Suspense>;
 }
