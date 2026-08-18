@@ -9,6 +9,7 @@ export {createPagedDatasetController} from "./pagedDatasetController.js";
 const memory=new Map();
 const pending=new Map();
 const MAX_MEMORY_QUERIES=8;
+const HISTORICAL_UPDATED_EVENT="dm-historical-dataset-updated";
 
 function remember_(key,value){
   memory.delete(key);memory.set(key,value);
@@ -24,6 +25,13 @@ function versionsDiffer_(localVersions={},remoteVersions={}){
     if(Number(local[key]||0)!==Number(remote[key]||0))return true;
   }
   return false;
+}
+
+function notifyDatasetUpdated_(dataset,key,value,params){
+  if(typeof window==="undefined"||typeof window.dispatchEvent!=="function")return;
+  try{
+    window.dispatchEvent(new CustomEvent(HISTORICAL_UPDATED_EVENT,{detail:{dataset,key,value,params:{...(params||{})}}}));
+  }catch(_){}
 }
 
 function normalizeHomeProject_(value){
@@ -94,34 +102,50 @@ export async function fetchDatasetPage(dataset,params={}){
   const started=performance.now();
   const task=fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0}).then(async response=>{
     const value={...response,cacheHit:false,cacheLevel:"network",elapsedMs:Math.round(performance.now()-started)};
-    remember_(key,value);await writeCachedSource(`query:${key}`,value);
+    remember_(key,value);
+    await writeCachedSource(`query:${key}`,value);
+    notifyDatasetUpdated_(dataset,key,value,params);
     if(import.meta.env.DEV)console.debug("[dataset-query]",{dataset,requestedLimit:params.limit||250,rowsRead:response.rowsRead,rowsFiltered:response.rowsFiltered,received:response.rows,total:response.total,backendMs:response.backendMs,elapsedMs:value.elapsedMs,payloadBytes:response.payloadBytes,cache:"miss"});
     return value;
   }).finally(()=>{if(pending.get(key)===task)pending.delete(key);});
   pending.set(key,task);return task;
 }
 
+function revalidateDatasetInBackground_(dataset,params,cached){
+  fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{
+    if(!versionsDiffer_(cached?.versions||{},sync?.versions||{}))return null;
+    return fetchDatasetPage(dataset,params);
+  }).catch(()=>{});
+}
+
 export async function getDataset(dataset,params={}){
   const cached=await readDatasetQuery(dataset,params);
   if(!cached)return fetchDatasetPage(dataset,params);
 
-  // Nunca devolver un dataset viejo cuando el backend ya informa una versión nueva.
-  // Antes se devolvía el caché inmediatamente y la actualización se hacía en segundo
-  // plano, dejando a vistas como Equipos/Atraso trabajando con fechas antiguas.
-  try{
-    const sync=await fetchSyncVersions(APPS_SCRIPT_URL);
-    if(versionsDiffer_(cached.versions||{},sync?.versions||{})){
-      return await fetchDatasetPage(dataset,{...params,_t:String(Date.now())});
-    }
-  }catch(_){
-    // Si falla sólo la consulta de versiones, conservar el caché disponible.
+  // Consultas acotadas por fecha se usan en controles críticos (por ejemplo Atraso).
+  // Esas consultas validan la versión antes de calcular para no mezclar una fecha
+  // máxima nueva con un histórico viejo. Las vistas completas, en cambio, muestran
+  // el último caché de inmediato y se revalidan en segundo plano.
+  const requireFresh=Boolean(params?.requireFresh||params?.desde||params?.hasta);
+  if(requireFresh){
+    try{
+      const sync=await fetchSyncVersions(APPS_SCRIPT_URL);
+      if(versionsDiffer_(cached.versions||{},sync?.versions||{})){
+        return await fetchDatasetPage(dataset,params);
+      }
+    }catch(_){}
+    return cached;
   }
+
+  revalidateDatasetInBackground_(dataset,params,cached);
   return cached;
 }
 
 export const getRop02=params=>getDataset("rop02",params);
 export const getRop05=params=>getDataset("rop05",params);
 export const getRma15=params=>getDataset("rma15",params);
+export const refreshHistoricalDataset=(dataset,params={})=>fetchDatasetPage(dataset,params);
+export const HISTORICAL_DATASET_UPDATED_EVENT=HISTORICAL_UPDATED_EVENT;
 
 async function fetchSpecialAction_(action,params={}){
   const key=`special:${buildDatasetQueryKey(action,params)}`;
