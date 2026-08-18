@@ -1,6 +1,7 @@
 import {APPS_SCRIPT_URL} from "../config/app.js";
 import {fetchDatasetQuery,fetchSyncVersions} from "../services/appsScriptApi.js";
 import {readCachedSource,writeCachedSource} from "../services/appCache.js";
+import {DATA_REFRESH_INTERVAL_MS} from "../services/dataRefreshPolicy.js";
 import {buildDatasetQueryKey} from "./historicalQueryParams.js";
 import {createPagedDatasetController as createPagedController} from "./pagedDatasetController.js";
 export {buildDatasetQueryKey,operationalMonthRange,yearsForRange} from "./historicalQueryParams.js";
@@ -8,8 +9,10 @@ export {createPagedDatasetController} from "./pagedDatasetController.js";
 
 const memory=new Map();
 const pending=new Map();
+const lastRevalidatedAt=new Map();
 const MAX_MEMORY_QUERIES=8;
 const HISTORICAL_UPDATED_EVENT="dm-historical-dataset-updated";
+const COMMON_HISTORICAL_QUERY=Object.freeze({limit:"all",offset:0,sortBy:"fecha",sortDirection:"desc"});
 
 function remember_(key,value){
   memory.delete(key);memory.set(key,value);
@@ -92,7 +95,7 @@ export async function readDatasetQuery(dataset,params={}){
   const key=buildDatasetQueryKey(dataset,params);
   if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}
   const record=await readCachedSource(`query:${key}`).catch(()=>null);
-  if(record?.data?.ok){remember_(key,record.data);return{...record.data,cacheHit:true,cacheLevel:"indexeddb"};}
+  if(record?.data?.ok){remember_(key,record.data);return{...record.data,cacheHit:true,cacheLevel:"indexeddb",cacheUpdatedAt:record.updatedAt||null};}
   return null;
 }
 
@@ -103,6 +106,7 @@ export async function fetchDatasetPage(dataset,params={}){
   const task=fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0}).then(async response=>{
     const value={...response,cacheHit:false,cacheLevel:"network",elapsedMs:Math.round(performance.now()-started)};
     remember_(key,value);
+    lastRevalidatedAt.set(key,Date.now());
     await writeCachedSource(`query:${key}`,value);
     notifyDatasetUpdated_(dataset,key,value,params);
     if(import.meta.env.DEV)console.debug("[dataset-query]",{dataset,requestedLimit:params.limit||250,rowsRead:response.rowsRead,rowsFiltered:response.rowsFiltered,received:response.rows,total:response.total,backendMs:response.backendMs,elapsedMs:value.elapsedMs,payloadBytes:response.payloadBytes,cache:"miss"});
@@ -111,21 +115,30 @@ export async function fetchDatasetPage(dataset,params={}){
   pending.set(key,task);return task;
 }
 
+function shouldRevalidate_(key){
+  const last=Number(lastRevalidatedAt.get(key)||0);
+  return !last||Date.now()-last>=DATA_REFRESH_INTERVAL_MS;
+}
+
 function revalidateDatasetInBackground_(dataset,params,cached){
+  const key=buildDatasetQueryKey(dataset,params);
+  if(!shouldRevalidate_(key))return;
+  lastRevalidatedAt.set(key,Date.now());
   fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{
     if(!versionsDiffer_(cached?.versions||{},sync?.versions||{}))return null;
     return fetchDatasetPage(dataset,params);
-  }).catch(()=>{});
+  }).catch(()=>{
+    // El cache visible permanece intacto si falla la revalidación.
+  });
 }
 
 export async function getDataset(dataset,params={}){
   const cached=await readDatasetQuery(dataset,params);
   if(!cached)return fetchDatasetPage(dataset,params);
 
-  // Consultas acotadas por fecha se usan en controles críticos (por ejemplo Atraso).
-  // Esas consultas validan la versión antes de calcular para no mezclar una fecha
-  // máxima nueva con un histórico viejo. Las vistas completas, en cambio, muestran
-  // el último caché de inmediato y se revalidan en segundo plano.
+  // Controles críticos que consultan un rango concreto deben validar frescura antes
+  // de calcular. El resto de la app usa stale-while-revalidate: pinta el cache ya
+  // disponible y comprueba datos nuevos sin bloquear la interfaz.
   const requireFresh=Boolean(params?.requireFresh||params?.desde||params?.hasta);
   if(requireFresh){
     try{
@@ -133,6 +146,7 @@ export async function getDataset(dataset,params={}){
       if(versionsDiffer_(cached.versions||{},sync?.versions||{})){
         return await fetchDatasetPage(dataset,params);
       }
+      lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());
     }catch(_){}
     return cached;
   }
@@ -146,6 +160,15 @@ export const getRop05=params=>getDataset("rop05",params);
 export const getRma15=params=>getDataset("rma15",params);
 export const refreshHistoricalDataset=(dataset,params={})=>fetchDatasetPage(dataset,params);
 export const HISTORICAL_DATASET_UPDATED_EVENT=HISTORICAL_UPDATED_EVENT;
+
+export async function refreshCommonHistoricalDatasets(){
+  const results=await Promise.allSettled([
+    fetchDatasetPage("rop02",COMMON_HISTORICAL_QUERY),
+    fetchDatasetPage("rop05",COMMON_HISTORICAL_QUERY),
+    fetchDatasetPage("rma15",COMMON_HISTORICAL_QUERY),
+  ]);
+  return results;
+}
 
 async function fetchSpecialAction_(action,params={}){
   const key=`special:${buildDatasetQueryKey(action,params)}`;
@@ -186,7 +209,7 @@ export async function getEquipmentHistory({equipo,desde="",hasta=""}){
   const [rop02,rop05,rma15]=await Promise.all([getRop02(params),getRop05(params),getRma15(params)]);
   return{rop02:rop02.data||[],rop05:rop05.data||[],rma15:rma15.data||[],meta:{rop02,rop05,rma15}};
 }
-export function clearHistoricalQueryMemory(){memory.clear();pending.clear();}
+export function clearHistoricalQueryMemory(){memory.clear();pending.clear();lastRevalidatedAt.clear();}
 
 export function createHistoricalPagedController(){return createPagedController(fetchDatasetPage);}
 
