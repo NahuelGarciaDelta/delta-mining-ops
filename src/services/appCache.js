@@ -1,10 +1,10 @@
 export const APP_FILTERS_STATE_KEY="dm_app_filters_state_v1";
-const APP_IDB_NAME="delta_mining_cache_backend_20260814_v4";
+const APP_IDB_NAME="delta_mining_cache_backend_20260818_v5";
 const APP_IDB_VERSION=1;
 const APP_IDB_STORE="datasets";
-const APP_CACHE_VERSION=4;
-const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v4";
-const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v4_";
+const APP_CACHE_VERSION=5;
+const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v5";
+const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v5_";
 
 let appCacheDBPromise_=null;
 const memoryCache_=new Map();
@@ -46,9 +46,6 @@ function normalizeRecord_(record){
   if(!record)return null;
   const data=record.data??record.value;
   if(!data)return null;
-  // Compatibilidad del contrato de cache: App.jsx consume `record.value`, mientras
-  // la versión nueva persiste el payload bajo `record.data`. Exponer ambos evita
-  // perder el snapshot completo antes de fusionar una respuesta incremental.
   return {...record,data,value:data,version:Number(record.version||data?.meta?.serverVersion||0)};
 }
 export async function readCachedSourceRecords(keys){
