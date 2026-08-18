@@ -1,5 +1,6 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
-import { fetchDatasetPage, getRop02 } from "../../data/historicalDataService.js";
+import { getRop02, refreshHistoricalDataset, HISTORICAL_DATASET_UPDATED_EVENT } from "../../data/historicalDataService.js";
+import { registerRefreshTask } from "../../services/refreshManager.js";
 import { normalizeROP02 } from "../../shared/domain/index.jsx";
 
 const LazyOficinaTecnica = React.lazy(()=>import("./OficinaTecnicaModule.jsx").then(m=>({default:m.OficinaTecnicaView})));
@@ -117,14 +118,12 @@ function mergeRop02Sources(baseRows,remoteRows){
   return merged;
 }
 
-function rop02SourceSignature(rows){
-  const data=Array.isArray(rows)?rows:[];
-  let maxDate="";
-  for(const row of data){
-    const date=String(row?.fecha||"").slice(0,10);
-    if(date>maxDate)maxDate=date;
-  }
-  return `${data.length}:${maxDate}`;
+function isFullRop02Query(params={}){
+  return String(params?.limit||"").toLowerCase()==="all"&&
+    !String(params?.desde||"").trim()&&
+    !String(params?.hasta||"").trim()&&
+    String(params?.sortBy||"fecha")==="fecha"&&
+    String(params?.sortDirection||"asc").toLowerCase()==="desc";
 }
 
 export function OficinaTecnicaRoute(props){
@@ -133,26 +132,28 @@ export function OficinaTecnicaRoute(props){
   const readOnlyAtraso=isAdministrativeAtraso(props);
   const [equiposRop02,setEquiposRop02]=useState(null);
   const [rop02ViewRevision,setRop02ViewRevision]=useState(0);
-  const globalRop02Signature=useMemo(()=>rop02SourceSignature(props?.rop02All),[props?.rop02All]);
 
-  // La pantalla lateral "Equipos" corresponde a view="rop02" (no a listaEquipos).
-  // Esa vista mantiene un cache interno del dataset completo. Antes, aunque el botón
-  // Actualizar recibiera cargas nuevas, el componente seguía leyendo el snapshot viejo
-  // de IndexedDB. Forzamos una lectura REAL de red y, cuando llega, remontamos sólo
-  // este módulo para que su cache interno nazca con la versión recién descargada.
+  // Equipos usa exactamente la misma clave histórica siempre: ROP02 completo,
+  // fecha descendente. Se muestra el último caché inmediatamente; cuando llega una
+  // versión nueva en segundo plano se remonta sólo este módulo y lee ese caché ya fresco.
   useEffect(()=>{
-    if(props?.view!=="rop02")return;
-    let active=true;
-    (async()=>{
-      try{
-        await fetchDatasetPage("rop02",{limit:"all",sortBy:"fecha",sortDirection:"asc",_t:String(Date.now())});
-        if(active)setRop02ViewRevision(value=>value+1);
-      }catch(error){
-        console.warn("No se pudo forzar la actualización remota de ROP02 para Equipos.",error);
-      }
-    })();
-    return()=>{active=false;};
-  },[props?.view,globalRop02Signature]);
+    const onHistoricalUpdated=(event)=>{
+      const detail=event?.detail||{};
+      if(detail.dataset!=="rop02"||!isFullRop02Query(detail.params))return;
+      setRop02ViewRevision(value=>value+1);
+    };
+    window.addEventListener(HISTORICAL_DATASET_UPDATED_EVENT,onHistoricalUpdated);
+    return()=>window.removeEventListener(HISTORICAL_DATASET_UPDATED_EVENT,onHistoricalUpdated);
+  },[]);
+
+  // El botón global Actualizar y el auto-refresh llaman refreshManager. Esta tarea
+  // fuerza la MISMA consulta que consume la vista Equipos, evitando caches paralelos
+  // asc/desc y haciendo que la actualización se vea apenas termina la descarga.
+  useEffect(()=>registerRefreshTask(
+    "oficina-rop02-full-refresh",
+    async()=>refreshHistoricalDataset("rop02",{limit:"all",sortBy:"fecha",sortDirection:"desc"}),
+    {views:["rop02"],priority:20}
+  ),[]);
 
   useEffect(()=>{
     if(props?.view!=="listaEquipos")return;
@@ -186,7 +187,7 @@ export function OficinaTecnicaRoute(props){
     return nextProps;
   },[props,rop02Equipos,atrasoView,readOnlyAtraso]);
 
-  const moduleKey=props?.view==="rop02"?`rop02-fresh-${rop02ViewRevision}`:undefined;
+  const moduleKey=props?.view==="rop02"?`rop02-cache-${rop02ViewRevision}`:undefined;
 
   return <Suspense fallback={Fallback?<Fallback label="Cargando Oficina Técnica..."/>:null}>
     <LazyOficinaTecnica key={moduleKey} {...routedProps}/>
