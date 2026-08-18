@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { progressiveRowsVitePlugin } from './scripts/progressive-rows-vite-plugin.mjs'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [progressiveRowsVitePlugin(), react()],
   server: {
     host: '0.0.0.0'
   },
