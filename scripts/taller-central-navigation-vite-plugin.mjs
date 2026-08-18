@@ -36,8 +36,14 @@ export function tallerCentralNavigationVitePlugin(){
         );
         s=s.replace(
           'useEffect(()=>{setForm(EMPTY);setEditingId("");setMsg("");load();},[tipo]);',
-          'useEffect(()=>{setForm(EMPTY);setEditingId("");setMsg("");const cached=getCachedTallerMovements(tipo).map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100);if(cached.length)setRows(cached);load();},[tipo]);'
+          'useEffect(()=>{setForm(EMPTY);setEditingId("");setMsg("");const cached=getCachedTallerMovements(tipo).map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100);setRows(cached);load();},[tipo]);'
         );
+        s=s.replace(
+          'const title=tipo==="SUBIDA"?"Registrar subida":tipo==="BAJA"?"Registrar bajada":tipo==="MOVILIZACION"?"Registrar movilización":"Registrar cambio de equipo";',
+          'const visibleRows=rows.filter(r=>{const rt=String(r?.tipo||"").trim().toUpperCase();const motivo=String(r?.motivo||"").trim().toUpperCase();const obs=String(r?.observacion||"").trim().toUpperCase();const txt=`${motivo} ${obs}`;let derived=rt;if(txt.includes("SE CAMBIA EQUIPO")||txt.includes("CAMBIO_EQUIPO")||r?.internoEntra)derived="CAMBIO_EQUIPO";else if(txt.includes("SE BAJA")||txt.includes("TALLER_BAJA"))derived="BAJA";else if(txt.includes("SE MOVILIZA")||txt.includes("TALLER_MOVILIZACION"))derived="MOVILIZACION";else if(txt.includes("SUBIDA DE EQUIPO")||txt.includes("TALLER_SUBIDA"))derived="SUBIDA";return derived===tipo;});const title=tipo==="SUBIDA"?"Registrar subida":tipo==="BAJA"?"Registrar bajada":tipo==="MOVILIZACION"?"Registrar movilización":"Registrar cambio de equipo";'
+        );
+        s=s.replace('{rows.map((r,i)=><tr key={r.id||i}>','{visibleRows.map((r,i)=><tr key={r.id||i}>');
+        s=s.replace('{!rows.length&&<tr><td colSpan={9}','{!visibleRows.length&&<tr><td colSpan={9}');
       }
 
       if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')){
