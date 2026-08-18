@@ -15,6 +15,17 @@ function remember_(key,value){
   while(memory.size>MAX_MEMORY_QUERIES)memory.delete(memory.keys().next().value);
 }
 
+function versionsDiffer_(localVersions={},remoteVersions={}){
+  const local=localVersions||{};
+  const remote=remoteVersions||{};
+  const keys=new Set([...Object.keys(local),...Object.keys(remote)]);
+  if(!keys.size)return false;
+  for(const key of keys){
+    if(Number(local[key]||0)!==Number(remote[key]||0))return true;
+  }
+  return false;
+}
+
 function normalizeHomeProject_(value){
   const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
   if(!raw||raw==="TODOS"||raw==="TODO")return "TODOS";
@@ -59,8 +70,6 @@ function isVehicleSnapshotRow_(row){
   if(/^CTA/.test(code))return true;
   if(/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return true;
   if(["CAC","CAR","CAV","CAA"].some(prefix=>code.startsWith(prefix)))return true;
-  // CAT también se usa para generadores, por eso no se excluye por prefijo.
-  // CAT-0073 es un camión confirmado en la flota.
   if(code==="CAT0073")return true;
   return false;
 }
@@ -95,24 +104,32 @@ export async function fetchDatasetPage(dataset,params={}){
 export async function getDataset(dataset,params={}){
   const cached=await readDatasetQuery(dataset,params);
   if(!cached)return fetchDatasetPage(dataset,params);
-  fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{
-    const local=cached.versions||{},remote=sync?.versions||{};
-    const changed=Object.keys(local).some(key=>Number(local[key]||0)!==Number(remote[key]||0));
-    if(changed)fetchDatasetPage(dataset,params).catch(()=>{});
-  }).catch(()=>{});
+
+  // Nunca devolver un dataset viejo cuando el backend ya informa una versión nueva.
+  // Antes se devolvía el caché inmediatamente y la actualización se hacía en segundo
+  // plano, dejando a vistas como Equipos/Atraso trabajando con fechas antiguas.
+  try{
+    const sync=await fetchSyncVersions(APPS_SCRIPT_URL);
+    if(versionsDiffer_(cached.versions||{},sync?.versions||{})){
+      return await fetchDatasetPage(dataset,{...params,_t:String(Date.now())});
+    }
+  }catch(_){
+    // Si falla sólo la consulta de versiones, conservar el caché disponible.
+  }
   return cached;
 }
 
 export const getRop02=params=>getDataset("rop02",params);
 export const getRop05=params=>getDataset("rop05",params);
 export const getRma15=params=>getDataset("rma15",params);
+
 async function fetchSpecialAction_(action,params={}){
   const key=`special:${buildDatasetQueryKey(action,params)}`;
   const record=await readCachedSource(key).catch(()=>null);
   if(record?.data?.ok){
-    const sync=await fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null),local=record.data.versions||{},remote=sync?.versions||{};
-    const versionKeys=Object.keys(local),valid=!versionKeys.length||versionKeys.every(versionKey=>Number(local[versionKey]||0)===Number(remote[versionKey]||0));
-    if(valid)return{...record.data,cacheHit:true,cacheLevel:"indexeddb"};
+    const sync=await fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null);
+    const local=record.data.versions||{},remote=sync?.versions||{};
+    if(sync&&!versionsDiffer_(local,remote))return{...record.data,cacheHit:true,cacheLevel:"indexeddb"};
   }
   const started=performance.now(),response=await fetch(`${APPS_SCRIPT_URL}?${new URLSearchParams({action,...params,_t:String(Date.now())})}`,{cache:"no-store",redirect:"follow"});
   if(!response.ok)throw new Error(`HTTP ${response.status} desde Apps Script`);
@@ -122,21 +139,13 @@ async function fetchSpecialAction_(action,params={}){
 }
 
 export async function getRop02LatestByEquipmentProject(params={}){
-  // Con el filtro de Bienvenida nuevo, el componente trabaja directamente con
-  // rop02All filtrado y no necesita un snapshot independiente. Evitar esta
-  // consulta permite cambiar proyecto sin desmontar/recrear toda la pantalla.
   if(usesExternalHomeFilter_())throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");
   const response=await fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);
-  // El snapshot se usa también para Atraso. Debe contener solamente equipos:
-  // se excluyen camionetas y camiones para que no aparezcan como atrasados o saltos.
   return filterEquipmentOnlySnapshot_(filterHomeProjectResponse_(response));
 }
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
 export async function getRma15OpenOtSummary(params={}){
-  // Cuando Bienvenida filtra localmente, no se inyecta un resumen rápido que
-  // pueda llegar vacío y pisar una OT válida calculada desde RMA15. data:null
-  // hace que ViewBienvenida conserve su cálculo local por último estado.
   if(usesExternalHomeFilter_())return{ok:true,data:null,externalFilter:true};
   const response=await fetchSpecialAction_("get_rma15_open_ot_summary",params);
   const project=currentHomeProject_();
