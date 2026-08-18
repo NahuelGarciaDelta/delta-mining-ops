@@ -8,6 +8,43 @@ export const normalizeEquipmentMovementCode=value=>{
   return resolveEquipmentCodeAlias(formatted);
 };
 
+const DEST_CODE_RE=/\[DM_INTERNO_DESTINO:([^\]]+)\]/i;
+const DEST_DATE_RE=/\[DM_FECHA_DESTINO:(\d{4}-\d{2}-\d{2})\]/i;
+
+export function getEquipmentMovementDestinationCode(movement={}){
+  const direct=String(movement?.internoDestino||movement?.internoDestinoNormalizado||"").trim();
+  if(direct)return normalizeEquipmentMovementCode(direct);
+  const match=String(movement?.observacion||"").match(DEST_CODE_RE);
+  return match?normalizeEquipmentMovementCode(match[1]):"";
+}
+
+export function getEquipmentMovementDestinationFirstDate(movement={}){
+  const direct=String(movement?.fechaPrimerRop02Destino||"").slice(0,10);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(direct))return direct;
+  const match=String(movement?.observacion||"").match(DEST_DATE_RE);
+  return match?match[1]:"";
+}
+
+export function appendEquipmentMovementLinkMetadata(observation="",destinationCode="",destinationDate=""){
+  const clean=String(observation||"").replace(DEST_CODE_RE,"").replace(DEST_DATE_RE,"").trim();
+  const code=normalizeEquipmentMovementCode(destinationCode);
+  const date=String(destinationDate||"").slice(0,10);
+  const metadata=[code?`[DM_INTERNO_DESTINO:${code}]`:"",/^\d{4}-\d{2}-\d{2}$/.test(date)?`[DM_FECHA_DESTINO:${date}]`:""].filter(Boolean).join(" ");
+  return [clean,metadata].filter(Boolean).join(" ").trim();
+}
+
+export function buildEquipmentMovementAliasMap(movements=[]){
+  const out=new Map();
+  for(const movement of Array.isArray(movements)?movements:[]){
+    if(String(movement?.tipoMovimiento||"").toUpperCase()!=="CAMBIO_PROYECTO")continue;
+    if(String(movement?.estado||"").toUpperCase()==="CANCELADO")continue;
+    const origin=normalizeEquipmentMovementCode(movement?.internoNormalizado||movement?.interno);
+    const destination=getEquipmentMovementDestinationCode(movement);
+    if(origin&&destination&&origin!==destination)out.set(origin,destination);
+  }
+  return out;
+}
+
 export function getMovimientoVigentePorEquipo(movements=[],latestRop02ByEquipmentProject=new Map()){
   const active=new Map();
   [...(Array.isArray(movements)?movements:[])].sort((a,b)=>String(a.fechaHora||"").localeCompare(String(b.fechaHora||""))).forEach(movement=>{
@@ -35,6 +72,7 @@ export function movementsToAtrasoMap(activeMovementByEquipment=new Map()){
       admitido:true,causa:movement.motivo,fechaAdmitido:movement.fechaHora,usuario:movement.usuario,
       codigo:code,maquina:movement.interno||code,proyecto:project,ultimaCarga,movementId:movement.id,
       proyectoDestino:movement.proyectoDestino,tipoMovimiento:movement.tipoMovimiento,observacion:movement.observacion,
+      internoDestino:getEquipmentMovementDestinationCode(movement),fechaPrimerRop02Destino:getEquipmentMovementDestinationFirstDate(movement),
     };
   });
   return out;
