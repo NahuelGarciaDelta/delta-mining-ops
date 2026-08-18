@@ -35,8 +35,13 @@ export default function EquipmentProfileWithLastRop02(props){
 
   const latestDate=latestByEquipment.get(canonicalEquipmentCode(selectedCode))||"";
 
+  // Solo se actualiza una vez después de cada cambio de equipo/fecha. El observer
+  // anterior observaba el mismo nodo que modificaba y podía generar un loop infinito
+  // de MutationObserver, congelando la ficha en equipos sin ROP02 como AG600JG/CAR0073.
   useEffect(()=>{
+    let cancelled=false;
     const apply=()=>{
+      if(cancelled)return;
       const header=document.querySelector(".dm-equipment-profile .dm-equipment-header");
       if(!header)return;
       const left=header.firstElementChild;
@@ -51,14 +56,11 @@ export default function EquipmentProfileWithLastRop02(props){
         node.style.color="#9ca3af";
         left.appendChild(node);
       }
-      node.textContent=`Último registro ROP02: ${latestDate?fmtDate(latestDate):"Sin registros"}`;
+      const nextText=`Último registro ROP02: ${latestDate?fmtDate(latestDate):"Sin registros"}`;
+      if(node.textContent!==nextText)node.textContent=nextText;
     };
-    apply();
-    const root=document.querySelector(".dm-equipment-profile");
-    if(!root)return;
-    const observer=new MutationObserver(apply);
-    observer.observe(root,{childList:true,subtree:true});
-    return()=>observer.disconnect();
+    const raf=window.requestAnimationFrame(()=>window.requestAnimationFrame(apply));
+    return()=>{cancelled=true;window.cancelAnimationFrame(raf);};
   },[latestDate,selectedCode]);
 
   const captureEquipmentChange=event=>{
@@ -66,7 +68,7 @@ export default function EquipmentProfileWithLastRop02(props){
     if(target?.tagName!=="SELECT")return;
     if(!target.closest?.(".dm-equipment-filter-panel"))return;
     const value=String(target.value||"").trim();
-    if(value)setSelectedCode(cleanEquipmentCode(value));
+    setSelectedCode(value?cleanEquipmentCode(value):"");
   };
 
   return <div onChangeCapture={captureEquipmentChange}><EquipmentProfileView {...props}/></div>;
