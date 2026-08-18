@@ -1,5 +1,6 @@
 import {canonicalEquipmentCode} from "./equipmentCode.js";
 import {normalizeRop02Project} from "../home/homeAvailability.js";
+import {getEquipmentMovementDestinationCode,getEquipmentMovementDestinationFirstDate} from "../../services/equipmentMovementsDomain.js";
 
 const dateISO=value=>{if(!value)return"";const direct=String(value).slice(0,10);if(/^\d{4}-\d{2}-\d{2}$/.test(direct))return direct;const parsed=new Date(value);return Number.isNaN(parsed.getTime())?"":parsed.toISOString().slice(0,10);};
 const displayProject=value=>{const project=normalizeRop02Project(value);return project==="JOSE MARIA"?"José María":project==="FILO DEL SOL"?"Filo del Sol":project==="FILO SUR"?"Filo Sur":project==="EL ZORRO"?"El Zorro":project==="SAN JUAN"?"San Juan":project||"—";};
@@ -16,10 +17,17 @@ export function inferRop02ProjectMovements(rows=[]){
 
 export function persistedProjectMovements(movements=[],equipmentCode=""){
   const selected=canonicalEquipmentCode(equipmentCode);
-  return (Array.isArray(movements)?movements:[]).filter(movement=>canonicalEquipmentCode(movement.internoNormalizado||movement.interno)===selected).map(movement=>{
+  return (Array.isArray(movements)?movements:[]).filter(movement=>{
+    const origin=canonicalEquipmentCode(movement.internoNormalizado||movement.interno);
+    const destination=canonicalEquipmentCode(getEquipmentMovementDestinationCode(movement));
+    return origin===selected||destination===selected;
+  }).map(movement=>{
     const type=String(movement.tipoMovimiento||"").toUpperCase(),origin=normalizeRop02Project(movement.proyectoOrigen);
-    const destination=normalizeRop02Project(movement.proyectoDestino)||(type==="BAJO_SAN_JUAN"?"SAN JUAN":type==="DESMOVILIZADO"?"DESMOVILIZADO":""),iso=dateISO(movement.fechaHora);
-    return{fechaISO:iso,fecha:displayDate(iso),desdeRaw:origin,hastaRaw:destination,desde:displayProject(origin),hasta:displayProject(destination),source:"MANUAL",motivo:movement.motivo||type,observacion:movement.observacion||"",usuario:movement.usuario||"",id:movement.id||""};
+    const destination=normalizeRop02Project(movement.proyectoDestino)||(type==="BAJO_SAN_JUAN"?"SAN JUAN":type==="DESMOVILIZADO"?"DESMOVILIZADO":"");
+    const destinationCode=getEquipmentMovementDestinationCode(movement);
+    const destinationDate=getEquipmentMovementDestinationFirstDate(movement);
+    const iso=dateISO(type==="CAMBIO_PROYECTO"&&destinationDate?destinationDate:movement.fechaHora);
+    return{fechaISO:iso,fecha:displayDate(iso),desdeRaw:origin,hastaRaw:destination,desde:displayProject(origin),hasta:displayProject(destination),source:"MANUAL",motivo:movement.motivo||type,observacion:movement.observacion||"",usuario:movement.usuario||"",id:movement.id||"",internoOrigen:canonicalEquipmentCode(movement.internoNormalizado||movement.interno),internoDestino:destinationCode};
   }).filter(movement=>movement.fechaISO&&(movement.desdeRaw||movement.hastaRaw));
 }
 
@@ -30,5 +38,12 @@ export function mergeEquipmentMovements(rop02Rows=[],persistedMovements=[],equip
 }
 
 export function indexPersistedMovementsByEquipment(movements=[]){
-  const index=new Map();for(const movement of Array.isArray(movements)?movements:[]){const code=canonicalEquipmentCode(movement.internoNormalizado||movement.interno);if(!code)continue;if(!index.has(code))index.set(code,[]);index.get(code).push(movement);}return index;
+  const index=new Map();
+  const add=(code,movement)=>{const key=canonicalEquipmentCode(code);if(!key)return;if(!index.has(key))index.set(key,[]);index.get(key).push(movement);};
+  for(const movement of Array.isArray(movements)?movements:[]){
+    add(movement.internoNormalizado||movement.interno,movement);
+    const destination=getEquipmentMovementDestinationCode(movement);
+    if(destination)add(destination,movement);
+  }
+  return index;
 }
