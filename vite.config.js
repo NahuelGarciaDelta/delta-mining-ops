@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { progressiveRowsVitePlugin } from './scripts/progressive-rows-vite-plugin.mjs'
+import { tallerCentralNavigationVitePlugin } from './scripts/taller-central-navigation-vite-plugin.mjs'
 
 export default defineConfig({
-  plugins: [progressiveRowsVitePlugin(), react()],
+  plugins: [tallerCentralNavigationVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
     host: '0.0.0.0'
   },
