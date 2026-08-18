@@ -45,10 +45,22 @@ export async function loadEquipmentMovements({force=false,revalidate=true}={}){
 
 export async function saveEquipmentMovement(movement){
   const prepared={...movement};
-  if(String(prepared.tipoMovimiento||"").toUpperCase()==="CAMBIO_PROYECTO"&&prepared.internoDestino){
-    prepared.observacion=appendEquipmentMovementLinkMetadata(prepared.observacion,prepared.internoDestino,prepared.fechaPrimerRop02Destino);
+  if(String(prepared.tipoMovimiento||"").toUpperCase()==="CAMBIO_PROYECTO"){
+    const pending=typeof window!=="undefined"?window.__dmPendingEquipmentMovementLink:null;
+    if(!prepared.internoDestino&&pending?.valid){
+      const pendingProject=normalizeRop02Project(pending.destinationProject||"");
+      const movementProject=normalizeRop02Project(prepared.proyectoDestino||"");
+      if(!pendingProject||!movementProject||pendingProject===movementProject){
+        prepared.internoDestino=pending.destinationCode||"";
+        prepared.fechaPrimerRop02Destino=pending.firstDestinationDate||"";
+      }
+    }
+    if(prepared.internoDestino){
+      prepared.observacion=appendEquipmentMovementLinkMetadata(prepared.observacion,prepared.internoDestino,prepared.fechaPrimerRop02Destino);
+    }
   }
   const response=await postToAppsScript({action:"save_equipment_movement",movement:prepared});
+  if(typeof window!=="undefined")window.__dmPendingEquipmentMovementLink=null;
   const saved=response?.movement;
   if(saved){
     const next=cache.data.map(item=>item.activo&&item.internoNormalizado===saved.internoNormalizado&&item.proyectoOrigen===saved.proyectoOrigen
