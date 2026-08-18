@@ -1,1 +1,1 @@
-export { default as EquipmentProfileView } from "./EquipmentProfileView.jsx";
+export { default as EquipmentProfileView } from "./EquipmentProfileWithLastRop02.jsx";
