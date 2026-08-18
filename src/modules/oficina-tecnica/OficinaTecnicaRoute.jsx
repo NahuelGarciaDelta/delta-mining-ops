@@ -96,6 +96,11 @@ function buildAtrasoDeps(deps,{readOnly=false}={}){
   };
 }
 
+function buildOperationalPeriodDeps(deps){
+  if(!deps?.OperationalPeriodMonthYear)return deps;
+  return {...deps,PeriodMonthYear:deps.OperationalPeriodMonthYear};
+}
+
 function mergeRop02Sources(baseRows,remoteRows){
   const base=Array.isArray(baseRows)?baseRows:[];
   const remote=Array.isArray(remoteRows)?remoteRows:[];
@@ -181,8 +186,11 @@ export function OficinaTecnicaRoute(props){
     if(props?.view==="listaEquipos"){
       nextProps={...nextProps,rop02All:rop02Equipos};
     }
+    if(props?.view==="horometros"||props?.view==="chc"){
+      nextProps={...nextProps,deps:buildOperationalPeriodDeps(nextProps.deps)};
+    }
     if(atrasoView){
-      nextProps={...nextProps,deps:buildAtrasoDeps(props.deps,{readOnly:readOnlyAtraso})};
+      nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};
     }
     return nextProps;
   },[props,rop02Equipos,atrasoView,readOnlyAtraso]);
