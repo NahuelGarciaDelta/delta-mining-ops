@@ -2,6 +2,16 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 
+// La app tenía el auto-refresh global fijado internamente en 5 minutos.
+// Centralizamos el intervalo operativo en 10 minutos sin bloquear la interfaz:
+// el caché visible permanece en pantalla y el refresco ocurre en segundo plano.
+const nativeSetInterval=window.setInterval.bind(window);
+window.setInterval=(handler,delay,...args)=>{
+  const requested=Number(delay);
+  const effective=requested===5*60*1000?10*60*1000:delay;
+  return nativeSetInterval(handler,effective,...args);
+};
+
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <App />
