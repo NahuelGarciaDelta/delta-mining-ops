@@ -2,6 +2,7 @@ import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { getRop02, refreshHistoricalDataset, HISTORICAL_DATASET_UPDATED_EVENT } from "../../data/historicalDataService.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { normalizeROP02 } from "../../shared/domain/index.jsx";
+import { normalizeRop02Project } from "../home/homeAvailability.js";
 
 const LazyOficinaTecnica = React.lazy(()=>import("./OficinaTecnicaModule.jsx").then(m=>({default:m.OficinaTecnicaView})));
 
@@ -33,6 +34,12 @@ function formatAtrasoEquipmentCode(value){
   const match=raw.match(/^([A-Z]{2,4})[-_\s]?(\d{1,4})$/);
   if(!match)return raw;
   return `${match[1]}-${match[2].padStart(4,"0")}`;
+}
+
+function isoFromDisplayDate(value){
+  const raw=String(value||"").trim();
+  const m=raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  return m?`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`:"";
 }
 
 function buildAtrasoDeps(deps,{readOnly=false}={}){
@@ -137,6 +144,139 @@ export function OficinaTecnicaRoute(props){
   const readOnlyAtraso=isAdministrativeAtraso(props);
   const [equiposRop02,setEquiposRop02]=useState(null);
   const [rop02ViewRevision,setRop02ViewRevision]=useState(0);
+
+  // Extiende el modal de Justificar sin duplicar la lógica de Atraso. El interno nuevo
+  // se verifica contra ROP02 del proyecto destino y se deja disponible al servicio que
+  // persiste el movimiento. El bloque se inserta una sola vez por apertura del modal.
+  useEffect(()=>{
+    if(!atrasoView||readOnlyAtraso)return;
+    let raf=0;
+    let active=true;
+    const rows=Array.isArray(props?.rop02All)?props.rop02All:[];
+    const appAlert=props?.deps?.appAlert||((message)=>window.alert(message));
+
+    const validateAndPublish=(card)=>{
+      if(!active||!card)return;
+      const selects=[...card.querySelectorAll("select")];
+      const reasonSelect=selects[0];
+      const projectSelect=selects[1];
+      const isChange=String(reasonSelect?.value||"")==="Cambio de proyecto";
+      let block=card.querySelector("[data-dm-project-internal-link]");
+      if(!isChange){
+        if(block)block.remove();
+        window.__dmPendingEquipmentMovementLink=null;
+        return;
+      }
+      if(!projectSelect)return;
+
+      const info=[...card.querySelectorAll("div")].find(el=>String(el.textContent||"").includes("Equipo:")&&String(el.textContent||"").includes("Última carga:"));
+      const infoText=String(info?.textContent||"");
+      const sourceMatch=infoText.match(/Equipo:\s*([^·]+)/i);
+      const dateMatch=infoText.match(/Última carga:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+      const sourceCode=formatAtrasoEquipmentCode(sourceMatch?.[1]||"");
+      const lastOrigin=isoFromDisplayDate(dateMatch?.[1]||"");
+      const destinationProject=normalizeRop02Project(projectSelect.value||"");
+
+      if(!block){
+        block=document.createElement("div");
+        block.setAttribute("data-dm-project-internal-link","1");
+        block.style.display="flex";
+        block.style.flexDirection="column";
+        block.style.gap="12px";
+        block.innerHTML=`
+          <label style="display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:800;color:#a3a3a3">
+            Interno en proyecto destino
+            <select data-dm-link-mode style="background:#171717;border:1px solid #404040;color:#fff;border-radius:8px;padding:10px 12px">
+              <option value="MISMO">Mantiene el mismo interno</option>
+              <option value="NUEVO">Cambió de interno</option>
+            </select>
+          </label>
+          <label data-dm-new-code-wrap style="display:none;flex-direction:column;gap:7px;font-size:12px;font-weight:800;color:#a3a3a3">
+            Nuevo interno
+            <input data-dm-new-code placeholder="Ej.: TOP-0067" autocomplete="off" style="background:#171717;border:1px solid #404040;color:#fff;border-radius:8px;padding:10px 12px;text-transform:uppercase" />
+            <span data-dm-link-status style="font-size:11px;font-weight:800"></span>
+          </label>`;
+        projectSelect.closest("label")?.insertAdjacentElement("afterend",block);
+        const mode=block.querySelector("[data-dm-link-mode]");
+        const input=block.querySelector("[data-dm-new-code]");
+        mode?.addEventListener("change",()=>validateAndPublish(card));
+        input?.addEventListener("input",()=>{input.value=input.value.toUpperCase();validateAndPublish(card);});
+      }
+
+      const mode=block.querySelector("[data-dm-link-mode]");
+      const wrap=block.querySelector("[data-dm-new-code-wrap]");
+      const input=block.querySelector("[data-dm-new-code]");
+      const status=block.querySelector("[data-dm-link-status]");
+      const same=String(mode?.value||"MISMO")==="MISMO";
+      if(wrap)wrap.style.display=same?"none":"flex";
+
+      if(same){
+        window.__dmPendingEquipmentMovementLink={valid:true,mode:"MISMO",sourceCode,destinationCode:sourceCode,destinationProject,firstDestinationDate:""};
+        return;
+      }
+
+      const requested=formatAtrasoEquipmentCode(input?.value||"");
+      const matches=rows.filter(row=>{
+        const rowCode=formatAtrasoEquipmentCode(row?.maquina||row?._internoRaw||"");
+        const rowProject=normalizeRop02Project(row?.proyecto||row?.lugar||"");
+        const rowDate=String(row?.fecha||"").slice(0,10);
+        return requested&&rowCode===requested&&rowProject===destinationProject&&(!lastOrigin||rowDate>=lastOrigin);
+      }).sort((a,b)=>String(a?.fecha||"").localeCompare(String(b?.fecha||"")));
+      const firstDate=String(matches[0]?.fecha||"").slice(0,10);
+      const valid=Boolean(requested&&destinationProject&&firstDate&&requested!==sourceCode);
+      if(status){
+        status.style.color=valid?"#10b981":"#ef4444";
+        status.textContent=!requested?"Ingresá el interno nuevo.":requested===sourceCode?"Ese es el mismo interno actual.":valid?`✓ Verificado en ROP02 ${destinationProject} · primera carga posterior: ${firstDate.slice(8,10)}/${firstDate.slice(5,7)}/${firstDate.slice(0,4)}`:`No se encontró una carga posterior de ${requested} en ${destinationProject||"el proyecto destino"}.`;
+      }
+      window.__dmPendingEquipmentMovementLink={valid,mode:"NUEVO",sourceCode,destinationCode:requested,destinationProject,firstDestinationDate:firstDate};
+    };
+
+    const scan=()=>{
+      cancelAnimationFrame(raf);
+      raf=requestAnimationFrame(()=>{
+        if(!active)return;
+        const title=[...document.querySelectorAll("div")].find(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo");
+        const card=title?.parentElement;
+        if(card)validateAndPublish(card);
+      });
+    };
+
+    const onChange=(event)=>{
+      const card=event.target?.closest?.("div");
+      const title=card&&[...card.querySelectorAll("div")].find(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo");
+      if(title)scan();
+    };
+    const onClickCapture=(event)=>{
+      const button=event.target?.closest?.("button");
+      if(!button||String(button.textContent||"").trim()!=="Aceptar")return;
+      const card=button.parentElement?.parentElement;
+      if(!card||![...card.querySelectorAll("div")].some(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo"))return;
+      const reason=card.querySelector("select")?.value;
+      if(reason!=="Cambio de proyecto")return;
+      validateAndPublish(card);
+      const pending=window.__dmPendingEquipmentMovementLink;
+      if(!pending?.valid){
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation?.();
+        appAlert("Verificá el proyecto destino y el interno nuevo antes de aceptar el cambio de proyecto.");
+      }
+    };
+
+    const observer=new MutationObserver(scan);
+    observer.observe(document.body,{childList:true,subtree:true});
+    document.addEventListener("change",onChange,true);
+    document.addEventListener("click",onClickCapture,true);
+    scan();
+    return()=>{
+      active=false;
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+      document.removeEventListener("change",onChange,true);
+      document.removeEventListener("click",onClickCapture,true);
+      window.__dmPendingEquipmentMovementLink=null;
+    };
+  },[atrasoView,readOnlyAtraso,props?.rop02All,props?.deps]);
 
   // Equipos usa exactamente la misma clave histórica siempre: ROP02 completo,
   // fecha descendente. Se muestra el último caché inmediatamente; cuando llega una
