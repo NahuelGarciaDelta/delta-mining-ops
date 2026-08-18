@@ -8,15 +8,16 @@ const displayDate=value=>{const iso=dateISO(value);if(!iso)return"—";const[y,m
 const dayDistance=(a,b)=>Math.abs((new Date(`${a}T00:00:00`)-new Date(`${b}T00:00:00`))/86400000);
 const routeKey=row=>`${normalizeRop02Project(row.desdeRaw)}|${normalizeRop02Project(row.hastaRaw)}`;
 const metadataField=(raw,key)=>{const match=String(raw||"").match(new RegExp(`\\[${key}:([^\\]]*)\\]`,`i`));return match?String(match[1]||"").trim():"";};
-const stripTallerMetadata=raw=>String(raw||"").replace(/\[(?:DM_TALLER|TIPO|EQUIPO|MARCA|MODELO|PROPIEDAD|INTERNO|HOROMETRO|ORIGEN|DESTINO|INTERNO_DESTINO|MOTIVO|EQUIPO_ENTRA|MARCA_ENTRA|MODELO_ENTRA|PROPIEDAD_ENTRA|HOROMETRO_ENTRA|USUARIO):[^\]]*\]/gi,"").trim();
+const stripTallerMetadata=raw=>String(raw||"").replace(/\[(?:DM_TALLER|TIPO|EQUIPO|MARCA|MODELO|PROPIEDAD|INTERNO|HOROMETRO|ORIGEN|DESTINO|INTERNO_DESTINO|INTERNO_ENTRA|MOTIVO|EQUIPO_ENTRA|MARCA_ENTRA|MODELO_ENTRA|PROPIEDAD_ENTRA|HOROMETRO_ENTRA|USUARIO):[^\]]*\]/gi,"").trim();
 const tallerMovementPresentation=movement=>{
   const observation=String(movement?.observacion||"");
   if(!observation.includes("[DM_TALLER:1]"))return null;
   const type=metadataField(observation,"TIPO").toUpperCase();
   const destinationCode=metadataField(observation,"INTERNO_DESTINO");
+  const incomingCode=metadataField(observation,"INTERNO_ENTRA")||destinationCode;
   const metadataReason=metadataField(observation,"MOTIVO");
   const userObservation=stripTallerMetadata(observation);
-  if(type==="CAMBIO_EQUIPO")return{destination:"SAN JUAN",reason:`Se cambia equipo por ${destinationCode||"equipo de reemplazo"}`};
+  if(type==="CAMBIO_EQUIPO")return{destination:"SAN JUAN",reason:`Se cambia equipo por ${incomingCode||"equipo de reemplazo"}`};
   if(type==="BAJA"){
     const detail=userObservation||metadataReason||"motivo informado";
     return{destination:"SAN JUAN",reason:`Se baja a SJ por ${detail}`};
