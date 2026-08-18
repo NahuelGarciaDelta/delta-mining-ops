@@ -1,71 +1,105 @@
 /* =========================================================
    DELTA MINING OPS — MOVIMIENTOS DE EQUIPOS / TALLER CENTRAL
-   VERSION SEGURA SIN TRIGGERS
+   ENDPOINTS DIRECTOS PARA LAS 4 HOJAS DE TALLER
 
-   IMPORTANTE:
-   1) Reemplazá el script anterior por este archivo.
-   2) Ejecutá UNA sola vez: repararEInstalarMovimientosTaller()
+   PEGAR ESTE ARCHIVO COMO UN .GS ADICIONAL EN EL MISMO PROYECTO
+   DE APPS SCRIPT DEL BACKEND PRINCIPAL.
 
-   Esta versión ELIMINA el trigger de 1 minuto anterior y crea la
-   hoja MOVIMIENTOS_TALLER mediante una fórmula dinámica. No ejecuta
-   procesos periódicos y no toca doGet/doPost ni la autenticación.
+   NO reemplaza doGet/doPost y NO modifica autenticación.
+   Aprovecha el enrutamiento existente del backend:
+     if (SHEETS_CONFIG[action]) handleSingle(action,p)
+
+   La fuente de verdad de Taller pasa a ser:
+   - MOVIMIENTOS_SUBIDAS
+   - MOVIMIENTOS_BAJADAS
+   - MOVIMIENTOS_CAMBIO_EQUIPO
+   - MOVIMIENTOS_MOVILIZACIONES
    ========================================================= */
 
 var DM_TALLER_MOV_DB_ID_ = "1eEgggHdcH0YhGnmlogN63nQgStNl2xoV0bkfF_DTPYU";
-var DM_TALLER_DEST_SHEET_ = "MOVIMIENTOS_TALLER";
 
-function repararEInstalarMovimientosTaller() {
-  eliminarTriggersMovimientosTaller_();
+/*
+ * Registrar las cuatro hojas dentro de SHEETS_CONFIG hace que el doGet
+ * principal las exponga automáticamente mediante handleSingle().
+ * Se hace de forma defensiva para no afectar el resto de la configuración.
+ */
+(function registrarEndpointsTaller_(){
+  if (typeof SHEETS_CONFIG === "undefined" || !SHEETS_CONFIG) return;
+
+  SHEETS_CONFIG.get_taller_subidas = {
+    id: DM_TALLER_MOV_DB_ID_,
+    gid: "1806613626",
+    sheet: "MOVIMIENTOS_SUBIDAS",
+    label: "Taller Central — Subidas",
+    proyecto: null,
+    headerRow: 1,
+    autoHeader: false
+  };
+
+  SHEETS_CONFIG.get_taller_bajadas = {
+    id: DM_TALLER_MOV_DB_ID_,
+    gid: "1357183584",
+    sheet: "MOVIMIENTOS_BAJADAS",
+    label: "Taller Central — Bajadas",
+    proyecto: null,
+    headerRow: 1,
+    autoHeader: false
+  };
+
+  SHEETS_CONFIG.get_taller_cambios_equipo = {
+    id: DM_TALLER_MOV_DB_ID_,
+    gid: "1042404862",
+    sheet: "MOVIMIENTOS_CAMBIO_EQUIPO",
+    label: "Taller Central — Cambios de equipo",
+    proyecto: null,
+    headerRow: 1,
+    autoHeader: false
+  };
+
+  SHEETS_CONFIG.get_taller_movilizaciones = {
+    id: DM_TALLER_MOV_DB_ID_,
+    gid: "998836383",
+    sheet: "MOVIMIENTOS_MOVILIZACIONES",
+    label: "Taller Central — Movilizaciones",
+    proyecto: null,
+    headerRow: 1,
+    autoHeader: false
+  };
+})();
+
+/*
+ * Instalación/verificación manual.
+ * Ejecutar una vez después de pegar el archivo para comprobar que las
+ * cuatro hojas existen. NO borra ni modifica registros.
+ */
+function instalarEndpointsMovimientosTaller() {
   var ss = SpreadsheetApp.openById(DM_TALLER_MOV_DB_ID_);
-  var sheet = ss.getSheetByName(DM_TALLER_DEST_SHEET_);
-  if (!sheet) sheet = ss.insertSheet(DM_TALLER_DEST_SHEET_);
-
-  sheet.clear();
-  var headers = [[
-    "ID","FECHA_HORA","TIPO","EQUIPO","MARCA","MODELO","PROPIEDAD",
-    "INTERNO_ORIGEN","HOROMETRO","PROYECTO_ORIGEN","PROYECTO_DESTINO",
-    "INTERNO_DESTINO","MOTIVO","OBSERVACION","USUARIO","ESTADO"
-  ]];
-  sheet.getRange(1,1,1,headers[0].length).setValues(headers)
-    .setFontWeight("bold").setBackground("#1f2937").setFontColor("#ffffff");
-  sheet.setFrozenRows(1);
-
-  var formula = '=ARRAYFORMULA(IFERROR(FILTER({' +
-    'MOVIMIENTOS_EQUIPOS!A2:A,' +
-    'MOVIMIENTOS_EQUIPOS!B2:B,' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[TIPO:([^]]*)\\]"),""),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[EQUIPO:([^]]*)\\]"),""),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[MARCA:([^]]*)\\]"),""),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[MODELO:([^]]*)\\]"),""),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[PROPIEDAD:([^]]*)\\]"),""),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[INTERNO:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!C2:C),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[HOROMETRO:([^]]*)\\]"),""),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[ORIGEN:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!E2:E),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[DESTINO:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!F2:F),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[INTERNO_DESTINO:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!C2:C),' +
-    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[MOTIVO:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!H2:H),' +
-    'MOVIMIENTOS_EQUIPOS!I2:I,' +
-    'MOVIMIENTOS_EQUIPOS!J2:J,' +
-    'MOVIMIENTOS_EQUIPOS!L2:L' +
-    '},REGEXMATCH(MOVIMIENTOS_EQUIPOS!I2:I,"\\[DM_TALLER:1\\]")),""))';
-
-  sheet.getRange("A2").setFormula(formula);
-  sheet.getRange("B:B").setNumberFormat("dd/mm/yyyy hh:mm");
-  sheet.autoResizeColumns(1, headers[0].length);
-  SpreadsheetApp.flush();
-  return "MOVIMIENTOS_TALLER instalada sin triggers. Autenticación y backend quedan sin procesos periódicos adicionales.";
+  var requeridas = [
+    "MOVIMIENTOS_SUBIDAS",
+    "MOVIMIENTOS_BAJADAS",
+    "MOVIMIENTOS_CAMBIO_EQUIPO",
+    "MOVIMIENTOS_MOVILIZACIONES"
+  ];
+  var faltantes = requeridas.filter(function(nombre){ return !ss.getSheetByName(nombre); });
+  if (faltantes.length) throw new Error("Faltan hojas de Taller: " + faltantes.join(", "));
+  return "OK — endpoints de Taller habilitados. Las 4 hojas existen y quedan disponibles para la app.";
 }
 
-function eliminarTriggersMovimientosTaller_() {
-  ScriptApp.getProjectTriggers().forEach(function(trigger) {
-    var fn = trigger.getHandlerFunction();
-    if (fn === "sincronizarMovimientosTaller" || fn === "instalarMovimientosTaller") {
-      ScriptApp.deleteTrigger(trigger);
-    }
+/*
+ * Diagnóstico opcional. Devuelve cantidad de registros por hoja.
+ */
+function diagnosticarEndpointsMovimientosTaller() {
+  var ss = SpreadsheetApp.openById(DM_TALLER_MOV_DB_ID_);
+  var nombres = [
+    "MOVIMIENTOS_SUBIDAS",
+    "MOVIMIENTOS_BAJADAS",
+    "MOVIMIENTOS_CAMBIO_EQUIPO",
+    "MOVIMIENTOS_MOVILIZACIONES"
+  ];
+  var out = {};
+  nombres.forEach(function(nombre){
+    var sh = ss.getSheetByName(nombre);
+    out[nombre] = sh ? Math.max(0, sh.getLastRow() - 1) : "NO EXISTE";
   });
-}
-
-function desinstalarTriggerMovimientosTaller() {
-  eliminarTriggersMovimientosTaller_();
-  return "Triggers antiguos de Movimientos Taller eliminados.";
+  return JSON.stringify(out, null, 2);
 }
