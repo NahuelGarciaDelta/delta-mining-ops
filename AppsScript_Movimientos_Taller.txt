@@ -1,176 +1,71 @@
 /* =========================================================
    DELTA MINING OPS — MOVIMIENTOS DE EQUIPOS / TALLER CENTRAL
+   VERSION SEGURA SIN TRIGGERS
 
-   PEGAR ESTE ARCHIVO COMO UN NUEVO .GS DENTRO DEL MISMO
-   PROYECTO DE APPS SCRIPT QUE USA DELTA MINING OPS.
+   IMPORTANTE:
+   1) Reemplazá el script anterior por este archivo.
+   2) Ejecutá UNA sola vez: repararEInstalarMovimientosTaller()
 
-   Después de pegarlo, ejecutar UNA sola vez:
-       instalarMovimientosTaller()
-
-   El instalador:
-   - crea la hoja MOVIMIENTOS_TALLER en la planilla de movimientos;
-   - copia los movimientos registrados desde Taller Central;
-   - instala una sincronización automática cada 1 minuto.
-
-   NO reemplaza doGet/doPost y NO modifica la lógica de Atraso.
+   Esta versión ELIMINA el trigger de 1 minuto anterior y crea la
+   hoja MOVIMIENTOS_TALLER mediante una fórmula dinámica. No ejecuta
+   procesos periódicos y no toca doGet/doPost ni la autenticación.
    ========================================================= */
 
 var DM_TALLER_MOV_DB_ID_ = "1eEgggHdcH0YhGnmlogN63nQgStNl2xoV0bkfF_DTPYU";
-var DM_TALLER_SOURCE_SHEET_ = "MOVIMIENTOS_EQUIPOS";
 var DM_TALLER_DEST_SHEET_ = "MOVIMIENTOS_TALLER";
-var DM_TALLER_MARKER_ = "DM_TALLER:";
-var DM_TALLER_HEADERS_ = [
-  "ID",
-  "FECHA_HORA",
-  "TIPO",
-  "EQUIPO",
-  "MARCA",
-  "MODELO",
-  "PROPIEDAD",
-  "INTERNO_ORIGEN",
-  "HOROMETRO",
-  "PROYECTO_ORIGEN",
-  "PROYECTO_DESTINO",
-  "INTERNO_DESTINO",
-  "MOTIVO",
-  "OBSERVACION",
-  "USUARIO",
-  "SYNC_AT"
-];
 
-function instalarMovimientosTaller() {
-  asegurarHojaMovimientosTaller_();
-  sincronizarMovimientosTaller();
-
-  // Evita triggers duplicados si se vuelve a ejecutar el instalador.
-  ScriptApp.getProjectTriggers().forEach(function(trigger) {
-    if (trigger.getHandlerFunction() === "sincronizarMovimientosTaller") {
-      ScriptApp.deleteTrigger(trigger);
-    }
-  });
-
-  ScriptApp.newTrigger("sincronizarMovimientosTaller")
-    .timeBased()
-    .everyMinutes(1)
-    .create();
-
-  return "MOVIMIENTOS_TALLER instalada y sincronización automática activa.";
-}
-
-function sincronizarMovimientosTaller() {
-  var ss = SpreadsheetApp.openById(DM_TALLER_MOV_DB_ID_);
-  var source = ss.getSheetByName(DM_TALLER_SOURCE_SHEET_);
-  if (!source) throw new Error("No existe la hoja " + DM_TALLER_SOURCE_SHEET_ + ".");
-  var dest = asegurarHojaMovimientosTaller_();
-
-  var sourceData = source.getDataRange().getDisplayValues();
-  if (sourceData.length < 2) return { ok: true, sincronizados: 0 };
-
-  var sourceHeaders = sourceData[0].map(function(h) { return String(h || "").trim().toUpperCase(); });
-  var idxId = sourceHeaders.indexOf("ID");
-  var idxFecha = sourceHeaders.indexOf("FECHA_HORA");
-  var idxObs = sourceHeaders.indexOf("OBSERVACION");
-  var idxUsuario = sourceHeaders.indexOf("USUARIO");
-  if (idxId < 0 || idxObs < 0) throw new Error("MOVIMIENTOS_EQUIPOS no tiene las columnas ID/OBSERVACION esperadas.");
-
-  var destData = dest.getDataRange().getDisplayValues();
-  var existingById = {};
-  for (var d = 1; d < destData.length; d++) {
-    var existingId = String(destData[d][0] || "").trim();
-    if (existingId) existingById[existingId] = d + 1;
-  }
-
-  var appended = [];
-  var updated = 0;
-
-  for (var i = 1; i < sourceData.length; i++) {
-    var src = sourceData[i];
-    var rawObs = String(src[idxObs] || "");
-    var markerPos = rawObs.indexOf(DM_TALLER_MARKER_);
-    if (markerPos < 0) continue;
-
-    var encoded = rawObs.substring(markerPos + DM_TALLER_MARKER_.length).trim();
-    var meta;
-    try {
-      meta = JSON.parse(decodeURIComponent(encoded));
-    } catch (err) {
-      console.warn("No se pudo interpretar movimiento Taller fila " + (i + 1), err);
-      continue;
-    }
-
-    var id = String(src[idxId] || "").trim();
-    if (!id) continue;
-
-    var row = [
-      id,
-      meta.fechaHora || (idxFecha >= 0 ? src[idxFecha] : ""),
-      meta.tipo || "",
-      meta.equipo || "",
-      meta.marca || "",
-      meta.modelo || "",
-      meta.propiedad || "",
-      meta.interno || "",
-      Number(meta.horometro || 0),
-      meta.proyectoOrigen || "",
-      meta.proyectoDestino || "",
-      meta.internoDestino || meta.interno || "",
-      meta.motivo || "",
-      meta.observacion || "",
-      meta.usuario || (idxUsuario >= 0 ? src[idxUsuario] : ""),
-      new Date()
-    ];
-
-    if (existingById[id]) {
-      dest.getRange(existingById[id], 1, 1, DM_TALLER_HEADERS_.length).setValues([row]);
-      updated++;
-    } else {
-      appended.push(row);
-    }
-  }
-
-  if (appended.length) {
-    dest.getRange(dest.getLastRow() + 1, 1, appended.length, DM_TALLER_HEADERS_.length).setValues(appended);
-  }
-
-  if (appended.length || updated) {
-    dest.getRange(2, 2, Math.max(dest.getLastRow() - 1, 1), 1).setNumberFormat("dd/mm/yyyy hh:mm");
-    dest.getRange(2, 16, Math.max(dest.getLastRow() - 1, 1), 1).setNumberFormat("dd/mm/yyyy hh:mm");
-    dest.autoResizeColumns(1, DM_TALLER_HEADERS_.length);
-  }
-
-  SpreadsheetApp.flush();
-  return { ok: true, nuevos: appended.length, actualizados: updated };
-}
-
-function asegurarHojaMovimientosTaller_() {
+function repararEInstalarMovimientosTaller() {
+  eliminarTriggersMovimientosTaller_();
   var ss = SpreadsheetApp.openById(DM_TALLER_MOV_DB_ID_);
   var sheet = ss.getSheetByName(DM_TALLER_DEST_SHEET_);
   if (!sheet) sheet = ss.insertSheet(DM_TALLER_DEST_SHEET_);
 
-  if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, DM_TALLER_HEADERS_.length).setValues([DM_TALLER_HEADERS_]);
-  } else {
-    var current = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), DM_TALLER_HEADERS_.length)).getDisplayValues()[0];
-    for (var i = 0; i < DM_TALLER_HEADERS_.length; i++) {
-      if (String(current[i] || "").trim() !== DM_TALLER_HEADERS_[i]) {
-        sheet.getRange(1, i + 1).setValue(DM_TALLER_HEADERS_[i]);
-      }
-    }
-  }
-
+  sheet.clear();
+  var headers = [[
+    "ID","FECHA_HORA","TIPO","EQUIPO","MARCA","MODELO","PROPIEDAD",
+    "INTERNO_ORIGEN","HOROMETRO","PROYECTO_ORIGEN","PROYECTO_DESTINO",
+    "INTERNO_DESTINO","MOTIVO","OBSERVACION","USUARIO","ESTADO"
+  ]];
+  sheet.getRange(1,1,1,headers[0].length).setValues(headers)
+    .setFontWeight("bold").setBackground("#1f2937").setFontColor("#ffffff");
   sheet.setFrozenRows(1);
-  sheet.getRange(1, 1, 1, DM_TALLER_HEADERS_.length)
-    .setFontWeight("bold")
-    .setBackground("#1f2937")
-    .setFontColor("#ffffff");
-  return sheet;
+
+  var formula = '=ARRAYFORMULA(IFERROR(FILTER({' +
+    'MOVIMIENTOS_EQUIPOS!A2:A,' +
+    'MOVIMIENTOS_EQUIPOS!B2:B,' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[TIPO:([^]]*)\\]"),""),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[EQUIPO:([^]]*)\\]"),""),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[MARCA:([^]]*)\\]"),""),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[MODELO:([^]]*)\\]"),""),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[PROPIEDAD:([^]]*)\\]"),""),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[INTERNO:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!C2:C),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[HOROMETRO:([^]]*)\\]"),""),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[ORIGEN:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!E2:E),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[DESTINO:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!F2:F),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[INTERNO_DESTINO:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!C2:C),' +
+    'IFERROR(REGEXEXTRACT(MOVIMIENTOS_EQUIPOS!I2:I,"\\[MOTIVO:([^]]*)\\]"),MOVIMIENTOS_EQUIPOS!H2:H),' +
+    'MOVIMIENTOS_EQUIPOS!I2:I,' +
+    'MOVIMIENTOS_EQUIPOS!J2:J,' +
+    'MOVIMIENTOS_EQUIPOS!L2:L' +
+    '},REGEXMATCH(MOVIMIENTOS_EQUIPOS!I2:I,"\\[DM_TALLER:1\\]")),""))';
+
+  sheet.getRange("A2").setFormula(formula);
+  sheet.getRange("B:B").setNumberFormat("dd/mm/yyyy hh:mm");
+  sheet.autoResizeColumns(1, headers[0].length);
+  SpreadsheetApp.flush();
+  return "MOVIMIENTOS_TALLER instalada sin triggers. Autenticación y backend quedan sin procesos periódicos adicionales.";
 }
 
-function desinstalarTriggerMovimientosTaller() {
+function eliminarTriggersMovimientosTaller_() {
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
-    if (trigger.getHandlerFunction() === "sincronizarMovimientosTaller") {
+    var fn = trigger.getHandlerFunction();
+    if (fn === "sincronizarMovimientosTaller" || fn === "instalarMovimientosTaller") {
       ScriptApp.deleteTrigger(trigger);
     }
   });
-  return "Trigger de MOVIMIENTOS_TALLER eliminado.";
+}
+
+function desinstalarTriggerMovimientosTaller() {
+  eliminarTriggersMovimientosTaller_();
+  return "Triggers antiguos de Movimientos Taller eliminados.";
 }
