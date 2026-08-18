@@ -22,28 +22,45 @@ export function tallerCentralNavigationVitePlugin(){
       }
 
       if(id.endsWith('/src/modules/taller-central/TallerCentralMovementPage.jsx')){
+        s=s.replace('import React,{useEffect,useMemo,useState} from "react";','import React,{useEffect,useMemo,useRef,useState} from "react";');
         s=s.replace(
           'import {deleteTallerMovement,getTallerMovements,saveTallerMovement,updateTallerMovement} from "../../services/tallerMovements.js";',
           'import {deleteTallerMovement,getCachedTallerMovements,getTallerMovements,saveTallerMovement,updateTallerMovement} from "../../services/tallerMovements.js";'
         );
         s=s.replace(
           'const tipo=String(mode||"SUBIDA").toUpperCase();const[form,setForm]=useState(EMPTY),[rows,setRows]=useState([]),[saving,setSaving]=useState(false),[msg,setMsg]=useState(""),[editingId,setEditingId]=useState("");',
-          'const tipo=String(mode||"SUBIDA").toUpperCase();const[form,setForm]=useState(EMPTY),[rows,setRows]=useState(()=>getCachedTallerMovements(tipo).map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100)),[saving,setSaving]=useState(false),[msg,setMsg]=useState(""),[editingId,setEditingId]=useState("");'
+          'const tipo=String(mode||"SUBIDA").toUpperCase();const requestRef=useRef(0);const[form,setForm]=useState(EMPTY),[rows,setRows]=useState(()=>getCachedTallerMovements(tipo).map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100)),[saving,setSaving]=useState(false),[msg,setMsg]=useState(""),[editingId,setEditingId]=useState("");'
+        );
+        s=s.replace(
+          'const catalog=useMemo(()=>buildCatalog(listaEquipos,rop02All),[listaEquipos,rop02All]);const projects=useMemo(()=>[...new Set((rop02All||[]).map(r=>project(r?.proyecto||r?.lugar)).filter(Boolean))].sort(),[rop02All]);',
+          'const catalog=useMemo(()=>buildCatalog(listaEquipos,rop02All),[listaEquipos,rop02All]);const projects=useMemo(()=>[...new Set((rop02All||[]).map(r=>project(r?.proyecto||r?.lugar)).filter(Boolean))].sort(),[rop02All]);const propertyOptions=useMemo(()=>{const vals=[...new Set((listaEquipos||[]).map(r=>String(pick(r,["Propiedad"])||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es"));if(!vals.some(v=>norm(v)===norm("OTRO")))vals.push("OTRO");return vals;},[listaEquipos]);'
         );
         s=s.replace(
           'const load=async()=>{try{const all=await getTallerMovements();setRows(all.map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100));}catch(e){setMsg(e?.message||"No se pudo cargar el historial.");}};',
-          'const load=async()=>{try{const all=await getTallerMovements(tipo);const next=all.map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100);setRows(next);}catch(e){setMsg(e?.message||"No se pudo actualizar el historial. Se conservan los datos guardados.");}};'
+          'const load=async()=>{const requestId=++requestRef.current;const expected=tipo;try{const all=await getTallerMovements(expected);if(requestId!==requestRef.current)return;const next=all.map(apiRow).filter(r=>r.tipo===expected).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100);setRows(prev=>next.length?next:prev);}catch(e){if(requestId===requestRef.current)setMsg(e?.message||"No se pudo actualizar el historial. Se conservan los datos guardados.");}};'
         );
         s=s.replace(
           'useEffect(()=>{setForm(EMPTY);setEditingId("");setMsg("");load();},[tipo]);',
-          'useEffect(()=>{setForm(EMPTY);setEditingId("");setMsg("");const cached=getCachedTallerMovements(tipo).map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100);setRows(cached);load();},[tipo]);'
+          'useEffect(()=>{requestRef.current+=1;setForm(EMPTY);setEditingId("");setMsg("");const cached=getCachedTallerMovements(tipo).map(apiRow).filter(r=>r.tipo===tipo).sort((a,b)=>String(b.fechaHora).localeCompare(String(a.fechaHora))).slice(0,100);setRows(prev=>cached.length?cached:prev.filter(r=>r.tipo===tipo));load();},[tipo]);'
         );
+        s=s.replace('<Field label="Propiedad"><Select value={form.propiedad} onChange={v=>set("propiedad",v)}><option>DELTA</option><option>ALQUILADO</option><option>OTRO</option></Select></Field>','<Field label="Propiedad"><Select value={form.propiedad} onChange={v=>set("propiedad",v)}>{propertyOptions.map(p=><option key={p} value={p}>{p}</option>)}</Select></Field>');
+        s=s.replace('<Field label="Propiedad"><Select value={form.propiedadEntra} onChange={v=>set("propiedadEntra",v)}><option>DELTA</option><option>ALQUILADO</option><option>OTRO</option></Select></Field>','<Field label="Propiedad"><Select value={form.propiedadEntra} onChange={v=>set("propiedadEntra",v)}>{propertyOptions.map(p=><option key={p} value={p}>{p}</option>)}</Select></Field>');
         s=s.replace(
           'const title=tipo==="SUBIDA"?"Registrar subida":tipo==="BAJA"?"Registrar bajada":tipo==="MOVILIZACION"?"Registrar movilización":"Registrar cambio de equipo";',
           'const visibleRows=rows.filter(r=>{const rt=String(r?.tipo||"").trim().toUpperCase();const motivo=String(r?.motivo||"").trim().toUpperCase();const obs=String(r?.observacion||"").trim().toUpperCase();const txt=`${motivo} ${obs}`;let derived=rt;if(txt.includes("SE CAMBIA EQUIPO")||txt.includes("CAMBIO_EQUIPO")||r?.internoEntra)derived="CAMBIO_EQUIPO";else if(txt.includes("SE BAJA")||txt.includes("TALLER_BAJA"))derived="BAJA";else if(txt.includes("SE MOVILIZA")||txt.includes("TALLER_MOVILIZACION"))derived="MOVILIZACION";else if(txt.includes("SUBIDA DE EQUIPO")||txt.includes("TALLER_SUBIDA"))derived="SUBIDA";return derived===tipo;});const title=tipo==="SUBIDA"?"Registrar subida":tipo==="BAJA"?"Registrar bajada":tipo==="MOVILIZACION"?"Registrar movilización":"Registrar cambio de equipo";'
         );
         s=s.replace('{rows.map((r,i)=><tr key={r.id||i}>','{visibleRows.map((r,i)=><tr key={r.id||i}>');
         s=s.replace('{!rows.length&&<tr><td colSpan={9}','{!visibleRows.length&&<tr><td colSpan={9}');
+      }
+
+      if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaRoute.jsx')){
+        s=s.replace('import TallerCentralMovements from "../taller-central/TallerCentralMovements.jsx";','import TallerCentralMovements from "../taller-central/TallerCentralMovements.jsx";\nimport {getTallerMovements} from "../../services/tallerMovements.js";');
+        s=s.replace('function buildAtrasoDeps(deps,{readOnly=false}={}){','function buildAtrasoDeps(deps,{readOnly=false,ignoredCodes=new Set()}={}){');
+        s=s.replace('const rows=readOnly&&Array.isArray(props?.rows)?props.rows.filter(row=>!row?.admitido):props?.rows;','let rows=Array.isArray(props?.rows)?props.rows:props?.rows;if(Array.isArray(rows)&&ignoredCodes?.size){rows=rows.filter(row=>{const raw=row?.equipo||row?.maquina||row?.interno||row?._internoRaw||row?.codigo||"";return !ignoredCodes.has(formatAtrasoEquipmentCode(raw));});}if(readOnly&&Array.isArray(rows))rows=rows.filter(row=>!row?.admitido);');
+        s=s.replace('const [tallerTab,setTallerTab]=useState("RESUMEN");','const [tallerTab,setTallerTab]=useState("RESUMEN");\n  const [tallerAtrasoCodes,setTallerAtrasoCodes]=useState(()=>new Set());');
+        s=s.replace('useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);','useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);\n\n  useEffect(()=>{\n    if(!atrasoView)return;\n    let active=true;\n    Promise.all(["BAJA","MOVILIZACION","CAMBIO_EQUIPO"].map(t=>getTallerMovements(t).catch(()=>[]))).then(groups=>{\n      if(!active)return;\n      const codes=new Set();\n      groups.flat().forEach(row=>{const raw=row?.INTERNO_ORIGEN||row?.interno||row?.INTERNO||"";const c=formatAtrasoEquipmentCode(raw);if(c)codes.add(c);});\n      setTallerAtrasoCodes(codes);\n    });\n    return()=>{active=false;};\n  },[atrasoView]);');
+        s=s.replace('if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};','if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso,ignoredCodes:tallerAtrasoCodes})};');
+        s=s.replace('},[props,rop02Equipos,atrasoView,readOnlyAtraso]);','},[props,rop02Equipos,atrasoView,readOnlyAtraso,tallerAtrasoCodes]);');
       }
 
       if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')){
