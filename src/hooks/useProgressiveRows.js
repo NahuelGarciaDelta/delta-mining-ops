@@ -1,6 +1,6 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 
-export const DEFAULT_PROGRESSIVE_ROWS=250;
+export const DEFAULT_PROGRESSIVE_ROWS=100;
 
 export function getProgressiveRowsState(rows=[],limit=DEFAULT_PROGRESSIVE_ROWS){
   const safeRows=Array.isArray(rows)?rows:[];
