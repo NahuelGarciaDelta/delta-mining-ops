@@ -4,9 +4,10 @@ import {
   MultiSel, PeriodMonthYear, Sel, Spinner, StatCard, SubTab, TabBtn, Table, SortableTH,
   dmProjectMatches, matchMulti, multiIncludes, multiIsAll, normalizeMultiValue, sortRowsForTable
 } from "../components/ui/index.jsx";
+import CalendarPeriodMonthYear from "../components/CalendarPeriodMonthYear.jsx";
 import { APPS_SCRIPT_URL } from "./app.js";
 import { appAlert, appConfirm } from "../services/dialogService.js";
-import { postAddListaEquipo, postBulkUpdateListaEquipos, postUpdateListaEquipo, postUpdateROP02Row } from "../services/writeActions.js";
+import { postAddListaEquipo, postBulkUpdateListaEquipo, postBulkUpdateListaEquipos, postUpdateListaEquipo, postUpdateROP02Row } from "../services/writeActions.js";
 import { positionTip } from "../shared/dom.js";
 import { HIST_COSTO_MENSUAL_ACUMULADO } from "../data/historicalCostData.js";
 import { informeCostosCommand as dmCategoriasCommand } from "../modules/informe-costos/services/informeCostosWorkerClient.js";
@@ -39,7 +40,7 @@ export const COSTOS_UNITARIOS_DEPS = Object.freeze({
 });
 
 export const OPERATIONAL_ANALYTICS_DEPS = Object.freeze({
-  C,Icon,Spinner,Badge,StatCard,Card,Table,Sel,MultiSel,DateIn,PeriodMonthYear,TabBtn,AlertBanner,HelpTip,
+  C,Icon,Spinner,Badge,StatCard,Card,Table,Sel,MultiSel,DateIn,PeriodMonthYear:CalendarPeriodMonthYear,TabBtn,AlertBanner,HelpTip,
   fmtNum,fmtFecha,uniq,normDate,cleanMachine,canonicalEquivalentMachineCode,isRop02ControlMachineExcluded,dmMatchTipoMaquinaSeleccion,dmTipoMaquinaOptions,matchMulti,multiIsAll,multiIncludes,normalizeMachineCode,getMachineType,isExcluded,excelFromCols,proyColor,semaforo,appAlert
 });
 
@@ -47,7 +48,7 @@ const HealthDashboardBound = props => <HealthDashboard deps={OPERATIONAL_ANALYTI
 
 export const INFORME_COSTOS_DEPS = Object.freeze({
   AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn,
-  HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput, PeriodMonthYear, SortableTH,
+  HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput, PeriodMonthYear:CalendarPeriodMonthYear, SortableTH,
   appAlert, appConfirm, buildMonthKeysCosto, byDateFilter,
   canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand,
   esMaquinaCosto, findColumnKey, fmtNum, getMachineType, getValue,
@@ -82,7 +83,7 @@ export const createOficinaTecnicaDeps = BlockingDataLoader => Object.freeze({
   AlertBanner, Badge, BtnExcel, C, Card, ChartTip, DateIn, HealthDashboard:HealthDashboardBound,
   IMG_CARGADORA_FRONTAL, IMG_EXCAVADORA, IMG_MINICARGADORA, IMG_MOTONIVELADORA,
   IMG_RETROPALA, IMG_RODILLO_COMPACTADOR, IMG_TOPADORA, Icon, LISTA_COLUMNS,
-  ListaEquipoFieldInput, MultiSel, PeriodMonthYear, Sel, Spinner, StatCard, SubTab, TabBtn, Table,
+  ListaEquipoFieldInput, MultiSel, PeriodMonthYear:CalendarPeriodMonthYear, OperationalPeriodMonthYear:PeriodMonthYear, Sel, Spinner, StatCard, SubTab, TabBtn, Table,
   VEH_CAMIONETA, VEH_COMBUSTIBLE, VEH_REGADOR, VEH_TRACTOR, VEH_VOLCADOR,
   appAlert, appConfirm, buildHorometroMapForLista, buildListaEquipoInfoIndex, buildVehicleListaIndex:buildVehicleListaIndexForRop02,
   byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmDisplayTarea,
@@ -97,14 +98,14 @@ export const createOficinaTecnicaDeps = BlockingDataLoader => Object.freeze({
 });
 
 export const MANTENIMIENTO_DEPS = Object.freeze({
-  APPS_SCRIPT_URL, C, Card, Badge, LoadingMotoniveladora, MultiSel, Sel, DateIn, PeriodMonthYear, TabBtn, StatCard, SortableTH, BtnExcel, Icon,
+  APPS_SCRIPT_URL, C, Card, Badge, LoadingMotoniveladora, MultiSel, Sel, DateIn, PeriodMonthYear:CalendarPeriodMonthYear, TabBtn, StatCard, SortableTH, BtnExcel, Icon,
   fmtNum, fmtUSD, fmtFecha, normDate, uniq, matchMulti, multiIsAll, tipoMatchMachineROP05,
   normalizeInsumoCode, positionTip, sortRowsForTable, appAlert, appConfirm, proyColor, getValue,
   generarExcelMantenimiento, ROP05_TIPOS_MAQUINA, CodeMultiSearch
 });
 
 export const ABASTECIMIENTO_DEPS = Object.freeze({
-  APPS_SCRIPT_URL, C, Card, DateIn, Icon, LoadingMotoniveladora, MultiSel, PeriodMonthYear,
+  APPS_SCRIPT_URL, C, Card, DateIn, Icon, LoadingMotoniveladora, MultiSel, PeriodMonthYear:CalendarPeriodMonthYear,
   StatCard, TabBtn, appAlert, appConfirm, dmProjectMatches, fmtFecha, fmtNum, matchMulti, multiIsAll,
 });
 
