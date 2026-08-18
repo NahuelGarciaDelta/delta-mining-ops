@@ -1,16 +1,12 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
+import {preloadHistoricalDatasets} from "./services/globalPreload.js";
+import {DATA_REFRESH_INTERVAL_MS,dispatchDataRefreshPolicyTick,installLegacyRefreshIntervalPolicy} from "./services/dataRefreshPolicy.js";
 
-// La app tenía el auto-refresh global fijado internamente en 5 minutos.
-// Centralizamos el intervalo operativo en 10 minutos sin bloquear la interfaz:
-// el caché visible permanece en pantalla y el refresco ocurre en segundo plano.
-const nativeSetInterval=window.setInterval.bind(window);
-window.setInterval=(handler,delay,...args)=>{
-  const requested=Number(delay);
-  const effective=requested===5*60*1000?10*60*1000:delay;
-  return nativeSetInterval(handler,effective,...args);
-};
+// Una sola política para toda la aplicación: cualquier auto-refresh legacy de
+// 5 minutos se normaliza a 10 minutos antes de que React monte sus effects.
+installLegacyRefreshIntervalPolicy();
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -18,6 +14,31 @@ createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 
+// Mantiene calientes los históricos comunes (ROP02/ROP05/RMA15) aunque el usuario
+// esté trabajando en otra pestaña. Siempre conserva el cache visible y actualiza
+// la copia persistida en segundo plano.
+if(typeof window!=="undefined"){
+  let lastHistoricalRefresh=Date.now();
+  const refreshHistorical=()=>{
+    if(document.hidden||navigator.onLine===false)return;
+    lastHistoricalRefresh=Date.now();
+    dispatchDataRefreshPolicyTick("auto");
+    preloadHistoricalDatasets({force:true}).catch(()=>{});
+  };
+  const id=window.setInterval(refreshHistorical,DATA_REFRESH_INTERVAL_MS);
+  const onVisible=()=>{
+    if(document.hidden)return;
+    if(Date.now()-lastHistoricalRefresh>=DATA_REFRESH_INTERVAL_MS)refreshHistorical();
+  };
+  const onOnline=()=>refreshHistorical();
+  document.addEventListener("visibilitychange",onVisible);
+  window.addEventListener("online",onOnline);
+  window.addEventListener("beforeunload",()=>{
+    window.clearInterval(id);
+    document.removeEventListener("visibilitychange",onVisible);
+    window.removeEventListener("online",onOnline);
+  },{once:true});
+}
 
 // Registro PWA e instalación en el escritorio.
 if ("serviceWorker" in navigator) {
