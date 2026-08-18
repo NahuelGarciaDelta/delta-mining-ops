@@ -7,7 +7,7 @@ import {
 import CalendarPeriodMonthYear from "../components/CalendarPeriodMonthYear.jsx";
 import { APPS_SCRIPT_URL } from "./app.js";
 import { appAlert, appConfirm } from "../services/dialogService.js";
-import { postAddListaEquipo, postBulkUpdateListaEquipo, postBulkUpdateListaEquipos, postUpdateListaEquipo, postUpdateROP02Row } from "../services/writeActions.js";
+import { postAddListaEquipo, postBulkUpdateListaEquipos, postUpdateListaEquipo, postUpdateROP02Row } from "../services/writeActions.js";
 import { positionTip } from "../shared/dom.js";
 import { HIST_COSTO_MENSUAL_ACUMULADO } from "../data/historicalCostData.js";
 import { informeCostosCommand as dmCategoriasCommand } from "../modules/informe-costos/services/informeCostosWorkerClient.js";
