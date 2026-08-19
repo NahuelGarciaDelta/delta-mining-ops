@@ -8,16 +8,21 @@ export function equipmentProfileCodeHistoryVitePlugin() {
       if (!id.replace(/\\/g, '/').endsWith(TARGET)) return null
       let out = code
 
-      // La columna Código anterior pertenece exclusivamente a la identidad histórica
-      // de la Ficha Única. No altera ROP02, ROP05, RMA15 ni el resto de la app.
+      // SOLO Ficha Única: todos los identificadores declarados en la misma fila de
+      // Lista Maestra forman un único grupo de identidad histórica. Esto incluye
+      // Código nuevo, Código anterior/viejo, Código de Drusila, interno y variantes.
+      // No se reescriben ni agrupan los registros fuente en ROP02/ROP05/RMA15.
       out = out.replace(
         'const MASTER_CODE_HEADERS=["Codigo nuevo","Código nuevo","Código de Drusila","Codigo de Drusila","Código Drusila","Codigo Drusila","Interno","Código interno","Codigo Int","Código viejo","Codigo viejo"];',
-        'const MASTER_CODE_HEADERS=["Codigo nuevo","Código nuevo","Código de Drusila","Codigo de Drusila","Código Drusila","Codigo Drusila","Interno","Código interno","Codigo Int","Código viejo","Codigo viejo","Código anterior","Codigo anterior","CODIGO ANTERIOR"];'
+        'const MASTER_CODE_HEADERS=["Codigo nuevo","Código nuevo","CODIGO NUEVO","Código de Drusila","Codigo de Drusila","Código Drusila","Codigo Drusila","CODIGO DRUSILA","Interno","Código interno","Codigo interno","Codigo Int","Código Equipo","Codigo Equipo","Código viejo","Codigo viejo","CODIGO VIEJO","Código anterior","Codigo anterior","CODIGO ANTERIOR"];'
       )
 
+      // El índice maestro original ya indexa todos los MASTER_CODE_HEADERS contra la
+      // misma fila. A partir de cualquiera de esos códigos obtenemos la fila y luego
+      // todo el conjunto de aliases de ese equipo físico.
       out = out.replace(
         '  const master=masterIndex.get(selectedKey)||selectedOption?.master||null;\n  const op=rop02Index.get(selectedKey)||[];\n  const prod=rop05Index.get(selectedKey)||[];\n  const mant=rma15Index.get(selectedKey)||[];\n  const pmReg=pmRegIndex.get(selectedKey)||[];',
-        `  const master=masterIndex.get(selectedKey)||selectedOption?.master||null;\n  // Todos los códigos declarados en la misma fila de Lista Maestra representan\n  // el mismo equipo físico SOLO dentro de esta ficha. Ej.: TOP-0039 -> TOP-0067.\n  const profileAliasKeys=useMemo(()=>{\n    const keys=[];\n    const add=value=>{const k=canonicalEquipmentCode(value);if(k&&!keys.includes(k))keys.push(k);};\n    add(selectedKey);\n    if(master)codesOfMaster(master).forEach(add);\n    return keys;\n  },[master,selectedKey]);\n  const collectAliasRows=(index,sorter)=>{\n    const rows=profileAliasKeys.flatMap(key=>index.get(key)||[]);\n    return sorter?[...rows].sort(sorter):rows;\n  };\n  const op=useMemo(()=>collectAliasRows(rop02Index,(a,b)=>String(a.fecha||\"\").localeCompare(String(b.fecha||\"\"))),[rop02Index,profileAliasKeys]);\n  const prod=useMemo(()=>collectAliasRows(rop05Index),[rop05Index,profileAliasKeys]);\n  const mant=useMemo(()=>collectAliasRows(rma15Index,(a,b)=>String(b.fecha||\"\").localeCompare(String(a.fecha||\"\"))),[rma15Index,profileAliasKeys]);\n  const pmReg=useMemo(()=>collectAliasRows(pmRegIndex,(a,b)=>String(pick(b,[\"Fecha\",\"Fecha PM\"])||\"\").localeCompare(String(pick(a,[\"Fecha\",\"Fecha PM\"])||\"\"))),[pmRegIndex,profileAliasKeys]);`
+        `  const master=masterIndex.get(selectedKey)||selectedOption?.master||null;\n  const profileAliasKeys=useMemo(()=>{\n    const keys=[];\n    const add=value=>{const k=canonicalEquipmentCode(value);if(k&&!keys.includes(k))keys.push(k);};\n    add(selectedKey);\n    if(master)codesOfMaster(master).forEach(add);\n    return keys;\n  },[master,selectedKey]);\n  const collectAliasRows=(index,sorter)=>{\n    const seen=new Set();\n    const rows=[];\n    for(const key of profileAliasKeys){\n      for(const row of index.get(key)||[]){\n        if(seen.has(row))continue;\n        seen.add(row);\n        rows.push(row);\n      }\n    }\n    return sorter?[...rows].sort(sorter):rows;\n  };\n  const op=useMemo(()=>collectAliasRows(rop02Index,(a,b)=>String(a.fecha||\"\").localeCompare(String(b.fecha||\"\"))),[rop02Index,profileAliasKeys]);\n  const prod=useMemo(()=>collectAliasRows(rop05Index),[rop05Index,profileAliasKeys]);\n  const mant=useMemo(()=>collectAliasRows(rma15Index,(a,b)=>String(b.fecha||\"\").localeCompare(String(a.fecha||\"\"))),[rma15Index,profileAliasKeys]);\n  const pmReg=useMemo(()=>collectAliasRows(pmRegIndex,(a,b)=>String(pick(b,[\"Fecha\",\"Fecha PM\"])||\"\").localeCompare(String(pick(a,[\"Fecha\",\"Fecha PM\"])||\"\"))),[pmRegIndex,profileAliasKeys]);`
       )
 
       out = out.replace(
@@ -31,11 +36,11 @@ export function equipmentProfileCodeHistoryVitePlugin() {
 
       out = out.replace(
         '  const projectMovements=useMemo(()=>{\n    return mergeEquipmentMovements(op,movementIndex.get(selectedKey)||[],selectedKey);\n  },[op,movementIndex,selectedKey]);',
-        `  const projectMovements=useMemo(()=>{\n    const persisted=profileAliasKeys.flatMap(key=>movementIndex.get(key)||[]);\n    return mergeEquipmentMovements(op,persisted,selectedKey);\n  },[op,movementIndex,selectedKey,profileAliasKeys]);`
+        `  const projectMovements=useMemo(()=>{\n    const persisted=[];\n    const seen=new Set();\n    for(const key of profileAliasKeys){\n      for(const movement of movementIndex.get(key)||[]){\n        const movementKey=movement?.id||[movement?.fecha,movement?.interno,movement?.desde,movement?.hasta,movement?.motivo].join('|');\n        if(seen.has(movementKey))continue;\n        seen.add(movementKey);\n        persisted.push(movement);\n      }\n    }\n    return mergeEquipmentMovements(op,persisted,selectedKey);\n  },[op,movementIndex,selectedKey,profileAliasKeys]);`
       )
 
-      // En las tablas de origen se conserva SIEMPRE el código con el que fue cargado
-      // cada registro. La asociación histórica sólo ocurre al armar la ficha.
+      // Conservamos el código REAL de cada registro fuente. Ejemplo: una carga vieja
+      // de TOP-0039 sigue viéndose TOP-0039 aunque la ficha esté consolidada con TOP-0067.
       out = out.replace(
         'interno:detailCode||sourceCode(r),proyecto:r.proyecto',
         'interno:sourceCode(r)||detailCode,proyecto:r.proyecto'
