@@ -49,16 +49,21 @@ function saveCache(type,rows){
   try{localStorage.setItem(cacheKey(type),JSON.stringify(rows));}catch(_){}
 }
 
+export async function getAllTallerMovements(){
+  const res=await fetchAction(APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false});
+  const rows=normalizeRows(res).map(normalizeMovement).filter(row=>row.TIPO);
+  ["SUBIDA","BAJA","MOVILIZACION","CAMBIO_EQUIPO"].forEach(type=>saveCache(type,rows.filter(row=>row.TIPO===type)));
+  return rows;
+}
+
 export async function getTallerMovements(type){
   const expected=normalizeType(type);
   if(!["SUBIDA","BAJA","MOVILIZACION","CAMBIO_EQUIPO"].includes(expected))throw new Error(`Tipo de movimiento no soportado: ${type}`);
 
   // La Web App productiva ya expone este endpoint. No se llaman endpoints
   // nuevos que puedan devolver "Acción inválida".
-  const res=await fetchAction(APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false});
-  const rows=normalizeRows(res).map(normalizeMovement).filter(row=>row.TIPO===expected);
-  saveCache(expected,rows);
-  return rows;
+  const rows=await getAllTallerMovements();
+  return rows.filter(row=>row.TIPO===expected);
 }
 
 export const saveTallerMovement=movement=>postToAppsScript({action:"save_taller_movement",movement});
