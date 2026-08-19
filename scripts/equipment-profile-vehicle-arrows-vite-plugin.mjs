@@ -4,43 +4,53 @@ const ROUTE='/src/modules/oficina-tecnica/OficinaTecnicaRoute.jsx'
 export function equipmentProfileVehicleArrowsVitePlugin(){
   return{
     name:'delta-equipment-profile-vehicle-arrows',
-    // Debe ejecutarse sobre JSX fuente. Como post, React ya había transformado el archivo
-    // y los marcadores no existían, por eso las flechas nunca se instalaban.
     enforce:'pre',
     transform(code,id){
       const path=id.replace(/\\/g,'/')
       let out=code
 
       if(path.endsWith(PROFILE)&&!out.includes('dm-equipment-arrow-navigation')){
-        // Insertar inmediatamente después de selectedOption, aceptando cualquiera de
-        // las variantes que dejan los plugins de aliases.
         const selectedOptionRe=/(\s+const selectedOption=[^\n]+;)/
         if(selectedOptionRe.test(out)){
           out=out.replace(selectedOptionRe,`$1
-  // dm-equipment-arrow-navigation: ← / → recorre la lista de equipos.
+  // dm-equipment-arrow-navigation: navegación GLOBAL por equipos con ← / →.
+  // Se captura antes que inputs/selectores para que funcione aunque el foco quede
+  // dentro del selector personalizado de equipos.
   useEffect(()=>{
-    const onKeyDown=(event)=>{
-      if(event.key!=="ArrowLeft"&&event.key!=="ArrowRight")return;
-      const active=document.activeElement;
-      const tag=String(active?.tagName||"").toUpperCase();
-      if(["INPUT","TEXTAREA","SELECT"].includes(tag)||active?.isContentEditable)return;
+    const moveEquipment=(direction)=>{
       const list=Array.isArray(allCodes)?allCodes:[];
-      if(list.length<2)return;
+      if(list.length<2)return false;
       const currentKey=canonicalEquipmentCode(selectedOption?.value||selected||detailKey);
       let idx=list.findIndex(o=>canonicalEquipmentCode(o.value)===currentKey||canonicalEquipmentCode(o.key)===currentKey);
       if(idx<0)idx=0;
-      const nextIdx=event.key==="ArrowRight"?(idx+1)%list.length:(idx-1+list.length)%list.length;
+      const nextIdx=direction>0?(idx+1)%list.length:(idx-1+list.length)%list.length;
       const next=list[nextIdx];
-      if(!next?.value)return;
-      event.preventDefault();
-      event.stopPropagation();
+      if(!next?.value)return false;
       const nextCode=cleanEquipmentCode(next.value);
       setSelected(nextCode);
       setDetailKey(canonicalEquipmentCode(nextCode));
       onSelectCode?.(nextCode);
+      return true;
+    };
+    const onKeyDown=(event)=>{
+      if(event.key!=="ArrowLeft"&&event.key!=="ArrowRight")return;
+      // Solo evitamos interferir con escritura real en textarea/contenteditable.
+      // Inputs, selects y botones NO bloquean la navegación: el usuario pidió que
+      // las flechas funcionen aun cuando el foco haya quedado en el selector.
+      const active=document.activeElement;
+      if(String(active?.tagName||"").toUpperCase()==="TEXTAREA"||active?.isContentEditable)return;
+      if(moveEquipment(event.key==="ArrowRight"?1:-1)){
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation?.();
+      }
     };
     window.addEventListener("keydown",onKeyDown,true);
-    return()=>window.removeEventListener("keydown",onKeyDown,true);
+    document.addEventListener("keydown",onKeyDown,true);
+    return()=>{
+      window.removeEventListener("keydown",onKeyDown,true);
+      document.removeEventListener("keydown",onKeyDown,true);
+    };
   },[selected,detailKey,selectedOption,allCodes,onSelectCode]);`)
         }
       }
@@ -57,8 +67,7 @@ export function equipmentProfileVehicleArrowsVitePlugin(){
     const onKeyDown=(event)=>{
       if(event.key!=="ArrowLeft"&&event.key!=="ArrowRight")return;
       const active=document.activeElement;
-      const tag=String(active?.tagName||"").toUpperCase();
-      if(["INPUT","TEXTAREA","SELECT"].includes(tag)||active?.isContentEditable)return;
+      if(String(active?.tagName||"").toUpperCase()==="TEXTAREA"||active?.isContentEditable)return;
       const visibleDateInputs=[...document.querySelectorAll('input[type="date"]')].filter(el=>el.offsetParent!==null&&!el.disabled);
       if(!visibleDateInputs.length)return;
       const input=visibleDateInputs[0];
@@ -73,9 +82,14 @@ export function equipmentProfileVehicleArrowsVitePlugin(){
       input.dispatchEvent(new Event("change",{bubbles:true}));
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation?.();
     };
     window.addEventListener("keydown",onKeyDown,true);
-    return()=>window.removeEventListener("keydown",onKeyDown,true);
+    document.addEventListener("keydown",onKeyDown,true);
+    return()=>{
+      window.removeEventListener("keydown",onKeyDown,true);
+      document.removeEventListener("keydown",onKeyDown,true);
+    };
   },[props?.view]);`)
         }
       }
