@@ -7,26 +7,16 @@ export function equipmentProfileDeduplicateLastRop02VitePlugin(){
     transform(code,id){
       if(!id.replace(/\\/g,'/').endsWith(TARGET))return null
       let out=code
-      const marker='Último registro ROP02:'
-      const first=out.indexOf(marker)
-      const last=out.lastIndexOf(marker)
-      if(first<0||last<=first)return null
 
-      // Los plugins históricos pueden dejar la leyenda vieja ("Sin registros") y
-      // luego agregar la nueva con fecha. Conservamos siempre la última, que es la
-      // consolidada y respeta aliases/filtros, y eliminamos el bloque JSX anterior.
-      let start=out.lastIndexOf('{detailCode&&<div',first)
-      let end=-1
-      if(start>=0){
-        end=out.indexOf('</div>}',first)
-        if(end>=0)end+='</div>}'.length
+      // Inyecta una limpieza en runtime porque algunos plugins históricos agregan
+      // la leyenda vieja después de otras transformaciones. Conservamos siempre
+      // la línea nueva con clase dm-last-rop02-header y ocultamos únicamente la
+      // variante obsoleta "Último registro ROP02: Sin registros".
+      const hook='  const {movements:sharedMovements}=useEquipmentMovements(rop02All,["equipmentProfile"]);'
+      if(out.includes(hook)&&!out.includes('dm-runtime-last-rop02-dedupe')){
+        out=out.replace(hook,hook+`\n  // dm-runtime-last-rop02-dedupe\n  useEffect(()=>{\n    const raf=requestAnimationFrame(()=>{\n      const root=document.querySelector('.dm-equipment-profile .dm-equipment-header');\n      if(!root)return;\n      const keep=root.querySelector('.dm-last-rop02-header');\n      if(!keep)return;\n      for(const el of root.querySelectorAll('div')){\n        if(el===keep||el.contains(keep))continue;\n        const text=String(el.textContent||'').trim().replace(/\\s+/g,' ');\n        if(text==='Último registro ROP02: Sin registros')el.style.display='none';\n      }\n    });\n    return()=>cancelAnimationFrame(raf);\n  });`)
       }
-      if(start<0||end<0){
-        start=out.lastIndexOf('<div',first)
-        end=out.indexOf('</div>',first)
-        if(end>=0)end+='</div>'.length
-      }
-      if(start>=0&&end>start)out=out.slice(0,start)+out.slice(end)
+
       return out===code?null:{code:out,map:null}
     }
   }
