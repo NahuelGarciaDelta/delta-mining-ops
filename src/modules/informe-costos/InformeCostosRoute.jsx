@@ -48,6 +48,38 @@ function canonicalizeRma15Row(row){
   return out;
 }
 
+function rmaKey(row){
+  return JSON.stringify([
+    String(row?.fecha||"").slice(0,10),String(row?.maquina||"").trim().toUpperCase(),
+    String(row?.tipoMant||"").trim().toUpperCase(),String(row?.turno||"").trim().toUpperCase(),
+    String(row?.kmHs??""),String(row?.intervencion||"").trim().toUpperCase(),
+  ]);
+}
+function rmaRichness(row){
+  const ins=Array.isArray(row?.insumos)?row.insumos:[];
+  return ins.length*10+ins.filter(x=>Number(x?.costoTotal)>0).length*100+(Number(row?.costoTotal)>0?1000:0);
+}
+function mergeRma15(baseRows,remoteRows){
+  const map=new Map();
+  for(const row of [...(Array.isArray(baseRows)?baseRows:[]),...(Array.isArray(remoteRows)?remoteRows:[])]){
+    if(!row?.fecha||!row?.maquina)continue;
+    const key=rmaKey(row),prev=map.get(key);
+    if(!prev||rmaRichness(row)>=rmaRichness(prev))map.set(key,row);
+  }
+  return [...map.values()].sort((a,b)=>String(a?.fecha||"").localeCompare(String(b?.fecha||"")));
+}
+function ropKey(row){
+  return JSON.stringify([row?.fecha||"",row?.maquina||row?._internoRaw||"",row?.proyecto||"",row?.turno||"",row?.parte||"",row?.operario||"",row?.horometroInicial??"",row?.horometroFinal??"",row?.horas??""]);
+}
+function mergeRop02(baseRows,remoteRows){
+  const map=new Map();
+  for(const row of [...(Array.isArray(baseRows)?baseRows:[]),...(Array.isArray(remoteRows)?remoteRows:[])]){
+    if(!row?.fecha||!row?.maquina)continue;
+    map.set(ropKey(row),row);
+  }
+  return [...map.values()].sort((a,b)=>String(a?.fecha||"").localeCompare(String(b?.fecha||"")));
+}
+
 function InformeCostosRoute(props) {
   const [querySpec,setQuerySpec]=React.useState(readQuerySpec);
   const [remote,setRemote]=React.useState({rma15:null,rop02:null,equipmentUniverse:null,loading:true});
@@ -69,7 +101,13 @@ function InformeCostosRoute(props) {
     });
     return()=>{alive=false;};
   },[querySpec.desde,querySpec.hasta,props.insumos]);
-  const viewProps={...props,rma15:remote.rma15??props.rma15??[],rop02:remote.rop02??props.rop02??[],equipmentUniverse:remote.equipmentUniverse};
+
+  // La consulta histórica puede devolver sólo el rango actualmente pedido. Nunca debe
+  // reemplazar la base RMA15 que ya tiene cargada la app: se fusionan ambas fuentes.
+  // Para registros duplicados se conserva la versión con mayor detalle/costo de insumos.
+  const mergedRma15=React.useMemo(()=>mergeRma15(props.rma15||[],remote.rma15||[]),[props.rma15,remote.rma15]);
+  const mergedRop02=React.useMemo(()=>mergeRop02(props.rop02||[],remote.rop02||[]),[props.rop02,remote.rop02]);
+  const viewProps={...props,rma15:mergedRma15,rop02:mergedRop02,equipmentUniverse:remote.equipmentUniverse};
   return (
     <InformeCostosBoundary>
       <React.Suspense fallback={<InformeCostosLoading />}>
