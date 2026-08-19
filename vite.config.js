@@ -8,9 +8,10 @@ import { vehicleKmMaintenanceVitePlugin } from './scripts/vehicle-km-maintenance
 import { pmVehicleScopeVitePlugin } from './scripts/pm-vehicle-scope-vite-plugin.mjs'
 import { pmVehicleDisplayVitePlugin } from './scripts/pm-vehicle-display-vite-plugin.mjs'
 import { equipmentProfileCodeHistoryVitePlugin } from './scripts/equipment-profile-code-history-vite-plugin.mjs'
+import { equipmentProfileAliasProjectMultiselectVitePlugin } from './scripts/equipment-profile-alias-project-multiselect-vite-plugin.mjs'
 
 export default defineConfig({
-  plugins: [intelligentRefreshVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), progressiveRowsVitePlugin(), react()],
+  plugins: [intelligentRefreshVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
     host: '0.0.0.0'
   },
