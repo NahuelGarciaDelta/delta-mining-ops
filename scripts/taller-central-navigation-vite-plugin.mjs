@@ -62,6 +62,7 @@ export function tallerCentralNavigationVitePlugin(){
         s=s.replace('if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};','if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso,ignoredCodes:tallerAtrasoCodes})};');
         s=s.replace('},[props,rop02Equipos,atrasoView,readOnlyAtraso]);','},[props,rop02Equipos,atrasoView,readOnlyAtraso,tallerAtrasoCodes]);');
         s=s.replace('onClick={()=>setTallerTab("MOVIMIENTOS")} style={{border:', 'onClick={()=>setTallerTab("MOVIMIENTOS")} style={{display:"none",border:');
+        s=s.replace('onClick={()=>setTallerTab("RESUMEN")} style={{border:', 'onClick={()=>setTallerTab("RESUMEN")} style={{display:"none",border:');
       }
 
       if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')){
