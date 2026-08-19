@@ -4,53 +4,61 @@ const ROUTE='/src/modules/oficina-tecnica/OficinaTecnicaRoute.jsx'
 export function equipmentProfileVehicleArrowsVitePlugin(){
   return{
     name:'delta-equipment-profile-vehicle-arrows',
-    enforce:'post',
+    // Debe ejecutarse sobre JSX fuente. Como post, React ya había transformado el archivo
+    // y los marcadores no existían, por eso las flechas nunca se instalaban.
+    enforce:'pre',
     transform(code,id){
       const path=id.replace(/\\/g,'/')
       let out=code
 
       if(path.endsWith(PROFILE)&&!out.includes('dm-equipment-arrow-navigation')){
-        // Inserción robusta después de selectedOption, sin depender de una variante exacta del código generado.
-        out=out.replace(/(const selectedOption=[^;]+;)/,`$1
-  // dm-equipment-arrow-navigation: ← / → recorre el equipo anterior/siguiente de la lista visible.
+        // Insertar inmediatamente después de selectedOption, aceptando cualquiera de
+        // las variantes que dejan los plugins de aliases.
+        const selectedOptionRe=/(\s+const selectedOption=[^\n]+;)/
+        if(selectedOptionRe.test(out)){
+          out=out.replace(selectedOptionRe,`$1
+  // dm-equipment-arrow-navigation: ← / → recorre la lista de equipos.
   useEffect(()=>{
     const onKeyDown=(event)=>{
       if(event.key!=="ArrowLeft"&&event.key!=="ArrowRight")return;
-      const tag=String(event.target?.tagName||"").toUpperCase();
-      if(["INPUT","TEXTAREA","SELECT","BUTTON"].includes(tag)||event.target?.isContentEditable)return;
-      const list=(typeof visibleCodes!=="undefined"&&Array.isArray(visibleCodes)?visibleCodes:allCodes)||[];
-      if(!list.length)return;
-      const currentKey=canonicalEquipmentCode(selectedOption?.value||selected);
-      let idx=list.findIndex(o=>canonicalEquipmentCode(o.value)===currentKey);
-      if(idx<0)idx=list.findIndex(o=>canonicalEquipmentCode(o.key)===currentKey);
+      const active=document.activeElement;
+      const tag=String(active?.tagName||"").toUpperCase();
+      if(["INPUT","TEXTAREA","SELECT"].includes(tag)||active?.isContentEditable)return;
+      const list=Array.isArray(allCodes)?allCodes:[];
+      if(list.length<2)return;
+      const currentKey=canonicalEquipmentCode(selectedOption?.value||selected||detailKey);
+      let idx=list.findIndex(o=>canonicalEquipmentCode(o.value)===currentKey||canonicalEquipmentCode(o.key)===currentKey);
       if(idx<0)idx=0;
-      const delta=event.key==="ArrowRight"?1:-1;
-      const nextIdx=Math.max(0,Math.min(list.length-1,idx+delta));
-      if(nextIdx===idx)return;
+      const nextIdx=event.key==="ArrowRight"?(idx+1)%list.length:(idx-1+list.length)%list.length;
       const next=list[nextIdx];
+      if(!next?.value)return;
       event.preventDefault();
-      setSelected(cleanEquipmentCode(next.value));
-      onSelectCode?.(cleanEquipmentCode(next.value));
+      event.stopPropagation();
+      const nextCode=cleanEquipmentCode(next.value);
+      setSelected(nextCode);
+      setDetailKey(canonicalEquipmentCode(nextCode));
+      onSelectCode?.(nextCode);
     };
-    window.addEventListener("keydown",onKeyDown);
-    return()=>window.removeEventListener("keydown",onKeyDown);
-  },[selected,selectedOption,allCodes,visibleCodes,onSelectCode]);`)
+    window.addEventListener("keydown",onKeyDown,true);
+    return()=>window.removeEventListener("keydown",onKeyDown,true);
+  },[selected,detailKey,selectedOption,allCodes,onSelectCode]);`)
+        }
       }
 
       if(path.endsWith(ROUTE)&&!out.includes('dm-daily-date-arrow-navigation')){
         const marker='  useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);'
-        if(out.includes(marker))out=out.replace(marker,`${marker}
+        if(out.includes(marker)){
+          out=out.replace(marker,`${marker}
 
-  // dm-daily-date-arrow-navigation: en ROP02 Equipos y Vehículos, ←/→ cambia al día anterior/siguiente.
+  // dm-daily-date-arrow-navigation: en Equipos y Vehículos por día, ←/→ cambia un día.
   useEffect(()=>{
     const dailyViews=new Set(["rop02","equipos","vehiculos","listaVehiculos","vehiculosROP02"]);
     if(!dailyViews.has(props?.view))return;
     const onKeyDown=(event)=>{
       if(event.key!=="ArrowLeft"&&event.key!=="ArrowRight")return;
-      const tag=String(event.target?.tagName||"").toUpperCase();
-      if(["INPUT","TEXTAREA","SELECT","BUTTON"].includes(tag)||event.target?.isContentEditable)return;
-
-      // Sólo actuar cuando la vista esté efectivamente en modo "Por día".
+      const active=document.activeElement;
+      const tag=String(active?.tagName||"").toUpperCase();
+      if(["INPUT","TEXTAREA","SELECT"].includes(tag)||active?.isContentEditable)return;
       const visibleDateInputs=[...document.querySelectorAll('input[type="date"]')].filter(el=>el.offsetParent!==null&&!el.disabled);
       if(!visibleDateInputs.length)return;
       const input=visibleDateInputs[0];
@@ -64,10 +72,12 @@ export function equipmentProfileVehicleArrowsVitePlugin(){
       input.dispatchEvent(new Event("input",{bubbles:true}));
       input.dispatchEvent(new Event("change",{bubbles:true}));
       event.preventDefault();
+      event.stopPropagation();
     };
-    window.addEventListener("keydown",onKeyDown);
-    return()=>window.removeEventListener("keydown",onKeyDown);
+    window.addEventListener("keydown",onKeyDown,true);
+    return()=>window.removeEventListener("keydown",onKeyDown,true);
   },[props?.view]);`)
+        }
       }
 
       return out===code?null:{code:out,map:null}
