@@ -1,6 +1,6 @@
 import React from "react";
 import { InformeCostosBoundary, InformeCostosLoading } from "./components/InformeCostosBoundary.jsx";
-import {getRma15,getRma15EquipmentUniverse,getRop02} from "../../data/historicalDataService.js";
+import {getRma15,getRop02} from "../../data/historicalDataService.js";
 import {getValue,normalizeRMA15,normalizeROP02} from "../../shared/domain/index.jsx";
 
 const LazyInformeCostosView = React.lazy(() =>
@@ -82,22 +82,21 @@ function mergeRop02(baseRows,remoteRows){
 
 function InformeCostosRoute(props) {
   const [querySpec,setQuerySpec]=React.useState(readQuerySpec);
-  const [remote,setRemote]=React.useState({rma15:null,rop02:null,equipmentUniverse:null,loading:true});
+  const [remote,setRemote]=React.useState({rma15:null,rop02:null,loading:true});
   React.useEffect(()=>{const update=()=>setQuerySpec(readQuerySpec());window.addEventListener("dm-costos-mant-state-updated",update);return()=>window.removeEventListener("dm-costos-mant-state-updated",update);},[]);
   React.useEffect(()=>{
     let alive=true;setRemote(previous=>({...previous,loading:true}));
     Promise.allSettled([
       getRma15({desde:querySpec.desde,hasta:querySpec.hasta,limit:"all",sortBy:"fecha",sortDirection:"asc"}),
       getRop02({desde:querySpec.desde,hasta:querySpec.hasta,limit:"all",sortBy:"fecha",sortDirection:"asc"}),
-      getRma15EquipmentUniverse({year:"2026"}),
-    ]).then(([rmaResult,ropResult,universeResult])=>{
+    ]).then(([rmaResult,ropResult])=>{
       if(!alive)return;
-      const rma=rmaResult.status==="fulfilled"?rmaResult.value:null,rop=ropResult.status==="fulfilled"?ropResult.value:null,universe=universeResult.status==="fulfilled"?universeResult.value:null;
+      const rma=rmaResult.status==="fulfilled"?rmaResult.value:null,rop=ropResult.status==="fulfilled"?ropResult.value:null;
       const normalizedRma=rma?(rma.data||[])
         .map(row=>canonicalizeRma15Row({...row,_proyectoForzado:row.Proyecto||row.proyecto||"S/D"}))
         .map(row=>normalizeRMA15(row,props.insumos||{}))
         .filter(row=>row.fecha&&row.maquina):null;
-      setRemote({rma15:normalizedRma,rop02:rop?normalizeROP02(rop.data||[]):null,equipmentUniverse:Array.isArray(universe?.data)?new Set(universe.data):null,loading:false});
+      setRemote({rma15:normalizedRma,rop02:rop?normalizeROP02(rop.data||[]):null,loading:false});
     });
     return()=>{alive=false;};
   },[querySpec.desde,querySpec.hasta,props.insumos]);
@@ -107,7 +106,12 @@ function InformeCostosRoute(props) {
   // Para registros duplicados se conserva la versión con mayor detalle/costo de insumos.
   const mergedRma15=React.useMemo(()=>mergeRma15(props.rma15||[],remote.rma15||[]),[props.rma15,remote.rma15]);
   const mergedRop02=React.useMemo(()=>mergeRop02(props.rop02||[],remote.rop02||[]),[props.rop02,remote.rop02]);
-  const viewProps={...props,rma15:mergedRma15,rop02:mergedRop02,equipmentUniverse:remote.equipmentUniverse};
+
+  // IMPORTANTE: el universo visible se deriva del RMA15 fusionado dentro de la vista.
+  // No usamos get_rma15_equipment_universe como filtro autoritativo porque una respuesta
+  // parcial del endpoint puede reducir el informe a unos pocos internos aunque existan
+  // registros RMA15 válidos ya cargados en la aplicación.
+  const viewProps={...props,rma15:mergedRma15,rop02:mergedRop02,equipmentUniverse:null};
   return (
     <InformeCostosBoundary>
       <React.Suspense fallback={<InformeCostosLoading />}>
