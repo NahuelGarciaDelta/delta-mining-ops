@@ -35,7 +35,6 @@ export function equipmentProfileAliasProjectMultiselectVitePlugin(){
     const allRoots=new Set([...parent.keys()].map(find));
     for(const root of allRoots){
       const rows=rowsByRoot.get(root)||[],aliases=[...parent.keys()].filter(k=>find(k)===root),oldKeys=new Set();for(const r of rows){const k=canonicalEquipmentCode(read(r).anterior);if(k)oldKeys.add(k);}
-      // Si hubo renombre por movilización, el destino más reciente manda.
       const rename=renames.filter(x=>find(x.to)===root).sort((a,b)=>String(b.date).localeCompare(String(a.date)))[0];
       let preferred=rename?cleanEquipmentCode(rename.to):"",master=null;
       if(preferred)master=rows.find(r=>aliasesForRow(r).includes(canonicalEquipmentCode(preferred)))||null;
@@ -75,10 +74,12 @@ function EquipmentPicker({options,value,onChange}){`)
       out=out.replace('let rows=mant;\n    if(fechaD||fechaH)',`let rows=mant;\n    ${projectFilter}\n    if(fechaD||fechaH)`).replace('},[mant,fechaD,fechaH]);','},[mant,selectedProject,fechaD,fechaH]);')
       out=out.replace('let rows=pmReg;\n    if(fechaD||fechaH)',`let rows=pmReg;\n    ${projectFilter}\n    if(fechaD||fechaH)`).replace('},[pmReg,fechaD,fechaH]);','},[pmReg,selectedProject,fechaD,fechaH]);')
 
-      // El CSS general de la fila de filtros no debe estirar los checkbox al 100%.
       out=out.replace('.dm-equipment-filter-row input,.dm-equipment-filter-row select{width:100%!important}', '.dm-equipment-filter-row input:not([type="checkbox"]),.dm-equipment-filter-row select{width:100%!important}\\n    .dm-equipment-project-filter input[type="checkbox"]{width:14px!important;height:14px!important;min-width:14px!important;flex:0 0 14px!important;margin:0!important}')
 
-      // Mostrar la fecha del último ROP02 consolidado (y respetando filtro de proyecto/período).
+      // Quitar cualquier leyenda previa de "Último registro ROP02" para evitar duplicados.
+      out=out.replace(/\{detailCode&&<div(?![^>]*dm-last-rop02-header)[^>]*>Último registro ROP02:[\s\S]*?<\/div>\}/g,'')
+
+      // Mostrar una única fecha del último ROP02 consolidado, respetando filtros activos.
       if(!out.includes('dm-last-rop02-header')){
         out=out.replace('          </div>\n          {detailCode&&<div style={{marginTop:9,color:C.textSub,fontSize:12,fontWeight:600,display:"flex",gap:8,flexWrap:"wrap"}}>', '          </div>\n          {detailCode&&<div className="dm-last-rop02-header" style={{marginTop:7,color:C.textSub,fontSize:11,fontWeight:700}}>Último registro ROP02: <span style={{color:C.text}}>{summary.lastOp?.fecha?(()=>{const s=String(summary.lastOp.fecha).slice(0,10);return /^\\d{4}-\\d{2}-\\d{2}$/.test(s)?s.split("-").reverse().join("/"):s})():"Sin registros"}</span></div>}\n          {detailCode&&<div style={{marginTop:9,color:C.textSub,fontSize:12,fontWeight:600,display:"flex",gap:8,flexWrap:"wrap"}}>')
       }
