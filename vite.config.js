@@ -10,9 +10,10 @@ import { pmVehicleDisplayVitePlugin } from './scripts/pm-vehicle-display-vite-pl
 import { equipmentProfileCodeHistoryVitePlugin } from './scripts/equipment-profile-code-history-vite-plugin.mjs'
 import { equipmentProfileAliasProjectMultiselectVitePlugin } from './scripts/equipment-profile-alias-project-multiselect-vite-plugin.mjs'
 import { equipmentProfileDeduplicateLastRop02VitePlugin } from './scripts/equipment-profile-deduplicate-last-rop02-vite-plugin.mjs'
+import { equipmentProfileLocationVehicleLabelVitePlugin } from './scripts/equipment-profile-location-vehicle-label-vite-plugin.mjs'
 
 export default defineConfig({
-  plugins: [intelligentRefreshVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), progressiveRowsVitePlugin(), react()],
+  plugins: [intelligentRefreshVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
     host: '0.0.0.0'
   },
