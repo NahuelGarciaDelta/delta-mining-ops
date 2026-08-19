@@ -11,7 +11,14 @@ export function vehicleKmMaintenanceVitePlugin() {
 
       out = out.replace(
         'const DEFAULTS = Object.freeze({ intervalo: 250, alertaDesde: 200, atrasadoDesde: 350 });',
-        `const DEFAULTS = Object.freeze({ intervalo: 250, alertaDesde: 200, atrasadoDesde: 350 });\nconst VEHICLE_DEFAULTS = Object.freeze({ intervalo: 8000, alertaDesde: 7000, atrasadoDesde: 8500 });\nconst isRoadVehicle = row => {\n  const family = norm(row?.familia || row?.equipo || '');\n  const internal = norm(row?.interno || '');\n  return family.includes('CAMIONETA') || family.includes('CAMION') || internal.startsWith('CAV') || internal.startsWith('CAC') || internal.startsWith('CAR') || internal.startsWith('CAA');\n};\nconst unitFor = row => isRoadVehicle(row) ? 'km' : 'h';\nconst meterLabelFor = row => isRoadVehicle(row) ? 'Kilometraje' : 'Horómetro';\nconst codeVariants = value => {\n  const raw = text(value).toUpperCase().replace(/\\s*\\(.*?\\)/g, '').trim();\n  if (!raw) return [];\n  const compact = raw.replace(/[^A-Z0-9]/g, '');\n  const match = compact.match(/^([A-Z]+)0*(\\d+)$/);\n  const variants = new Set([norm(raw), compact]);\n  if (match) {\n    const prefix = match[1];\n    const n = String(Number(match[2]));\n    variants.add(prefix + n);\n    variants.add(prefix + n.padStart(4, '0'));\n  }\n  return [...variants].filter(Boolean);\n};\nconst activityForCode = (map, value) => {\n  for (const key of codeVariants(value)) {\n    const found = map.get(key);\n    if (found) return found;\n  }\n  return null;\n};`
+        `const DEFAULTS = Object.freeze({ intervalo: 250, alertaDesde: 200, atrasadoDesde: 350 });\nconst VEHICLE_DEFAULTS = Object.freeze({ intervalo: 8000, alertaDesde: 7000, atrasadoDesde: 8500 });\nconst isRoadVehicle = row => {\n  const family = norm(row?.familia || row?.equipo || '');\n  const internal = norm(row?.interno || '');\n  return family.includes('CAMIONETA') || family.includes('CAMION') || internal.startsWith('CTA') || internal.startsWith('CAV') || internal.startsWith('CAC') || internal.startsWith('CAR') || internal.startsWith('CAA');\n};\nconst unitFor = row => isRoadVehicle(row) ? 'km' : 'h';\nconst meterLabelFor = row => isRoadVehicle(row) ? 'Kilometraje' : 'Horómetro';\nconst codeVariants = value => {\n  const raw = text(value).toUpperCase().replace(/\\s*\\(.*?\\)/g, '').trim();\n  if (!raw) return [];\n  const compact = raw.replace(/[^A-Z0-9]/g, '');\n  const match = compact.match(/^([A-Z]+)0*(\\d+)$/);\n  const variants = new Set([norm(raw), compact]);\n  if (match) {\n    const prefix = match[1];\n    const n = String(Number(match[2]));\n    variants.add(prefix + n);\n    variants.add(prefix + n.padStart(4, '0'));\n  }\n  return [...variants].filter(Boolean);\n};\nconst activityForCode = (map, value) => {\n  for (const key of codeVariants(value)) {\n    const found = map.get(key);\n    if (found) return found;\n  }\n  return null;\n};`
+      )
+
+      // La Lista Maestra puede identificar un vehículo por Código Nuevo mientras ROP02 usa
+      // Código Drusila, interno anterior o patente. Conservamos todos esos alias en cada fila.
+      out = out.replace(
+        'return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, propiedad };',
+        `const codigos = uniq([\n    interno,\n    text(pick(row, ["Código nuevo", "Codigo nuevo", "CODIGO NUEVO", "Código Nuevo", "Codigo Nuevo"])),\n    text(pick(row, ["Código Drusila", "Codigo Drusila", "Código de Drusila", "Codigo de Drusila", "Código viejo", "Codigo viejo", "Código anterior", "Codigo anterior"])),\n    text(pick(row, ["Código interno", "Codigo interno", "Interno", "Interno Equipo", "Código Equipo", "Codigo Equipo"])),\n    text(pick(row, ["Patente", "PATENTE", "Dominio", "DOMINIO"]))\n  ]);\n  return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, propiedad, codigos };`
       )
 
       // ROP02 y Lista Maestra no siempre escriben igual el interno (CAV-81 / CAV-0081 / CAV0081).
@@ -24,7 +31,10 @@ export function vehicleKmMaintenanceVitePlugin() {
         'const prev = map.get(key);\n      if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && horas > prev.horas)) {\n        map.set(key, { horas: Math.max(horas, prev?.horas || 0), fecha, proyecto: proyecto || prev?.proyecto || "" });\n      } else if (horas > prev.horas) {\n        map.set(key, { ...prev, horas });\n      }',
         `const prev = keys.map(k => map.get(k)).find(Boolean);\n      let next = prev;\n      if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && horas > prev.horas)) {\n        next = { horas: Math.max(horas, prev?.horas || 0), fecha, proyecto: proyecto || prev?.proyecto || "" };\n      } else if (horas > prev.horas) {\n        next = { ...prev, horas };\n      }\n      if (next) keys.forEach(k => map.set(k, next));`
       )
-      out = out.replace('const actividad = actividad7Dias.get(key);', 'const actividad = activityForCode(actividad7Dias, e.interno);')
+      out = out.replace(
+        'const actividad = actividad7Dias.get(key);',
+        'const actividad = [e.interno, ...(e.codigos || [])].map(code => activityForCode(actividad7Dias, code)).find(Boolean);'
+      )
 
       out = out.replace(
         'const cfg = configMap.get(key) || {};\n      base.push(statusFor({',
