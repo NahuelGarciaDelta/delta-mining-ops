@@ -61,6 +61,7 @@ export function tallerCentralNavigationVitePlugin(){
         s=s.replace('useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);','useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);\n\n  useEffect(()=>{\n    if(!atrasoView)return;\n    let active=true;\n    Promise.all(["BAJA","MOVILIZACION","CAMBIO_EQUIPO"].map(t=>getTallerMovements(t).catch(()=>[]))).then(groups=>{\n      if(!active)return;\n      const codes=new Set();\n      groups.flat().forEach(row=>{const raw=row?.INTERNO_ORIGEN||row?.interno||row?.INTERNO||"";const c=formatAtrasoEquipmentCode(raw);if(c)codes.add(c);});\n      setTallerAtrasoCodes(codes);\n    });\n    return()=>{active=false;};\n  },[atrasoView]);');
         s=s.replace('if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};','if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso,ignoredCodes:tallerAtrasoCodes})};');
         s=s.replace('},[props,rop02Equipos,atrasoView,readOnlyAtraso]);','},[props,rop02Equipos,atrasoView,readOnlyAtraso,tallerAtrasoCodes]);');
+        s=s.replace('onClick={()=>setTallerTab("MOVIMIENTOS")} style={{border:', 'onClick={()=>setTallerTab("MOVIMIENTOS")} style={{display:"none",border:');
       }
 
       if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')){
