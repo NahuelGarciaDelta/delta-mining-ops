@@ -45,8 +45,17 @@ export default function MantenimientoRoute(props){
     sortDirection:mainSort?.dir||"desc"
   }),[state.modo,state.fechaDia,state.fechaD,state.fechaH,state.proyecto,state.maquina,state.tipoMant,mainSort?.key,mainSort?.dir]);
 
+  // Sin filtros visibles, Mantenimiento debe trabajar con TODO el RMA15 ya
+  // hidratado en App. No se consulta la primera página remota porque esa página
+  // (habitualmente 250 filas) no representa el universo completo y hacía caer
+  // los KPIs de ~1.200 OT a 250 OT unos segundos después de entrar.
+  const hasRemoteFilter=React.useMemo(()=>Boolean(
+    params.desde||params.hasta||params.proyecto||params.equipo||params.tipo
+  ),[params.desde,params.hasta,params.proyecto,params.equipo,params.tipo]);
+
   React.useEffect(()=>{
-    if(props.mode!=="mantenimiento"){
+    if(props.mode!=="mantenimiento"||!hasRemoteFilter){
+      ++requestRef.current;
       setRemote(null);
       return;
     }
@@ -69,9 +78,10 @@ export default function MantenimientoRoute(props){
     }).catch(()=>{});
 
     return()=>{alive=false;};
-  },[props.mode,params,props.insumos]);
+  },[props.mode,hasRemoteFilter,params,props.insumos]);
 
   const loadMore=React.useCallback(()=>{
+    if(!hasRemoteFilter)return Promise.resolve(null);
     const requestId=requestRef.current;
     return controllerRef.current.loadMore("rma15",params).then(result=>{
       if(requestId!==requestRef.current||result.stale)return result;
@@ -83,17 +93,18 @@ export default function MantenimientoRoute(props){
       });
       return result;
     });
-  },[params,props.insumos]);
+  },[hasRemoteFilter,params,props.insumos]);
 
   const exportAll=React.useCallback(async()=>{
+    if(!hasRemoteFilter)return cloneRma15Rows(baseRma15);
     const rows=[];
     await fetchAllDatasetPages("rma15",params,page=>{rows.push(...page);});
     return cloneRma15Rows(normalizeRemoteRows(rows,props.insumos));
-  },[params,props.insumos]);
+  },[hasRemoteFilter,baseRma15,params,props.insumos]);
 
   const effective=React.useMemo(()=>{
     const isolatedProps={...props,rma15:baseRma15};
-    if(props.mode!=="mantenimiento"||!remote)return isolatedProps;
+    if(props.mode!=="mantenimiento"||!hasRemoteFilter||!remote)return isolatedProps;
     return {
       ...isolatedProps,
       rma15:cloneRma15Rows(remote.rows),
@@ -102,7 +113,7 @@ export default function MantenimientoRoute(props){
       onRemoteMore:loadMore,
       onRemoteExport:exportAll
     };
-  },[props,baseRma15,remote,loadMore,exportAll]);
+  },[props,baseRma15,hasRemoteFilter,remote,loadMore,exportAll]);
 
   return (
     <React.Suspense fallback={<PageLoadingMotoniveladora label="Cargando Mantenimiento..."/>}>
