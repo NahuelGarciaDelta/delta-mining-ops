@@ -31,3 +31,4 @@ jobs:
           git rm scripts/oneoff_progressive_abastecimiento.py .github/workflows/oneoff-progressive-abastecimiento.yml
           git commit -m 'Paginate Abastecimiento tables 100 rows at a time'
           git push origin main
+# trigger
