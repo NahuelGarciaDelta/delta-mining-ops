@@ -494,6 +494,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     if(!q)return remitos;
     return (remitos||[]).filter(rem=>norm(rem.comprobante).includes(q));
   },[remitos,remitoSearch,norm]);
+  const progressiveRemitos=useProgressiveRows(filteredRemitos,{resetKey:`remitos-${remitoSearch}`,initialLimit:100,increment:100});
 
   const buildSentByCode=useCallback((sourceRemitos=[])=>{
     const map={};
@@ -1167,7 +1168,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return String(av.v).localeCompare(String(bv.v),"es",{numeric:true,sensitivity:"base"})*dir;
     });
   },[filteredRows,sort]);
-  const progressiveMainRows=useProgressiveRows(sortedRows,{resetKey:tab});
+  const progressiveMainRows=useProgressiveRows(sortedRows,{resetKey:tab,initialLimit:100,increment:100});
 
   const stats=useMemo(()=>{
     const activos=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);
@@ -1234,6 +1235,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     });
     return out;
   },[sortedRows,remitosByCode,normCode,normalizeCentroCosto,calcularIndicadorRABA03]);
+  const progressiveRaba03Rows=useProgressiveRows(raba03DownloadRows,{resetKey:`raba03-${rabaFilterMode}-${rabaDate}-${rabaDateFrom}-${rabaDateTo}-${project}-${company}-${supervisor}-${query}`,initialLimit:100,increment:100});
 
   const raba03DashboardRows=useMemo(()=>{
     const out=[];
@@ -2322,7 +2324,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         </tbody>
       </table>
       </div>
-      <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><span>Mostrando {fmtNum(progressiveMainRows.visibleCount)} de {fmtNum(progressiveMainRows.totalCount)} registros</span>{progressiveMainRows.hasMore&&<button type="button" onClick={progressiveMainRows.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 250 más</button>}</div>
+      <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><span>Mostrando {fmtNum(progressiveMainRows.visibleCount)} de {fmtNum(progressiveMainRows.totalCount)} registros</span>{progressiveMainRows.hasMore&&<button type="button" onClick={progressiveMainRows.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 100 más</button>}</div>
     </div>
     );
   };
@@ -2444,7 +2446,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
                 </tr>
               </thead>
               <tbody>
-                {raba03DownloadRows.length?raba03DownloadRows.map((r,idx)=>(
+                {progressiveRaba03Rows.totalCount?progressiveRaba03Rows.visibleRows.map((r,idx)=>(
                   <tr key={`raba03-preview-${idx}`}>
                     {columns.map(col=>(
                       <td key={col.key} style={{...tdStyle,textAlign:col.align||"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={String(r[col.key] instanceof Date?formatDateLocal(r[col.key]):(r[col.key]??""))}>
@@ -2458,7 +2460,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
               </tbody>
             </table>
           </div>
-          <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(raba03DownloadRows.length)} filas listas para descargar</div>
+          <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10,flexWrap:"wrap"}}><span>Mostrando {fmtNum(progressiveRaba03Rows.visibleCount)} de {fmtNum(progressiveRaba03Rows.totalCount)} registros · {fmtNum(raba03DownloadRows.length)} filas listas para descargar</span>{progressiveRaba03Rows.hasMore&&<button type="button" onClick={progressiveRaba03Rows.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 100 más</button>}</div>
         </div>
       </div>
     );
@@ -2631,7 +2633,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
           </div>
           <input value={remitoSearch} onChange={e=>setRemitoSearch(e.target.value)} placeholder="Buscar por N° de remito" style={{...inputStyle,minWidth:240}}/>
         </div>
-        {filteredRemitos.length?filteredRemitos.map(rem=>(
+        {progressiveRemitos.totalCount?progressiveRemitos.visibleRows.map(rem=>(
           <div key={rem.id} style={{padding:14,borderBottom:`1px solid ${C.border}22`,display:"grid",gap:8}}>
             <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}>
               <div style={{fontWeight:900,color:C.text}}>{rem.comprobante} · {formatDateLocal(rem.fecha)} <span style={{color:C.textSub,fontWeight:700}}>({rem.observaciones||"sin observaciones"})</span></div>
@@ -2677,6 +2679,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         )):(
           <div style={{padding:18,color:C.textSub,fontWeight:700}}>{remitos.length?"No hay remitos que coincidan con la búsqueda.":"Todavía no hay remitos cargados."}</div>
         )}
+        {progressiveRemitos.totalCount>0&&<div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><span>Mostrando {fmtNum(progressiveRemitos.visibleCount)} de {fmtNum(progressiveRemitos.totalCount)} remitos</span>{progressiveRemitos.hasMore&&<button type="button" onClick={progressiveRemitos.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 100 más</button>}</div>}
       </div>
     </div>
   );
