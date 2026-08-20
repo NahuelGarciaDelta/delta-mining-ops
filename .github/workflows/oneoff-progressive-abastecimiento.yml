@@ -1,0 +1,28 @@
+name: One-off progressive Abastecimiento
+on:
+  push:
+    paths:
+      - 'scripts/oneoff_progressive_abastecimiento.py'
+jobs:
+  refactor:
+    if: ${{ !contains(github.event.head_commit.message, '[oneoff-done]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply refactor
+        run: python scripts/oneoff_progressive_abastecimiento.py
+      - name: Build
+        run: npm ci && npm run build
+      - name: Commit result and cleanup
+        run: |
+          rm -f scripts/oneoff_progressive_abastecimiento.py .github/workflows/oneoff-progressive-abastecimiento.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add progressive 100-row loading to Abastecimiento tables [oneoff-done]"
+          git push
