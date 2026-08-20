@@ -1,0 +1,37 @@
+name: One-off Informe Costos filters
+
+on:
+  push:
+    paths:
+      - '.github/workflows/oneoff-informe-costos-filters.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refactor-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Apply refactor
+        run: node scripts/oneoff_informe_costos_individual_filters.mjs
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Commit validated result
+        run: |
+          rm -f scripts/oneoff_informe_costos_individual_filters.mjs
+          rm -f .github/workflows/oneoff-informe-costos-filters.yml
+          git config user.name "NahuelGarciaDelta"
+          git config user.email "nahuel.garcia@deltamining.com.ar"
+          git add -A
+          git commit -m "Isolate Informe de Costos filters per table"
+          git push origin HEAD:main
