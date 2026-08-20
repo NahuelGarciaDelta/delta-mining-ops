@@ -6,21 +6,14 @@ const LazyInformeCostosView = React.lazy(() =>
 );
 
 /**
- * Informe de Costos must never share mutable collections with the rest of the app.
+ * Informe de Costos is intentionally isolated from every other view.
  *
- * The old route mixed the already-hydrated application datasets with a second pair
- * of asynchronous historical requests. Those late requests were driven by the
- * report's localStorage filters and were merged into the global datasets after the
- * first render. As a consequence the report calculated once with the application
- * universe and a second time with a different/partial universe; aliases could also
- * survive as separate rows during the merge. That is the race that made totals
- * change a few seconds after opening the report.
- *
- * The application already mounts this route only after its data hydration is
- * complete. Therefore the report now takes one coherent snapshot of those hydrated
- * sources and derives every sub-table from that same snapshot. No report filter
- * starts a fetch and no report state can replace or mutate the datasets used by
- * RMA15, Ficha Unica, Control por Equipo, ROP02 or any other view.
+ * The report captures one complete snapshot of the hydrated application sources
+ * when it mounts. That snapshot is never replaced by later background hydration,
+ * Mantenimiento filters, historical pagination or any other global state update.
+ * The report is remounted when the user leaves and enters again, so a new visit
+ * can capture the latest complete application data without allowing values to
+ * change silently while the report is open.
  */
 function cloneRows(rows) {
   return (Array.isArray(rows) ? rows : []).map((row) => {
@@ -45,35 +38,57 @@ function cloneRecord(record) {
   );
 }
 
-function InformeCostosRoute(props) {
-  // These memos are the data boundary of the module. They only change when the
-  // actual hydrated source changes (for example after an explicit/global refresh),
-  // never because a filter or sub-tab inside Informe de Costos changed.
-  const reportRma15 = React.useMemo(() => cloneRows(props.rma15), [props.rma15]);
-  const reportRop02 = React.useMemo(() => cloneRows(props.rop02), [props.rop02]);
-  const reportListaEquipos = React.useMemo(() => cloneRows(props.listaEquipos), [props.listaEquipos]);
-  const reportInsumos = React.useMemo(() => cloneRecord(props.insumos), [props.insumos]);
+function buildReportSnapshot(props) {
+  return {
+    rma15: cloneRows(props.rma15),
+    rop02: cloneRows(props.rop02),
+    listaEquipos: cloneRows(props.listaEquipos),
+    insumos: cloneRecord(props.insumos),
+  };
+}
 
-  const ready = reportRma15.length > 0 && reportListaEquipos.length > 0 && Object.keys(reportInsumos).length > 0;
-
-  const viewProps = React.useMemo(
-    () => ({
-      ...props,
-      rma15: reportRma15,
-      rop02: reportRop02,
-      listaEquipos: reportListaEquipos,
-      insumos: reportInsumos,
-      // The visible equipment universe is derived exclusively from the report's
-      // consolidated RMA15 snapshot. A partial endpoint response is never allowed
-      // to shrink it after the first calculation.
-      equipmentUniverse: null,
-    }),
-    [props, reportRma15, reportRop02, reportListaEquipos, reportInsumos],
+function hasCompleteReportSources(props) {
+  return (
+    Array.isArray(props.rma15) &&
+    props.rma15.length > 0 &&
+    Array.isArray(props.listaEquipos) &&
+    props.listaEquipos.length > 0 &&
+    props.insumos &&
+    typeof props.insumos === "object" &&
+    Object.keys(props.insumos).length > 0
   );
+}
+
+function InformeCostosRoute(props) {
+  const snapshotRef = React.useRef(null);
+
+  // IMPORTANT: capture ONCE. Do not use useMemo([props.rma15]) here: the global
+  // app can replace rma15/rop02 references after background synchronization and
+  // that used to make the report jump from the complete total to a partial one.
+  if (!snapshotRef.current && hasCompleteReportSources(props)) {
+    snapshotRef.current = buildReportSnapshot(props);
+  }
+
+  const snapshot = snapshotRef.current;
+  const ready = Boolean(snapshot);
+
+  const viewProps = React.useMemo(() => {
+    if (!snapshot) return null;
+    return {
+      ...props,
+      rma15: snapshot.rma15,
+      rop02: snapshot.rop02,
+      listaEquipos: snapshot.listaEquipos,
+      insumos: snapshot.insumos,
+      equipmentUniverse: null,
+    };
+    // The source collections intentionally are NOT dependencies. Once captured,
+    // background source replacements must not alter the open report.
+  }, [snapshot, props.readOnly, props.usdRate, props.deps]);
 
   return (
     <InformeCostosBoundary>
-      {!ready ? (
+      {!ready || !viewProps ? (
         <InformeCostosLoading />
       ) : (
         <React.Suspense fallback={<InformeCostosLoading />}>
