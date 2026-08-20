@@ -187,5 +187,17 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
     return map;
   },[combinedMovements]);
   const admitidos=useMemo(()=>({...movementsToAtrasoMap(historicalMovementMap),...movementsToAtrasoMap(activeMovementByEquipment)}),[historicalMovementMap,activeMovementByEquipment]);
-  return{...snapshot,loading:Boolean(snapshot.loading)||!snapshot.loaded,movements:wantsTallerProfile?combinedMovements:snapshot.data,activeMovementByEquipment,admitidos,reload:useCallback(()=>loadEquipmentMovements({force:true}),[])};
+  // La Ficha Única usa como fuente histórica solamente los movimientos realmente
+  // cargados en las pestañas de Movimiento/Taller. El cache legado de MOVIMIENTOS_EQUIPOS
+  // puede contener proyecciones o registros derivados y no debe crear filas duplicadas.
+  const profileMovements=useMemo(()=>{
+    if(!wantsTallerProfile)return snapshot.data;
+    const unique=new Map();
+    for(const movement of tallerCanonical){
+      const key=String(movement.id||`${movement.fechaHora}|${movement.internoNormalizado}|${movement.proyectoOrigen}|${movement.proyectoDestino}|${movement.internoDestino}`);
+      if(!unique.has(key))unique.set(key,movement);
+    }
+    return[...unique.values()];
+  },[wantsTallerProfile,tallerCanonical,snapshot.data]);
+  return{...snapshot,loading:Boolean(snapshot.loading)||!snapshot.loaded,movements:profileMovements,activeMovementByEquipment,admitidos,reload:useCallback(()=>loadEquipmentMovements({force:true}),[])};
 }
