@@ -1624,6 +1624,7 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState,remoteTotal=0,rem
   const listaInfoIndex=useMemo(()=>buildListaEquipoInfoIndex(listaEquipos),[listaEquipos]);
   const fk=useMemo(()=>[
     {key:"proyecto",defaultVal:"todos"},
+    {key:"turno",defaultVal:"todos"},
     {key:"maquina",defaultVal:"todas"},
     {key:"supervisor",defaultVal:"todos"},
     {key:"operario",defaultVal:"todos"},
@@ -1722,6 +1723,7 @@ function ViewROP02({rop02All,listaEquipos,extState,setExtState,remoteTotal=0,rem
             )}
             <MultiSel label="Tipo de Máquina" value={tipoMaquinaROP02} onChange={v=>{setTipoMaquinaROP02(v);set("maquina","todas");setEstado("todos");}} options={ROP05_TIPOS_MAQUINA.map(t=>({value:t.value,label:t.label}))}/>
             <MultiSel label="Proyecto" value={vals.proyecto} onChange={v=>{set("proyecto",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.proyecto.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Turno" value={vals.turno} onChange={v=>{set("turno",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.turno.map(t=>{const u=String(t||"").trim().toUpperCase();return{value:t,label:(u.includes("NOCHE")||u==="TN")?"Turno Noche":(u.includes("DIA")||u==="TD")?"Turno Día":t};})]}/>
             <MultiSel label="Máquina" value={vals.maquina} onChange={v=>{set("maquina",v);setEstado("todos");}} options={[{value:"todas",label:"Todas"},...opts.maquina.filter(m=>multiIsAll(tipoMaquinaROP02,"todas")||tipoMatchMachineROP05(tipoMaquinaROP02,m)).map(m=>({value:m,label:m}))]}/>
             <MultiSel label="Supervisor" value={vals.supervisor} onChange={v=>{set("supervisor",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.supervisor.map(s=>({value:s,label:s}))]}/>
             <MultiSel label="Operario" value={vals.operario} onChange={v=>{set("operario",v);setEstado("todos");}} options={[{value:"todos",label:"Todos"},...opts.operario.map(o=>({value:o,label:o}))]}/>
