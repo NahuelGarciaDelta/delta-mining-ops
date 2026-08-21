@@ -1,0 +1,33 @@
+name: One-off Equipos turno filter
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/oneoff_equipos_turno.py'
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[turno-filter-done]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply turno filter
+        run: python scripts/oneoff_equipos_turno.py
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit validated change and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/modules/oficina-tecnica/OficinaTecnicaModule.jsx
+          git rm scripts/oneoff_equipos_turno.py .github/workflows/oneoff-equipos-turno.yml
+          git commit -m 'Add turno filter to Equipos [turno-filter-done]'
+          git push origin main
