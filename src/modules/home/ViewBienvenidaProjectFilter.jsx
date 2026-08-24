@@ -6,6 +6,25 @@ import { collectProjects, projectFromRow, projectLabel } from "../../shared/proj
 const STORAGE_KEY="dm_home_summary_project_v3";
 const LEGACY_PROJECTS=new Set(["JOSE MARIA","FILO DEL SOL","FILO SUR","EL ZORRO"]);
 const EMPTY_RMA_SENTINEL={__dmHomeEmptyProject:true};
+const normalizeDateKey=value=>{
+  if(value instanceof Date&&!Number.isNaN(value.getTime()))return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,"0")}-${String(value.getDate()).padStart(2,"0")}`;
+  const raw=String(value??"").trim();
+  if(!raw)return "";
+  let match=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(match)return `${match[1]}-${String(match[2]).padStart(2,"0")}-${String(match[3]).padStart(2,"0")}`;
+  match=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})/);
+  if(match){let year=Number(match[3]);if(year<100)year+=2000;return `${year}-${String(match[2]).padStart(2,"0")}-${String(match[1]).padStart(2,"0")}`;}
+  const parsed=new Date(raw);
+  return Number.isNaN(parsed.getTime())?"":`${parsed.getFullYear()}-${String(parsed.getMonth()+1).padStart(2,"0")}-${String(parsed.getDate()).padStart(2,"0")}`;
+};
+const dateFromRop02Row=row=>{
+  if(!row||typeof row!=="object")return "";
+  const direct=row.fecha??row.Fecha??row.FECHA??row.ultimaFecha??row.ULTIMA_FECHA;
+  if(direct)return normalizeDateKey(direct);
+  const key=Object.keys(row).find(k=>String(k).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes("fecha"));
+  return key?normalizeDateKey(row[key]):"";
+};
+const formatDayLabel=iso=>/^\d{4}-\d{2}-\d{2}$/.test(String(iso||""))?`${iso.slice(8,10)}/${iso.slice(5,7)}/${iso.slice(0,4)}`:"Sin fecha";
 
 function readInitialSelection(){
   try{
@@ -34,6 +53,7 @@ export default function ViewBienvenidaProjectFilter(props){
   // null = Todos. De esta forma, si mañana Apps Script agrega un proyecto nuevo,
   // entra automáticamente sin requerir modificar React ni el localStorage del usuario.
   const [selection,setSelection]=React.useState(readInitialSelection);
+  const [selectedDay,setSelectedDay]=React.useState("");
   const [portalHost,setPortalHost]=React.useState(null);
   const [open,setOpen]=React.useState(false);
   const controlRef=React.useRef(null);
@@ -54,6 +74,12 @@ export default function ViewBienvenidaProjectFilter(props){
   },[selection,projectValues]);
   const allSelected=selection===null||selectedValues.length===projectValues.length;
   const selectedSet=React.useMemo(()=>new Set(selectedValues),[selectedValues]);
+  const projectFilteredRop02=React.useMemo(()=>{
+    const source=Array.isArray(props.rop02All)?props.rop02All:[];
+    return allSelected?source:source.filter(row=>selectedSet.has(projectFromRow(row)));
+  },[props.rop02All,allSelected,selectedSet]);
+  const availableDays=React.useMemo(()=>[...new Set(projectFilteredRop02.map(dateFromRop02Row).filter(Boolean))].sort((a,b)=>b.localeCompare(a)),[projectFilteredRop02]);
+  const effectiveDay=selectedDay&&availableDays.includes(selectedDay)?selectedDay:(availableDays[0]||"");
 
   if(typeof window!=="undefined"){
     window.__dmHomeSummaryExternalFilter=true;
@@ -92,18 +118,20 @@ export default function ViewBienvenidaProjectFilter(props){
   },[open]);
 
   const filteredProps=React.useMemo(()=>{
-    if(allSelected)return props;
-    const filterRows=rows=>Array.isArray(rows)?rows.filter(row=>selectedSet.has(projectFromRow(row))):rows;
+    const filterRows=rows=>Array.isArray(rows)?(allSelected?rows:rows.filter(row=>selectedSet.has(projectFromRow(row)))):rows;
     const filteredRma=filterRows(props.rma15);
+    const filteredRop02=effectiveDay?projectFilteredRop02.filter(row=>dateFromRop02Row(row)===effectiveDay):projectFilteredRop02;
     return {
       ...props,
-      rop02All:filterRows(props.rop02All),
+      rop02All:filteredRop02,
       rop05:filterRows(props.rop05),
       rma15:Array.isArray(filteredRma)&&filteredRma.length?filteredRma:[EMPTY_RMA_SENTINEL],
+      summaryDayFiltered:Boolean(effectiveDay),
     };
-  },[props,allSelected,selectedSet]);
+  },[props,allSelected,selectedSet,projectFilteredRop02,effectiveDay]);
 
   const toggleProject=value=>{
+    setSelectedDay("");
     if(value==="TODOS"){setSelection(null);return;}
     setSelection(current=>{
       const base=current===null?[...projectValues]:[...current];
@@ -121,10 +149,14 @@ export default function ViewBienvenidaProjectFilter(props){
     : projectItems.filter(item=>item.value!=="TODOS"&&selectedSet.has(item.value)).map(item=>item.label).join(" + ");
 
   const control=portalHost?createPortal(
-    <div ref={controlRef} style={{position:"relative",marginLeft:"auto"}} onClick={event=>event.stopPropagation()}>
-      <button type="button" aria-label="Filtrar resumen general por proyecto" aria-expanded={open} title="Filtrar resumen general por proyecto" onClick={()=>setOpen(value=>!value)} style={{minWidth:88,maxWidth:160,height:28,padding:"0 8px",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:10,fontWeight:800,outline:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
+    <div ref={controlRef} style={{position:"relative",marginLeft:"auto",display:"flex",flexDirection:"column",gap:5,alignItems:"stretch"}} onClick={event=>event.stopPropagation()}>
+      <button type="button" aria-label="Filtrar resumen general por proyecto" aria-expanded={open} title="Filtrar resumen general por proyecto" onClick={()=>setOpen(value=>!value)} style={{minWidth:108,maxWidth:160,height:28,padding:"0 8px",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:10,fontWeight:800,outline:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{summaryLabel||"Todos"}</span><span style={{fontSize:9,opacity:.8}}>▾</span>
       </button>
+      <select aria-label="Filtrar resumen general por día" title="Día ROP02 del resumen" value={effectiveDay} onChange={event=>setSelectedDay(event.target.value)} disabled={!availableDays.length} style={{minWidth:108,maxWidth:160,height:26,padding:"0 7px",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:9,fontWeight:800,outline:"none",cursor:availableDays.length?"pointer":"default"}}>
+        {!availableDays.length&&<option value="">Sin registros</option>}
+        {availableDays.map(day=><option key={day} value={day}>{formatDayLabel(day)}</option>)}
+      </select>
       {open&&<div style={{position:"absolute",right:0,top:34,zIndex:80,width:178,maxHeight:300,overflowY:"auto",padding:6,borderRadius:9,border:"1px solid rgba(255,255,255,.14)",background:"rgba(5,18,29,.98)",boxShadow:"0 16px 36px rgba(0,0,0,.38)",backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)"}}>
         {projectItems.map(item=>{
           const checked=item.value==="TODOS"?allSelected:selectedSet.has(item.value);

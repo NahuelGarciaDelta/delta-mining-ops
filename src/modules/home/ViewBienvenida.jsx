@@ -31,7 +31,7 @@ let bienvenidaStockCache=null;
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
 
-export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false}){
+export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false,summaryDayFiltered=false}){
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
@@ -57,7 +57,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     return()=>{alive=false;};
   },[]);
   useEffect(()=>{let alive=true;getRma15OpenOtSummary({}).then(response=>{if(alive&&Array.isArray(response?.data))setOpenOtSummary(response.data);}).catch(()=>getRma15({limit:"all",sortBy:"fecha",sortDirection:"asc"}).then(response=>{if(alive)setFallbackRma15(response.data||[]);}).catch(()=>{}));return()=>{alive=false;};},[]);
-  const effectiveRop02=Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]);
+  const effectiveRop02=summaryDayFiltered&&Array.isArray(rop02All)?rop02All:(Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]));
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
   const summaryRef=useRef(null);
@@ -85,10 +85,13 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     let cancelled=false;
     const calculate=()=>{
     const equipos=Array.isArray(listaEquipos)?listaEquipos:[];
-    const rop=effectiveRop02;
+    const ropSource=effectiveRop02;
     const rma=Array.isArray(fallbackRma15)?fallbackRma15:(Array.isArray(rma15)?rma15:[]);
-    const maxRopDate=rop.reduce((max,row)=>{const d=dateOf(row);return d&&(!max||d>max)?d:max;},null);
-    const seven=maxRopDate?new Date(maxRopDate):new Date();seven.setDate(seven.getDate()-6);seven.setHours(0,0,0,0);
+    const maxRopDate=ropSource.reduce((max,row)=>{const d=dateOf(row);return d&&(!max||d>max)?d:max;},null);
+    const maxRopDateISO=isoOfDate(maxRopDate);
+    // El resumen operativo siempre trabaja sobre un único día. Cuando existe filtro
+    // externo de día, ropSource ya viene reducido; sin filtro toma el último día disponible.
+    const rop=maxRopDateISO?ropSource.filter(row=>isoOfDate(dateOf(row))===maxRopDateISO):[];
 
     const normalizeCode=v=>String(v||"").trim().toUpperCase().replace(/\s+/g,"").replace(/-JM$/i,"");
     const listaByCode=new Map();
@@ -111,7 +114,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     };
 
     const activos=new Map();
-    rop.forEach(r=>{const d=dateOf(r), rawCode=codeOf(r), c=canonicalEquivalentMachineCode(rawCode);if(c&&d&&(r._snapshotActive!==false)&&d>=seven&&!activos.has(c))activos.set(c,{interno:c,lugar:r.proyecto||""});});
+    rop.forEach(r=>{const d=dateOf(r), rawCode=codeOf(r), c=canonicalEquivalentMachineCode(rawCode);if(c&&d&&(r._snapshotActive!==false)&&!activos.has(c))activos.set(c,{interno:c,lugar:r.proyecto||""});});
     const operativos={viales:[],camiones:[],camionetas:[]};
     activos.forEach(item=>{const type=classifyActive(item.interno);if(type==="camioneta")operativos.camionetas.push(item);else if(type==="camion")operativos.camiones.push(item);else operativos.viales.push(item);});
     Object.values(operativos).forEach(items=>items.sort((a,b)=>String(a.interno).localeCompare(String(b.interno))));
@@ -165,7 +168,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         stockCritico=stockCriticoItems.length;
       }
     const nextData={
-      viales:operativos.viales.length,camiones:operativos.camiones.length,camionetas:operativos.camionetas.length,
+      fechaResumen:maxRopDateISO,viales:operativos.viales.length,camiones:operativos.camiones.length,camionetas:operativos.camionetas.length,
       equiposFS:availability.fsItems?.length??0,disponibilidad:availability.disponibilidad,availability,
       otAbiertas:otAbiertasItems?.length??0,stockCritico,
       details:{
@@ -311,7 +314,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
                 <SummaryRow active={activeSummaryKey==="camiones"} onClick={()=>setActiveSummaryKey(k=>k==="camiones"?null:"camiones")} icon="truck" color="#60a5fa" label="Camiones operativos" value={summaryLoading.flota?"Cargando…":stats.camiones}/>
                 <SummaryRow active={activeSummaryKey==="camionetas"} onClick={()=>setActiveSummaryKey(k=>k==="camionetas"?null:"camionetas")} icon="car" color="#22d3ee" label="Camionetas operativas" value={summaryLoading.flota?"Cargando…":stats.camionetas}/>
                 <SummaryRow active={activeSummaryKey==="equiposFS"} onClick={()=>setActiveSummaryKey(k=>k==="equiposFS"?null:"equiposFS")} icon="warn" color="#ef4444" label="Equipos FS" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposFS}/>
-                <SummaryRow active={activeSummaryKey==="disponibilidad"} onClick={()=>setActiveSummaryKey(k=>k==="disponibilidad"?null:"disponibilidad")} icon="hours" color="#22d3ee" label="Disponibilidad" value={summaryLoading.disponibilidad?"Cargando…":stats.disponibilidad==null?"—":`${stats.disponibilidad}%`} title="Calculada según el último registro ROP02 disponible de cada equipo dentro de los últimos 7 días. Trabajo u OD = disponible; FS = no disponible. Se excluyen equipos justificados como 'Bajó a San Juan'."/>
+                <SummaryRow active={activeSummaryKey==="disponibilidad"} onClick={()=>setActiveSummaryKey(k=>k==="disponibilidad"?null:"disponibilidad")} icon="hours" color="#22d3ee" label="Disponibilidad" value={summaryLoading.disponibilidad?"Cargando…":stats.disponibilidad==null?"—":`${stats.disponibilidad}%`} title="Calculada exclusivamente con los registros ROP02 del día seleccionado. Trabajo u OD = disponible; FS = no disponible. Se excluyen equipos justificados como 'Bajó a San Juan'."/>
                 <SummaryRow active={activeSummaryKey==="otAbiertas"} onClick={()=>setActiveSummaryKey(k=>k==="otAbiertas"?null:"otAbiertas")} icon="wrench" color="#e7edf2" label="OT abiertas" value={summaryLoading.ot?"Cargando…":stats.otAbiertas}/>
                 <SummaryRow active={activeSummaryKey==="stockCritico"} onClick={()=>setActiveSummaryKey(k=>k==="stockCritico"?null:"stockCritico")} icon="package" color="#f5a000" label="Stock crítico" value={summaryLoading.stock?"Cargando…":stats.stockCritico}/>
               </div>
