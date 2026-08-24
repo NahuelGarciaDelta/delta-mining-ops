@@ -62,6 +62,16 @@ function sevenDaysAgoStart() {
   return d;
 }
 
+function esCamionetaPM(equipo) {
+  const familia = norm(equipo?.familia || equipo?.tipoEquipo || equipo?.equipo);
+  const interno = norm(equipo?.interno);
+  return familia.includes("CAMIONETA") || /^CTA\d+/.test(interno);
+}
+
+function categoriaPM(equipo) {
+  return esCamionetaPM(equipo) ? "vehiculos" : "pesados";
+}
+
 function equipoFromLista(row) {
   const interno = text(pick(row, ["Codigo nuevo", "Código nuevo", "Código de Drusila", "Codigo de Drusila", "Interno", "Código interno", "Codigo interno"]));
   const familia = text(pick(row, ["Familia", "Tipo equipo", "Tipo de equipo", "Equipo"]));
@@ -154,6 +164,8 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   const [programacionEdit, setProgramacionEdit] = useState({ interno: "", fecha: today(), turno: "TURNO DIA", tecnico: "", duracionHs: 4, ubicacion: "", observaciones: "", estado: "PROGRAMADO" });
   const [repuestoEdit, setRepuestoEdit] = useState({ codigo: "", descripcion: "", tipoPM: "PM 250", cantidadMinima: 1, stockActual: 0, proyecto: "TODOS", observaciones: "" });
   const [equipoHistorial, setEquipoHistorial] = useState("");
+  const [usoCategoriaFiltro, setUsoCategoriaFiltro] = useState("pesados");
+  const [proximoCategoriaFiltro, setProximoCategoriaFiltro] = useState("pesados");
 
   useEffect(() => { setTab(initialTab || "dashboard"); }, [initialTab]);
   const changeTab = useCallback(next => {
@@ -250,6 +262,15 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   }, [configs]);
 
   const configMap = useMemo(() => new Map(mergedConfigs.map(c => [norm(c.interno), c])), [mergedConfigs]);
+  const categoriaPorInterno = useMemo(() => {
+    const map = new Map();
+    (listaEquipos || []).forEach(raw => {
+      const e = equipoFromLista(raw);
+      const key = norm(e.interno);
+      if (key) map.set(key, categoriaPM(e));
+    });
+    return map;
+  }, [listaEquipos]);
   const equipos = useMemo(() => {
     const base = [];
     const seen = new Set();
@@ -338,10 +359,14 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     const pendientesMes = conBase.filter(x => ["PM ATRASADO", "PM URGENTE"].includes(x.estado)).length;
     const previstosMes = realizadosMes + pendientesMes;
     const cumplimiento = previstosMes ? Math.round((realizadosMes / previstosMes) * 100) : 100;
-    const intervalosRealizados = registros.map(r => num(r.horasDesdeUltimoPM || r.intervaloReal || r.horasEntrePM)).filter(v => v > 0);
+    const intervalosRealizados = registros
+      .filter(r => categoriaPorInterno.get(norm(r.interno)) === "pesados")
+      .map(r => num(r.horasDesdeUltimoPM || r.intervaloReal || r.horasEntrePM))
+      .filter(v => v > 0);
+    const conBasePesados = conBase.filter(x => categoriaPM(x) === "pesados");
     const promedioHs = intervalosRealizados.length
       ? Math.round(intervalosRealizados.reduce((a, v) => a + v, 0) / intervalosRealizados.length)
-      : (conBase.length ? Math.round(conBase.reduce((a, x) => a + x.transcurridas, 0) / conBase.length) : 0);
+      : (conBasePesados.length ? Math.round(conBasePesados.reduce((a, x) => a + x.transcurridas, 0) / conBasePesados.length) : 0);
     const porProyecto = Object.entries(activos.reduce((acc, x) => {
       const k = x.proyecto || "SIN PROYECTO";
       acc[k] = (acc[k] || 0) + 1;
@@ -355,8 +380,11 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       // Los equipos que ya están urgentes o atrasados pertenecen exclusivamente al bloque urgente.
       .filter(x => !["PM ATRASADO", "PM URGENTE"].includes(x.estado))
       .map(x => {
-        const min = x.transcurridas + 80;
-        const max = x.transcurridas + 120;
+        const esVehiculo = categoriaPM(x) === "vehiculos";
+        const incrementoMin = esVehiculo ? 80 : 8;
+        const incrementoMax = esVehiculo ? 120 : 12;
+        const min = x.transcurridas + incrementoMin;
+        const max = x.transcurridas + incrementoMax;
         let riesgo = "", recomendacion = "";
         if (max >= x.atrasadoDesde) {
           riesgo = "Puede quedar atrasado";
@@ -409,7 +437,15 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       .filter(x => x.estado !== "AL DÍA" || x.faltan <= 120)
       .sort((a, b) => a.faltan - b.faltan || b.transcurridas - a.transcurridas);
     return { realizadosMes, cumplimiento, promedioHs, porProyecto, urgentes, proximoTurno, estado, meses: mesesVisibles, turno, eventosPM, proximosMantenimientos };
-  }, [visibles, registros, mergedConfigs, kpis, C, fechaHasta, mesFiltro, anioFiltro]);
+  }, [visibles, registros, mergedConfigs, kpis, C, fechaHasta, mesFiltro, anioFiltro, categoriaPorInterno]);
+
+  const usoDesdePMFiltrado = useMemo(() => visibles
+    .filter(x => x.horometroUltimoPM > 0 && categoriaPM(x) === usoCategoriaFiltro)
+    .sort((a, b) => b.transcurridas - a.transcurridas)
+    .slice(0, 15), [visibles, usoCategoriaFiltro]);
+
+  const proximoTurnoFiltrado = useMemo(() => dashboard.proximoTurno
+    .filter(x => categoriaPM(x) === proximoCategoriaFiltro), [dashboard.proximoTurno, proximoCategoriaFiltro]);
 
   const actividadDiaria = useMemo(() => {
     const by = new Map();
@@ -659,7 +695,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
         <StatCard label="Equipos al día" value={kpis.alDia} color={C?.green} tooltip="Equipos con base de PM cargada y horas desde el último PM por debajo del umbral de aviso."/>
         <StatCard label="PM realizados en el mes" value={dashboard.realizadosMes} color={C?.blue} tooltip="Cantidad de registros de PM realizados cuya fecha pertenece al mes y año seleccionados."/>
         <StatCard label="Cumplimiento PM del mes" value={`${dashboard.cumplimiento}%`} color={dashboard.cumplimiento>=80?C?.green:C?.yellow} tooltip="Porcentaje de PM realizados respecto de los PM que correspondía atender en el mes seleccionado, considerando los realizados y los pendientes urgentes o atrasados."/>
-        <StatCard label="Promedio de horas entre PM" value={`${fmt(dashboard.promedioHs)} h`} color={C?.purple} tooltip="Promedio de la diferencia de horómetro entre PM consecutivos registrados para los equipos con historial suficiente."/>
+        <StatCard label="Promedio de horas entre PM" value={`${fmt(dashboard.promedioHs)} h`} color={C?.purple} tooltip="Promedio de horas entre PM calculado únicamente con equipos pesados (máquinas y camiones). Las camionetas se excluyen porque se controlan por kilometraje."/>
       </div>
 
       <Card title={`PM realizados — desde ${dashboard.meses?.[0]?.label || "abril"}`}><MonthTimeline months={dashboard.meses}/></Card>
@@ -667,8 +703,24 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))",gap:10}}>
         <Card title="Estado de PM"><BarList rows={dashboard.estado} max={Math.max(1,kpis.total)}/></Card>
         <Card title="PM por proyecto"><BarList rows={dashboard.porProyecto.map(([l,v])=>[l,v,C?.blue])} max={Math.max(1,...dashboard.porProyecto.map(x=>x[1]))}/></Card>
-        <Card title="Horas desde el último PM por equipo"><BarList rows={visibles.filter(x=>x.horometroUltimoPM>0).sort((a,b)=>b.transcurridas-a.transcurridas).slice(0,15).map(x=>[x.interno,x.transcurridas,statusColor[x.estado]])} max={Math.max(1,...visibles.map(x=>x.transcurridas||0))}/></Card>
-        <Card title="PM previstos para el próximo turno"><BarList rows={dashboard.proximoTurno.map(x=>[x.interno,x.proyMax,x.riesgo.includes("atrasado")?C?.red:C?.yellow])} max={Math.max(1,...dashboard.proximoTurno.map(x=>x.proyMax))}/></Card>
+        <Card title="Uso desde el último PM por equipo">
+          <div style={{padding:"10px 12px 0",display:"flex",justifyContent:"flex-end"}}>
+            <select value={usoCategoriaFiltro} onChange={e=>setUsoCategoriaFiltro(e.target.value)} style={{...inputStyle,minWidth:180}}>
+              <option value="pesados">Equipos pesados</option>
+              <option value="vehiculos">Vehículos (camionetas)</option>
+            </select>
+          </div>
+          <BarList rows={usoDesdePMFiltrado.map(x=>[x.interno,x.transcurridas,statusColor[x.estado]])} max={Math.max(1,...usoDesdePMFiltrado.map(x=>x.transcurridas||0))}/>
+        </Card>
+        <Card title="PM previstos para el próximo turno">
+          <div style={{padding:"10px 12px 0",display:"flex",justifyContent:"flex-end"}}>
+            <select value={proximoCategoriaFiltro} onChange={e=>setProximoCategoriaFiltro(e.target.value)} style={{...inputStyle,minWidth:180}}>
+              <option value="pesados">Equipos pesados</option>
+              <option value="vehiculos">Vehículos (camionetas)</option>
+            </select>
+          </div>
+          <BarList rows={proximoTurnoFiltrado.map(x=>[x.interno,x.proyMax,x.riesgo.includes("atrasado")?C?.red:C?.yellow])} max={Math.max(1,...proximoTurnoFiltrado.map(x=>x.proyMax))}/>
+        </Card>
       </div>
 
       <Card title="PM que deben realizarse con urgencia"><div style={{padding:"12px 14px"}}><div style={{overflowX:"auto",border:`1px solid ${C?.border}`,borderRadius:10}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:1150}}><thead><tr>{["Interno","Marca y modelo","Proyecto","Horómetro actual","Horómetro último PM","Hs desde PM","Próximo PM","Atraso / faltante","Estado","Acción"].map(tableHead)}</tr></thead><tbody>
