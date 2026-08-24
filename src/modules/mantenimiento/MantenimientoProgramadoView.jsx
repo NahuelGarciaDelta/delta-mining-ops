@@ -381,8 +381,8 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       .filter(x => !["PM ATRASADO", "PM URGENTE"].includes(x.estado))
       .map(x => {
         const esVehiculo = categoriaPM(x) === "vehiculos";
-        const incrementoMin = esVehiculo ? 80 : 8;
-        const incrementoMax = esVehiculo ? 120 : 12;
+        const incrementoMin = esVehiculo ? 250 : 80;
+        const incrementoMax = esVehiculo ? 750 : 120;
         const min = x.transcurridas + incrementoMin;
         const max = x.transcurridas + incrementoMax;
         let riesgo = "", recomendacion = "";
