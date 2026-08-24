@@ -1,0 +1,44 @@
+name: One-off fix PM projection ranges
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oneoff-fix-pm-projection.yml'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Correct PM projections
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/modules/mantenimiento/MantenimientoProgramadoView.jsx')
+          s=p.read_text(encoding='utf-8')
+          old='''        const incrementoMin = esVehiculo ? 80 : 8;\n        const incrementoMax = esVehiculo ? 120 : 12;'''
+          new='''        const incrementoMin = esVehiculo ? 250 : 80;\n        const incrementoMax = esVehiculo ? 750 : 120;'''
+          if old not in s:
+              raise SystemExit('No se encontró la lógica de proyección esperada; no se modifica nada.')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit validated correction and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/modules/mantenimiento/MantenimientoProgramadoView.jsx
+          git rm .github/workflows/oneoff-fix-pm-projection.yml
+          git commit -m 'Correct PM projection ranges'
+          git push origin main
