@@ -1,0 +1,30 @@
+name: One-off rebuild RABA03 history
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/oneoff-rebuild-raba03-history.yml'
+permissions:
+  contents: write
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install requests
+        run: pip install requests
+      - name: Rebuild and verify Google Sheets history
+        run: python scripts/oneoff_rebuild_raba03_history.py
+      - name: Cleanup one-off files
+        if: success()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm scripts/oneoff_rebuild_raba03_history.py .github/workflows/oneoff-rebuild-raba03-history.yml
+          git commit -m 'Complete RABA03 historical rebuild'
+          git push origin main
