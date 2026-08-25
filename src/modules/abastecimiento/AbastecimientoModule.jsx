@@ -913,7 +913,13 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       await loadRaba03({silent:false,remitosOverride:sharedRemitos});
     };
     run();
-    return()=>{cancelled=true;};
+    return()=>{
+      cancelled=true;
+      // React.StrictMode ejecuta setup/cleanup/setup en desarrollo. Si el primer
+      // setup se cancela antes de loadRaba03, hay que habilitar el segundo setup;
+      // de lo contrario `loading` queda true indefinidamente.
+      raba03InitialLoadDoneRef.current=false;
+    };
   },[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
 
   // Registro en el motor único de actualización de la aplicación.
