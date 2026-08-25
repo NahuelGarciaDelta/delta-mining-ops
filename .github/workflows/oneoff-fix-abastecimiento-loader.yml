@@ -1,0 +1,41 @@
+name: One-off fix Abastecimiento loader
+on:
+  push:
+    paths:
+      - '.github/workflows/oneoff-fix-abastecimiento-loader.yml'
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch StrictMode initial load
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/modules/abastecimiento/AbastecimientoModule.jsx')
+          s=p.read_text()
+          old='''    run();\n    return()=>{cancelled=true;};\n  },[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);'''
+          new='''    run();\n    return()=>{\n      cancelled=true;\n      // React.StrictMode ejecuta setup/cleanup/setup en desarrollo. Si el primer\n      // setup se cancela antes de loadRaba03, hay que habilitar el segundo setup;\n      // de lo contrario `loading` queda true indefinidamente.\n      raba03InitialLoadDoneRef.current=false;\n    };\n  },[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);'''
+          if old not in s:
+              raise SystemExit('No se encontro el bloque esperado')
+          p.write_text(s.replace(old,new,1))
+          PY
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit fix and cleanup workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/modules/abastecimiento/AbastecimientoModule.jsx
+          git rm .github/workflows/oneoff-fix-abastecimiento-loader.yml
+          git commit -m 'Fix Abastecimiento initial loader in StrictMode'
+          git push origin main
