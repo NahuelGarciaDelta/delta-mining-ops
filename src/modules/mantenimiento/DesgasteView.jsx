@@ -1,4 +1,5 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
+import {createPortal} from "react-dom";
 import * as XLSX from "xlsx";
 import {C,Icon,StatCard,MultiSel,Sel,DateIn,TabBtn,matchMulti} from "../../components/ui/index.jsx";
 import {APPS_SCRIPT_URL} from "../../config/app.js";
@@ -47,9 +48,56 @@ async function getCentralCatalog(){
 }
 
 function ArticleUsageTooltip({article,open,onToggle}){
-  return <div style={{display:"inline-flex",alignItems:"center",position:"relative",marginLeft:7}}>
-    <button type="button" aria-label={`Ver equipos que utilizaron ${article.codigo}`} onClick={onToggle} style={{width:18,height:18,borderRadius:"50%",border:`1px solid ${open?C.blue:C.border}`,background:open?`${C.blue}22`:"rgba(20,20,20,.85)",color:open?C.blue:C.textMuted,fontSize:10,fontWeight:900,lineHeight:"16px",padding:0,cursor:"pointer"}}>?</button>
-  </div>;
+  const buttonRef=useRef(null);
+  const [pos,setPos]=useState({top:0,left:0});
+
+  const updatePosition=()=>{
+    const el=buttonRef.current;if(!el)return;
+    const rect=el.getBoundingClientRect();
+    const width=Math.min(390,Math.max(320,window.innerWidth-24));
+    const left=Math.max(12,Math.min(rect.left+24,window.innerWidth-width-12));
+    const estimatedHeight=Math.min(390,150+Math.max(1,article.usos?.length||0)*76);
+    const below=window.innerHeight-rect.bottom;
+    const top=below>estimatedHeight+18?rect.bottom+8:Math.max(12,rect.top-estimatedHeight-8);
+    setPos({top,left});
+  };
+
+  useEffect(()=>{
+    if(!open)return;
+    updatePosition();
+    const move=()=>updatePosition();
+    window.addEventListener("resize",move);
+    window.addEventListener("scroll",move,true);
+    return()=>{window.removeEventListener("resize",move);window.removeEventListener("scroll",move,true);};
+  },[open,article]);
+
+  const projectColor=p=>norm(p).includes("FILO")?C.red:C.cyan;
+  const panel=open&&typeof document!=="undefined"?createPortal(
+    <div style={{position:"fixed",top:pos.top,left:pos.left,width:"min(390px,calc(100vw - 24px))",maxHeight:"min(390px,calc(100vh - 24px))",overflow:"auto",zIndex:2147483646,background:"rgba(24,24,24,.99)",border:`1px solid ${C.accent}`,borderRadius:10,boxShadow:"0 18px 50px rgba(0,0,0,.72)",fontFamily:"Inter",color:C.text}} onClick={e=>e.stopPropagation()}>
+      <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${C.border}66`,background:`${C.accent}12`}}>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
+          <div style={{fontSize:13,fontWeight:900,lineHeight:1.25}}><span style={{color:C.text}}>{article.codigo}</span> — {article.articulo}</div>
+          <button type="button" onClick={onToggle} style={{flex:"0 0 auto",width:24,height:24,borderRadius:7,border:`1px solid ${C.border}`,background:"rgba(35,35,35,.9)",color:C.textMuted,cursor:"pointer",fontSize:15,lineHeight:"20px"}}>×</button>
+        </div>
+        <div style={{fontSize:10,color:C.textMuted,marginTop:4}}>Tooltip fijado · click en la fila para soltar</div>
+      </div>
+      <div style={{padding:"10px 12px"}}>
+        {(article.usos||[]).map((uso,index)=><div key={`${uso.maquina}-${uso.proyecto}`} style={{padding:index?"10px 0 0":"0",marginTop:index?10:0,borderTop:index?`1px solid ${C.border}55`:"none"}}>
+          <div style={{display:"grid",gridTemplateColumns:"92px 1fr",gap:"7px 10px",alignItems:"center",fontSize:11}}>
+            <span style={{color:C.textMuted,fontWeight:700}}>Equipo</span><span style={{fontWeight:900,color:C.purple}}>{uso.maquina}</span>
+            <span style={{color:C.textMuted,fontWeight:700}}>Proyecto</span><span><span style={{display:"inline-flex",alignItems:"center",padding:"3px 8px",borderRadius:999,border:`1px solid ${projectColor(uso.proyecto)}66`,background:`${projectColor(uso.proyecto)}18`,color:projectColor(uso.proyecto),fontWeight:900,fontSize:10}}>{uso.proyecto}</span></span>
+            <span style={{color:C.textMuted,fontWeight:700}}>Cantidad</span><span style={{fontWeight:900,color:C.text}}>{fmtNum(uso.cantidad)}</span>
+          </div>
+        </div>)}
+        {!article.usos?.length&&<div style={{fontSize:11,color:C.textMuted}}>No se encontraron equipos para este artículo con los filtros aplicados.</div>}
+      </div>
+    </div>,document.body
+  ):null;
+
+  return <span style={{display:"inline-flex",alignItems:"center",marginLeft:7}}>
+    <button ref={buttonRef} type="button" aria-label={`Ver equipos que utilizaron ${article.codigo}`} onClick={e=>{e.stopPropagation();onToggle();requestAnimationFrame(updatePosition);}} style={{width:18,height:18,borderRadius:"50%",border:`1px solid ${open?C.accent:C.border}`,background:open?`${C.accent}22`:"rgba(20,20,20,.85)",color:open?C.accent:C.textMuted,fontSize:10,fontWeight:900,lineHeight:"16px",padding:0,cursor:"pointer"}}>?</button>
+    {panel}
+  </span>;
 }
 
 export default function DesgasteView({rma15=[],usdRate}){
@@ -207,7 +255,7 @@ export default function DesgasteView({rma15=[],usdRate}){
 
     <div style={cardStyle}>
       <div style={{padding:"12px 14px",fontWeight:800,fontSize:13,borderBottom:`1px solid ${C.border}44`}}>Detalle por artículo de desgaste</div>
-      <div style={{overflow:"auto",maxHeight:430}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead style={{position:"sticky",top:0,background:"rgba(20,20,20,.97)",zIndex:2}}><tr><th style={{...cellStyle,textAlign:"left"}}>Código</th><th style={{...cellStyle,textAlign:"left"}}>Artículo</th><th style={{...cellStyle,textAlign:"right"}}>Cantidad</th><th style={{...cellStyle,textAlign:"right"}}>Gasto ARS</th><th style={{...cellStyle,textAlign:"right"}}>Gasto USD</th></tr></thead><tbody>{byArticle.map((x,i)=><React.Fragment key={x.codigo}><tr style={{background:i%2?`${C.surface}55`:"transparent"}}><td style={{...cellStyle,fontWeight:800,color:C.blue}}>{x.codigo}</td><td style={cellStyle}><div style={{display:"flex",alignItems:"center"}}><span>{x.articulo}</span><ArticleUsageTooltip article={x} open={pinnedArticle===x.codigo} onToggle={()=>setPinnedArticle(current=>current===x.codigo?null:x.codigo)}/></div></td><td style={{...cellStyle,textAlign:"right"}}>{fmtNum(x.cantidad)}</td><td style={{...cellStyle,textAlign:"right",color:C.yellow,fontWeight:800}}>{moneyARS(x.total)}</td><td style={{...cellStyle,textAlign:"right",color:C.green,fontWeight:700}}>{fmtUSD(x.total,usdRate)}</td></tr>{pinnedArticle===x.codigo&&<tr><td colSpan={5} style={{padding:"0 10px 10px",borderBottom:`1px solid ${C.border}55`,background:"rgba(8,12,17,.94)"}}><div style={{border:`1px solid ${C.blue}55`,borderRadius:8,background:"rgba(14,18,24,.98)",padding:10,boxShadow:"0 12px 28px rgba(0,0,0,.35)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:8}}><div style={{fontSize:11,fontWeight:900,color:C.text}}>Equipos que utilizaron <span style={{color:C.blue}}>{x.codigo}</span></div><div style={{fontSize:10,color:C.textMuted}}>{x.usos.length} combinación{x.usos.length===1?"":"es"} equipo/proyecto</div></div><div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) minmax(150px,1fr) 90px",gap:6,fontSize:10,fontWeight:800,color:C.textMuted,padding:"0 7px 5px"}}><span>Equipo</span><span>Proyecto</span><span style={{textAlign:"right"}}>Cantidad</span></div>{x.usos.map(uso=><div key={`${x.codigo}-${uso.maquina}-${uso.proyecto}`} style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) minmax(150px,1fr) 90px",gap:6,alignItems:"center",padding:"7px",borderTop:`1px solid ${C.border}33`,fontSize:11}}><span style={{fontWeight:900,color:C.blue}}>{uso.maquina}</span><span style={{color:C.text}}>{uso.proyecto}</span><span style={{textAlign:"right",fontWeight:800,color:C.textSub}}>{fmtNum(uso.cantidad)}</span></div>)}</div></td></tr>}</React.Fragment>)}</tbody></table></div>
+      <div style={{overflow:"auto",maxHeight:430}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead style={{position:"sticky",top:0,background:"rgba(20,20,20,.97)",zIndex:2}}><tr><th style={{...cellStyle,textAlign:"left"}}>Código</th><th style={{...cellStyle,textAlign:"left"}}>Artículo</th><th style={{...cellStyle,textAlign:"right"}}>Cantidad</th><th style={{...cellStyle,textAlign:"right"}}>Gasto ARS</th><th style={{...cellStyle,textAlign:"right"}}>Gasto USD</th></tr></thead><tbody>{byArticle.map((x,i)=>{const active=pinnedArticle===x.codigo;return <tr key={x.codigo} onClick={()=>setPinnedArticle(current=>current===x.codigo?null:x.codigo)} style={{background:active?"rgba(239,35,60,.26)":i%2?`${C.surface}55`:"transparent",cursor:"pointer",boxShadow:active?`inset 3px 0 0 ${C.accent}`:"none"}}><td style={{...cellStyle,fontWeight:800,color:C.blue}}>{x.codigo}</td><td style={cellStyle}><div style={{display:"flex",alignItems:"center"}}><span>{x.articulo}</span><ArticleUsageTooltip article={x} open={active} onToggle={()=>setPinnedArticle(current=>current===x.codigo?null:x.codigo)}/></div></td><td style={{...cellStyle,textAlign:"right",color:active?C.accent:C.text}}>{fmtNum(x.cantidad)}</td><td style={{...cellStyle,textAlign:"right",color:C.yellow,fontWeight:800}}>{moneyARS(x.total)}</td><td style={{...cellStyle,textAlign:"right",color:C.green,fontWeight:700}}>{fmtUSD(x.total,usdRate)}</td></tr>;})}</tbody></table></div>
     </div>
   </div>;
 }
