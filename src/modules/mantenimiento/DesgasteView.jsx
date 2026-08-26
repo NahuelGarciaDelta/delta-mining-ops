@@ -1,7 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
-import {createPortal} from "react-dom";
 import * as XLSX from "xlsx";
-import {C,Icon,StatCard} from "../../components/ui/index.jsx";
+import {C,Icon,StatCard,MultiSel,Sel,DateIn,TabBtn,matchMulti} from "../../components/ui/index.jsx";
 import {APPS_SCRIPT_URL} from "../../config/app.js";
 import {fmtNum,fmtUSD,normalizeInsumoCode,normDate} from "../../shared/domain/index.jsx";
 
@@ -12,8 +11,6 @@ const norm=v=>String(v??"").trim().toUpperCase().normalize("NFD").replace(/[\u03
 const first=(row,names)=>{const keys=Object.keys(row||{});for(const n of names){const target=norm(n).replace(/[^A-Z0-9]/g,"");const k=keys.find(x=>norm(x).replace(/[^A-Z0-9]/g,"")===target);if(k)return row[k];}return"";};
 const moneyARS=v=>Number(v||0)>0?"$ "+Number(v||0).toLocaleString("es-AR",{maximumFractionDigits:0}):"—";
 const pct=v=>Number.isFinite(v)?`${v.toLocaleString("es-AR",{minimumFractionDigits:1,maximumFractionDigits:1})}%`:"—";
-const selectStyle={background:C.surface,color:C.text,border:`1px solid ${C.border}`,borderRadius:7,padding:"8px 10px",minWidth:135,fontSize:12,fontFamily:"Inter",outline:"none"};
-const labelStyle={fontSize:10,color:C.textMuted,fontWeight:700,letterSpacing:".04em"};
 const cardStyle={background:"rgba(22,22,22,.74)",backdropFilter:"blur(9px)",WebkitBackdropFilter:"blur(9px)",border:`1px solid ${C.border}66`,borderRadius:12,overflow:"hidden"};
 const cellStyle={padding:"8px 10px",borderBottom:`1px solid ${C.border}28`,fontSize:12};
 
@@ -49,73 +46,6 @@ async function getCentralCatalog(){
   return parseCatalogRows(json.data||[]);
 }
 
-function MultiSelect({label,options,value,onChange,allLabel="Todos",minWidth=150,renderOption}){
-  const rootRef=useRef(null);
-  const buttonRef=useRef(null);
-  const menuRef=useRef(null);
-  const [open,setOpen]=useState(false);
-  const [search,setSearch]=useState("");
-  const [menuPos,setMenuPos]=useState({top:0,left:0,width:230,maxHeight:300});
-
-  const updatePosition=()=>{
-    const button=buttonRef.current;
-    if(!button)return;
-    const rect=button.getBoundingClientRect();
-    const viewportWidth=window.innerWidth||document.documentElement.clientWidth;
-    const viewportHeight=window.innerHeight||document.documentElement.clientHeight;
-    const width=Math.max(rect.width,230);
-    const left=Math.max(8,Math.min(rect.left,viewportWidth-width-8));
-    const availableBelow=viewportHeight-rect.bottom-12;
-    const availableAbove=rect.top-12;
-    const openUp=availableBelow<230&&availableAbove>availableBelow;
-    const maxHeight=Math.max(180,Math.min(360,openUp?availableAbove:availableBelow));
-    const top=openUp?Math.max(8,rect.top-maxHeight-4):rect.bottom+4;
-    setMenuPos({top,left,width,maxHeight});
-  };
-
-  useEffect(()=>{
-    if(!open)return;
-    updatePosition();
-    const onMove=()=>updatePosition();
-    const close=e=>{
-      const target=e.target;
-      if(rootRef.current?.contains(target)||menuRef.current?.contains(target))return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown",close,true);
-    window.addEventListener("resize",onMove);
-    window.addEventListener("scroll",onMove,true);
-    return()=>{
-      document.removeEventListener("mousedown",close,true);
-      window.removeEventListener("resize",onMove);
-      window.removeEventListener("scroll",onMove,true);
-    };
-  },[open]);
-
-  const selected=Array.isArray(value)?value:[];
-  const filtered=options.filter(opt=>norm(renderOption?renderOption(opt):String(opt)).includes(norm(search)));
-  const text=selected.length===0?allLabel:selected.length===1?(renderOption?renderOption(options.find(o=>(o.value??o)===selected[0])||selected[0]):selected[0]):`${selected.length} seleccionados`;
-  const toggle=raw=>{
-    const key=raw?.value??raw;
-    onChange(selected.includes(key)?selected.filter(x=>x!==key):[...selected,key]);
-  };
-
-  const menu=open&&typeof document!=="undefined"?createPortal(
-    <div ref={menuRef} data-dm-wear-filter-menu="1" style={{position:"fixed",zIndex:2147483647,top:menuPos.top,left:menuPos.left,width:menuPos.width,maxHeight:menuPos.maxHeight,overflow:"hidden",background:"#171717",border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 18px 45px rgba(0,0,0,.72)",fontFamily:"Inter",isolation:"isolate"}}>
-      <div style={{padding:8,borderBottom:`1px solid ${C.border}55`}}><input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{...selectStyle,minWidth:0,width:"100%",boxSizing:"border-box"}}/></div>
-      <button type="button" onClick={()=>onChange([])} style={{width:"100%",textAlign:"left",padding:"9px 10px",border:0,borderBottom:`1px solid ${C.border}33`,background:selected.length===0?C.accentDim:"transparent",color:selected.length===0?C.accent:C.text,cursor:"pointer",fontWeight:700}}>✓ {allLabel}</button>
-      <div style={{maxHeight:Math.max(100,menuPos.maxHeight-100),overflow:"auto"}}>{filtered.map((opt,i)=>{const key=opt?.value??opt;const checked=selected.includes(key);return <label key={`${key}-${i}`} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",cursor:"pointer",background:checked?"rgba(239,35,60,.08)":"transparent",color:C.text,fontSize:11}}><input type="checkbox" checked={checked} onChange={()=>toggle(opt)}/><span>{renderOption?renderOption(opt):String(opt)}</span></label>;})}</div>
-      <div style={{display:"flex",justifyContent:"flex-end",padding:7,borderTop:`1px solid ${C.border}44`}}><button type="button" onClick={()=>setOpen(false)} style={{border:`1px solid ${C.border}`,background:C.surface,color:C.text,borderRadius:6,padding:"6px 10px",cursor:"pointer",fontSize:10,fontWeight:700}}>Aplicar</button></div>
-    </div>,document.body
-  ):null;
-
-  return <div ref={rootRef} style={{position:"relative",minWidth}}>
-    <div style={labelStyle}>{label}</div>
-    <button ref={buttonRef} type="button" onClick={()=>{setOpen(v=>!v);requestAnimationFrame(updatePosition);}} style={{...selectStyle,minWidth,width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginTop:3}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{text}</span><span style={{fontSize:10,color:C.textMuted}}>▼</span></button>
-    {menu}
-  </div>;
-}
-
 export default function DesgasteView({rma15=[],usdRate}){
   const inputRef=useRef(null);
   const now=new Date();
@@ -126,11 +56,11 @@ export default function DesgasteView({rma15=[],usdRate}){
   const [mode,setMode]=useState("dia");
   const [day,setDay]=useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`);
   const [year,setYear]=useState(String(now.getFullYear()));
-  const [month,setMonth]=useState(now.getMonth());
-  const [projects,setProjects]=useState([]);
-  const [types,setTypes]=useState([]);
-  const [machines,setMachines]=useState([]);
-  const [articles,setArticles]=useState([]);
+  const [month,setMonth]=useState(String(now.getMonth()));
+  const [projects,setProjects]=useState("todos");
+  const [types,setTypes]=useState("todos");
+  const [machines,setMachines]=useState("todas");
+  const [articles,setArticles]=useState("todos");
 
   useEffect(()=>{
     let active=true;setCatalogBusy(true);
@@ -159,31 +89,41 @@ export default function DesgasteView({rma15=[],usdRate}){
     return[`${year}-${m}-01`,`${year}-${m}-${String(last).padStart(2,"0")}`];
   },[mode,day,year,month]);
 
+  const projectValues=useMemo(()=>[...new Set(wearRows.map(r=>r.proyecto).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"es-AR",{numeric:true,sensitivity:"base"})),[wearRows]);
+  const projectOptions=useMemo(()=>[{value:"todos",label:"Todos"},...projectValues.map(x=>({value:x,label:x}))],[projectValues]);
+  const rowsByProject=useMemo(()=>wearRows.filter(r=>matchMulti(r.proyecto,projects,"todos")),[wearRows,projects]);
+  const typeValues=useMemo(()=>[...new Set(rowsByProject.map(r=>r.tipo).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"es-AR",{numeric:true,sensitivity:"base"})),[rowsByProject]);
+  const typeOptions=useMemo(()=>[{value:"todos",label:"Todas"},...typeValues.map(x=>({value:x,label:x}))],[typeValues]);
+  const rowsByType=useMemo(()=>rowsByProject.filter(r=>matchMulti(r.tipo,types,"todos")),[rowsByProject,types]);
+  const machineValues=useMemo(()=>[...new Set(rowsByType.map(r=>r.maquina).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"es-AR",{numeric:true,sensitivity:"base"})),[rowsByType]);
+  const machineOptions=useMemo(()=>[{value:"todas",label:"Todas"},...machineValues.map(x=>({value:x,label:x}))],[machineValues]);
+  const rowsByMachine=useMemo(()=>rowsByType.filter(r=>matchMulti(r.maquina,machines,"todas")),[rowsByType,machines]);
+  const articleValues=useMemo(()=>[...new Map(rowsByMachine.map(r=>[r.codigo,{codigo:r.codigo,articulo:r.articulo}])).values()].sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo),"es-AR",{numeric:true,sensitivity:"base"})),[rowsByMachine]);
+  const articleOptions=useMemo(()=>[{value:"todos",label:"Todos"},...articleValues.map(x=>({value:x.codigo,label:`${x.codigo} — ${x.articulo}`}))],[articleValues]);
+  const monthOptions=useMemo(()=>MESES.map((label,i)=>({value:String(i),label})),[]);
+  const yearOptions=useMemo(()=>{
+    const ys=new Set([String(now.getFullYear()),"2025","2026","2027","2028"]);
+    wearRows.forEach(r=>{if(r.fecha)ys.add(String(r.fecha).slice(0,4));});
+    return [...ys].sort().map(y=>({value:y,label:y}));
+  },[wearRows]);
+
   const maintenanceBase=useMemo(()=>(rma15||[]).filter(ot=>{
     const fecha=normDate(ot.fecha);if(!fecha)return false;
     if(period[0]&&fecha<period[0])return false;if(period[1]&&fecha>period[1])return false;
-    const p=ot.proyecto||"S/D",t=ot.tipoEquipo||"S/D",m=ot.maquina||"S/D";
-    if(projects.length&&!projects.includes(p))return false;
-    if(types.length&&!types.includes(t))return false;
-    if(machines.length&&!machines.includes(m))return false;
+    if(!matchMulti(ot.proyecto||"S/D",projects,"todos"))return false;
+    if(!matchMulti(ot.tipoEquipo||"S/D",types,"todos"))return false;
+    if(!matchMulti(ot.maquina||"S/D",machines,"todas"))return false;
     return true;
   }),[rma15,period,projects,types,machines]);
 
   const filtered=useMemo(()=>wearRows.filter(r=>{
     if(period[0]&&r.fecha<period[0])return false;if(period[1]&&r.fecha>period[1])return false;
-    if(projects.length&&!projects.includes(r.proyecto))return false;
-    if(types.length&&!types.includes(r.tipo))return false;
-    if(machines.length&&!machines.includes(r.maquina))return false;
-    if(articles.length&&!articles.includes(r.codigo))return false;
+    if(!matchMulti(r.proyecto,projects,"todos"))return false;
+    if(!matchMulti(r.tipo,types,"todos"))return false;
+    if(!matchMulti(r.maquina,machines,"todas"))return false;
+    if(!matchMulti(r.codigo,articles,"todos"))return false;
     return true;
   }),[wearRows,period,projects,types,machines,articles]);
-
-  const options=useMemo(()=>({
-    projects:[...new Set(wearRows.map(r=>r.proyecto))].sort(),
-    types:[...new Set(wearRows.map(r=>r.tipo))].sort(),
-    machines:[...new Set(wearRows.map(r=>r.maquina))].sort(),
-    articles:[...new Map(wearRows.map(r=>[r.codigo,{value:r.codigo,codigo:r.codigo,articulo:r.articulo}])).values()].sort((a,b)=>a.codigo.localeCompare(b.codigo))
-  }),[wearRows]);
 
   const totalWear=filtered.reduce((s,r)=>s+r.total,0);
   const totalMaintenance=maintenanceBase.reduce((s,r)=>s+Number(r.costoTotal||0),0);
@@ -204,10 +144,10 @@ export default function DesgasteView({rma15=[],usdRate}){
     }catch(err){setCatalogMessage("No se pudo leer el Excel: "+err.message);}finally{setCatalogBusy(false);e.target.value="";}
   };
 
-  const clear=()=>{setProjects([]);setTypes([]);setMachines([]);setArticles([]);};
+  const clear=()=>{setProjects("todos");setTypes("todos");setMachines("todas");setArticles("todos");};
 
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
-    <div style={{...cardStyle,padding:14}}>
+    <div style={{...cardStyle,padding:14,overflow:"visible",position:"relative",zIndex:5}}>
       <div style={{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",flexWrap:"wrap"}}>
         <div><div style={{fontWeight:900,fontSize:15,color:C.text}}>Análisis de consumo de desgaste</div><div style={{fontSize:11,color:C.textMuted,marginTop:3}}>Cruza los artículos definidos como desgaste con los consumos de RMA15 y compara su incidencia sobre el costo total de mantenimiento.</div></div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" onChange={upload} style={{display:"none"}}/><button disabled={catalogBusy} onClick={()=>inputRef.current?.click()} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:7,border:`1px solid ${C.yellow}88`,background:C.yellowDim,color:C.yellow,fontSize:11,fontWeight:800,cursor:catalogBusy?"wait":"pointer"}}><Icon name="fileSpreadsheet" size={14} color={C.yellow}/>{catalogBusy?"Sincronizando...":"Cargar Excel de desgaste"}</button><span style={{fontSize:10,color:catalogSource==="central"?C.green:C.yellow,fontWeight:700}}>{catalogSource==="central"?"● Fuente central":"● Respaldo local"} · {catalog.length} códigos</span></div>
@@ -215,14 +155,14 @@ export default function DesgasteView({rma15=[],usdRate}){
       {catalogMessage&&<div style={{marginTop:9,fontSize:10,color:catalogSource==="central"?C.green:C.yellow}}>{catalogMessage}</div>}
 
       <div style={{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap",marginTop:14}}>
-        <button onClick={()=>setMode("dia")} style={{...selectStyle,minWidth:80,cursor:"pointer",background:mode==="dia"?C.accent:C.surface,borderColor:mode==="dia"?C.accent:C.border,color:mode==="dia"?"#fff":C.textSub,fontWeight:800}}>Por día</button>
-        <button onClick={()=>setMode("mes")} style={{...selectStyle,minWidth:80,cursor:"pointer",background:mode==="mes"?C.accent:C.surface,borderColor:mode==="mes"?C.accent:C.border,color:mode==="mes"?"#fff":C.textSub,fontWeight:800}}>Por mes</button>
-        {mode==="dia"?<label style={labelStyle}>FECHA<br/><input type="date" value={day} onChange={e=>setDay(e.target.value)} style={selectStyle}/></label>:<><label style={labelStyle}>MES<br/><select value={month} onChange={e=>setMonth(Number(e.target.value))} style={selectStyle}>{MESES.map((x,i)=><option key={x} value={i}>{x}</option>)}</select></label><label style={labelStyle}>AÑO<br/><select value={year} onChange={e=>setYear(e.target.value)} style={selectStyle}>{[2025,2026,2027,2028].map(y=><option key={y}>{y}</option>)}</select></label></>}
-        <MultiSelect label="PROYECTO" options={options.projects} value={projects} onChange={setProjects} allLabel="Todos" minWidth={150}/>
-        <MultiSelect label="TIPO DE MÁQUINA" options={options.types} value={types} onChange={setTypes} allLabel="Todas" minWidth={170}/>
-        <MultiSelect label="MÁQUINA" options={options.machines} value={machines} onChange={setMachines} allLabel="Todas" minWidth={150}/>
-        <MultiSelect label="INSUMO" options={options.articles} value={articles} onChange={setArticles} allLabel="Todos" minWidth={260} renderOption={x=>typeof x==="string"?x:`${x.codigo} — ${x.articulo}`}/>
-        <button onClick={clear} style={{...selectStyle,cursor:"pointer",minWidth:105,color:C.textSub}}>Limpiar filtros</button>
+        <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
+        <TabBtn active={mode==="mes"} onClick={()=>setMode("mes")}>Por mes</TabBtn>
+        {mode==="dia"?<DateIn label="Fecha" value={day} onChange={setDay}/>:<><Sel label="Mes" value={month} onChange={setMonth} options={monthOptions}/><Sel label="Año" value={year} onChange={setYear} options={yearOptions}/></>}
+        <MultiSel label="Proyecto" value={projects} onChange={setProjects} options={projectOptions}/>
+        <MultiSel label="Tipo de máquina" value={types} onChange={setTypes} options={typeOptions}/>
+        <MultiSel label="Máquina" value={machines} onChange={setMachines} options={machineOptions}/>
+        <MultiSel label="Insumo" value={articles} onChange={setArticles} options={articleOptions}/>
+        <button onClick={clear} style={{alignSelf:"end",background:"transparent",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 12px",fontSize:11,cursor:"pointer",height:32}}>× Limpiar filtros</button>
       </div>
     </div>
 
@@ -238,10 +178,16 @@ export default function DesgasteView({rma15=[],usdRate}){
     </div>
 
     <div style={{display:"grid",gridTemplateColumns:"minmax(0,1.55fr) minmax(280px,.75fr)",gap:12}}>
-      <div style={cardStyle}><div style={{padding:"12px 14px",fontWeight:800,fontSize:13,borderBottom:`1px solid ${C.border}44`}}>Gasto por equipo</div><div style={{maxHeight:460,overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead style={{position:"sticky",top:0,background:"rgba(20,20,20,.97)",zIndex:2}}><tr><th style={{...cellStyle,textAlign:"left"}}>Equipo</th><th style={{...cellStyle,textAlign:"right"}}>Cantidad</th><th style={{...cellStyle,textAlign:"right"}}>Desgaste ARS</th><th style={{...cellStyle,textAlign:"right"}}>Desgaste USD</th><th style={{...cellStyle,textAlign:"right"}}>Costo total de mant.</th><th style={{...cellStyle,textAlign:"right"}}>% de desgaste</th></tr></thead><tbody>{byMachine.map((x,i)=><tr key={x.maquina} style={{background:i%2?`${C.surface}55`:"transparent"}}><td style={{...cellStyle,fontWeight:800,color:C.blue}}>{x.maquina}</td><td style={{...cellStyle,textAlign:"right"}}>{fmtNum(x.cantidad)}</td><td style={{...cellStyle,textAlign:"right",color:C.yellow,fontWeight:800}}>{moneyARS(x.total)}</td><td style={{...cellStyle,textAlign:"right",color:C.green,fontWeight:700}}>{fmtUSD(x.total,usdRate)}</td><td style={{...cellStyle,textAlign:"right",color:C.text,fontWeight:700}}><div>{moneyARS(x.mantenimiento)}</div><div style={{fontSize:10,color:C.green,marginTop:2}}>{fmtUSD(x.mantenimiento,usdRate)}</div></td><td style={{...cellStyle,textAlign:"right",fontWeight:900,color:x.porcentaje>=30?C.red:x.porcentaje>=15?C.yellow:C.green}}>{pct(x.porcentaje)}</td></tr>)}</tbody></table>{!byMachine.length&&<div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:12}}>No hay consumos de desgaste para los filtros seleccionados.</div>}</div></div>
+      <div style={cardStyle}>
+        <div style={{padding:"12px 14px",fontWeight:800,fontSize:13,borderBottom:`1px solid ${C.border}44`}}>Gasto por equipo</div>
+        <div style={{maxHeight:460,overflow:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead style={{position:"sticky",top:0,background:"rgba(20,20,20,.97)",zIndex:2}}><tr><th style={{...cellStyle,textAlign:"left"}}>Equipo</th><th style={{...cellStyle,textAlign:"right"}}>Cantidad</th><th style={{...cellStyle,textAlign:"right"}}>Desgaste ARS</th><th style={{...cellStyle,textAlign:"right"}}>Desgaste USD</th><th style={{...cellStyle,textAlign:"right"}}>Costo total de mant.</th><th style={{...cellStyle,textAlign:"right"}}>% de desgaste</th></tr></thead><tbody>{byMachine.map((x,i)=><tr key={x.maquina} style={{background:i%2?`${C.surface}55`:"transparent"}}><td style={{...cellStyle,fontWeight:800,color:C.blue}}>{x.maquina}</td><td style={{...cellStyle,textAlign:"right"}}>{fmtNum(x.cantidad)}</td><td style={{...cellStyle,textAlign:"right",color:C.yellow,fontWeight:800}}>{moneyARS(x.total)}</td><td style={{...cellStyle,textAlign:"right",color:C.green,fontWeight:700}}>{fmtUSD(x.total,usdRate)}</td><td style={{...cellStyle,textAlign:"right",color:C.text,fontWeight:700}}><div>{moneyARS(x.mantenimiento)}</div><div style={{fontSize:10,color:C.green,marginTop:2}}>{fmtUSD(x.mantenimiento,usdRate)}</div></td><td style={{...cellStyle,textAlign:"right",fontWeight:900,color:x.porcentaje>=30?C.red:x.porcentaje>=15?C.yellow:C.green}}>{pct(x.porcentaje)}</td></tr>)}</tbody></table>{!byMachine.length&&<div style={{padding:24,textAlign:"center",color:C.textMuted,fontSize:12}}>No hay consumos de desgaste para los filtros seleccionados.</div>}</div>
+      </div>
       <div style={cardStyle}><div style={{padding:"12px 14px",fontWeight:800,fontSize:13,borderBottom:`1px solid ${C.border}44`}}>Gasto por mes</div><div style={{padding:"4px 14px 12px"}}>{byMonth.map(x=><div key={x.mes} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${C.border}28`}}><span style={{color:C.textSub}}>{x.mes}</span><span style={{textAlign:"right"}}><b style={{color:C.yellow}}>{moneyARS(x.total)}</b><div style={{fontSize:10,color:C.green,marginTop:2}}>{fmtUSD(x.total,usdRate)}</div></span></div>)}{!byMonth.length&&<div style={{padding:"18px 0",color:C.textMuted,fontSize:12}}>Sin datos.</div>}</div></div>
     </div>
 
-    <div style={cardStyle}><div style={{padding:"12px 14px",fontWeight:800,fontSize:13,borderBottom:`1px solid ${C.border}44`}}>Detalle por artículo de desgaste</div><div style={{overflow:"auto",maxHeight:430}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead style={{position:"sticky",top:0,background:"rgba(20,20,20,.97)",zIndex:2}}><tr><th style={{...cellStyle,textAlign:"left"}}>Código</th><th style={{...cellStyle,textAlign:"left"}}>Artículo</th><th style={{...cellStyle,textAlign:"right"}}>Cantidad</th><th style={{...cellStyle,textAlign:"right"}}>Gasto ARS</th><th style={{...cellStyle,textAlign:"right"}}>Gasto USD</th></tr></thead><tbody>{byArticle.map((x,i)=><tr key={x.codigo} style={{background:i%2?`${C.surface}55`:"transparent"}}><td style={{...cellStyle,fontWeight:800,color:C.blue}}>{x.codigo}</td><td style={cellStyle}>{x.articulo}</td><td style={{...cellStyle,textAlign:"right"}}>{fmtNum(x.cantidad)}</td><td style={{...cellStyle,textAlign:"right",color:C.yellow,fontWeight:800}}>{moneyARS(x.total)}</td><td style={{...cellStyle,textAlign:"right",color:C.green,fontWeight:700}}>{fmtUSD(x.total,usdRate)}</td></tr>)}</tbody></table></div></div>
+    <div style={cardStyle}>
+      <div style={{padding:"12px 14px",fontWeight:800,fontSize:13,borderBottom:`1px solid ${C.border}44`}}>Detalle por artículo de desgaste</div>
+      <div style={{overflow:"auto",maxHeight:430}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead style={{position:"sticky",top:0,background:"rgba(20,20,20,.97)",zIndex:2}}><tr><th style={{...cellStyle,textAlign:"left"}}>Código</th><th style={{...cellStyle,textAlign:"left"}}>Artículo</th><th style={{...cellStyle,textAlign:"right"}}>Cantidad</th><th style={{...cellStyle,textAlign:"right"}}>Gasto ARS</th><th style={{...cellStyle,textAlign:"right"}}>Gasto USD</th></tr></thead><tbody>{byArticle.map((x,i)=><tr key={x.codigo} style={{background:i%2?`${C.surface}55`:"transparent"}}><td style={{...cellStyle,fontWeight:800,color:C.blue}}>{x.codigo}</td><td style={cellStyle}>{x.articulo}</td><td style={{...cellStyle,textAlign:"right"}}>{fmtNum(x.cantidad)}</td><td style={{...cellStyle,textAlign:"right",color:C.yellow,fontWeight:800}}>{moneyARS(x.total)}</td><td style={{...cellStyle,textAlign:"right",color:C.green,fontWeight:700}}>{fmtUSD(x.total,usdRate)}</td></tr>)}</tbody></table></div>
+    </div>
   </div>;
 }
