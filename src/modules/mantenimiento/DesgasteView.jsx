@@ -46,6 +46,12 @@ async function getCentralCatalog(){
   return parseCatalogRows(json.data||[]);
 }
 
+function ArticleUsageTooltip({article,open,onToggle}){
+  return <div style={{display:"inline-flex",alignItems:"center",position:"relative",marginLeft:7}}>
+    <button type="button" aria-label={`Ver equipos que utilizaron ${article.codigo}`} onClick={onToggle} style={{width:18,height:18,borderRadius:"50%",border:`1px solid ${open?C.blue:C.border}`,background:open?`${C.blue}22`:"rgba(20,20,20,.85)",color:open?C.blue:C.textMuted,fontSize:10,fontWeight:900,lineHeight:"16px",padding:0,cursor:"pointer"}}>?</button>
+  </div>;
+}
+
 export default function DesgasteView({rma15=[],usdRate}){
   const inputRef=useRef(null);
   const now=new Date();
@@ -61,6 +67,7 @@ export default function DesgasteView({rma15=[],usdRate}){
   const [types,setTypes]=useState("todos");
   const [machines,setMachines]=useState("todas");
   const [articles,setArticles]=useState("todos");
+  const [pinnedArticle,setPinnedArticle]=useState(null);
 
   useEffect(()=>{
     let active=true;setCatalogBusy(true);
@@ -125,6 +132,8 @@ export default function DesgasteView({rma15=[],usdRate}){
     return true;
   }),[wearRows,period,projects,types,machines,articles]);
 
+  useEffect(()=>{if(pinnedArticle&&!filtered.some(r=>r.codigo===pinnedArticle))setPinnedArticle(null);},[filtered,pinnedArticle]);
+
   const totalWear=filtered.reduce((s,r)=>s+r.total,0);
   const totalMaintenance=maintenanceBase.reduce((s,r)=>s+Number(r.costoTotal||0),0);
   const wearShare=totalMaintenance>0?(totalWear/totalMaintenance)*100:0;
@@ -132,7 +141,17 @@ export default function DesgasteView({rma15=[],usdRate}){
   const byMachine=useMemo(()=>{const m=new Map();filtered.forEach(r=>{const x=m.get(r.maquina)||{maquina:r.maquina,total:0,cantidad:0};x.total+=r.total;x.cantidad+=r.cantidad;m.set(r.maquina,x);});return[...m.values()].map(x=>{const mantenimiento=maintByMachine.get(x.maquina)||0;return{...x,mantenimiento,porcentaje:mantenimiento>0?(x.total/mantenimiento)*100:0};}).sort((a,b)=>b.total-a.total);},[filtered,maintByMachine]);
   const maintByMonth=useMemo(()=>{const m=new Map();maintenanceBase.forEach(r=>{const fecha=normDate(r.fecha);if(!fecha)return;const mes=fecha.slice(0,7);m.set(mes,(m.get(mes)||0)+Number(r.costoTotal||0));});return m;},[maintenanceBase]);
   const byMonth=useMemo(()=>{const m=new Map();filtered.forEach(r=>m.set(r.mes,(m.get(r.mes)||0)+r.total));return[...m].sort().map(([mes,total])=>{const mantenimiento=maintByMonth.get(mes)||0;return{mes,total,mantenimiento,porcentaje:mantenimiento>0?(total/mantenimiento)*100:0};});},[filtered,maintByMonth]);
-  const byArticle=useMemo(()=>{const m=new Map();filtered.forEach(r=>{const x=m.get(r.codigo)||{codigo:r.codigo,articulo:r.articulo,total:0,cantidad:0};x.total+=r.total;x.cantidad+=r.cantidad;m.set(r.codigo,x);});return[...m.values()].sort((a,b)=>b.total-a.total);},[filtered]);
+  const byArticle=useMemo(()=>{
+    const m=new Map();
+    filtered.forEach(r=>{
+      const x=m.get(r.codigo)||{codigo:r.codigo,articulo:r.articulo,total:0,cantidad:0,usos:new Map()};
+      x.total+=r.total;x.cantidad+=r.cantidad;
+      const usoKey=`${r.maquina}|||${r.proyecto}`;
+      const uso=x.usos.get(usoKey)||{maquina:r.maquina,proyecto:r.proyecto,cantidad:0,total:0};
+      uso.cantidad+=r.cantidad;uso.total+=r.total;x.usos.set(usoKey,uso);m.set(r.codigo,x);
+    });
+    return [...m.values()].map(x=>({...x,usos:[...x.usos.values()].sort((a,b)=>String(a.proyecto).localeCompare(String(b.proyecto),"es-AR",{numeric:true,sensitivity:"base"})||String(a.maquina).localeCompare(String(b.maquina),"es-AR",{numeric:true,sensitivity:"base"}))})).sort((a,b)=>b.total-a.total);
+  },[filtered]);
 
   const upload=async e=>{
     const file=e.target.files?.[0];if(!file)return;
@@ -145,7 +164,7 @@ export default function DesgasteView({rma15=[],usdRate}){
     }catch(err){setCatalogMessage("No se pudo leer el Excel: "+err.message);}finally{setCatalogBusy(false);e.target.value="";}
   };
 
-  const clear=()=>{setProjects("todos");setTypes("todos");setMachines("todas");setArticles("todos");};
+  const clear=()=>{setProjects("todos");setTypes("todos");setMachines("todas");setArticles("todos");setPinnedArticle(null);};
 
   return <div style={{display:"flex",flexDirection:"column",gap:12}}>
     <div style={{...cardStyle,padding:14,overflow:"visible",position:"relative",zIndex:5}}>
@@ -188,7 +207,7 @@ export default function DesgasteView({rma15=[],usdRate}){
 
     <div style={cardStyle}>
       <div style={{padding:"12px 14px",fontWeight:800,fontSize:13,borderBottom:`1px solid ${C.border}44`}}>Detalle por artículo de desgaste</div>
-      <div style={{overflow:"auto",maxHeight:430}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead style={{position:"sticky",top:0,background:"rgba(20,20,20,.97)",zIndex:2}}><tr><th style={{...cellStyle,textAlign:"left"}}>Código</th><th style={{...cellStyle,textAlign:"left"}}>Artículo</th><th style={{...cellStyle,textAlign:"right"}}>Cantidad</th><th style={{...cellStyle,textAlign:"right"}}>Gasto ARS</th><th style={{...cellStyle,textAlign:"right"}}>Gasto USD</th></tr></thead><tbody>{byArticle.map((x,i)=><tr key={x.codigo} style={{background:i%2?`${C.surface}55`:"transparent"}}><td style={{...cellStyle,fontWeight:800,color:C.blue}}>{x.codigo}</td><td style={cellStyle}>{x.articulo}</td><td style={{...cellStyle,textAlign:"right"}}>{fmtNum(x.cantidad)}</td><td style={{...cellStyle,textAlign:"right",color:C.yellow,fontWeight:800}}>{moneyARS(x.total)}</td><td style={{...cellStyle,textAlign:"right",color:C.green,fontWeight:700}}>{fmtUSD(x.total,usdRate)}</td></tr>)}</tbody></table></div>
+      <div style={{overflow:"auto",maxHeight:430}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead style={{position:"sticky",top:0,background:"rgba(20,20,20,.97)",zIndex:2}}><tr><th style={{...cellStyle,textAlign:"left"}}>Código</th><th style={{...cellStyle,textAlign:"left"}}>Artículo</th><th style={{...cellStyle,textAlign:"right"}}>Cantidad</th><th style={{...cellStyle,textAlign:"right"}}>Gasto ARS</th><th style={{...cellStyle,textAlign:"right"}}>Gasto USD</th></tr></thead><tbody>{byArticle.map((x,i)=><React.Fragment key={x.codigo}><tr style={{background:i%2?`${C.surface}55`:"transparent"}}><td style={{...cellStyle,fontWeight:800,color:C.blue}}>{x.codigo}</td><td style={cellStyle}><div style={{display:"flex",alignItems:"center"}}><span>{x.articulo}</span><ArticleUsageTooltip article={x} open={pinnedArticle===x.codigo} onToggle={()=>setPinnedArticle(current=>current===x.codigo?null:x.codigo)}/></div></td><td style={{...cellStyle,textAlign:"right"}}>{fmtNum(x.cantidad)}</td><td style={{...cellStyle,textAlign:"right",color:C.yellow,fontWeight:800}}>{moneyARS(x.total)}</td><td style={{...cellStyle,textAlign:"right",color:C.green,fontWeight:700}}>{fmtUSD(x.total,usdRate)}</td></tr>{pinnedArticle===x.codigo&&<tr><td colSpan={5} style={{padding:"0 10px 10px",borderBottom:`1px solid ${C.border}55`,background:"rgba(8,12,17,.94)"}}><div style={{border:`1px solid ${C.blue}55`,borderRadius:8,background:"rgba(14,18,24,.98)",padding:10,boxShadow:"0 12px 28px rgba(0,0,0,.35)"}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:8}}><div style={{fontSize:11,fontWeight:900,color:C.text}}>Equipos que utilizaron <span style={{color:C.blue}}>{x.codigo}</span></div><div style={{fontSize:10,color:C.textMuted}}>{x.usos.length} combinación{x.usos.length===1?"":"es"} equipo/proyecto</div></div><div style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) minmax(150px,1fr) 90px",gap:6,fontSize:10,fontWeight:800,color:C.textMuted,padding:"0 7px 5px"}}><span>Equipo</span><span>Proyecto</span><span style={{textAlign:"right"}}>Cantidad</span></div>{x.usos.map(uso=><div key={`${x.codigo}-${uso.maquina}-${uso.proyecto}`} style={{display:"grid",gridTemplateColumns:"minmax(120px,1fr) minmax(150px,1fr) 90px",gap:6,alignItems:"center",padding:"7px",borderTop:`1px solid ${C.border}33`,fontSize:11}}><span style={{fontWeight:900,color:C.blue}}>{uso.maquina}</span><span style={{color:C.text}}>{uso.proyecto}</span><span style={{textAlign:"right",fontWeight:800,color:C.textSub}}>{fmtNum(uso.cantidad)}</span></div>)}</div></td></tr>}</React.Fragment>)}</tbody></table></div>
     </div>
   </div>;
 }
