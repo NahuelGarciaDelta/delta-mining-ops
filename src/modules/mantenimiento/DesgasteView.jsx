@@ -64,7 +64,7 @@ function ArticleUsageTooltip({article,open,anchorRect,pinned}){
   if(!open||typeof document==="undefined")return null;
 
   return createPortal(
-    <div style={{position:"fixed",top:pos.top,left:pos.left,width:"min(390px,calc(100vw - 24px))",maxHeight:"min(390px,calc(100vh - 24px))",overflow:"auto",zIndex:2147483646,background:"rgba(24,24,24,.99)",border:`1px solid ${C.accent}`,borderRadius:10,boxShadow:"0 18px 50px rgba(0,0,0,.72)",fontFamily:"Inter",color:C.text,pointerEvents:"none"}}>
+    <div style={{position:"fixed",top:pos.top,left:pos.left,width:"min(390px,calc(100vw - 24px))",maxHeight:"min(390px,calc(100vh - 24px))",overflowY:"auto",overflowX:"hidden",overscrollBehavior:"contain",zIndex:2147483646,background:"rgba(24,24,24,.99)",border:`1px solid ${C.accent}`,borderRadius:10,boxShadow:"0 18px 50px rgba(0,0,0,.72)",fontFamily:"Inter",color:C.text,pointerEvents:pinned?"auto":"none"}} onWheel={pinned?e=>e.stopPropagation():undefined} onClick={pinned?e=>e.stopPropagation():undefined}>
       <div style={{padding:"10px 12px 8px",borderBottom:`1px solid ${C.border}66`,background:`${C.accent}12`}}>
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
           <div style={{fontSize:13,fontWeight:900,lineHeight:1.25}}><span style={{color:C.text}}>{article.codigo}</span> — {article.articulo}</div>
