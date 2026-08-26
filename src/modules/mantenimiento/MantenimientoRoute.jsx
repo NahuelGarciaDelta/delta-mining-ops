@@ -96,6 +96,6 @@ export default function MantenimientoRoute(props){
     return {...isolatedProps,rma15:cloneRma15Rows(remote.rows),remoteTotal:remote.total,remoteHasMore:remote.hasMore,onRemoteMore:loadMore,onRemoteExport:exportAll};
   },[props,baseRma15,hasRemoteFilter,remote,loadMore,exportAll]);
 
-  if(props.mode==="mantenimiento"&&wearMode)return <DesgasteView rma15={baseRma15}/>;
+  if(props.mode==="mantenimiento"&&wearMode)return <DesgasteView rma15={baseRma15} usdRate={props.usdRate}/>;
   return <React.Suspense fallback={<PageLoadingMotoniveladora label="Cargando Mantenimiento..."/>}><LazyMantenimientoModule {...effective}/></React.Suspense>;
 }
