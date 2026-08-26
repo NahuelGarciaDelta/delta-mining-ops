@@ -125,8 +125,8 @@ function revalidateDatasetInBackground_(dataset,params,cached){
   if(!shouldRevalidate_(key))return;
   lastRevalidatedAt.set(key,Date.now());
   fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{
-    if(!versionsDiffer_(cached?.versions||{},sync?.versions||{}))return null;
-    return fetchDatasetPage(dataset,params);
+    if(!sync||versionsDiffer_(cached?.versions||{},sync?.versions||{}))return fetchDatasetPage(dataset,params);
+    return null;
   }).catch(()=>{
     // El cache visible permanece intacto si falla la revalidación.
   });
@@ -136,23 +136,21 @@ export async function getDataset(dataset,params={}){
   const cached=await readDatasetQuery(dataset,params);
   if(!cached)return fetchDatasetPage(dataset,params);
 
-  // Controles críticos que consultan un rango concreto deben validar frescura antes
-  // de calcular. El resto de la app usa stale-while-revalidate: pinta el cache ya
-  // disponible y comprueba datos nuevos sin bloquear la interfaz.
-  const requireFresh=Boolean(params?.requireFresh||params?.desde||params?.hasta);
-  if(requireFresh){
-    try{
-      const sync=await fetchSyncVersions(APPS_SCRIPT_URL);
-      if(versionsDiffer_(cached.versions||{},sync?.versions||{})){
-        return await fetchDatasetPage(dataset,params);
-      }
-      lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());
-    }catch(_){}
+  // Regla global de consistencia: ninguna PC usa un cache local sin validar antes
+  // que corresponde a la misma versión de datos publicada por el backend.
+  // Esto aplica a ROP02, ROP05 y RMA15 en todas las vistas y para todos los roles.
+  try{
+    const sync=await fetchSyncVersions(APPS_SCRIPT_URL);
+    if(!sync||versionsDiffer_(cached.versions||{},sync?.versions||{})){
+      return await fetchDatasetPage(dataset,params);
+    }
+    lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());
     return cached;
+  }catch(_){
+    // Si no se pudo verificar la versión, se intenta igualmente ir a la fuente.
+    // Solo se conserva el cache como último recurso ante una falla real de red/backend.
+    try{return await fetchDatasetPage(dataset,params);}catch(__){return cached;}
   }
-
-  revalidateDatasetInBackground_(dataset,params,cached);
-  return cached;
 }
 
 export const getRop02=params=>getDataset("rop02",params);
