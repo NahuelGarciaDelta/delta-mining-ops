@@ -20,6 +20,11 @@ function isAtrasoView(props){
   return props?.view==="controlROP02"&&props?.stControlROP02?.tab==="atraso";
 }
 
+function isControlErrorsView(props){
+  if(props?.view==="controlErrores")return true;
+  return props?.view==="controlROP02"&&(!props?.stControlROP02?.tab||props?.stControlROP02?.tab==="errores");
+}
+
 function isAdministrativeAtraso(props){
   if(typeof window==="undefined")return false;
   const role=String(window.sessionStorage.getItem("dm_role")||"").trim().toUpperCase();
@@ -111,8 +116,11 @@ function isFullRop02Query(params={}){
 export function OficinaTecnicaRoute(props){
   const Fallback=props?.deps?.BlockingDataLoader;
   const atrasoView=isAtrasoView(props);
+  const controlErrorsView=isControlErrorsView(props);
   const readOnlyAtraso=isAdministrativeAtraso(props);
   const [equiposRop02,setEquiposRop02]=useState(null);
+  const [controlErrorsRop02,setControlErrorsRop02]=useState(null);
+  const [controlErrorsLoading,setControlErrorsLoading]=useState(false);
   const [rop02ViewRevision,setRop02ViewRevision]=useState(0);
   const [tallerTab,setTallerTab]=useState("RESUMEN");
 
@@ -198,7 +206,27 @@ export function OficinaTecnicaRoute(props){
     return()=>window.removeEventListener(HISTORICAL_DATASET_UPDATED_EVENT,onHistoricalUpdated);
   },[]);
 
-  useEffect(()=>registerRefreshTask("oficina-rop02-full-refresh",async()=>refreshHistoricalDataset("rop02",{limit:"all",sortBy:"fecha",sortDirection:"desc"}),{views:["rop02"],priority:20}),[]);
+  useEffect(()=>registerRefreshTask("oficina-rop02-full-refresh",async()=>refreshHistoricalDataset("rop02",{limit:"all",sortBy:"fecha",sortDirection:"desc"}),{views:["rop02","controlROP02","controlErrores"],priority:20}),[]);
+
+  useEffect(()=>{
+    if(!controlErrorsView){setControlErrorsRop02(null);setControlErrorsLoading(false);return;}
+    let active=true;
+    setControlErrorsLoading(true);
+    // Control de errores es crítico: siempre consulta la fuente completa y fresca.
+    // No depende del cache/snapshot cargado durante el login ni del rol del usuario.
+    refreshHistoricalDataset("rop02",{limit:"all",sortBy:"fecha",sortDirection:"desc"})
+      .then(result=>{
+        if(!active)return;
+        const raw=Array.isArray(result?.data)?result.data:[];
+        setControlErrorsRop02(normalizeROP02(raw));
+      })
+      .catch(error=>{
+        console.warn("No se pudo refrescar ROP02 para Control de errores; se conserva la fuente cargada.",error);
+        if(active)setControlErrorsRop02(Array.isArray(props?.rop02All)?props.rop02All:[]);
+      })
+      .finally(()=>{if(active)setControlErrorsLoading(false);});
+    return()=>{active=false;};
+  },[controlErrorsView,rop02ViewRevision]);
 
   useEffect(()=>{
     if(props?.view!=="listaEquipos")return;
@@ -208,17 +236,23 @@ export function OficinaTecnicaRoute(props){
   },[props?.view]);
 
   const rop02Equipos=useMemo(()=>{if(props?.view!=="listaEquipos")return props?.rop02All;return mergeRop02Sources(props?.rop02All,equiposRop02);},[props?.view,props?.rop02All,equiposRop02]);
+  const rop02ControlErrors=controlErrorsRop02||props?.rop02All||[];
 
   const routedProps=useMemo(()=>{
     let nextProps=props;
     if(props?.view==="listaEquipos")nextProps={...nextProps,rop02All:rop02Equipos};
+    if(controlErrorsView)nextProps={...nextProps,rop02All:rop02ControlErrors};
     if(props?.view==="horometros"||props?.view==="chc")nextProps={...nextProps,deps:buildOperationalPeriodDeps(nextProps.deps)};
     if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};
     return nextProps;
-  },[props,rop02Equipos,atrasoView,readOnlyAtraso]);
+  },[props,rop02Equipos,rop02ControlErrors,controlErrorsView,atrasoView,readOnlyAtraso]);
 
   const moduleKey=props?.view==="rop02"?`rop02-cache-${rop02ViewRevision}`:undefined;
   const tcColor=props?.deps?.C||{};
+
+  if(controlErrorsView&&controlErrorsLoading&&!controlErrorsRop02){
+    return Fallback?<Fallback label="Actualizando Control de errores..."/>:null;
+  }
 
   return <Suspense fallback={Fallback?<Fallback label="Cargando Oficina Técnica..."/>:null}>
     {props?.view==="tallerCentral"?<div style={{display:"flex",flexDirection:"column",gap:14}}>
