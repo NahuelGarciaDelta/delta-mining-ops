@@ -50,6 +50,53 @@ function setWearVisual_(wearButton,maintenanceButton){
   }
 }
 
+function isWearView_(){
+  return text_(document.querySelector(".dm-app-content h1"))==="Desgaste";
+}
+
+function fixWearFilterStack_(){
+  if(!isWearView_())return;
+
+  const root=document.querySelector(".dm-app-content");
+  if(!root)return;
+
+  const heading=[...root.querySelectorAll("div")].find(node=>text_(node)==="Análisis de consumo de desgaste");
+  const filterCard=heading?.parentElement?.parentElement;
+  if(filterCard){
+    filterCard.style.overflow="visible";
+    filterCard.style.position="relative";
+    filterCard.style.zIndex="5000";
+    filterCard.style.isolation="auto";
+  }
+
+  const labels=new Set(["PROYECTO","TIPO DE MÁQUINA","MÁQUINA","INSUMO"]);
+  [...root.querySelectorAll("div")].forEach(node=>{
+    if(!labels.has(text_(node)))return;
+    const wrapper=node.parentElement;
+    if(!wrapper)return;
+    wrapper.style.position="relative";
+    wrapper.style.zIndex="6000";
+    wrapper.style.overflow="visible";
+
+    [...wrapper.children].forEach(child=>{
+      if(!(child instanceof HTMLElement))return;
+      const css=getComputedStyle(child);
+      if(css.position==="absolute"){
+        child.style.zIndex="100000";
+        child.style.position="absolute";
+      }
+    });
+  });
+
+  // Elevar cualquier menú absoluto del bloque superior por encima de KPI, tablas y gráficos.
+  if(filterCard){
+    [...filterCard.querySelectorAll("div")].forEach(node=>{
+      if(!(node instanceof HTMLElement))return;
+      if(getComputedStyle(node).position==="absolute")node.style.zIndex="100000";
+    });
+  }
+}
+
 function buildWearButton_(maintenanceButton){
   const button=maintenanceButton.cloneNode(true);
   button.id=WEAR_BUTTON_ID;
@@ -71,21 +118,26 @@ function buildWearButton_(maintenanceButton){
     if(realMaintenance)realMaintenance.click();
     sessionStorage.setItem(WEAR_FLAG,"desgaste");
     window.dispatchEvent(new CustomEvent(WEAR_ACTIVE_EVENT));
-    requestAnimationFrame(()=>setWearVisual_(button,realMaintenance));
+    requestAnimationFrame(()=>{
+      setWearVisual_(button,realMaintenance);
+      fixWearFilterStack_();
+    });
   });
   return button;
 }
 
 function install_(){
   const maintenanceButton=findMaintenanceButton_();
-  if(!maintenanceButton)return;
-  let wearButton=document.getElementById(WEAR_BUTTON_ID);
-  if(!wearButton||wearButton.parentNode!==maintenanceButton.parentNode){
-    wearButton?.remove();
-    wearButton=buildWearButton_(maintenanceButton);
-    maintenanceButton.parentNode.insertBefore(wearButton,maintenanceButton.nextSibling);
+  if(maintenanceButton){
+    let wearButton=document.getElementById(WEAR_BUTTON_ID);
+    if(!wearButton||wearButton.parentNode!==maintenanceButton.parentNode){
+      wearButton?.remove();
+      wearButton=buildWearButton_(maintenanceButton);
+      maintenanceButton.parentNode.insertBefore(wearButton,maintenanceButton.nextSibling);
+    }
+    setWearVisual_(wearButton,maintenanceButton);
   }
-  setWearVisual_(wearButton,maintenanceButton);
+  fixWearFilterStack_();
 }
 
 function handleNavClick_(event){
@@ -104,8 +156,9 @@ export function installGlobalWearSidebarBridge(){
   sessionStorage.removeItem(WEAR_FLAG);
   install_();
   const observer=new MutationObserver(()=>install_());
-  observer.observe(document.body,{childList:true,subtree:true});
+  observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:["style"]});
   document.addEventListener("click",handleNavClick_,true);
+  document.addEventListener("click",()=>requestAnimationFrame(fixWearFilterStack_),true);
   return()=>{
     observer.disconnect();
     document.removeEventListener("click",handleNavClick_,true);
