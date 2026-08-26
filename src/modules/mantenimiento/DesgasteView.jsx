@@ -1,4 +1,5 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
+import {createPortal} from "react-dom";
 import * as XLSX from "xlsx";
 import {C,Icon,StatCard} from "../../components/ui/index.jsx";
 import {APPS_SCRIPT_URL} from "../../config/app.js";
@@ -49,14 +50,48 @@ async function getCentralCatalog(){
 }
 
 function MultiSelect({label,options,value,onChange,allLabel="Todos",minWidth=150,renderOption}){
-  const ref=useRef(null);
+  const rootRef=useRef(null);
+  const buttonRef=useRef(null);
+  const menuRef=useRef(null);
   const [open,setOpen]=useState(false);
   const [search,setSearch]=useState("");
+  const [menuPos,setMenuPos]=useState({top:0,left:0,width:230,maxHeight:300});
+
+  const updatePosition=()=>{
+    const button=buttonRef.current;
+    if(!button)return;
+    const rect=button.getBoundingClientRect();
+    const viewportWidth=window.innerWidth||document.documentElement.clientWidth;
+    const viewportHeight=window.innerHeight||document.documentElement.clientHeight;
+    const width=Math.max(rect.width,230);
+    const left=Math.max(8,Math.min(rect.left,viewportWidth-width-8));
+    const availableBelow=viewportHeight-rect.bottom-12;
+    const availableAbove=rect.top-12;
+    const openUp=availableBelow<230&&availableAbove>availableBelow;
+    const maxHeight=Math.max(180,Math.min(360,openUp?availableAbove:availableBelow));
+    const top=openUp?Math.max(8,rect.top-maxHeight-4):rect.bottom+4;
+    setMenuPos({top,left,width,maxHeight});
+  };
+
   useEffect(()=>{
-    const close=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};
-    document.addEventListener("mousedown",close);
-    return()=>document.removeEventListener("mousedown",close);
-  },[]);
+    if(!open)return;
+    updatePosition();
+    const onMove=()=>updatePosition();
+    const close=e=>{
+      const target=e.target;
+      if(rootRef.current?.contains(target)||menuRef.current?.contains(target))return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown",close,true);
+    window.addEventListener("resize",onMove);
+    window.addEventListener("scroll",onMove,true);
+    return()=>{
+      document.removeEventListener("mousedown",close,true);
+      window.removeEventListener("resize",onMove);
+      window.removeEventListener("scroll",onMove,true);
+    };
+  },[open]);
+
   const selected=Array.isArray(value)?value:[];
   const filtered=options.filter(opt=>norm(renderOption?renderOption(opt):String(opt)).includes(norm(search)));
   const text=selected.length===0?allLabel:selected.length===1?(renderOption?renderOption(options.find(o=>(o.value??o)===selected[0])||selected[0]):selected[0]):`${selected.length} seleccionados`;
@@ -64,15 +99,20 @@ function MultiSelect({label,options,value,onChange,allLabel="Todos",minWidth=150
     const key=raw?.value??raw;
     onChange(selected.includes(key)?selected.filter(x=>x!==key):[...selected,key]);
   };
-  return <div ref={ref} style={{position:"relative",minWidth}}>
-    <div style={labelStyle}>{label}</div>
-    <button type="button" onClick={()=>setOpen(v=>!v)} style={{...selectStyle,minWidth,width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginTop:3}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{text}</span><span style={{fontSize:10,color:C.textMuted}}>▼</span></button>
-    {open&&<div style={{position:"absolute",zIndex:30,top:"calc(100% + 4px)",left:0,width:"100%",minWidth:230,maxHeight:300,overflow:"hidden",background:"#171717",border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 12px 30px rgba(0,0,0,.45)"}}>
-      <div style={{padding:8,borderBottom:`1px solid ${C.border}55`}}><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{...selectStyle,minWidth:0,width:"100%",boxSizing:"border-box"}}/></div>
+
+  const menu=open&&typeof document!=="undefined"?createPortal(
+    <div ref={menuRef} data-dm-wear-filter-menu="1" style={{position:"fixed",zIndex:2147483647,top:menuPos.top,left:menuPos.left,width:menuPos.width,maxHeight:menuPos.maxHeight,overflow:"hidden",background:"#171717",border:`1px solid ${C.border}`,borderRadius:8,boxShadow:"0 18px 45px rgba(0,0,0,.72)",fontFamily:"Inter",isolation:"isolate"}}>
+      <div style={{padding:8,borderBottom:`1px solid ${C.border}55`}}><input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{...selectStyle,minWidth:0,width:"100%",boxSizing:"border-box"}}/></div>
       <button type="button" onClick={()=>onChange([])} style={{width:"100%",textAlign:"left",padding:"9px 10px",border:0,borderBottom:`1px solid ${C.border}33`,background:selected.length===0?C.accentDim:"transparent",color:selected.length===0?C.accent:C.text,cursor:"pointer",fontWeight:700}}>✓ {allLabel}</button>
-      <div style={{maxHeight:220,overflow:"auto"}}>{filtered.map((opt,i)=>{const key=opt?.value??opt;const checked=selected.includes(key);return <label key={`${key}-${i}`} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",cursor:"pointer",background:checked?"rgba(239,35,60,.08)":"transparent",color:C.text,fontSize:11}}><input type="checkbox" checked={checked} onChange={()=>toggle(opt)}/><span>{renderOption?renderOption(opt):String(opt)}</span></label>;})}</div>
+      <div style={{maxHeight:Math.max(100,menuPos.maxHeight-100),overflow:"auto"}}>{filtered.map((opt,i)=>{const key=opt?.value??opt;const checked=selected.includes(key);return <label key={`${key}-${i}`} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",cursor:"pointer",background:checked?"rgba(239,35,60,.08)":"transparent",color:C.text,fontSize:11}}><input type="checkbox" checked={checked} onChange={()=>toggle(opt)}/><span>{renderOption?renderOption(opt):String(opt)}</span></label>;})}</div>
       <div style={{display:"flex",justifyContent:"flex-end",padding:7,borderTop:`1px solid ${C.border}44`}}><button type="button" onClick={()=>setOpen(false)} style={{border:`1px solid ${C.border}`,background:C.surface,color:C.text,borderRadius:6,padding:"6px 10px",cursor:"pointer",fontSize:10,fontWeight:700}}>Aplicar</button></div>
-    </div>}
+    </div>,document.body
+  ):null;
+
+  return <div ref={rootRef} style={{position:"relative",minWidth}}>
+    <div style={labelStyle}>{label}</div>
+    <button ref={buttonRef} type="button" onClick={()=>{setOpen(v=>!v);requestAnimationFrame(updatePosition);}} style={{...selectStyle,minWidth,width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",marginTop:3}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{text}</span><span style={{fontSize:10,color:C.textMuted}}>▼</span></button>
+    {menu}
   </div>;
 }
 
