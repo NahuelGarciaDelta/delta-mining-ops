@@ -3,9 +3,9 @@ import { PageLoadingMotoniveladora } from "../../components/ui/index.jsx";
 import {createHistoricalPagedController,fetchAllDatasetPages} from "../../data/historicalDataService.js";
 import {normalizeRMA15} from "../../shared/domain/index.jsx";
 import DesgasteView from "./DesgasteView.jsx";
+import {WEAR_FLAG,WEAR_ACTIVE_EVENT,WEAR_CLOSE_EVENT} from "./wearSidebarBridge.js";
 
 const LazyMantenimientoModule = React.lazy(() => import("./MantenimientoModule.jsx"));
-const WEAR_FLAG="dm_rma15_subview";
 
 function cloneRma15Rows(rows){
   return (Array.isArray(rows)?rows:[]).map(row=>{
@@ -20,49 +20,35 @@ function normalizeRemoteRows(rows,insumos){
   return (Array.isArray(rows)?rows:[]).map(row=>normalizeRMA15({...row,_proyectoForzado:row.Proyecto||row.proyecto||"S/D"},insumos||{}));
 }
 
-function installWearSidebarButton_(openWear){
-  const install=()=>{
-    const buttons=[...document.querySelectorAll("nav button")];
-    const mant=buttons.find(b=>String(b.textContent||"").trim()==="Mantenimiento");
-    if(!mant||document.getElementById("dm-sidebar-desgaste"))return;
-    const btn=mant.cloneNode(true);
-    btn.id="dm-sidebar-desgaste";
-    const label=[...btn.querySelectorAll("span")].find(s=>String(s.textContent||"").trim()==="Mantenimiento");
-    if(label)label.textContent="Desgaste";
-    btn.title="Desgaste";
-    btn.onclick=e=>{e.preventDefault();e.stopPropagation();openWear();};
-    mant.parentNode.insertBefore(btn,mant.nextSibling);
-  };
-  install();
-  const observer=new MutationObserver(install);
-  observer.observe(document.body,{childList:true,subtree:true});
-  return()=>observer.disconnect();
-}
-
 export default function MantenimientoRoute(props){
   const controllerRef=React.useRef(null);
   const requestRef=React.useRef(0);
   const [remote,setRemote]=React.useState(null);
-  const [wearMode,setWearMode]=React.useState(()=>sessionStorage.getItem(WEAR_FLAG)==="desgaste");
+  const [wearMode,setWearMode]=React.useState(()=>props.mode==="mantenimiento"&&sessionStorage.getItem(WEAR_FLAG)==="desgaste");
 
-  React.useEffect(()=>installWearSidebarButton_(()=>{sessionStorage.setItem(WEAR_FLAG,"desgaste");setWearMode(true);}),[]);
   React.useEffect(()=>{
-    const handler=e=>{
-      const btn=e.target?.closest?.("nav button");
-      if(!btn||btn.id==="dm-sidebar-desgaste")return;
-      if(String(btn.textContent||"").trim()==="Mantenimiento"){
-        sessionStorage.removeItem(WEAR_FLAG);
-        setWearMode(false);
-      }
+    const openWear=()=>{if(props.mode==="mantenimiento")setWearMode(true);};
+    const closeWear=()=>setWearMode(false);
+    window.addEventListener(WEAR_ACTIVE_EVENT,openWear);
+    window.addEventListener(WEAR_CLOSE_EVENT,closeWear);
+    return()=>{
+      window.removeEventListener(WEAR_ACTIVE_EVENT,openWear);
+      window.removeEventListener(WEAR_CLOSE_EVENT,closeWear);
     };
-    document.addEventListener("click",handler,true);
-    return()=>document.removeEventListener("click",handler,true);
-  },[]);
+  },[props.mode]);
+
   React.useEffect(()=>{
-    if(!wearMode)return;
-    const h=[...document.querySelectorAll("h1")].find(x=>String(x.textContent||"").trim()==="Mantenimiento");
-    if(h)h.textContent="Desgaste";
-  },[wearMode]);
+    if(props.mode!=="mantenimiento"){
+      setWearMode(false);
+      return;
+    }
+    const h=[...document.querySelectorAll(".dm-app-content h1")].find(Boolean);
+    if(h)h.textContent=wearMode?"Desgaste":"Mantenimiento";
+    return()=>{
+      const current=[...document.querySelectorAll(".dm-app-content h1")].find(Boolean);
+      if(current&&current.textContent==="Desgaste")current.textContent="Mantenimiento";
+    };
+  },[wearMode,props.mode]);
 
   if(!controllerRef.current)controllerRef.current=createHistoricalPagedController();
   const baseRma15=React.useMemo(()=>cloneRma15Rows(props.rma15),[props.rma15]);
