@@ -1,89 +1,16 @@
-/* DELTA MINING OPS — Preferencias de apariencia por usuario
- * Agregar estas funciones al Apps Script principal.
- * Requiere que doGet enrute action=user_preferences a handleUserPreferencesGet_(e.parameter.email)
- * y doPost enrute action=save_user_preferences a handleUserPreferencesSave_(payload).
- */
-
-var DM_USER_APPEARANCE_HEADER_ = "Apariencia";
-
-function dmGetUsuariosAppearanceInfo_() {
-  var cfg = SHEETS_CONFIG.usuarios;
-  if (!cfg) throw new Error("No existe SHEETS_CONFIG.usuarios");
-  var ss = SpreadsheetApp.openById(cfg.id);
-  var sh = ss.getSheetByName(cfg.sheet);
-  if (!sh) throw new Error("No existe la hoja de usuarios: " + cfg.sheet);
-  var lastCol = Math.max(1, sh.getLastColumn());
-  var headers = sh.getRange(cfg.headerRow || 1, 1, 1, lastCol).getDisplayValues()[0].map(function(v){ return String(v || "").trim(); });
-  var colEmail = headers.findIndex(function(h){ return h.toUpperCase() === "EMAIL"; });
-  var colAppearance = headers.findIndex(function(h){ return h.toUpperCase() === DM_USER_APPEARANCE_HEADER_.toUpperCase(); });
-  if (colEmail < 0) throw new Error("No se encontró la columna Email en Usuarios autorizados");
-  if (colAppearance < 0) {
-    colAppearance = lastCol;
-    sh.getRange(cfg.headerRow || 1, colAppearance + 1).setValue(DM_USER_APPEARANCE_HEADER_);
-  }
-  return { ss:ss, sh:sh, colEmail:colEmail, colAppearance:colAppearance, headerRow:cfg.headerRow || 1 };
-}
-
-function dmFindUserAppearanceRow_(info, email) {
-  var target = String(email || "").trim().toLowerCase();
-  if (!target) throw new Error("Email requerido");
-  var lastRow = info.sh.getLastRow();
-  if (lastRow <= info.headerRow) return -1;
-  var values = info.sh.getRange(info.headerRow + 1, info.colEmail + 1, lastRow - info.headerRow, 1).getDisplayValues();
-  for (var i=0;i<values.length;i++) {
-    if (String(values[i][0] || "").trim().toLowerCase() === target) return info.headerRow + 1 + i;
-  }
-  return -1;
-}
-
-function dmNormalizeAppearanceServer_(value) {
-  value = value && typeof value === "object" ? value : {};
-  var out = {
-    accent: String(value.accent || "red"),
-    background: String(value.background || "operations"),
-    backgroundDim: Math.max(0, Math.min(85, Number(value.backgroundDim == null ? 48 : value.backgroundDim))),
-    backgroundBlur: Math.max(0, Math.min(16, Number(value.backgroundBlur == null ? 0 : value.backgroundBlur))),
-    panelOpacity: Math.max(35, Math.min(100, Number(value.panelOpacity == null ? 55 : value.panelOpacity))),
-    density: String(value.density || "normal"),
-    scale: String(value.scale || "normal"),
-    sidebar: String(value.sidebar || "remember"),
-    reducedMotion: !!value.reducedMotion
-  };
-  // Las imágenes personalizadas se mantienen locales: una celda de Sheets no es un almacén de archivos.
-  if (out.background === "custom") out.background = "operations";
-  return out;
-}
-
-function handleUserPreferencesGet_(email) {
-  var info = dmGetUsuariosAppearanceInfo_();
-  var row = dmFindUserAppearanceRow_(info, email);
-  if (row < 0) throw new Error("Usuario no encontrado");
-  var raw = String(info.sh.getRange(row, info.colAppearance + 1).getValue() || "").trim();
-  var appearance = {};
-  if (raw) {
-    try { appearance = JSON.parse(raw); } catch (_) { appearance = {}; }
-  }
-  return { ok:true, appearance:dmNormalizeAppearanceServer_(appearance) };
-}
-
-function handleUserPreferencesSave_(payload) {
-  payload = payload || {};
-  var info = dmGetUsuariosAppearanceInfo_();
-  var row = dmFindUserAppearanceRow_(info, payload.email);
-  if (row < 0) throw new Error("Usuario no encontrado");
-  var appearance = dmNormalizeAppearanceServer_(payload.appearance || {});
-  info.sh.getRange(row, info.colAppearance + 1).setValue(JSON.stringify(appearance));
-  SpreadsheetApp.flush();
-  return { ok:true, appearance:appearance, savedAt:new Date().toISOString() };
-}
-
-/* RUTEO A INCORPORAR EN doGet(e):
-if (action === "user_preferences") {
-  return buildResponse(handleUserPreferencesGet_(e.parameter.email || ""));
-}
-
-RUTEO A INCORPORAR EN doPost(e), después de parsear payload:
-if (action === "save_user_preferences") {
-  return buildResponse(handleUserPreferencesSave_(payload));
-}
-*/
+/* DELTA MINING OPS — APARIENCIA POR USUARIO. Pegar al final del Apps Script principal. */
+var DM_CONFIG_SHEET_="Configuraciones",DM_CONFIG_HEADERS_=["EMAIL","TIPO","ID","NOMBRE","VALOR","ORDEN","ACTUALIZADO"];
+function dmConfigSheet_(){var ss=SpreadsheetApp.openById(SHEETS_CONFIG.usuarios.id),sh=ss.getSheetByName(DM_CONFIG_SHEET_);if(!sh)sh=ss.insertSheet(DM_CONFIG_SHEET_);if(sh.getLastRow()===0)sh.getRange(1,1,1,DM_CONFIG_HEADERS_.length).setValues([DM_CONFIG_HEADERS_]);sh.setFrozenRows(1);return sh;}
+function dmCfgEmail_(v){return String(v||"").trim().toLowerCase();}
+function dmAssertUser_(email){var t=dmCfgEmail_(email),cfg=SHEETS_CONFIG.usuarios,ss=SpreadsheetApp.openById(cfg.id),sh=ss.getSheetByName(cfg.sheet),headers=sh.getRange(cfg.headerRow||1,1,1,sh.getLastColumn()).getDisplayValues()[0].map(function(x){return String(x||"").trim().toUpperCase();}),idx=headers.indexOf("EMAIL");if(!t||idx<0)throw new Error("Email inválido.");var n=sh.getLastRow()-(cfg.headerRow||1);if(n>0){var v=sh.getRange((cfg.headerRow||1)+1,idx+1,n,1).getDisplayValues();for(var i=0;i<v.length;i++)if(dmCfgEmail_(v[i][0])===t)return t;}throw new Error("Usuario no encontrado.");}
+function dmConfigRows_(email){var sh=dmConfigSheet_(),t=dmCfgEmail_(email);if(sh.getLastRow()<2)return[];return sh.getRange(2,1,sh.getLastRow()-1,7).getValues().map(function(r,i){return{row:i+2,email:dmCfgEmail_(r[0]),tipo:String(r[1]||""),id:String(r[2]||""),nombre:String(r[3]||""),valor:String(r[4]||""),orden:Number(r[5]||0)};}).filter(function(r){return r.email===t;});}
+function dmDeleteCfg_(sh,email,tipo,id){if(sh.getLastRow()<2)return;var r=sh.getRange(2,1,sh.getLastRow()-1,7).getValues(),e=dmCfgEmail_(email);for(var i=r.length-1;i>=0;i--)if(dmCfgEmail_(r[i][0])===e&&String(r[i][1])===tipo&&(!id||String(r[i][2])===id))sh.deleteRow(i+2);}
+function dmNormalizeAppearanceServer_(v){v=v&&typeof v==="object"?v:{};return{accent:String(v.accent||"red"),background:String(v.background||"operations"),backgroundDim:Math.max(0,Math.min(85,Number(v.backgroundDim==null?48:v.backgroundDim))),backgroundBlur:Math.max(0,Math.min(16,Number(v.backgroundBlur||0))),panelOpacity:Math.max(35,Math.min(100,Number(v.panelOpacity==null?55:v.panelOpacity))),density:String(v.density||"normal"),scale:String(v.scale||"normal"),sidebar:String(v.sidebar||"remember"),reducedMotion:!!v.reducedMotion};}
+function dmBackgrounds_(email){var g={};dmConfigRows_(email).filter(function(r){return r.tipo==="FONDO";}).forEach(function(r){if(!g[r.id])g[r.id]={id:r.id,label:r.nombre,parts:[]};g[r.id].parts[r.orden]=r.valor;});return Object.keys(g).map(function(id){var x=g[id],src=x.parts.join("");return{id:id,label:x.label||"Mi fondo",src:src,thumbnail:src};});}
+function handleUserPreferencesGet_(email){email=dmAssertUser_(email);var p=dmConfigRows_(email).filter(function(r){return r.tipo==="APARIENCIA";})[0],a={};if(p&&p.valor)try{a=JSON.parse(p.valor);}catch(_){}a=dmNormalizeAppearanceServer_(a);var b=dmBackgrounds_(email);if(["operations","login","none"].indexOf(a.background)<0&&!b.some(function(x){return x.id===a.background;}))a.background="operations";return{ok:true,appearance:a,backgrounds:b};}
+function handleUserPreferencesSave_(payload){payload=payload||{};var e=dmAssertUser_(payload.email),sh=dmConfigSheet_(),a=dmNormalizeAppearanceServer_(payload.appearance||{});dmDeleteCfg_(sh,e,"APARIENCIA","");sh.appendRow([e,"APARIENCIA","appearance","Apariencia",JSON.stringify(a),0,new Date()]);SpreadsheetApp.flush();return{ok:true,appearance:a,backgrounds:dmBackgrounds_(e),savedAt:new Date().toISOString()};}
+function handleUploadUserBackground_(payload){payload=payload||{};var e=dmAssertUser_(payload.email),data=String(payload.dataUrl||"");if(!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(data))throw new Error("Formato de imagen inválido.");if(data.length>2500000)throw new Error("La imagen procesada es demasiado grande.");var id="user:"+Utilities.getUuid(),name=String(payload.name||"Mi fondo").replace(/\.[^.]+$/,"").slice(0,80)||"Mi fondo",sh=dmConfigSheet_(),chunk=45000,o=0;for(var i=0;i<data.length;i+=chunk)sh.appendRow([e,"FONDO",id,name,data.slice(i,i+chunk),o++,new Date()]);SpreadsheetApp.flush();var b=dmBackgrounds_(e),bg=b.filter(function(x){return x.id===id;})[0];return{ok:true,background:bg,backgrounds:b,savedAt:new Date().toISOString()};}
+function instalarConfiguracionesUsuarios(){var sh=dmConfigSheet_();SpreadsheetApp.flush();return{ok:true,spreadsheetId:SHEETS_CONFIG.usuarios.id,sheet:sh.getName(),message:"Configuraciones de usuario lista."};}
+/* AGREGAR EN doGet: if(action==="user_preferences")return buildResponse(handleUserPreferencesGet_(p.email||""));
+   AGREGAR EN doPost: if(action==="save_user_preferences")return buildResponse(handleUserPreferencesSave_(payload));
+                       if(action==="upload_user_background")return buildResponse(handleUploadUserBackground_(payload)); */
