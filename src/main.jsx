@@ -5,6 +5,7 @@ import {C} from "./components/ui/index.jsx";
 import {applyAppearance,readLastAppearance} from "./services/userAppearance.js";
 import {preloadHistoricalDatasets} from "./services/globalPreload.js";
 import {DATA_REFRESH_INTERVAL_MS,dispatchDataRefreshPolicyTick,installLegacyRefreshIntervalPolicy} from "./services/dataRefreshPolicy.js";
+import {installAdministrativeTableExports} from "./services/administrativeTableExports.js";
 
 // Una sola política para toda la aplicación: cualquier auto-refresh legacy de
 // 5 minutos se normaliza a 10 minutos antes de que React monte sus effects.
@@ -18,6 +19,7 @@ if(typeof window!=="undefined"){
   window.addEventListener("dm-appearance-saved",event=>{
     applyAppearance(event?.detail||readLastAppearance(),C);
   });
+  installAdministrativeTableExports();
 }
 
 createRoot(document.getElementById("root")).render(
