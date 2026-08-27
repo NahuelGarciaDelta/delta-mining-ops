@@ -1,5 +1,6 @@
 import React from "react";
 import { buildAuthenticatedUser, saveAuthenticatedSession } from "../../services/authSession.js";
+import {applyAppearance,loadCentralAppearance,readLocalAppearance,writeLocalAppearance} from "../../services/userAppearance.js";
 
 export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dmNormalizeAssignedProject}){
   const USUARIOS_FALLBACK=[
@@ -53,6 +54,19 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
     }
   };
 
+  const aplicarAparienciaUsuario=(mail,{central=true}={})=>{
+    const email=normalizarMail(mail);
+    if(!email)return;
+    const local=readLocalAppearance(email);
+    applyAppearance(local,C);
+    if(central){
+      loadCentralAppearance(APPS_SCRIPT_URL,email).then(prefs=>{
+        writeLocalAppearance(email,prefs);
+        applyAppearance(prefs,C);
+      }).catch(()=>{});
+    }
+  };
+
   const handleSubmit=async()=>{
     if(submitInFlightRef.current)return;
 
@@ -87,6 +101,7 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
       }
       const authenticatedUser=buildAuthenticatedUser(json,mail);
       saveAuthenticatedSession(authenticatedUser,{mustChangePassword:!!json.mustChangePassword,normalizeProject:dmNormalizeAssignedProject});
+      aplicarAparienciaUsuario(mail,{central:true});
       onLogin(authenticatedUser);
     }catch(err){
       if(err?.name==="AbortError")showError("La validación tardó demasiado. Intentá nuevamente.");
@@ -98,8 +113,6 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
     }
   };
 
-  const backgroundImageUrl = IMG_LOGIN_FONDO || "/img/embedded/home-welcome-b80067ac.jpg";
-
   return(
     <div style={{
       position:"relative",
@@ -109,13 +122,15 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
     }}>
       <div style={{
         position:"absolute",
-        inset:0,
-        backgroundImage:`url(${backgroundImageUrl})`,
+        inset:"calc(-1 * var(--dm-bg-blur,0px))",
+        backgroundImage:"var(--dm-bg-image)",
         backgroundSize:"cover",
         backgroundPosition:"center",
         backgroundRepeat:"no-repeat",
-        filter:"brightness(.78) saturate(.86)"
+        filter:"brightness(.78) saturate(.86) blur(var(--dm-bg-blur,0px))",
+        transform:"scale(1.02)"
       }}/>
+      <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,var(--dm-bg-dim,.48))"}}/>
       <div style={{position:"absolute",inset:0,background:"linear-gradient(90deg,rgba(3,12,20,.28) 0 12%,rgba(3,10,17,.22) 27%,rgba(3,10,17,.12) 64%,rgba(3,10,17,.42) 100%)"}}/>
       <div style={{position:"absolute",inset:0,background:"linear-gradient(0deg,rgba(3,11,18,.94) 0%,rgba(3,11,18,.05) 42%,rgba(3,11,18,.18) 100%)"}}/>
       <div style={{
@@ -143,7 +158,13 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
             type="email"
             value={usuario}
             disabled={validando}
-            onChange={e=>{setUsuario(e.target.value);setError("");}}
+            onChange={e=>{
+              const value=e.target.value;
+              setUsuario(value);setError("");
+              const mail=normalizarMail(value);
+              if(mail.includes("@")&&mail.includes("."))aplicarAparienciaUsuario(mail,{central:false});
+            }}
+            onBlur={()=>{const mail=normalizarMail(usuario);if(mail.includes("@")&&mail.includes("."))aplicarAparienciaUsuario(mail,{central:true});}}
             onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
             placeholder="Usuario"
             style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box",opacity:validando?.7:1}}
