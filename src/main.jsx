@@ -1,12 +1,24 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
+import {C} from "./components/ui/index.jsx";
+import {applyAppearance,readLastAppearance} from "./services/userAppearance.js";
 import {preloadHistoricalDatasets} from "./services/globalPreload.js";
 import {DATA_REFRESH_INTERVAL_MS,dispatchDataRefreshPolicyTick,installLegacyRefreshIntervalPolicy} from "./services/dataRefreshPolicy.js";
 
 // Una sola política para toda la aplicación: cualquier auto-refresh legacy de
 // 5 minutos se normaliza a 10 minutos antes de que React monte sus effects.
 installLegacyRefreshIntervalPolicy();
+
+// La apariencia elegida por el último usuario se aplica ANTES de montar React.
+// Así el mismo fondo se conserva también en Inicio de sesión y Bienvenida, sin
+// mostrar primero una imagen fija y reemplazarla unos milisegundos después.
+if(typeof window!=="undefined"){
+  applyAppearance(readLastAppearance(),C);
+  window.addEventListener("dm-appearance-saved",event=>{
+    applyAppearance(event?.detail||readLastAppearance(),C);
+  });
+}
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
