@@ -114,9 +114,11 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
   };
 
   return(
-    <div style={{
-      position:"relative",
-      minHeight:"100vh",
+    <div className="dm-login-screen" style={{
+      position:"fixed",
+      inset:0,
+      minWidth:"100vw",
+      minHeight:"100dvh",
       overflow:"hidden",
       backgroundColor:C.bg
     }}>
@@ -127,30 +129,30 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
         backgroundSize:"cover",
         backgroundPosition:"center",
         backgroundRepeat:"no-repeat",
-        filter:"brightness(.78) saturate(.86) blur(var(--dm-bg-blur,0px))",
+        filter:"saturate(.92) blur(var(--dm-bg-blur,0px))",
         transform:"scale(1.02)"
       }}/>
-      <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,var(--dm-bg-dim,.48))"}}/>
-      <div style={{position:"absolute",inset:0,background:"linear-gradient(90deg,rgba(3,12,20,.28) 0 12%,rgba(3,10,17,.22) 27%,rgba(3,10,17,.12) 64%,rgba(3,10,17,.42) 100%)"}}/>
-      <div style={{position:"absolute",inset:0,background:"linear-gradient(0deg,rgba(3,11,18,.94) 0%,rgba(3,11,18,.05) 42%,rgba(3,11,18,.18) 100%)"}}/>
+      <div style={{position:"absolute",inset:0,background:"radial-gradient(circle at center,rgba(3,10,17,.02) 0%,rgba(3,10,17,.10) 58%,rgba(3,10,17,.28) 100%)"}}/>
+      <div style={{position:"absolute",inset:0,background:"linear-gradient(0deg,rgba(3,11,18,.42) 0%,rgba(3,11,18,0) 40%,rgba(3,11,18,.08) 100%)"}}/>
       <div style={{
         position:"relative",
         zIndex:1,
-        minHeight:"100vh",
+        minHeight:"100dvh",
         display:"flex",
         alignItems:"center",
         justifyContent:"center",
         flexDirection:"column",
         gap:24,
-        paddingTop:70
+        paddingTop:70,
+        boxSizing:"border-box"
       }}>
-        <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
+        <style>{`html,body,#root{margin:0!important;padding:0!important;width:100%!important;height:100%!important;overflow:hidden!important}@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
         <img src={LOGO} alt="Delta Mining" style={{height:80,objectFit:"contain",marginBottom:8}}/>
         <div style={{fontFamily:"Inter",fontWeight:800,fontSize:22,color:C.accent,letterSpacing:".1em"}}>DELTA MINING APP</div>
         <div style={{
-          background:C.card,border:`1px solid ${error?C.red:C.border}`,borderRadius:14,
+          background:"rgba(20,20,20,.86)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",border:`1px solid ${error?C.red:"rgba(255,255,255,.12)"}`,borderRadius:14,
           padding:"32px 36px",display:"flex",flexDirection:"column",gap:16,
-          width:320,boxShadow:`0 8px 32px rgba(0,0,0,.4)`,
+          width:320,boxShadow:"0 8px 32px rgba(0,0,0,.34)",
           animation:shake?"shake .4s ease":"none"
         }}>
           <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá tu usuario y contraseña para continuar</div>
