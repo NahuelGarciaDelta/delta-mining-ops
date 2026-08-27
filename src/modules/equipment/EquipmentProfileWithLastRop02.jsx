@@ -14,18 +14,6 @@ const pick=(row,names)=>{
 };
 const MASTER_CODE_HEADERS=["Codigo nuevo","Código nuevo","Codigo de Drusila","Código de Drusila","Código Drusila","Codigo Drusila","Interno","Código interno","Codigo Int","Código viejo","Codigo viejo"];
 const masterCodes=row=>MASTER_CODE_HEADERS.map(header=>String(pick(row,[header])||"").trim()).filter(Boolean).filter((value,index,array)=>array.findIndex(other=>canonicalEquipmentCode(other)===canonicalEquipmentCode(value))===index);
-const isoDate=value=>{
-  const raw=String(value||"").trim();
-  if(!raw)return "";
-  const iso=raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if(iso)return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  const latin=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if(latin)return `${latin[3]}-${latin[2].padStart(2,"0")}-${latin[1].padStart(2,"0")}`;
-  const parsed=new Date(raw);
-  if(Number.isNaN(parsed.getTime()))return "";
-  return `${parsed.getFullYear()}-${String(parsed.getMonth()+1).padStart(2,"0")}-${String(parsed.getDate()).padStart(2,"0")}`;
-};
-const fmtDate=iso=>/^\d{4}-\d{2}-\d{2}$/.test(String(iso||""))?`${iso.slice(8,10)}/${iso.slice(5,7)}/${iso.slice(0,4)}`:"—";
 
 export default function EquipmentProfileWithLastRop02(props){
   const [selectedCode,setSelectedCode]=useState(()=>cleanEquipmentCode(props.initialCode||""));
@@ -89,10 +77,11 @@ export default function EquipmentProfileWithLastRop02(props){
     const latest=new Map();
     for(const row of normalizedRop02){
       const code=canonicalEquipmentCode(sourceCode(row));
-      const date=isoDate(row?.fecha);
-      if(!code||!date)continue;
+      const raw=String(row?.fecha||"").trim();
+      const iso=raw.match(/^(\d{4})-(\d{2})-(\d{2})/)?.slice(1,4).join("-")||(()=>{const m=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`:"";})();
+      if(!code||!iso)continue;
       const current=latest.get(code);
-      if(!current||date>current.date)latest.set(code,{date,project:String(row?.proyecto||row?.lugar||row?.Proyecto||row?.Lugar||"").trim()});
+      if(!current||iso>current.date)latest.set(code,{date:iso,project:String(row?.proyecto||row?.lugar||row?.Proyecto||row?.Lugar||"").trim()});
     }
     return latest;
   },[normalizedRop02]);
@@ -111,7 +100,6 @@ export default function EquipmentProfileWithLastRop02(props){
 
   const selectedKey=canonicalEquipmentCode(resolveCode(selectedCode));
   const latest=latestByEquipment.get(selectedKey)||null;
-  const latestDate=latest?.date||"";
   const latestProject=String(latest?.project||"").trim();
   const selectedMaster=masterByEquipment.get(selectedKey)||null;
   const rentalPlace=String(pick(selectedMaster||{},["Lugar de alquiler","Lugar alquiler","Ubicación de alquiler","Ubicacion de alquiler"])||"").trim();
@@ -121,6 +109,8 @@ export default function EquipmentProfileWithLastRop02(props){
     return `${base} (${latestProject})`;
   },[rentalPlace,latestProject]);
 
+  // Conserva únicamente la corrección del lugar actual. El texto duplicado
+  // "Último registro ROP02" ya pertenece al encabezado nativo de la ficha.
   useEffect(()=>{
     let cancelled=false;
     const apply=()=>{
@@ -129,20 +119,7 @@ export default function EquipmentProfileWithLastRop02(props){
       if(!header)return;
       const left=header.firstElementChild;
       if(!left)return;
-
-      let node=left.querySelector("[data-dm-last-rop02]");
-      if(!node){
-        node=document.createElement("div");
-        node.setAttribute("data-dm-last-rop02","1");
-        node.style.marginTop="7px";
-        node.style.fontSize="11px";
-        node.style.fontWeight="700";
-        node.style.color="#9ca3af";
-        left.appendChild(node);
-      }
-      const nextText=`Último registro ROP02: ${latestDate?fmtDate(latestDate):"Sin registros"}`;
-      if(node.textContent!==nextText)node.textContent=nextText;
-
+      left.querySelector("[data-dm-last-rop02]")?.remove();
       const metaRows=[...left.querySelectorAll(":scope > div")].filter(el=>el.querySelectorAll(":scope > span").length>=4);
       const metaRow=metaRows[metaRows.length-1];
       if(metaRow){
@@ -153,7 +130,7 @@ export default function EquipmentProfileWithLastRop02(props){
     };
     const raf=window.requestAnimationFrame(()=>window.requestAnimationFrame(apply));
     return()=>{cancelled=true;window.cancelAnimationFrame(raf);};
-  },[latestDate,displayPlace,selectedCode]);
+  },[displayPlace,selectedCode]);
 
   const captureEquipmentChange=event=>{
     const target=event.target;
