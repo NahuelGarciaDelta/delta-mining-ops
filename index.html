@@ -12,6 +12,34 @@
     <link rel="apple-touch-icon" href="/pwa-192x192.png" />
     <title>Delta Mining OPS</title>
     <link rel="icon" type="image/png" href="/favicon.png"/>
+    <style>
+      html,body,#root{margin:0;width:100%;min-width:100%;height:100%;min-height:100%;padding:0;overflow-x:hidden;background:#0d0d0d}
+      html{--dm-bg-image:url("/img/embedded/home-welcome-b80067ac.jpg");--dm-bg-dim:.48;--dm-bg-blur:0px;--dm-accent:#e8001d}
+      body{background-image:var(--dm-bg-image);background-size:cover;background-position:center;background-repeat:no-repeat;background-attachment:fixed}
+    </style>
+    <script>
+      // Bootstrap visual antes de descargar/ejecutar React. Evita que aparezca
+      // primero el fondo por defecto y luego cambie al elegido por el usuario.
+      (function(){
+        try{
+          var raw=localStorage.getItem("dm_last_appearance_v1");
+          if(!raw)return;
+          var p=JSON.parse(raw)||{};
+          var backgrounds={
+            operations:"/img/embedded/home-welcome-b80067ac.jpg",
+            login:"/img/embedded/home-inline-0c79147d.png",
+            none:""
+          };
+          var accents={red:"#e8001d",blue:"#3b82f6",cyan:"#06b6d4",green:"#22c55e",orange:"#f59e0b",purple:"#a855f7"};
+          var bg=p.background==="custom"?String(p.backgroundCustom||""):String(backgrounds[p.background]||backgrounds.operations);
+          var root=document.documentElement;
+          root.style.setProperty("--dm-bg-image",bg?'url("'+bg.replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/[\r\n]/g,"")+'")':"none");
+          root.style.setProperty("--dm-bg-dim",String(Math.max(0,Math.min(85,Number(p.backgroundDim==null?48:p.backgroundDim)))/100));
+          root.style.setProperty("--dm-bg-blur",String(Math.max(0,Math.min(16,Number(p.backgroundBlur||0))))+"px");
+          root.style.setProperty("--dm-accent",accents[p.accent]||accents.red);
+        }catch(_){ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
