@@ -1,4 +1,18 @@
+import { C } from "../components/ui/index.jsx";
+import { applyAppearance, readLocalAppearance } from "./userAppearance.js";
+
 export const AUTHENTICATED_USER_KEY = "dm_authenticated_user";
+
+function applyCurrentUserAppearance_(email=""){
+  try{applyAppearance(readLocalAppearance(email||sessionStorage.getItem("dm_user")||""),C);}catch(_){}
+}
+
+if(typeof window!=="undefined"){
+  applyCurrentUserAppearance_();
+  window.addEventListener("dm-appearance-saved",event=>{
+    try{applyAppearance(event?.detail||readLocalAppearance(sessionStorage.getItem("dm_user")||""),C);}catch(_){}
+  });
+}
 
 export function buildAuthenticatedUser(response, fallbackEmail = "") {
   const authToken = response?.authToken || response?.token || response?.user?.authToken || response?.user?.token || "";
@@ -35,6 +49,7 @@ export function saveAuthenticatedSession(user, { mustChangePassword = false, nor
   sessionStorage.setItem("dm_area", authenticatedUser.area || "");
   sessionStorage.setItem("dm_must_change_password", mustChangePassword ? "1" : "0");
   sessionStorage.setItem("dm_auth_token", authToken);
+  applyCurrentUserAppearance_(email);
   return authenticatedUser;
 }
 
