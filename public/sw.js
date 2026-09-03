@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v13-offline-cache-v390";
+const CACHE_NAME = "delta-mining-ops-v14-live-data-v1";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -16,7 +16,6 @@ async function safePut(cache, request, response) {
     if (response.type !== "basic" && response.type !== "default") return;
     await cache.put(request, response.clone());
   } catch (error) {
-    // El cache nunca debe romper la navegación ni generar una promesa no manejada.
     console.debug("[SW] cache omitido", error?.message || error);
   }
 }
@@ -41,25 +40,26 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-
-  // Apps Script y APIs externas: siempre red. Los datos persistidos los maneja IndexedDB/localStorage.
   if (url.origin !== self.location.origin) return;
 
-  if (request.mode === "navigate") {
+  // Navegación y assets ejecutables: RED primero. Así dos PCs no quedan corriendo
+  // versiones distintas del frontend por stale-while-revalidate.
+  const isExecutable = request.mode === "navigate" || request.destination === "script" || request.destination === "style" || /\.(?:js|mjs|css)(?:$|\?)/i.test(url.pathname + url.search);
+  if (isExecutable) {
     event.respondWith((async () => {
+      const cache = await caches.open(CACHE_NAME);
       try {
-        const response = await fetch(request);
-        const cache = await caches.open(CACHE_NAME);
-        await safePut(cache, "/index.html", response);
+        const response = await fetch(request, { cache: "no-store" });
+        await safePut(cache, request.mode === "navigate" ? "/index.html" : request, response);
         return response;
       } catch (_) {
-        return (await caches.match("/index.html")) || Response.error();
+        return (await cache.match(request)) || (request.mode === "navigate" ? await cache.match("/index.html") : null) || Response.error();
       }
     })());
     return;
   }
 
-  // JS/CSS/imágenes: stale-while-revalidate. Respuesta inmediata desde caché y actualización silenciosa.
+  // Imágenes y demás recursos estáticos sí pueden usar cache para conservar modo offline.
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(request);
@@ -67,10 +67,7 @@ self.addEventListener("fetch", (event) => {
       await safePut(cache, request, response);
       return response;
     }).catch(() => null);
-    if (cached) {
-      event.waitUntil(network);
-      return cached;
-    }
+    if (cached) { event.waitUntil(network); return cached; }
     return (await network) || Response.error();
   })());
 });
