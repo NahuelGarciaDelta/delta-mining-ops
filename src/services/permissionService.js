@@ -2,6 +2,7 @@ const ALL = new Set(["view", "edit", "approve", "delete", "export"]);
 const READ_ONLY = new Set(["view", "export"]);
 const EDIT = new Set(["view", "edit", "export"]);
 const APPROVE = new Set(["view", "edit", "approve", "export"]);
+const NONE = new Set();
 
 function norm(value) {
   return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toUpperCase();
@@ -31,6 +32,7 @@ export function getPermissionsForArea(targetArea, identity = getCurrentUserIdent
   const userArea = norm(identity.area);
   const target = norm(targetArea);
   if (role === "ADMIN" || role === "ADMINISTRADOR") return new Set(ALL);
+  if (role === "MECANICO") return target === "MANTENIMIENTO" ? new Set(READ_ONLY) : new Set(NONE);
   if (userArea === "OFICINA TECNICA") return new Set(ALL);
   if (!target) return new Set(READ_ONLY);
   if (userArea !== target) return new Set(READ_ONLY);
