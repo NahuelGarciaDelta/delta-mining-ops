@@ -1,10 +1,10 @@
 export const APP_FILTERS_STATE_KEY="dm_app_filters_state_v1";
-const APP_IDB_NAME="delta_mining_cache_backend_20260818_v5";
+const APP_IDB_NAME="delta_mining_cache_backend_20260903_v6";
 const APP_IDB_VERSION=1;
 const APP_IDB_STORE="datasets";
-const APP_CACHE_VERSION=5;
-const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v5";
-const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v5_";
+const APP_CACHE_VERSION=6;
+const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v6";
+const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v6_";
 
 let appCacheDBPromise_=null;
 const memoryCache_=new Map();
@@ -48,20 +48,36 @@ function normalizeRecord_(record){
   if(!data)return null;
   return {...record,data,value:data,version:Number(record.version||data?.meta?.serverVersion||0)};
 }
+
+// ROP02 es la fuente de verdad de Cargas, Atrasos y Control de errores.
+// Nunca se hidrata desde una copia persistida en una PC: cada sesión debe
+// converger al mismo backend para que dos navegadores con el mismo usuario
+// calculen exactamente sobre las mismas filas. El cache puede seguir
+// escribiéndose para otros usos, pero estas claves se fuerzan a red.
+function isLiveRop02Key_(key){
+  const value=String(key||"").toLowerCase();
+  return value==="rop02_jm"||value==="rop02_fs"||value==="rop02_filosur"||value==="rop02_zorro"||value.startsWith("query:rop02|")||value.startsWith("query:rop02?")||value.startsWith("query:rop02:");
+}
+
 export async function readCachedSourceRecords(keys){
   const wanted=[...new Set((keys||[]).filter(Boolean))];
   if(!wanted.length)return{};
+  const liveKeys=new Set(wanted.filter(isLiveRop02Key_));
+  liveKeys.forEach(key=>memoryCache_.delete(key));
+  const cacheable=wanted.filter(key=>!liveKeys.has(key));
+  if(!cacheable.length)return Object.fromEntries(wanted.map(key=>[key,null]));
   try{
-    const missing=wanted.filter(key=>!memoryCache_.has(key));
-    if(!missing.length)return Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)]));
-    const db=await openAppCacheDB();
-    const tx=db.transaction(APP_IDB_STORE,"readonly");
-    const store=tx.objectStore(APP_IDB_STORE);
-    const pairs=await Promise.all(missing.map(async key=>[key,normalizeRecord_(await idbRequest_(store.get(key)).catch(()=>null))]));
-    pairs.forEach(([key,record])=>{if(record)memoryCache_.set(key,record);});
-    return Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)||null]));
+    const missing=cacheable.filter(key=>!memoryCache_.has(key));
+    if(missing.length){
+      const db=await openAppCacheDB();
+      const tx=db.transaction(APP_IDB_STORE,"readonly");
+      const store=tx.objectStore(APP_IDB_STORE);
+      const pairs=await Promise.all(missing.map(async key=>[key,normalizeRecord_(await idbRequest_(store.get(key)).catch(()=>null))]));
+      pairs.forEach(([key,record])=>{if(record)memoryCache_.set(key,record);});
+    }
+    return Object.fromEntries(wanted.map(key=>[key,liveKeys.has(key)?null:(memoryCache_.get(key)||null)]));
   }catch(_){
-    return Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)||null]));
+    return Object.fromEntries(wanted.map(key=>[key,liveKeys.has(key)?null:(memoryCache_.get(key)||null)]));
   }
 }
 export async function readCachedSources(keys){
