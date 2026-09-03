@@ -31,6 +31,20 @@ function isAdministrativeAtraso(props){
   return role==="ADMINISTRATIVO"&&isAtrasoView(props);
 }
 
+function assignedProjectFromSession(){
+  if(typeof window==="undefined")return "";
+  const raw=String(window.sessionStorage.getItem("dm_project")||"").trim();
+  const upper=raw.toUpperCase();
+  if(!raw||upper==="TODO"||upper==="TODOS"||upper==="ALL")return "";
+  return normalizeRop02Project(raw);
+}
+
+function filterRowsToAssignedProject(rows,assignedProject){
+  const list=Array.isArray(rows)?rows:[];
+  if(!assignedProject)return list;
+  return list.filter(row=>normalizeRop02Project(row?.proyecto||row?.lugar||row?.Proyecto||row?.Lugar||"")===assignedProject);
+}
+
 function formatAtrasoEquipmentCode(value){
   const raw=String(value||"").trim().toUpperCase().replace(/\s*\(.*?\)/g,"").replace(/[-_\s]+JM$/i,"");
   const match=raw.match(/^([A-Z]{2,4})[-_\s]?(\d{1,4})$/);
@@ -118,6 +132,10 @@ export function OficinaTecnicaRoute(props){
   const atrasoView=isAtrasoView(props);
   const controlErrorsView=isControlErrorsView(props);
   const readOnlyAtraso=isAdministrativeAtraso(props);
+  const assignedProject=assignedProjectFromSession();
+  const scopedRop02All=useMemo(()=>filterRowsToAssignedProject(props?.rop02All,assignedProject),[props?.rop02All,assignedProject]);
+  const scopedRop02ControlAll=useMemo(()=>filterRowsToAssignedProject(props?.rop02ControlAll,assignedProject),[props?.rop02ControlAll,assignedProject]);
+  const historicalQuery=useMemo(()=>({limit:"all",sortBy:"fecha",sortDirection:"desc",...(assignedProject?{proyecto:assignedProject}:{})}),[assignedProject]);
   const [equiposRop02,setEquiposRop02]=useState(null);
   const [controlErrorsRop02,setControlErrorsRop02]=useState(null);
   const [controlErrorsLoading,setControlErrorsLoading]=useState(false);
@@ -130,7 +148,7 @@ export function OficinaTecnicaRoute(props){
     if(!atrasoView||readOnlyAtraso)return;
     let raf=0;
     let active=true;
-    const rows=Array.isArray(props?.rop02All)?props.rop02All:[];
+    const rows=scopedRop02All;
     const appAlert=props?.deps?.appAlert||((message)=>window.alert(message));
 
     const validateAndPublish=(card)=>{
@@ -198,7 +216,7 @@ export function OficinaTecnicaRoute(props){
     document.addEventListener("click",onClickCapture,true);
     scan();
     return()=>{active=false;cancelAnimationFrame(raf);observer.disconnect();document.removeEventListener("change",onChange,true);document.removeEventListener("click",onClickCapture,true);window.__dmPendingEquipmentMovementLink=null;};
-  },[atrasoView,readOnlyAtraso,props?.rop02All,props?.deps]);
+  },[atrasoView,readOnlyAtraso,scopedRop02All,props?.deps]);
 
   useEffect(()=>{
     const onHistoricalUpdated=(event)=>{const detail=event?.detail||{};if(detail.dataset!=="rop02"||!isFullRop02Query(detail.params))return;setRop02ViewRevision(value=>value+1);};
@@ -206,46 +224,47 @@ export function OficinaTecnicaRoute(props){
     return()=>window.removeEventListener(HISTORICAL_DATASET_UPDATED_EVENT,onHistoricalUpdated);
   },[]);
 
-  useEffect(()=>registerRefreshTask("oficina-rop02-full-refresh",async()=>refreshHistoricalDataset("rop02",{limit:"all",sortBy:"fecha",sortDirection:"desc"}),{views:["rop02","controlROP02","controlErrores"],priority:20}),[]);
+  useEffect(()=>registerRefreshTask("oficina-rop02-full-refresh",async()=>refreshHistoricalDataset("rop02",historicalQuery),{views:["rop02","controlROP02","controlErrores"],priority:20}),[historicalQuery]);
 
   useEffect(()=>{
     if(!controlErrorsView){setControlErrorsRop02(null);setControlErrorsLoading(false);return;}
     let active=true;
     setControlErrorsLoading(true);
-    // Control de errores es crítico: siempre consulta la fuente completa y fresca.
-    // No depende del cache/snapshot cargado durante el login ni del rol del usuario.
-    refreshHistoricalDataset("rop02",{limit:"all",sortBy:"fecha",sortDirection:"desc"})
+    // Control de errores siempre consulta información fresca, pero respeta
+    // estrictamente el proyecto asignado al usuario tanto en servidor como cliente.
+    refreshHistoricalDataset("rop02",historicalQuery)
       .then(result=>{
         if(!active)return;
         const raw=Array.isArray(result?.data)?result.data:[];
-        setControlErrorsRop02(normalizeROP02(raw));
+        setControlErrorsRop02(filterRowsToAssignedProject(normalizeROP02(raw),assignedProject));
       })
       .catch(error=>{
         console.warn("No se pudo refrescar ROP02 para Control de errores; se conserva la fuente cargada.",error);
-        if(active)setControlErrorsRop02(Array.isArray(props?.rop02All)?props.rop02All:[]);
+        if(active)setControlErrorsRop02(scopedRop02All);
       })
       .finally(()=>{if(active)setControlErrorsLoading(false);});
     return()=>{active=false;};
-  },[controlErrorsView,rop02ViewRevision]);
+  },[controlErrorsView,rop02ViewRevision,historicalQuery,assignedProject,scopedRop02All]);
 
   useEffect(()=>{
     if(props?.view!=="listaEquipos")return;
     let active=true;
-    (async()=>{try{const result=await getRop02({limit:"all",sortBy:"fecha",sortDirection:"asc"});if(!active)return;const raw=Array.isArray(result?.data)?result.data:[];if(raw.length)setEquiposRop02(normalizeROP02(raw));}catch(error){console.warn("No se pudo actualizar ROP02 para Lista de Equipos; se conserva la fuente cargada.",error);}})();
+    const query={...historicalQuery,sortDirection:"asc"};
+    (async()=>{try{const result=await getRop02(query);if(!active)return;const raw=Array.isArray(result?.data)?result.data:[];if(raw.length)setEquiposRop02(filterRowsToAssignedProject(normalizeROP02(raw),assignedProject));}catch(error){console.warn("No se pudo actualizar ROP02 para Lista de Equipos; se conserva la fuente cargada.",error);}})();
     return()=>{active=false;};
-  },[props?.view]);
+  },[props?.view,historicalQuery,assignedProject]);
 
-  const rop02Equipos=useMemo(()=>{if(props?.view!=="listaEquipos")return props?.rop02All;return mergeRop02Sources(props?.rop02All,equiposRop02);},[props?.view,props?.rop02All,equiposRop02]);
-  const rop02ControlErrors=controlErrorsRop02||props?.rop02All||[];
+  const rop02Equipos=useMemo(()=>{if(props?.view!=="listaEquipos")return scopedRop02All;return mergeRop02Sources(scopedRop02All,filterRowsToAssignedProject(equiposRop02,assignedProject));},[props?.view,scopedRop02All,equiposRop02,assignedProject]);
+  const rop02ControlErrors=controlErrorsRop02||scopedRop02All||[];
 
   const routedProps=useMemo(()=>{
-    let nextProps=props;
+    let nextProps={...props,rop02All:scopedRop02All,rop02ControlAll:scopedRop02ControlAll};
     if(props?.view==="listaEquipos")nextProps={...nextProps,rop02All:rop02Equipos};
-    if(controlErrorsView)nextProps={...nextProps,rop02All:rop02ControlErrors};
+    if(controlErrorsView)nextProps={...nextProps,rop02All:rop02ControlErrors,rop02ControlAll:rop02ControlErrors};
     if(props?.view==="horometros"||props?.view==="chc")nextProps={...nextProps,deps:buildOperationalPeriodDeps(nextProps.deps)};
     if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};
     return nextProps;
-  },[props,rop02Equipos,rop02ControlErrors,controlErrorsView,atrasoView,readOnlyAtraso]);
+  },[props,scopedRop02All,scopedRop02ControlAll,rop02Equipos,rop02ControlErrors,controlErrorsView,atrasoView,readOnlyAtraso]);
 
   const moduleKey=props?.view==="rop02"?`rop02-cache-${rop02ViewRevision}`:undefined;
   const tcColor=props?.deps?.C||{};
@@ -257,7 +276,7 @@ export function OficinaTecnicaRoute(props){
   return <Suspense fallback={Fallback?<Fallback label="Cargando Oficina Técnica..."/>:null}>
     {props?.view==="tallerCentral"?<div style={{display:"flex",flexDirection:"column",gap:14}}>
       <div style={{display:"flex",gap:8}}><button onClick={()=>setTallerTab("RESUMEN")} style={{border:`1px solid ${tallerTab==="RESUMEN"?(tcColor.teal||"#14b8a6"):(tcColor.border||"#3f3f46")}`,background:tallerTab==="RESUMEN"?(tcColor.tealDim||"rgba(20,184,166,.12)"):"#191919",color:tallerTab==="RESUMEN"?(tcColor.teal||"#14b8a6"):(tcColor.textSub||"#a3a3a3"),borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Resumen</button><button onClick={()=>setTallerTab("MOVIMIENTOS")} style={{border:`1px solid ${tallerTab==="MOVIMIENTOS"?(tcColor.accent||"#ef233c"):(tcColor.border||"#3f3f46")}`,background:tallerTab==="MOVIMIENTOS"?(tcColor.redDim||"rgba(239,35,60,.12)"):"#191919",color:tallerTab==="MOVIMIENTOS"?(tcColor.accent||"#ef233c"):(tcColor.textSub||"#a3a3a3"),borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Movimiento de equipos</button></div>
-      {tallerTab==="RESUMEN"?<LazyOficinaTecnica key={moduleKey} {...routedProps}/>:<TallerCentralMovements listaEquipos={props?.listaEquipos||[]} rop02All={props?.rop02All||[]}/>} 
+      {tallerTab==="RESUMEN"?<LazyOficinaTecnica key={moduleKey} {...routedProps}/>:<TallerCentralMovements listaEquipos={props?.listaEquipos||[]} rop02All={scopedRop02All}/>} 
     </div>:<LazyOficinaTecnica key={moduleKey} {...routedProps}/>} 
   </Suspense>;
 }
