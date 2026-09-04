@@ -2,16 +2,16 @@ function cleanRoleFromHeader(){
   if(typeof document==="undefined")return;
   const role=String(window.sessionStorage?.getItem("dm_role")||"").trim();
   if(!role)return;
-  const headers=document.querySelectorAll(".dm-app-content > div");
-  headers.forEach(header=>{
-    const spans=header.querySelectorAll("span");
-    spans.forEach(span=>{
-      [...span.childNodes].forEach(node=>{
-        if(node.nodeType!==Node.TEXT_NODE)return;
-        const value=String(node.nodeValue||"");
-        if(value.includes(` · ${role} · `))node.nodeValue=value.replace(` · ${role} · `," · ");
-      });
-    });
+
+  const root=document.querySelector(".dm-app-content");
+  if(!root)return;
+
+  root.querySelectorAll("span").forEach(span=>{
+    const value=String(span.textContent||"").replace(/\s+/g," ").trim();
+    if(value===`· ${role} ·`||value===role){
+      span.style.setProperty("display","none","important");
+      span.setAttribute("aria-hidden","true");
+    }
   });
 }
 
