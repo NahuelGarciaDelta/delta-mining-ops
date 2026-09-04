@@ -33,13 +33,25 @@ async function refreshAll(button){
   }
 }
 
+function positionButton(button){
+  const content=document.querySelector(".dm-app-content");
+  const home=document.querySelector(".dm-home");
+  const anchor=home||content;
+  if(!anchor)return;
+  const rect=anchor.getBoundingClientRect();
+  const left=Math.max(12,Math.round(rect.left+16));
+  const top=Math.max(12,Math.round(rect.top+14));
+  button.style.left=`${left}px`;
+  button.style.top=`${top}px`;
+}
+
 function ensureButton(){
   const existing=document.getElementById(BUTTON_ID);
   if(!isWelcomeVisible()){
     existing?.remove();
     return;
   }
-  if(existing)return;
+  if(existing){positionButton(existing);return;}
 
   const button=document.createElement("button");
   button.id=BUTTON_ID;
@@ -48,9 +60,7 @@ function ensureButton(){
   button.title="Actualizar todos los datos de la aplicación";
   Object.assign(button.style,{
     position:"fixed",
-    top:"16px",
-    left:"18px",
-    zIndex:"2147483000",
+    zIndex:"1200",
     padding:"8px 13px",
     borderRadius:"9px",
     border:"1px solid rgba(239,35,60,.55)",
@@ -66,6 +76,7 @@ function ensureButton(){
   });
   button.addEventListener("click",()=>refreshAll(button));
   document.body.appendChild(button);
+  positionButton(button);
 }
 
 export function installWelcomeRefreshButton(){
@@ -79,6 +90,7 @@ export function installWelcomeRefreshButton(){
   };
   const observer=new MutationObserver(schedule);
   observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:["class","style"]});
+  window.addEventListener("resize",schedule);
   window.addEventListener("popstate",schedule);
   window.addEventListener("hashchange",schedule);
   schedule();
