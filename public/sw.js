@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v14-live-data-v1";
+const CACHE_NAME = "delta-mining-ops-v15-live-data-v2";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -42,8 +42,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navegación y assets ejecutables: RED primero. Así dos PCs no quedan corriendo
-  // versiones distintas del frontend por stale-while-revalidate.
+  // Navegación y assets ejecutables: RED primero. Así todas las PCs reciben
+  // la misma versión del frontend y no quedan ejecutando JS antiguo desde cache.
   const isExecutable = request.mode === "navigate" || request.destination === "script" || request.destination === "style" || /\.(?:js|mjs|css)(?:$|\?)/i.test(url.pathname + url.search);
   if (isExecutable) {
     event.respondWith((async () => {
