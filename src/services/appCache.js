@@ -1,10 +1,10 @@
-export const APP_FILTERS_STATE_KEY="dm_app_filters_state_v1";
-const APP_IDB_NAME="delta_mining_cache_backend_20260903_v6";
+export const APP_FILTERS_STATE_KEY="dm_app_filters_state_v2";
+const APP_IDB_NAME="delta_mining_cache_backend_20260903_v7";
 const APP_IDB_VERSION=1;
 const APP_IDB_STORE="datasets";
-const APP_CACHE_VERSION=6;
-const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v6";
-const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v6_";
+const APP_CACHE_VERSION=7;
+const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v7";
+const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v7_";
 
 let appCacheDBPromise_=null;
 const memoryCache_=new Map();
@@ -50,10 +50,9 @@ function normalizeRecord_(record){
 }
 
 // ROP02 es la fuente de verdad de Cargas, Atrasos y Control de errores.
-// Nunca se hidrata desde una copia persistida en una PC: cada sesión debe
-// converger al mismo backend para que dos navegadores con el mismo usuario
-// calculen exactamente sobre las mismas filas. El cache puede seguir
-// escribiéndose para otros usos, pero estas claves se fuerzan a red.
+// Nunca se lee NI se escribe una copia persistida por dispositivo. De esta forma
+// dos PCs, tablets o teléfonos que consulten el mismo proyecto calculan siempre
+// sobre la misma respuesta del backend y no sobre snapshots locales distintos.
 function isLiveRop02Key_(key){
   const value=String(key||"").toLowerCase();
   return value==="rop02_jm"||value==="rop02_fs"||value==="rop02_filosur"||value==="rop02_zorro"||value.startsWith("query:rop02|")||value.startsWith("query:rop02?")||value.startsWith("query:rop02:");
@@ -87,7 +86,8 @@ export async function readCachedSources(keys){
   return out;
 }
 async function writeCachedSources(sources){
-  const entries=Object.entries(sources||{});
+  // Las fuentes ROP02 quedan deliberadamente fuera de cualquier cache local.
+  const entries=Object.entries(sources||{}).filter(([key])=>!isLiveRop02Key_(key));
   if(!entries.length)return;
   const updatedAt=new Date().toISOString();
   const records=entries.map(([key,data])=>({key,data,updatedAt,count:Array.isArray(data?.data)?data.data.length:0,version:Number(data?.meta?.serverVersion||APP_CACHE_VERSION)}));
