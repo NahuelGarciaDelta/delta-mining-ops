@@ -9,8 +9,11 @@ function cleanRoleFromHeader(){
   root.querySelectorAll("span").forEach(span=>{
     const value=String(span.textContent||"").replace(/\s+/g," ").trim();
     if(value===`· ${role} ·`||value===role){
-      span.style.setProperty("display","none","important");
-      span.setAttribute("aria-hidden","true");
+      // Mantener el rol visible, pero con una separación clara respecto del nombre/taller.
+      span.style.removeProperty("display");
+      span.removeAttribute("aria-hidden");
+      span.style.setProperty("margin-left","8px");
+      span.style.setProperty("margin-right","4px");
     }
   });
 }
