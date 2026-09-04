@@ -71,8 +71,12 @@ function rowMatchesRop02Params_(row,params={}){
   return true;
 }
 async function fetchRop02SourceFallback_(params={}){
-  const settled=await Promise.allSettled(ROP02_SOURCE_MAP.map(async([source,project])=>{
-    const response=await fetchSource(APPS_SCRIPT_URL,source,{force:true});
+  const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");
+  const sources=requestedProject&&requestedProject!=="TODOS"
+    ?ROP02_SOURCE_MAP.filter(([,project])=>normalizeProjectParam_(project)===requestedProject)
+    :ROP02_SOURCE_MAP;
+  const settled=await Promise.allSettled(sources.map(async([source,project])=>{
+    const response=await fetchSource(APPS_SCRIPT_URL,source,{force:true,retries:0,timeoutMs:12000});
     const data=Array.isArray(response?.data)?response.data:[];
     return data.map(row=>({...row,proyecto:row?.proyecto||row?.Proyecto||row?.PROYECTO||project,PROYECTO:row?.PROYECTO||row?.Proyecto||row?.proyecto||project}));
   }));
@@ -100,14 +104,14 @@ export async function fetchDatasetPage(dataset,params={}){
   const started=performance.now();
   const task=(async()=>{
     let response;
-    try{
-      response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});
-    }catch(error){
-      if(!isLiveDataset_(dataset))throw error;
-      console.warn("query_dataset ROP02 falló; usando fuentes ROP02 directas.",error);
+    if(isLiveDataset_(dataset)){
+      // ROP02 se obtiene directamente de sus hojas fuente. Evitamos depender de
+      // query_dataset, que en algunas sesiones podía quedar esperando hasta agotar el timeout.
       response=await fetchRop02SourceFallback_(params);
+    }else{
+      response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});
     }
-    const value={...response,cacheHit:false,cacheLevel:response?.fallbackSources?"source-fallback":"network",elapsedMs:Math.round(performance.now()-started)};
+    const value={...response,cacheHit:false,cacheLevel:response?.fallbackSources?"source-live":"network",elapsedMs:Math.round(performance.now()-started)};
     if(!isLiveDataset_(dataset))remember_(key,value);else memory.delete(key);
     lastRevalidatedAt.set(key,Date.now());
     await writeCachedSource(`query:${key}`,value);
