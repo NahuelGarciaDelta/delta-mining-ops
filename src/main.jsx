@@ -8,6 +8,7 @@ import {DATA_REFRESH_INTERVAL_MS,dispatchDataRefreshPolicyTick,installLegacyRefr
 import {installAdministrativeTableExports} from "./services/administrativeTableExports.js";
 import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
+import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
 
 // Una sola política para toda la aplicación: cualquier auto-refresh legacy de
 // 5 minutos se normaliza a 10 minutos antes de que React monte sus effects.
@@ -24,6 +25,7 @@ if(typeof window!=="undefined"){
   installAdministrativeTableExports();
   installMechanicRoleGuard();
   installUserHeaderDisplay();
+  installWelcomeRefreshButton();
 }
 
 createRoot(document.getElementById("root")).render(
