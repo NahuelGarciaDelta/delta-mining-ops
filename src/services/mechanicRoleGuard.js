@@ -7,6 +7,7 @@ const norm = (value) => String(value || "")
 
 const ROLE = "MECANICO";
 const MARK = "data-dm-mechanic-hidden";
+const NOTICE_MARK = "data-dm-readonly-notice-hidden";
 const HOME_ALLOWED = new Set(["INICIO", "CLIMA", "MI PERFIL"]);
 const PM_ALLOWED_CHILDREN = new Set(["PLANIFICADOR", "PROGRAMACION", "PANEL DE FLOTA"]);
 const ALLOWED_TITLES = new Set([
@@ -16,11 +17,8 @@ const ALLOWED_TITLES = new Set([
 ]);
 
 function isMechanic() {
-  try {
-    return norm(window.sessionStorage.getItem("dm_role")) === ROLE;
-  } catch (_) {
-    return false;
-  }
+  try { return norm(window.sessionStorage.getItem("dm_role")) === ROLE; }
+  catch (_) { return false; }
 }
 
 function setHidden(element, hidden) {
@@ -40,93 +38,79 @@ function setHidden(element, hidden) {
   }
 }
 
+function hideReadOnlyNotices() {
+  const root = document.querySelector(".dm-app-content");
+  if (!root) return;
+  root.querySelectorAll("div").forEach((element) => {
+    if (element.hasAttribute(NOTICE_MARK)) return;
+    const ownText = [...element.childNodes]
+      .filter(node => node.nodeType === Node.TEXT_NODE)
+      .map(node => node.textContent || "")
+      .join(" ");
+    if (!norm(ownText).startsWith("MODO SOLO LECTURA")) return;
+    element.setAttribute(NOTICE_MARK, "1");
+    element.style.setProperty("display", "none", "important");
+  });
+}
+
 function restore() {
   document.querySelectorAll(`[${MARK}]`).forEach((element) => setHidden(element, false));
 }
 
 function restrictWelcome() {
   const quick = document.querySelector(".dm-home-quick");
-  if (quick) {
-    [...quick.children].forEach((card) => {
-      const text = norm(card.textContent);
-      setHidden(card, !text.startsWith("MANTENIMIENTO"));
-    });
-  }
-
+  if (quick) [...quick.children].forEach(card => setHidden(card, !norm(card.textContent).startsWith("MANTENIMIENTO")));
   const homeAside = document.querySelector(".dm-home > aside");
-  if (homeAside) {
-    const navButtons = homeAside.querySelectorAll("button");
-    navButtons.forEach((button) => {
-      const label = norm(button.textContent || button.title);
-      if (!label) return;
-      const isNavigation = ["INICIO", "DASHBOARD", "AGENDA", "CLIMA", "MI PERFIL"].includes(label);
-      if (isNavigation) setHidden(button, !HOME_ALLOWED.has(label));
-    });
-  }
+  if (homeAside) homeAside.querySelectorAll("button").forEach(button => {
+    const label = norm(button.textContent || button.title);
+    if (["INICIO", "DASHBOARD", "AGENDA", "CLIMA", "MI PERFIL"].includes(label)) setHidden(button, !HOME_ALLOWED.has(label));
+  });
 }
 
 function restrictAppSidebar() {
   const nav = document.querySelector(".dm-app-sidebar nav");
   if (!nav) return;
-
-  [...nav.children].forEach((entry) => {
+  [...nav.children].forEach(entry => {
     const firstButton = entry.matches?.("button") ? entry : entry.querySelector(":scope > button");
     if (!firstButton) return;
     const label = norm(firstButton.textContent || firstButton.title);
     const keep = label === "BIENVENIDA" || label === "MANTENIMIENTO PROGRAMADO";
     setHidden(entry, !keep);
-
-    if (keep && label === "MANTENIMIENTO PROGRAMADO") {
-      entry.querySelectorAll("button").forEach((button, index) => {
-        if (index === 0) return;
-        const childLabel = norm(button.textContent || button.title);
-        setHidden(button, !PM_ALLOWED_CHILDREN.has(childLabel));
-      });
-    }
+    if (keep && label === "MANTENIMIENTO PROGRAMADO") entry.querySelectorAll("button").forEach((button, index) => {
+      if (index === 0) return;
+      setHidden(button, !PM_ALLOWED_CHILDREN.has(norm(button.textContent || button.title)));
+    });
   });
 }
 
 function clickSidebarButton(label) {
   const wanted = norm(label);
-  const buttons = [...document.querySelectorAll(".dm-app-sidebar nav button")];
-  const button = buttons.find((candidate) => norm(candidate.textContent || candidate.title) === wanted);
+  const button = [...document.querySelectorAll(".dm-app-sidebar nav button")]
+    .find(candidate => norm(candidate.textContent || candidate.title) === wanted);
   if (!button || button.disabled) return false;
   button.click();
   return true;
 }
 
-function openMechanicMaintenance() {
-  // Si Mantenimiento Programado ya está desplegado, entra directo.
-  if (clickSidebarButton("Planificador")) return true;
-
-  // Si el grupo está cerrado, primero lo abre. El MutationObserver vuelve a
-  // ejecutar el guard cuando React renderiza los hijos y entonces entra a Planificador.
-  if (clickSidebarButton("Mantenimiento Programado")) return true;
-
-  return false;
-}
-
 function enforceCurrentView() {
   const sidebar = document.querySelector(".dm-app-sidebar");
   if (!sidebar) return;
-
   const title = norm(document.querySelector(".dm-app-content h1")?.textContent).replace(/—/g, "-");
   if (!title || ALLOWED_TITLES.has(title)) return;
-
-  // La tarjeta Mantenimiento de Bienvenida abre inicialmente la vista RMA15.
-  // Para MECANICO esa vista no está permitida: lo deriva a Mantenimiento Programado
-  // sin devolverlo a Bienvenida aunque el grupo todavía esté cerrado.
-  if (title.startsWith("MANTENIMIENTO") && openMechanicMaintenance()) return;
-
-  // Cualquier otro módulo fuera de sus permisos vuelve a Inicio.
+  const maintenanceGroup = [...document.querySelectorAll(".dm-app-sidebar nav button")]
+    .find(button => norm(button.textContent || button.title) === "MANTENIMIENTO PROGRAMADO");
+  if (maintenanceGroup) {
+    const planificador = [...(maintenanceGroup.parentElement?.querySelectorAll("button") || [])]
+      .find(button => norm(button.textContent || button.title) === "PLANIFICADOR");
+    if (!planificador) maintenanceGroup.click();
+  }
+  if (clickSidebarButton("Planificador")) return;
   clickSidebarButton("Bienvenida");
 }
 
 function applyGuard() {
-  if (!isMechanic()) {
-    restore();
-    return;
-  }
+  hideReadOnlyNotices();
+  if (!isMechanic()) { restore(); return; }
   restrictWelcome();
   restrictAppSidebar();
   enforceCurrentView();
@@ -135,17 +119,12 @@ function applyGuard() {
 export function installMechanicRoleGuard() {
   if (typeof window === "undefined" || window.__dmMechanicRoleGuardInstalled) return;
   window.__dmMechanicRoleGuardInstalled = true;
-
   let scheduled = false;
   const schedule = () => {
     if (scheduled) return;
     scheduled = true;
-    window.requestAnimationFrame(() => {
-      scheduled = false;
-      applyGuard();
-    });
+    window.requestAnimationFrame(() => { scheduled = false; applyGuard(); });
   };
-
   const observer = new MutationObserver(schedule);
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("storage", schedule);
