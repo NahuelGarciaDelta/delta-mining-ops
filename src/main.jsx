@@ -7,6 +7,7 @@ import {preloadHistoricalDatasets} from "./services/globalPreload.js";
 import {DATA_REFRESH_INTERVAL_MS,dispatchDataRefreshPolicyTick,installLegacyRefreshIntervalPolicy} from "./services/dataRefreshPolicy.js";
 import {installAdministrativeTableExports} from "./services/administrativeTableExports.js";
 import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
+import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 
 // Una sola política para toda la aplicación: cualquier auto-refresh legacy de
 // 5 minutos se normaliza a 10 minutos antes de que React monte sus effects.
@@ -22,6 +23,7 @@ if(typeof window!=="undefined"){
   });
   installAdministrativeTableExports();
   installMechanicRoleGuard();
+  installUserHeaderDisplay();
 }
 
 createRoot(document.getElementById("root")).render(
