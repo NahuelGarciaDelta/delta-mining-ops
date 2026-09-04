@@ -95,15 +95,30 @@ function clickSidebarButton(label) {
   return true;
 }
 
+function openMechanicMaintenance() {
+  // Si Mantenimiento Programado ya está desplegado, entra directo.
+  if (clickSidebarButton("Planificador")) return true;
+
+  // Si el grupo está cerrado, primero lo abre. El MutationObserver vuelve a
+  // ejecutar el guard cuando React renderiza los hijos y entonces entra a Planificador.
+  if (clickSidebarButton("Mantenimiento Programado")) return true;
+
+  return false;
+}
+
 function enforceCurrentView() {
   const sidebar = document.querySelector(".dm-app-sidebar");
   if (!sidebar) return;
+
   const title = norm(document.querySelector(".dm-app-content h1")?.textContent).replace(/—/g, "-");
   if (!title || ALLOWED_TITLES.has(title)) return;
 
-  // Al entrar al módulo Mantenimiento desde Bienvenida, deriva directamente
-  // a Planificador. Si el usuario llegó a cualquier otro módulo, vuelve a Inicio.
-  if (clickSidebarButton("Planificador")) return;
+  // La tarjeta Mantenimiento de Bienvenida abre inicialmente la vista RMA15.
+  // Para MECANICO esa vista no está permitida: lo deriva a Mantenimiento Programado
+  // sin devolverlo a Bienvenida aunque el grupo todavía esté cerrado.
+  if (title.startsWith("MANTENIMIENTO") && openMechanicMaintenance()) return;
+
+  // Cualquier otro módulo fuera de sus permisos vuelve a Inicio.
   clickSidebarButton("Bienvenida");
 }
 
