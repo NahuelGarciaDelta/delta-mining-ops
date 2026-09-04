@@ -21,35 +21,10 @@ const ROP02_SOURCE_MAP=Object.freeze([
 ]);
 
 function isLiveDataset_(dataset){return String(dataset||"").trim().toLowerCase()==="rop02";}
-
-function remember_(key,value){
-  memory.delete(key);memory.set(key,value);
-  while(memory.size>MAX_MEMORY_QUERIES)memory.delete(memory.keys().next().value);
-}
-
-function versionsDiffer_(localVersions={},remoteVersions={}){
-  const local=localVersions||{};
-  const remote=remoteVersions||{};
-  const keys=new Set([...Object.keys(local),...Object.keys(remote)]);
-  if(!keys.size)return false;
-  for(const key of keys){if(Number(local[key]||0)!==Number(remote[key]||0))return true;}
-  return false;
-}
-
-function notifyDatasetUpdated_(dataset,key,value,params){
-  if(typeof window==="undefined"||typeof window.dispatchEvent!=="function")return;
-  try{window.dispatchEvent(new CustomEvent(HISTORICAL_UPDATED_EVENT,{detail:{dataset,key,value,params:{...(params||{})}}}));}catch(_){}
-}
-
-function normalizeHomeProject_(value){
-  const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
-  if(!raw||raw==="TODOS"||raw==="TODO")return "TODOS";
-  if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";
-  if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";
-  if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";
-  if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";
-  return raw;
-}
+function remember_(key,value){memory.delete(key);memory.set(key,value);while(memory.size>MAX_MEMORY_QUERIES)memory.delete(memory.keys().next().value);}
+function versionsDiffer_(localVersions={},remoteVersions={}){const local=localVersions||{},remote=remoteVersions||{},keys=new Set([...Object.keys(local),...Object.keys(remote)]);if(!keys.size)return false;for(const key of keys){if(Number(local[key]||0)!==Number(remote[key]||0))return true;}return false;}
+function notifyDatasetUpdated_(dataset,key,value,params){if(typeof window==="undefined"||typeof window.dispatchEvent!=="function")return;try{window.dispatchEvent(new CustomEvent(HISTORICAL_UPDATED_EVENT,{detail:{dataset,key,value,params:{...(params||{})}}}));}catch(_){}}
+function normalizeHomeProject_(value){const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");if(!raw||raw==="TODOS"||raw==="TODO")return "TODOS";if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";return raw;}
 function currentHomeProject_(){if(typeof window==="undefined")return "TODOS";return normalizeHomeProject_(window.__dmHomeSummaryProject||"TODOS");}
 function usesExternalHomeFilter_(){return typeof window!=="undefined"&&window.__dmHomeSummaryExternalFilter===true;}
 function rowProject_(row){return normalizeHomeProject_(row?.PROYECTO??row?.proyecto??row?.Proyecto??row?.LUGAR??row?.lugar??row?.Lugar??"");}
@@ -57,105 +32,43 @@ function filterHomeProjectResponse_(response){const project=currentHomeProject_(
 function normalizeEquipmentSnapshotCode_(value){return String(value||"").trim().toUpperCase().replace(/\s*\(.*?\)/g,"").replace(/[^A-Z0-9]/g,"");}
 function isVehicleSnapshotRow_(row){const code=normalizeEquipmentSnapshotCode_(row?.INTERNO??row?.equipo??row?.maquina??row?.Interno??"");if(!code)return false;if(/^CTA/.test(code))return true;if(/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return true;if(["CAC","CAR","CAV","CAA"].some(prefix=>code.startsWith(prefix)))return true;return code==="CAT0073";}
 function filterEquipmentOnlySnapshot_(response){if(!Array.isArray(response?.data))return response;const data=response.data.filter(row=>!isVehicleSnapshotRow_(row));return {...response,data,rows:data.length,total:data.length};}
-
 function normalizeProjectParam_(value){return normalizeHomeProject_(value||"");}
-function rowMatchesRop02Params_(row,params={}){
-  const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");
-  if(requestedProject&&requestedProject!=="TODOS"&&rowProject_(row)!==requestedProject)return false;
-  const equipo=String(params.equipo||"").trim().toUpperCase();
-  if(equipo){const code=String(row?.INTERNO??row?.maquina??row?.equipo??row?.Interno??"").trim().toUpperCase();if(!code.includes(equipo))return false;}
-  const desde=String(params.desde||"").slice(0,10),hasta=String(params.hasta||"").slice(0,10);
-  const fecha=String(row?.FECHA??row?.fecha??row?.Fecha??"").slice(0,10);
-  if(desde&&fecha&&fecha<desde)return false;
-  if(hasta&&fecha&&fecha>hasta)return false;
-  return true;
-}
+function rowMatchesRop02Params_(row,params={}){const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");if(requestedProject&&requestedProject!=="TODOS"&&rowProject_(row)!==requestedProject)return false;const equipo=String(params.equipo||"").trim().toUpperCase();if(equipo){const code=String(row?.INTERNO??row?.maquina??row?.equipo??row?.Interno??"").trim().toUpperCase();if(!code.includes(equipo))return false;}const desde=String(params.desde||"").slice(0,10),hasta=String(params.hasta||"").slice(0,10);const fecha=String(row?.FECHA??row?.fecha??row?.Fecha??"").slice(0,10);if(desde&&fecha&&fecha<desde)return false;if(hasta&&fecha&&fecha>hasta)return false;return true;}
 async function fetchRop02SourceFallback_(params={}){
   const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");
-  const sources=requestedProject&&requestedProject!=="TODOS"
-    ?ROP02_SOURCE_MAP.filter(([,project])=>normalizeProjectParam_(project)===requestedProject)
-    :ROP02_SOURCE_MAP;
+  const sources=requestedProject&&requestedProject!=="TODOS"?ROP02_SOURCE_MAP.filter(([,project])=>normalizeProjectParam_(project)===requestedProject):ROP02_SOURCE_MAP;
   const settled=await Promise.allSettled(sources.map(async([source,project])=>{
-    const response=await fetchSource(APPS_SCRIPT_URL,source,{force:true,retries:0,timeoutMs:12000});
+    const response=await fetchSource(APPS_SCRIPT_URL,source,{force:false,retries:0,timeoutMs:12000});
     const data=Array.isArray(response?.data)?response.data:[];
     return data.map(row=>({...row,proyecto:row?.proyecto||row?.Proyecto||row?.PROYECTO||project,PROYECTO:row?.PROYECTO||row?.Proyecto||row?.proyecto||project}));
   }));
   let data=[];
   settled.forEach(result=>{if(result.status==="fulfilled")data.push(...result.value);});
-  if(!data.length)throw new Error("No se pudo obtener ROP02 desde ninguna fuente.");
+  if(!data.length){
+    try{
+      const response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset:"rop02",...params,limit:params.limit||"all",offset:params.offset||0},{timeoutMs:12000});
+      data=Array.isArray(response?.data)?response.data:[];
+    }catch(error){
+      throw new Error(error?.message||"No se pudo obtener ROP02 desde ninguna fuente.");
+    }
+  }
   data=data.filter(row=>rowMatchesRop02Params_(row,params));
   const direction=String(params.sortDirection||"desc").toLowerCase()==="asc"?1:-1;
   data.sort((a,b)=>direction*String(a?.FECHA??a?.fecha??a?.Fecha??"").localeCompare(String(b?.FECHA??b?.fecha??b?.Fecha??"")));
   return{ok:true,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length,fallbackSources:true};
 }
-
-export async function readDatasetQuery(dataset,params={}){
-  const key=buildDatasetQueryKey(dataset,params);
-  if(isLiveDataset_(dataset)){memory.delete(key);return null;}
-  if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}
-  const record=await readCachedSource(`query:${key}`).catch(()=>null);
-  if(record?.data?.ok){remember_(key,record.data);return{...record.data,cacheHit:true,cacheLevel:"indexeddb",cacheUpdatedAt:record.updatedAt||null};}
-  return null;
-}
-
-export async function fetchDatasetPage(dataset,params={}){
-  const key=buildDatasetQueryKey(dataset,params);
-  if(pending.has(key))return pending.get(key);
-  const started=performance.now();
-  const task=(async()=>{
-    let response;
-    if(isLiveDataset_(dataset)){
-      // ROP02 se obtiene directamente de sus hojas fuente. Evitamos depender de
-      // query_dataset, que en algunas sesiones podía quedar esperando hasta agotar el timeout.
-      response=await fetchRop02SourceFallback_(params);
-    }else{
-      response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});
-    }
-    const value={...response,cacheHit:false,cacheLevel:response?.fallbackSources?"source-live":"network",elapsedMs:Math.round(performance.now()-started)};
-    if(!isLiveDataset_(dataset))remember_(key,value);else memory.delete(key);
-    lastRevalidatedAt.set(key,Date.now());
-    await writeCachedSource(`query:${key}`,value);
-    notifyDatasetUpdated_(dataset,key,value,params);
-    if(import.meta.env.DEV)console.debug("[dataset-query]",{dataset,requestedLimit:params.limit||250,rowsRead:response.rowsRead,rowsFiltered:response.rowsFiltered,received:response.rows,total:response.total,backendMs:response.backendMs,elapsedMs:value.elapsedMs,payloadBytes:response.payloadBytes,cache:"miss"});
-    return value;
-  })().finally(()=>{if(pending.get(key)===task)pending.delete(key);});
-  pending.set(key,task);return task;
-}
-
+export async function readDatasetQuery(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(isLiveDataset_(dataset)){memory.delete(key);return null;}if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}const record=await readCachedSource(`query:${key}`).catch(()=>null);if(record?.data?.ok){remember_(key,record.data);return{...record.data,cacheHit:true,cacheLevel:"indexeddb",cacheUpdatedAt:record.updatedAt||null};}return null;}
+export async function fetchDatasetPage(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(pending.has(key))return pending.get(key);const started=performance.now();const task=(async()=>{let response;if(isLiveDataset_(dataset))response=await fetchRop02SourceFallback_(params);else response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});const value={...response,cacheHit:false,cacheLevel:response?.fallbackSources?"source-live":"network",elapsedMs:Math.round(performance.now()-started)};if(!isLiveDataset_(dataset))remember_(key,value);else memory.delete(key);lastRevalidatedAt.set(key,Date.now());await writeCachedSource(`query:${key}`,value);notifyDatasetUpdated_(dataset,key,value,params);return value;})().finally(()=>{if(pending.get(key)===task)pending.delete(key);});pending.set(key,task);return task;}
 function shouldRevalidate_(key){const last=Number(lastRevalidatedAt.get(key)||0);return !last||Date.now()-last>=DATA_REFRESH_INTERVAL_MS;}
 function revalidateDatasetInBackground_(dataset,params,cached){const key=buildDatasetQueryKey(dataset,params);if(!shouldRevalidate_(key))return;lastRevalidatedAt.set(key,Date.now());fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{if(!sync)return null;if(versionsDiffer_(cached?.versions||{},sync?.versions||{}))return fetchDatasetPage(dataset,params);return null;}).catch(()=>{});}
-
-export async function getDataset(dataset,params={}){
-  if(isLiveDataset_(dataset))return fetchDatasetPage(dataset,{...params,requireFresh:undefined});
-  const cached=await readDatasetQuery(dataset,params);
-  if(!cached)return fetchDatasetPage(dataset,params);
-  const requireFresh=Boolean(params?.requireFresh||params?.desde||params?.hasta);
-  if(requireFresh){
-    try{const sync=await fetchSyncVersions(APPS_SCRIPT_URL);if(sync&&versionsDiffer_(cached.versions||{},sync?.versions||{}))return await fetchDatasetPage(dataset,params);lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());}catch(_){}
-    return cached;
-  }
-  revalidateDatasetInBackground_(dataset,params,cached);return cached;
-}
-
+export async function getDataset(dataset,params={}){if(isLiveDataset_(dataset))return fetchDatasetPage(dataset,{...params,requireFresh:undefined});const cached=await readDatasetQuery(dataset,params);if(!cached)return fetchDatasetPage(dataset,params);const requireFresh=Boolean(params?.requireFresh||params?.desde||params?.hasta);if(requireFresh){try{const sync=await fetchSyncVersions(APPS_SCRIPT_URL);if(sync&&versionsDiffer_(cached.versions||{},sync?.versions||{}))return await fetchDatasetPage(dataset,params);lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());}catch(_){}return cached;}revalidateDatasetInBackground_(dataset,params,cached);return cached;}
 export const getRop02=params=>getDataset("rop02",params);
 export const getRop05=params=>getDataset("rop05",params);
 export const getRma15=params=>getDataset("rma15",params);
 export const refreshHistoricalDataset=(dataset,params={})=>fetchDatasetPage(dataset,params);
 export const HISTORICAL_DATASET_UPDATED_EVENT=HISTORICAL_UPDATED_EVENT;
-
 export async function refreshCommonHistoricalDatasets(){return Promise.allSettled([fetchDatasetPage("rop02",COMMON_HISTORICAL_QUERY),fetchDatasetPage("rop05",COMMON_HISTORICAL_QUERY),fetchDatasetPage("rma15",COMMON_HISTORICAL_QUERY)]);}
-
-async function fetchSpecialAction_(action,params={}){
-  const key=`special:${buildDatasetQueryKey(action,params)}`;
-  const record=await readCachedSource(key).catch(()=>null);
-  if(record?.data?.ok){const sync=await fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null);const local=record.data.versions||{},remote=sync?.versions||{};if(sync&&!versionsDiffer_(local,remote))return{...record.data,cacheHit:true,cacheLevel:"indexeddb"};}
-  const started=performance.now(),response=await fetch(`${APPS_SCRIPT_URL}?${new URLSearchParams({action,...params,_t:String(Date.now())})}`,{cache:"no-store",redirect:"follow"});
-  if(!response.ok)throw new Error(`HTTP ${response.status} desde Apps Script`);
-  const text=await response.text();let json;try{json=JSON.parse(text);}catch(_){throw new Error("Apps Script no devolvió JSON válido");}
-  if(!json?.ok)throw new Error(json?.error?.message||`Falló ${action}`);
-  const value={...json,elapsedMs:Math.round(performance.now()-started),payloadBytes:new Blob([text]).size};await writeCachedSource(key,value);return value;
-}
-
+async function fetchSpecialAction_(action,params={}){const key=`special:${buildDatasetQueryKey(action,params)}`;const record=await readCachedSource(key).catch(()=>null);if(record?.data?.ok){const sync=await fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null);const local=record.data.versions||{},remote=sync?.versions||{};if(sync&&!versionsDiffer_(local,remote))return{...record.data,cacheHit:true,cacheLevel:"indexeddb"};}const started=performance.now(),response=await fetch(`${APPS_SCRIPT_URL}?${new URLSearchParams({action,...params,_t:String(Date.now())})}`,{cache:"no-store",redirect:"follow"});if(!response.ok)throw new Error(`HTTP ${response.status} desde Apps Script`);const text=await response.text();let json;try{json=JSON.parse(text);}catch(_){throw new Error("Apps Script no devolvió JSON válido");}if(!json?.ok)throw new Error(json?.error?.message||`Falló ${action}`);const value={...json,elapsedMs:Math.round(performance.now()-started),payloadBytes:new Blob([text]).size};await writeCachedSource(key,value);return value;}
 export async function getRop02LatestByEquipmentProject(params={}){if(usesExternalHomeFilter_())throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");const response=await fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);return filterEquipmentOnlySnapshot_(filterHomeProjectResponse_(response));}
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
