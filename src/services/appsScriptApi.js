@@ -84,7 +84,7 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
 }
 
 export async function fetchHealth(url){return fetchAction(url,"health",{compact:false});}
-export async function fetchSource(url,source,{force=false,since=""}={}){return fetchAction(url,source,{force,compact:true,since});}
+export async function fetchSource(url,source,{force=false,since="",retries=2,timeoutMs=45000}={}){return fetchAction(url,source,{force,compact:true,since,retries,timeoutMs});}
 export async function fetchSyncVersions(url){
   try{return await fetchAction(url,"get_data_versions",{compact:false,retries:1});}
   catch(_){
@@ -93,9 +93,10 @@ export async function fetchSyncVersions(url){
   }
 }
 
-export async function fetchDatasetQuery(url,params={}){
+export async function fetchDatasetQuery(url,params={},options={}){
+  const timeoutMs=Number(options?.timeoutMs)||60000;
   const controller=typeof AbortController!=="undefined"?new AbortController():null;
-  const timer=controller?setTimeout(()=>controller.abort(),60000):null;
+  const timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
   try{
     const response=await fetch(buildAppsScriptUrl(url,"query_dataset",params),{cache:"no-store",redirect:"follow",signal:controller?.signal});
     if(!response.ok)throw new Error(`HTTP ${response.status} desde Apps Script`);
