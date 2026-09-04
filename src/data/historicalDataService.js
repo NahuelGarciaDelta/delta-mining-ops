@@ -34,32 +34,71 @@ function isVehicleSnapshotRow_(row){const code=normalizeEquipmentSnapshotCode_(r
 function filterEquipmentOnlySnapshot_(response){if(!Array.isArray(response?.data))return response;const data=response.data.filter(row=>!isVehicleSnapshotRow_(row));return {...response,data,rows:data.length,total:data.length};}
 function normalizeProjectParam_(value){return normalizeHomeProject_(value||"");}
 function rowMatchesRop02Params_(row,params={}){const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");if(requestedProject&&requestedProject!=="TODOS"&&rowProject_(row)!==requestedProject)return false;const equipo=String(params.equipo||"").trim().toUpperCase();if(equipo){const code=String(row?.INTERNO??row?.maquina??row?.equipo??row?.Interno??"").trim().toUpperCase();if(!code.includes(equipo))return false;}const desde=String(params.desde||"").slice(0,10),hasta=String(params.hasta||"").slice(0,10);const fecha=String(row?.FECHA??row?.fecha??row?.Fecha??"").slice(0,10);if(desde&&fecha&&fecha<desde)return false;if(hasta&&fecha&&fecha>hasta)return false;return true;}
+
 async function fetchRop02SourceFallback_(params={}){
-  const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");
-  const sources=requestedProject&&requestedProject!=="TODOS"?ROP02_SOURCE_MAP.filter(([,project])=>normalizeProjectParam_(project)===requestedProject):ROP02_SOURCE_MAP;
-  const settled=await Promise.allSettled(sources.map(async([source,project])=>{
-    const response=await fetchSource(APPS_SCRIPT_URL,source,{force:false,retries:0,timeoutMs:6000});
-    const data=Array.isArray(response?.data)?response.data:[];
-    return data.map(row=>({...row,proyecto:row?.proyecto||row?.Proyecto||row?.PROYECTO||project,PROYECTO:row?.PROYECTO||row?.Proyecto||row?.proyecto||project}));
-  }));
   let data=[];
-  settled.forEach(result=>{if(result.status==="fulfilled")data.push(...result.value);});
-  if(!data.length){
-    try{
-      const response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset:"rop02",...params,limit:params.limit||"all",offset:params.offset||0},{timeoutMs:6000});
-      data=Array.isArray(response?.data)?response.data:[];
-    }catch(error){
-      console.warn("ROP02 no respondió dentro del tiempo límite.",error);
-      data=[];
-    }
+
+  // Primero usamos query_dataset con un límite finito. Pedir "all" era la causa
+  // principal de sesiones que quedaban esperando indefinidamente.
+  try{
+    const queryLimit=String(params?.limit||"").toLowerCase()==="all"?5000:(params.limit||5000);
+    const response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset:"rop02",...params,limit:queryLimit,offset:params.offset||0},{timeoutMs:8000});
+    data=Array.isArray(response?.data)?response.data:[];
+  }catch(error){
+    console.warn("query_dataset ROP02 no respondió; se prueban las fuentes directas.",error);
   }
+
+  // Sólo si query_dataset no devolvió filas se consulta cada hoja fuente.
+  if(!data.length){
+    const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");
+    const sources=requestedProject&&requestedProject!=="TODOS"?ROP02_SOURCE_MAP.filter(([,project])=>normalizeProjectParam_(project)===requestedProject):ROP02_SOURCE_MAP;
+    const settled=await Promise.allSettled(sources.map(async([source,project])=>{
+      const response=await fetchSource(APPS_SCRIPT_URL,source,{force:false,retries:0,timeoutMs:4000});
+      const sourceData=Array.isArray(response?.data)?response.data:[];
+      return sourceData.map(row=>({...row,proyecto:row?.proyecto||row?.Proyecto||row?.PROYECTO||project,PROYECTO:row?.PROYECTO||row?.Proyecto||row?.proyecto||project}));
+    }));
+    settled.forEach(result=>{if(result.status==="fulfilled")data.push(...result.value);});
+  }
+
   data=data.filter(row=>rowMatchesRop02Params_(row,params));
   const direction=String(params.sortDirection||"desc").toLowerCase()==="asc"?1:-1;
   data.sort((a,b)=>direction*String(a?.FECHA??a?.fecha??a?.Fecha??"").localeCompare(String(b?.FECHA??b?.fecha??b?.Fecha??"")));
   return{ok:true,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length,fallbackSources:true};
 }
+
 export async function readDatasetQuery(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(isLiveDataset_(dataset)){memory.delete(key);return null;}if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}const record=await readCachedSource(`query:${key}`).catch(()=>null);if(record?.data?.ok){remember_(key,record.data);return{...record.data,cacheHit:true,cacheLevel:"indexeddb",cacheUpdatedAt:record.updatedAt||null};}return null;}
-export async function fetchDatasetPage(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(pending.has(key))return pending.get(key);const started=performance.now();const task=(async()=>{let response;if(isLiveDataset_(dataset))response=await fetchRop02SourceFallback_(params);else response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});const value={...response,cacheHit:false,cacheLevel:response?.fallbackSources?"source-live":"network",elapsedMs:Math.round(performance.now()-started)};if(!isLiveDataset_(dataset))remember_(key,value);else memory.delete(key);lastRevalidatedAt.set(key,Date.now());await writeCachedSource(`query:${key}`,value).catch(()=>{});notifyDatasetUpdated_(dataset,key,value,params);return value;})().catch(error=>{if(isLiveDataset_(dataset))return{ok:true,data:[],rows:0,total:0,hasMore:false,nextOffset:0,cacheHit:false,cacheLevel:"rop02-timeout",elapsedMs:Math.round(performance.now()-started),error:String(error?.message||error)};throw error;}).finally(()=>{if(pending.get(key)===task)pending.delete(key);});pending.set(key,task);return task;}
+
+export async function fetchDatasetPage(dataset,params={}){
+  const key=buildDatasetQueryKey(dataset,params);
+  if(pending.has(key))return pending.get(key);
+  const started=performance.now();
+
+  const work=(async()=>{
+    let response;
+    if(isLiveDataset_(dataset))response=await fetchRop02SourceFallback_(params);
+    else response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});
+    const value={...response,cacheHit:false,cacheLevel:response?.fallbackSources?"source-live":"network",elapsedMs:Math.round(performance.now()-started)};
+    if(!isLiveDataset_(dataset))remember_(key,value);else memory.delete(key);
+    lastRevalidatedAt.set(key,Date.now());
+    await writeCachedSource(`query:${key}`,value).catch(()=>{});
+    notifyDatasetUpdated_(dataset,key,value,params);
+    return value;
+  })();
+
+  // Protección real contra carga infinita: aunque fetch/redirect de Apps Script
+  // quede colgado, el caller recibe respuesta como máximo en 12 segundos.
+  const task=isLiveDataset_(dataset)
+    ?Promise.race([
+      work,
+      new Promise(resolve=>setTimeout(()=>resolve({ok:true,data:[],rows:0,total:0,hasMore:false,nextOffset:0,cacheHit:false,cacheLevel:"rop02-hard-timeout",elapsedMs:12000,error:"Tiempo límite de ROP02 alcanzado"}),12000))
+    ])
+    :work;
+
+  const guarded=task.catch(error=>{if(isLiveDataset_(dataset))return{ok:true,data:[],rows:0,total:0,hasMore:false,nextOffset:0,cacheHit:false,cacheLevel:"rop02-error",elapsedMs:Math.round(performance.now()-started),error:String(error?.message||error)};throw error;}).finally(()=>{if(pending.get(key)===guarded)pending.delete(key);});
+  pending.set(key,guarded);
+  return guarded;
+}
+
 function shouldRevalidate_(key){const last=Number(lastRevalidatedAt.get(key)||0);return !last||Date.now()-last>=DATA_REFRESH_INTERVAL_MS;}
 function revalidateDatasetInBackground_(dataset,params,cached){const key=buildDatasetQueryKey(dataset,params);if(!shouldRevalidate_(key))return;lastRevalidatedAt.set(key,Date.now());fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{if(!sync)return null;if(versionsDiffer_(cached?.versions||{},sync?.versions||{}))return fetchDatasetPage(dataset,params);return null;}).catch(()=>{});}
 export async function getDataset(dataset,params={}){if(isLiveDataset_(dataset))return fetchDatasetPage(dataset,{...params,requireFresh:undefined});const cached=await readDatasetQuery(dataset,params);if(!cached)return fetchDatasetPage(dataset,params);const requireFresh=Boolean(params?.requireFresh||params?.desde||params?.hasta);if(requireFresh){try{const sync=await fetchSyncVersions(APPS_SCRIPT_URL);if(sync&&versionsDiffer_(cached.versions||{},sync?.versions||{}))return await fetchDatasetPage(dataset,params);lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());}catch(_){}return cached;}revalidateDatasetInBackground_(dataset,params,cached);return cached;}
