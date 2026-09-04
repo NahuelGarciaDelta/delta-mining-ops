@@ -1,5 +1,5 @@
 import {APPS_SCRIPT_URL} from "../config/app.js";
-import {fetchDatasetQuery,fetchSyncVersions} from "../services/appsScriptApi.js";
+import {fetchDatasetQuery,fetchSyncVersions,fetchSource} from "../services/appsScriptApi.js";
 import {readCachedSource,writeCachedSource} from "../services/appCache.js";
 import {DATA_REFRESH_INTERVAL_MS} from "../services/dataRefreshPolicy.js";
 import {buildDatasetQueryKey} from "./historicalQueryParams.js";
@@ -13,6 +13,12 @@ const lastRevalidatedAt=new Map();
 const MAX_MEMORY_QUERIES=8;
 const HISTORICAL_UPDATED_EVENT="dm-historical-dataset-updated";
 const COMMON_HISTORICAL_QUERY=Object.freeze({limit:"all",offset:0,sortBy:"fecha",sortDirection:"desc"});
+const ROP02_SOURCE_MAP=Object.freeze([
+  ["rop02_jm","JOSE MARIA"],
+  ["rop02_fs","FILO DEL SOL"],
+  ["rop02_filosur","FILO SUR"],
+  ["rop02_zorro","EL ZORRO"]
+]);
 
 function isLiveDataset_(dataset){return String(dataset||"").trim().toLowerCase()==="rop02";}
 
@@ -52,10 +58,35 @@ function normalizeEquipmentSnapshotCode_(value){return String(value||"").trim().
 function isVehicleSnapshotRow_(row){const code=normalizeEquipmentSnapshotCode_(row?.INTERNO??row?.equipo??row?.maquina??row?.Interno??"");if(!code)return false;if(/^CTA/.test(code))return true;if(/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return true;if(["CAC","CAR","CAV","CAA"].some(prefix=>code.startsWith(prefix)))return true;return code==="CAT0073";}
 function filterEquipmentOnlySnapshot_(response){if(!Array.isArray(response?.data))return response;const data=response.data.filter(row=>!isVehicleSnapshotRow_(row));return {...response,data,rows:data.length,total:data.length};}
 
+function normalizeProjectParam_(value){return normalizeHomeProject_(value||"");}
+function rowMatchesRop02Params_(row,params={}){
+  const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");
+  if(requestedProject&&requestedProject!=="TODOS"&&rowProject_(row)!==requestedProject)return false;
+  const equipo=String(params.equipo||"").trim().toUpperCase();
+  if(equipo){const code=String(row?.INTERNO??row?.maquina??row?.equipo??row?.Interno??"").trim().toUpperCase();if(!code.includes(equipo))return false;}
+  const desde=String(params.desde||"").slice(0,10),hasta=String(params.hasta||"").slice(0,10);
+  const fecha=String(row?.FECHA??row?.fecha??row?.Fecha??"").slice(0,10);
+  if(desde&&fecha&&fecha<desde)return false;
+  if(hasta&&fecha&&fecha>hasta)return false;
+  return true;
+}
+async function fetchRop02SourceFallback_(params={}){
+  const settled=await Promise.allSettled(ROP02_SOURCE_MAP.map(async([source,project])=>{
+    const response=await fetchSource(APPS_SCRIPT_URL,source,{force:true});
+    const data=Array.isArray(response?.data)?response.data:[];
+    return data.map(row=>({...row,proyecto:row?.proyecto||row?.Proyecto||row?.PROYECTO||project,PROYECTO:row?.PROYECTO||row?.Proyecto||row?.proyecto||project}));
+  }));
+  let data=[];
+  settled.forEach(result=>{if(result.status==="fulfilled")data.push(...result.value);});
+  if(!data.length)throw new Error("No se pudo obtener ROP02 desde ninguna fuente.");
+  data=data.filter(row=>rowMatchesRop02Params_(row,params));
+  const direction=String(params.sortDirection||"desc").toLowerCase()==="asc"?1:-1;
+  data.sort((a,b)=>direction*String(a?.FECHA??a?.fecha??a?.Fecha??"").localeCompare(String(b?.FECHA??b?.fecha??b?.Fecha??"")));
+  return{ok:true,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length,fallbackSources:true};
+}
+
 export async function readDatasetQuery(dataset,params={}){
   const key=buildDatasetQueryKey(dataset,params);
-  // ROP02 alimenta Cargas, Atrasos y Control de errores. No puede depender de
-  // memoria ni IndexedDB de una PC: siempre se obtiene del backend.
   if(isLiveDataset_(dataset)){memory.delete(key);return null;}
   if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}
   const record=await readCachedSource(`query:${key}`).catch(()=>null);
@@ -67,15 +98,23 @@ export async function fetchDatasetPage(dataset,params={}){
   const key=buildDatasetQueryKey(dataset,params);
   if(pending.has(key))return pending.get(key);
   const started=performance.now();
-  const task=fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0}).then(async response=>{
-    const value={...response,cacheHit:false,cacheLevel:"network",elapsedMs:Math.round(performance.now()-started)};
+  const task=(async()=>{
+    let response;
+    try{
+      response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});
+    }catch(error){
+      if(!isLiveDataset_(dataset))throw error;
+      console.warn("query_dataset ROP02 falló; usando fuentes ROP02 directas.",error);
+      response=await fetchRop02SourceFallback_(params);
+    }
+    const value={...response,cacheHit:false,cacheLevel:response?.fallbackSources?"source-fallback":"network",elapsedMs:Math.round(performance.now()-started)};
     if(!isLiveDataset_(dataset))remember_(key,value);else memory.delete(key);
     lastRevalidatedAt.set(key,Date.now());
     await writeCachedSource(`query:${key}`,value);
     notifyDatasetUpdated_(dataset,key,value,params);
     if(import.meta.env.DEV)console.debug("[dataset-query]",{dataset,requestedLimit:params.limit||250,rowsRead:response.rowsRead,rowsFiltered:response.rowsFiltered,received:response.rows,total:response.total,backendMs:response.backendMs,elapsedMs:value.elapsedMs,payloadBytes:response.payloadBytes,cache:"miss"});
     return value;
-  }).finally(()=>{if(pending.get(key)===task)pending.delete(key);});
+  })().finally(()=>{if(pending.get(key)===task)pending.delete(key);});
   pending.set(key,task);return task;
 }
 
@@ -83,7 +122,6 @@ function shouldRevalidate_(key){const last=Number(lastRevalidatedAt.get(key)||0)
 function revalidateDatasetInBackground_(dataset,params,cached){const key=buildDatasetQueryKey(dataset,params);if(!shouldRevalidate_(key))return;lastRevalidatedAt.set(key,Date.now());fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{if(!sync)return null;if(versionsDiffer_(cached?.versions||{},sync?.versions||{}))return fetchDatasetPage(dataset,params);return null;}).catch(()=>{});}
 
 export async function getDataset(dataset,params={}){
-  // Fuente crítica: en ROP02 no se devuelve nunca un snapshot distinto por PC.
   if(isLiveDataset_(dataset))return fetchDatasetPage(dataset,{...params,requireFresh:undefined});
   const cached=await readDatasetQuery(dataset,params);
   if(!cached)return fetchDatasetPage(dataset,params);
