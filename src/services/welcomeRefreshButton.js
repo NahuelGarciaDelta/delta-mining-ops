@@ -7,11 +7,12 @@ const BUTTON_ID="dm-welcome-refresh-all";
 let installed=false;
 let refreshing=false;
 
-function getWelcome(){
+function getWelcomeMain(){
   const home=document.querySelector(".dm-home");
   if(!home)return null;
   const style=window.getComputedStyle(home);
-  return style.display!=="none"&&style.visibility!=="hidden"?home:null;
+  if(style.display==="none"||style.visibility==="hidden")return null;
+  return home.querySelector(":scope > main");
 }
 
 async function refreshAll(button){
@@ -34,14 +35,14 @@ async function refreshAll(button){
 }
 
 function ensureButton(){
-  const home=getWelcome();
+  const main=getWelcomeMain();
   const existing=document.getElementById(BUTTON_ID);
-  if(!home){existing?.remove();return;}
+  if(!main){existing?.remove();return;}
 
-  if(window.getComputedStyle(home).position==="static")home.style.position="relative";
+  if(window.getComputedStyle(main).position==="static")main.style.position="relative";
 
   if(existing){
-    if(existing.parentElement!==home)home.prepend(existing);
+    if(existing.parentElement!==main)main.prepend(existing);
     return;
   }
 
@@ -54,7 +55,7 @@ function ensureButton(){
     position:"absolute",
     top:"14px",
     left:"14px",
-    zIndex:"20",
+    zIndex:"30",
     padding:"8px 13px",
     borderRadius:"9px",
     border:"1px solid rgba(239,35,60,.55)",
@@ -67,7 +68,7 @@ function ensureButton(){
     boxShadow:"0 6px 18px rgba(0,0,0,.24)"
   });
   button.addEventListener("click",()=>refreshAll(button));
-  home.prepend(button);
+  main.prepend(button);
 }
 
 export function installWelcomeRefreshButton(){
