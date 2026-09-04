@@ -11,7 +11,6 @@ const eachDay=(from,to)=>{if(!from||!to||to<from)return[];const out=[],d=new Dat
 const machineType=(r,deps)=>r.equipo||r._tipo||deps?.getMachineType?.(r.maquina||r._internoRaw||"")||"";
 const excluded=(r,code,deps)=>deps?.isRop02ControlMachineExcluded?.(code)||(()=>{const t=machineType(r,deps).toUpperCase(),c=String(code).replace(/[^A-Z0-9]/g,"");return t.includes("CAMION")||t.includes("CAMIÓN")||t.includes("CAMIONETA")||/^CTA|^CAR|^CAV|^CAT\d/.test(c)||/^AG\d|^AH\d/.test(c);})();
 const matches=(value,selected,all)=>{if(selected==null||selected===all)return true;if(Array.isArray(selected))return selected.length===0||selected.includes(all)||selected.includes(value);return selected===value;};
-const listValue=v=>Array.isArray(v)?v:[v];
 
 function ExportButton({C,onClick}){
  return <button onClick={onClick} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${(C.green||"#10b981")}44`,background:C.greenDim||"rgba(16,185,129,.12)",color:C.green||"#10b981",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"Inter"}}>⬇ Excel</button>;
@@ -25,91 +24,36 @@ export default function ViewCambiosTurnoEnhanced({deps={},rop02All=[]}){
  const [custom,setCustom]=useState(false),[desde,setDesde]=useState(""),[hasta,setHasta]=useState("");
  const [proyecto,setProyecto]=useState("todos"),[equipo,setEquipo]=useState("todas"),[tipo,setTipo]=useState("todos"),[tab,setTab]=useState("resumen");
  const rango=custom?{desde:desde||preset.startISO,hasta:hasta||preset.endISO}:{desde:preset.startISO,hasta:preset.endISO};
-
  const base=useMemo(()=>(rop02All||[]).filter(r=>{const f=normDate(r.fecha),m=clean(r.maquina||r._internoRaw);return f&&f>=rango.desde&&f<=rango.hasta&&m&&!excluded(r,m,deps);}),[rop02All,rango.desde,rango.hasta,deps]);
  const proyectos=useMemo(()=>[...new Set(base.map(r=>r.proyecto).filter(Boolean))].sort(),[base]);
  const tipos=useMemo(()=>[...new Set(base.filter(r=>matches(r.proyecto,proyecto,"todos")).map(r=>machineType(r,deps)).filter(Boolean))].sort(),[base,proyecto,deps]);
  const equipos=useMemo(()=>[...new Set(base.filter(r=>matches(r.proyecto,proyecto,"todos")&&matches(machineType(r,deps),tipo,"todos")).map(r=>clean(r.maquina||r._internoRaw)).filter(Boolean))].sort(),[base,proyecto,tipo,deps]);
-
  useEffect(()=>{if(Array.isArray(proyecto)&&!proyecto.includes("todos")&&proyecto.some(v=>!proyectos.includes(v)))setProyecto("todos");},[proyectos,proyecto]);
  useEffect(()=>{if(Array.isArray(tipo)&&!tipo.includes("todos")&&tipo.some(v=>!tipos.includes(v)))setTipo("todos");},[tipos,tipo]);
  useEffect(()=>{if(Array.isArray(equipo)&&!equipo.includes("todas")&&equipo.some(v=>!equipos.includes(v)))setEquipo("todas");},[equipos,equipo]);
-
  const filtered=useMemo(()=>base.filter(r=>matches(r.proyecto,proyecto,"todos")&&matches(machineType(r,deps),tipo,"todos")&&matches(clean(r.maquina||r._internoRaw),equipo,"todas")),[base,proyecto,tipo,equipo,deps]);
  const summary=useMemo(()=>{const map=new Map();filtered.forEach(r=>{const m=clean(r.maquina||r._internoRaw),key=deps.canonicalEquivalentMachineCode?.(m)||m,f=normDate(r.fecha),estado=String(r.estado||"").toUpperCase(),hs=Math.max(0,Number(r.horas)||0),turno=String(r.turno||r["Turno"]||"").toUpperCase();const x=map.get(key)||{maquina:m,equipo:machineType(r,deps),proyecto:r.proyecto||"",horas:0,td:0,tn:0,dias:new Map(),ultimaFecha:""};x.horas+=hs;if(turno.includes("TD")||turno.includes("DIA"))x.td+=hs;if(turno.includes("TN")||turno.includes("NOCHE"))x.tn+=hs;const d=x.dias.get(f)||{work:false,od:false,fs:false};if(hs>0)d.work=true;else if(estado==="OD")d.od=true;else if(estado==="FS"||estado==="EM")d.fs=true;x.dias.set(f,d);if(f>x.ultimaFecha)x.ultimaFecha=f;map.set(key,x);});return [...map.values()].map(x=>{let w=0,od=0,fs=0;x.dias.forEach(d=>{if(d.work)w++;else if(d.od)od++;else if(d.fs)fs++;});return{...x,diasTrabajados:w,diasOD:od,diasFSEM:fs,horas:+x.horas.toFixed(2),td:+x.td.toFixed(2),tn:+x.tn.toFixed(2)};}).sort((a,b)=>b.horas-a.horas);},[filtered,deps]);
  const days=useMemo(()=>eachDay(rango.desde,rango.hasta),[rango.desde,rango.hasta]);
  const daily=useMemo(()=>{const map=new Map();filtered.forEach(r=>{const m=clean(r.maquina||r._internoRaw),key=deps.canonicalEquivalentMachineCode?.(m)||m,f=normDate(r.fecha),hs=Math.max(0,Number(r.horas)||0),estado=String(r.estado||"").toUpperCase();const x=map.get(key)||{maquina:m,equipo:machineType(r,deps),proyecto:r.proyecto||"",dias:{}};const d=x.dias[f]||{hs:0,od:false,fs:false};d.hs+=hs;if(estado==="OD")d.od=true;if(estado==="FS"||estado==="EM")d.fs=true;x.dias[f]=d;map.set(key,x);});return [...map.values()].sort((a,b)=>a.maquina.localeCompare(b.maquina));},[filtered,deps]);
  const cell=d=>d?.hs>0?String(Math.round(d.hs*100)/100):d?.od?"OD":d?.fs?"FS":"—";
- const total=summary.reduce((s,r)=>s+r.horas,0);
- const totalDias=days.length;
+ const total=summary.reduce((s,r)=>s+r.horas,0),totalDias=days.length;
  const hayFiltros=custom||!matches("todos",proyecto,"todos")||!matches("todas",equipo,"todas")||!matches("todos",tipo,"todos");
-
  const colsSummary=[
-  {key:"maquina",label:"Equipo",render:v=><span style={{fontWeight:800,color:C.text}}>{v}</span>},
-  {key:"equipo",label:"Tipo"},
-  {key:"proyecto",label:"Proyecto",render:v=>Badge?<Badge color={deps.proyColor?.(v)||C.blue}>{v||"—"}</Badge>:v||"—"},
-  {key:"diasTrabajados",label:"Días trabajados"},
-  {key:"diasOD",label:"Días OD",render:v=><span style={{color:C.yellow,fontWeight:700}}>{v}</span>},
-  {key:"diasFSEM",label:"Días FS/EM",render:v=><span style={{color:C.red,fontWeight:700}}>{v}</span>},
-  {key:"td",label:"Hs TD",render:v=>v?deps.fmtNum?.(v)??v:"—"},
-  {key:"tn",label:"Hs TN",render:v=>v?deps.fmtNum?.(v)??v:"—"},
-  {key:"horas",label:"Hs Totales",render:v=><span style={{fontWeight:900,color:C.green}}>{deps.fmtNum?.(v)??v}</span>},
-  {key:"ultimaFecha",label:"Último registro",render:v=>v?(deps.fmtFecha?.(v)||fmtISO(v)):"—"},
+  {key:"maquina",label:"Equipo",render:v=><span style={{fontWeight:800,color:C.text}}>{v}</span>},{key:"equipo",label:"Tipo"},{key:"proyecto",label:"Proyecto",render:v=>Badge?<Badge color={deps.proyColor?.(v)||C.blue}>{v||"—"}</Badge>:v||"—"},{key:"diasTrabajados",label:"Días trabajados"},{key:"diasOD",label:"Días OD",render:v=><span style={{color:C.yellow,fontWeight:700}}>{v}</span>},{key:"diasFSEM",label:"Días FS/EM",render:v=><span style={{color:C.red,fontWeight:700}}>{v}</span>},{key:"td",label:"Hs TD",render:v=>v?deps.fmtNum?.(v)??v:"—"},{key:"tn",label:"Hs TN",render:v=>v?deps.fmtNum?.(v)??v:"—"},{key:"horas",label:"Hs Totales",render:v=><span style={{fontWeight:900,color:C.green}}>{deps.fmtNum?.(v)??v}</span>},{key:"ultimaFecha",label:"Último registro",render:v=>v?(deps.fmtFecha?.(v)||fmtISO(v)):"—"},
  ];
-
  const exportDaily=()=>{const rows=daily.map(r=>({Equipo:r.maquina,Tipo:r.equipo,Proyecto:r.proyecto,...Object.fromEntries(days.map(d=>[fmtISO(d),cell(r.dias[d])]))}));const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Horas por dias");XLSX.writeFile(wb,`Horas_por_dias_${rango.desde}_${rango.hasta}.xlsx`);};
  const exportSummary=()=>{if(deps.excelFromCols)return deps.excelFromCols(colsSummary,summary,"Equipos_al_fin_de_turno");const rows=summary.map(r=>({Equipo:r.maquina,Tipo:r.equipo,Proyecto:r.proyecto,"Días trabajados":r.diasTrabajados,"Días OD":r.diasOD,"Días FS/EM":r.diasFSEM,"Hs TD":r.td,"Hs TN":r.tn,"Hs Totales":r.horas,"Último registro":r.ultimaFecha}));const ws=XLSX.utils.json_to_sheet(rows),wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Resumen");XLSX.writeFile(wb,`Equipos_${rango.desde}_${rango.hasta}.xlsx`);};
  const reset=()=>{setCustom(false);setDesde("");setHasta("");setProyecto("todos");setEquipo("todas");setTipo("todos");};
- const onMonth=v=>{setMes(v);setCustom(false);setDesde("");setHasta("");};
- const onYear=v=>{setAnio(v);setCustom(false);setDesde("");setHasta("");};
- const changeDesde=v=>{setCustom(true);setDesde(v);if(hasta&&hasta<v)setHasta(v);};
- const changeHasta=v=>{setCustom(true);setHasta(v);if(desde&&desde>v)setDesde(v);};
-
- const Filters=()=> <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-  <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-   {Sel?<Sel label="Mes" value={mes} onChange={onMonth} options={MESES.map((x,i)=>({value:String(i),label:x}))}/>:null}
-   {Sel?<Sel label="Año" value={anio} onChange={onYear} options={[...new Set([String(hoy.getFullYear()),"2026","2027","2028",...rop02All.map(r=>normDate(r.fecha).slice(0,4)).filter(Boolean)])].sort((a,b)=>+b-+a).map(x=>({value:x,label:x}))}/>:null}
-   {DateIn?<DateIn label="Desde" value={custom?desde:preset.startISO} onChange={changeDesde} max={custom?hasta||undefined:undefined}/>:null}
-   {DateIn?<DateIn label="Hasta" value={custom?hasta:preset.endISO} onChange={changeHasta} min={custom?desde||undefined:undefined}/>:null}
-   {MultiSel?<MultiSel label="Proyecto" value={proyecto} onChange={v=>{setProyecto(v);setEquipo("todas");}} options={[{value:"todos",label:"Todos"},...proyectos.map(x=>({value:x,label:x}))]}/>:null}
-   {MultiSel?<MultiSel label="Equipo" value={equipo} onChange={setEquipo} options={[{value:"todas",label:"Todos"},...equipos.map(x=>({value:x,label:x}))]}/>:null}
-   {MultiSel?<MultiSel label="Tipo de Máquina" value={tipo} onChange={v=>{setTipo(v);setEquipo("todas");}} options={[{value:"todos",label:"Todos"},...tipos.map(x=>({value:x,label:x}))]}/>:null}
-   <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:.3,pointerEvents:hayFiltros?"auto":"none"}}>{Icon?<Icon name="close" size={11} color={C.red}/>:"×"}Limpiar filtros</button>
-  </div>
-  <div style={{fontSize:11,color:C.textSub}}>Análisis sin camionetas ni camiones. Período: <strong style={{color:C.text}}>{deps.fmtFecha?.(rango.desde)||fmtISO(rango.desde)} al {deps.fmtFecha?.(rango.hasta)||fmtISO(rango.hasta)}</strong>{custom?" · Rango personalizado":" · Corte mensual 26 al 25"}</div>
- </div>;
-
+ const onMonth=v=>{setMes(v);setCustom(false);setDesde("");setHasta("");};const onYear=v=>{setAnio(v);setCustom(false);setDesde("");setHasta("");};const changeDesde=v=>{setCustom(true);setDesde(v);if(hasta&&hasta<v)setHasta(v);};const changeHasta=v=>{setCustom(true);setHasta(v);if(desde&&desde>v)setDesde(v);};
+ const Filters=()=> <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}><div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
+   {Sel?<Sel label="Mes" value={mes} onChange={onMonth} options={MESES.map((x,i)=>({value:String(i),label:x}))}/>:null}{Sel?<Sel label="Año" value={anio} onChange={onYear} options={[...new Set([String(hoy.getFullYear()),"2026","2027","2028",...rop02All.map(r=>normDate(r.fecha).slice(0,4)).filter(Boolean)])].sort((a,b)=>+b-+a).map(x=>({value:x,label:x}))}/>:null}{DateIn?<DateIn label="Desde" value={custom?desde:preset.startISO} onChange={changeDesde} max={custom?hasta||undefined:undefined}/>:null}{DateIn?<DateIn label="Hasta" value={custom?hasta:preset.endISO} onChange={changeHasta} min={custom?desde||undefined:undefined}/>:null}{MultiSel?<MultiSel label="Proyecto" value={proyecto} onChange={v=>{setProyecto(v);setEquipo("todas");}} options={[{value:"todos",label:"Todos"},...proyectos.map(x=>({value:x,label:x}))]}/>:null}{MultiSel?<MultiSel label="Equipo" value={equipo} onChange={setEquipo} options={[{value:"todas",label:"Todos"},...equipos.map(x=>({value:x,label:x}))]}/>:null}{MultiSel?<MultiSel label="Tipo de Máquina" value={tipo} onChange={v=>{setTipo(v);setEquipo("todas");}} options={[{value:"todos",label:"Todos"},...tipos.map(x=>({value:x,label:x}))]}/>:null}
+   <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:.3,pointerEvents:hayFiltros?"auto":"none"}}>{Icon?<Icon name="close" size={11} color={C.red}/>:"×"}Limpiar filtros</button></div>
+  <div style={{fontSize:11,color:C.textSub}}>Análisis sin camionetas ni camiones. Período: <strong style={{color:C.text}}>{deps.fmtFecha?.(rango.desde)||fmtISO(rango.desde)} al {deps.fmtFecha?.(rango.hasta)||fmtISO(rango.hasta)}</strong>{custom?" · Rango personalizado":" · Corte mensual 26 al 25"}</div></div>;
  return <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
-  <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
-   {TabBtn?<><TabBtn active={tab==="resumen"} onClick={()=>setTab("resumen")}>Equipos al fin de turno</TabBtn><TabBtn active={tab==="diario"} onClick={()=>setTab("diario")}>Horas por días</TabBtn></>:null}
-  </div>
-
+  <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>{TabBtn?<><TabBtn active={tab==="resumen"} onClick={()=>setTab("resumen")}>Equipos al fin de turno</TabBtn><TabBtn active={tab==="diario"} onClick={()=>setTab("diario")}>Horas por días</TabBtn></>:null}</div>
   {Card?<Card title={tab==="diario"?"Horas por días":"Equipos al fin de turno"} action={<ExportButton C={C} onClick={tab==="diario"?exportDaily:exportSummary}/>}><Filters/></Card>:<Filters/>}
-
-  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
-   {StatCard&&<StatCard icon="bulldozer" label="Equipos con horas" value={deps.fmtNum?.(summary.length)??summary.length} sub={`${deps.fmtFecha?.(rango.desde)||fmtISO(rango.desde)} al ${deps.fmtFecha?.(rango.hasta)||fmtISO(rango.hasta)}`} color={C.green} small/>}
-   {StatCard&&<StatCard icon="hours" label="Horas acumuladas" value={deps.fmtNum?.(Math.round(total*100)/100)??Math.round(total*100)/100} sub={`Período de ${totalDias} días`} color={C.accent||C.red} small/>}
-   {StatCard&&<StatCard icon="consist" label="Criterio" value={custom?"Rango personalizado":`${MESES[+mes]} ${anio}`} sub={custom?"Fechas definidas manualmente":"Corte 26 al 25 · ROP02 filtrado"} color={C.purple} small/>}
-  </div>
-
-  {tab==="resumen"?(Table?<Table cols={colsSummary} rows={summary} maxH={460} emptyMsg="No hay horas cargadas en ROP02 para los filtros seleccionados."/>:null):(
-   <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:"auto",maxHeight:560,background:C.card||C.surface}}>
-    <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:"100%",width:"max-content"}}>
-     <thead><tr>
-      <th style={{position:"sticky",left:0,top:0,zIndex:5,background:C.surface,padding:"9px 10px",minWidth:118,textAlign:"left",borderBottom:`1px solid ${C.border}`,color:C.textSub}}>Equipo</th>
-      <th style={{position:"sticky",top:0,zIndex:4,background:C.surface,padding:"9px 10px",minWidth:130,textAlign:"left",borderBottom:`1px solid ${C.border}`,color:C.textSub}}>Tipo</th>
-      <th style={{position:"sticky",top:0,zIndex:4,background:C.surface,padding:"9px 10px",minWidth:115,textAlign:"left",borderBottom:`1px solid ${C.border}`,color:C.textSub}}>Proyecto</th>
-      {days.map(d=><th key={d} style={{position:"sticky",top:0,zIndex:4,background:C.surface,padding:"9px 8px",minWidth:62,textAlign:"center",whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}`,color:C.textSub}}>{d.slice(8,10)}/{d.slice(5,7)}</th>)}
-     </tr></thead>
-     <tbody>{daily.map((r,idx)=><tr key={r.maquina} style={{background:idx%2?"rgba(255,255,255,.015)":"transparent"}}>
-      <td style={{position:"sticky",left:0,zIndex:2,background:C.card||C.surface,padding:"8px 10px",fontWeight:800,whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}55`,color:C.text}}>{r.maquina}</td>
-      <td style={{padding:"8px 10px",whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}55`,color:C.textSub}}>{r.equipo||"—"}</td>
-      <td style={{padding:"8px 10px",whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}55`}}>{Badge?<Badge color={deps.proyColor?.(r.proyecto)||C.blue}>{r.proyecto||"—"}</Badge>:r.proyecto||"—"}</td>
-      {days.map(d=>{const v=cell(r.dias[d]);return <td key={d} style={{padding:"8px",textAlign:"center",borderLeft:`1px solid ${C.border}44`,borderBottom:`1px solid ${C.border}55`,fontWeight:v!=="—"?800:400,color:v==="OD"?C.yellow:v==="FS"?C.red:v!=="—"?C.green:C.textMuted}}>{v}</td>;})}
-     </tr>)}</tbody>
-    </table>
-    {!daily.length&&<div style={{padding:26,textAlign:"center",color:C.textMuted,fontSize:12}}>No hay registros para los filtros seleccionados.</div>}
-   </div>
-  )}
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>{StatCard&&<StatCard icon="bulldozer" label="Equipos con horas" value={deps.fmtNum?.(summary.length)??summary.length} sub={`${deps.fmtFecha?.(rango.desde)||fmtISO(rango.desde)} al ${deps.fmtFecha?.(rango.hasta)||fmtISO(rango.hasta)}`} color={C.green} small/>}{StatCard&&<StatCard icon="hours" label="Horas acumuladas" value={deps.fmtNum?.(Math.round(total*100)/100)??Math.round(total*100)/100} sub={`Período de ${totalDias} días`} color={C.accent||C.red} small/>}{StatCard&&<StatCard icon="consist" label="Criterio" value={custom?"Rango personalizado":`${MESES[+mes]} ${anio}`} sub={custom?"Fechas definidas manualmente":"Corte 26 al 25 · ROP02 filtrado"} color={C.purple} small/>}</div>
+  {tab==="resumen"?(Table?<div style={{background:"rgba(20,20,22,.97)",border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}><Table cols={colsSummary} rows={summary} maxH={460} emptyMsg="No hay horas cargadas en ROP02 para los filtros seleccionados."/></div>:null):(
+   <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:"auto",maxHeight:560,background:"rgba(20,20,22,.97)"}}><table style={{borderCollapse:"separate",borderSpacing:0,fontSize:11,minWidth:"100%",width:"max-content",background:"#18181a"}}><thead><tr><th style={{position:"sticky",left:0,top:0,zIndex:5,background:"#171719",padding:"9px 10px",minWidth:118,textAlign:"left",borderBottom:`1px solid ${C.border}`,color:C.textSub}}>Equipo</th><th style={{position:"sticky",top:0,zIndex:4,background:"#171719",padding:"9px 10px",minWidth:130,textAlign:"left",borderBottom:`1px solid ${C.border}`,color:C.textSub}}>Tipo</th><th style={{position:"sticky",top:0,zIndex:4,background:"#171719",padding:"9px 10px",minWidth:115,textAlign:"left",borderBottom:`1px solid ${C.border}`,color:C.textSub}}>Proyecto</th>{days.map(d=><th key={d} style={{position:"sticky",top:0,zIndex:4,background:"#171719",padding:"9px 8px",minWidth:62,textAlign:"center",whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}`,color:C.textSub}}>{d.slice(8,10)}/{d.slice(5,7)}</th>)}</tr></thead><tbody>{daily.map((r,idx)=><tr key={r.maquina} style={{background:idx%2?"#1b1b1d":"#18181a"}}><td style={{position:"sticky",left:0,zIndex:2,background:idx%2?"#1b1b1d":"#18181a",padding:"8px 10px",fontWeight:800,whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}55`,color:C.text}}>{r.maquina}</td><td style={{padding:"8px 10px",whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}55`,color:C.textSub}}>{r.equipo||"—"}</td><td style={{padding:"8px 10px",whiteSpace:"nowrap",borderBottom:`1px solid ${C.border}55`}}>{Badge?<Badge color={deps.proyColor?.(r.proyecto)||C.blue}>{r.proyecto||"—"}</Badge>:r.proyecto||"—"}</td>{days.map(d=>{const v=cell(r.dias[d]);return <td key={d} style={{padding:"8px",textAlign:"center",borderLeft:`1px solid ${C.border}44`,borderBottom:`1px solid ${C.border}55`,fontWeight:v!=="—"?800:400,color:v==="OD"?C.yellow:v==="FS"?C.red:v!=="—"?C.green:C.textMuted}}>{v}</td>;})}</tr>)}</tbody></table>{!daily.length&&<div style={{padding:26,textAlign:"center",color:C.textMuted,fontSize:12}}>No hay registros para los filtros seleccionados.</div>}</div>)}
  </div>;
 }
