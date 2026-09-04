@@ -7,11 +7,11 @@ const BUTTON_ID="dm-welcome-refresh-all";
 let installed=false;
 let refreshing=false;
 
-function isWelcomeVisible(){
+function getWelcome(){
   const home=document.querySelector(".dm-home");
-  if(!home)return false;
+  if(!home)return null;
   const style=window.getComputedStyle(home);
-  return style.display!=="none"&&style.visibility!=="hidden";
+  return style.display!=="none"&&style.visibility!=="hidden"?home:null;
 }
 
 async function refreshAll(button){
@@ -33,25 +33,17 @@ async function refreshAll(button){
   }
 }
 
-function positionButton(button){
-  const content=document.querySelector(".dm-app-content");
-  const home=document.querySelector(".dm-home");
-  const anchor=home||content;
-  if(!anchor)return;
-  const rect=anchor.getBoundingClientRect();
-  const left=Math.max(12,Math.round(rect.left+16));
-  const top=Math.max(12,Math.round(rect.top+14));
-  button.style.left=`${left}px`;
-  button.style.top=`${top}px`;
-}
-
 function ensureButton(){
+  const home=getWelcome();
   const existing=document.getElementById(BUTTON_ID);
-  if(!isWelcomeVisible()){
-    existing?.remove();
+  if(!home){existing?.remove();return;}
+
+  if(window.getComputedStyle(home).position==="static")home.style.position="relative";
+
+  if(existing){
+    if(existing.parentElement!==home)home.prepend(existing);
     return;
   }
-  if(existing){positionButton(existing);return;}
 
   const button=document.createElement("button");
   button.id=BUTTON_ID;
@@ -59,24 +51,23 @@ function ensureButton(){
   button.innerHTML="↻ Actualizar";
   button.title="Actualizar todos los datos de la aplicación";
   Object.assign(button.style,{
-    position:"fixed",
-    zIndex:"1200",
+    position:"absolute",
+    top:"14px",
+    left:"14px",
+    zIndex:"20",
     padding:"8px 13px",
     borderRadius:"9px",
     border:"1px solid rgba(239,35,60,.55)",
-    background:"rgba(22,22,22,.88)",
+    background:"rgba(22,22,22,.96)",
     color:"#ef233c",
     fontFamily:"Inter,Arial,sans-serif",
     fontSize:"12px",
     fontWeight:"800",
     cursor:"pointer",
-    boxShadow:"0 8px 24px rgba(0,0,0,.28)",
-    backdropFilter:"blur(8px)",
-    webkitBackdropFilter:"blur(8px)"
+    boxShadow:"0 6px 18px rgba(0,0,0,.24)"
   });
   button.addEventListener("click",()=>refreshAll(button));
-  document.body.appendChild(button);
-  positionButton(button);
+  home.prepend(button);
 }
 
 export function installWelcomeRefreshButton(){
@@ -90,7 +81,6 @@ export function installWelcomeRefreshButton(){
   };
   const observer=new MutationObserver(schedule);
   observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:["class","style"]});
-  window.addEventListener("resize",schedule);
   window.addEventListener("popstate",schedule);
   window.addEventListener("hashchange",schedule);
   schedule();
