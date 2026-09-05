@@ -35,6 +35,32 @@ function currentHomeProject_(){if(typeof window==="undefined")return "TODOS";ret
 function usesExternalHomeFilter_(){return typeof window!=="undefined"&&window.__dmHomeSummaryExternalFilter===true;}
 function rowProject_(row){return normalizeHomeProject_(row?.PROYECTO??row?.proyecto??row?.Proyecto??row?.LUGAR??row?.lugar??row?.Lugar??"");}
 function filterHomeProjectResponse_(response){const project=currentHomeProject_();if(project==="TODOS"||!Array.isArray(response?.data))return response;const data=response.data.filter(row=>rowProject_(row)===project);return {...response,data,rows:data.length,total:data.length};}
+
+function assignedProjectsFromSession_(){
+  if(typeof window==="undefined")return [];
+  const raw=String(window.sessionStorage?.getItem("dm_project")||"").trim();
+  const normalized=raw.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
+  if(!normalized||["TODO","TODOS","ALL"].includes(normalized))return [];
+  const projects=[];
+  const add=value=>{if(value&&!projects.includes(value))projects.push(value);};
+  if(normalized.includes("JOSE MARIA")||/(^|[^A-Z])JM([^A-Z]|$)/.test(normalized))add("JOSE MARIA");
+  if(normalized.includes("FILO DEL SOL")||/(^|[^A-Z])FDS([^A-Z]|$)/.test(normalized)||/(^|[^A-Z])FS([^A-Z]|$)/.test(normalized))add("FILO DEL SOL");
+  if(normalized.includes("FILO SUR")||normalized.includes("FILOSUR")||/(^|[^A-Z])FSUR([^A-Z]|$)/.test(normalized))add("FILO SUR");
+  if(normalized.includes("EL ZORRO")||/(^|[^A-Z])ZORRO([^A-Z]|$)/.test(normalized))add("EL ZORRO");
+  if(!projects.length){
+    const single=normalizeHomeProject_(normalized);
+    if(single&&single!=="TODOS")add(single);
+  }
+  return projects;
+}
+function filterAssignedProjectsResponse_(response){
+  const allowed=assignedProjectsFromSession_();
+  if(!allowed.length||!Array.isArray(response?.data))return response;
+  const allowedSet=new Set(allowed);
+  const data=response.data.filter(row=>allowedSet.has(rowProject_(row)));
+  return {...response,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length};
+}
+
 function normalizeEquipmentSnapshotCode_(value){return String(value||"").trim().toUpperCase().replace(/\s*\(.*?\)/g,"").replace(/[^A-Z0-9]/g,"");}
 function isVehicleSnapshotRow_(row){const code=normalizeEquipmentSnapshotCode_(row?.INTERNO??row?.equipo??row?.maquina??row?.Interno??"");if(!code)return false;if(/^CTA/.test(code))return true;if(/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return true;if(["CAC","CAR","CAV","CAA"].some(prefix=>code.startsWith(prefix)))return true;return code==="CAT0073";}
 function filterEquipmentOnlySnapshot_(response){if(!Array.isArray(response?.data))return response;const data=response.data.filter(row=>!isVehicleSnapshotRow_(row));return {...response,data,rows:data.length,total:data.length};}
@@ -73,14 +99,14 @@ export async function fetchDatasetPage(dataset,params={}){const key=buildDataset
 function shouldRevalidate_(key){const last=Number(lastRevalidatedAt.get(key)||0);return !last||Date.now()-last>=DATA_REFRESH_INTERVAL_MS;}
 function revalidateDatasetInBackground_(dataset,params,cached){const key=buildDatasetQueryKey(dataset,params);if(!shouldRevalidate_(key))return;lastRevalidatedAt.set(key,Date.now());fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{if(!sync)return null;if(versionsDiffer_(cached?.versions||{},sync?.versions||{}))return fetchDatasetPage(dataset,params);return null;}).catch(()=>{});}
 export async function getDataset(dataset,params={}){if(isLiveDataset_(dataset))return fetchDatasetPage(dataset,{...params,requireFresh:undefined});const cached=await readDatasetQuery(dataset,params);if(!cached)return fetchDatasetPage(dataset,params);const requireFresh=Boolean(params?.requireFresh||params?.desde||params?.hasta);if(requireFresh){try{const sync=await fetchSyncVersions(APPS_SCRIPT_URL);if(sync&&versionsDiffer_(cached.versions||{},sync?.versions||{}))return await fetchDatasetPage(dataset,params);lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());}catch(_){}return cached;}revalidateDatasetInBackground_(dataset,params,cached);return cached;}
-export const getRop02=params=>getDataset("rop02",params);
+export async function getRop02(params={}){return filterAssignedProjectsResponse_(await getDataset("rop02",params));}
 export const getRop05=params=>getDataset("rop05",params);
 export const getRma15=params=>getDataset("rma15",params);
 export const refreshHistoricalDataset=(dataset,params={})=>fetchDatasetPage(dataset,params);
 export const HISTORICAL_DATASET_UPDATED_EVENT=HISTORICAL_UPDATED_EVENT;
 export async function refreshCommonHistoricalDatasets(){return Promise.allSettled([fetchDatasetPage("rop02",COMMON_HISTORICAL_QUERY),fetchDatasetPage("rop05",COMMON_HISTORICAL_QUERY),fetchDatasetPage("rma15",COMMON_HISTORICAL_QUERY)]);}
 async function fetchSpecialAction_(action,params={}){const key=`special:${buildDatasetQueryKey(action,params)}`;const record=await readCachedSource(key).catch(()=>null);if(record?.data?.ok){const sync=await fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null);const local=record.data.versions||{},remote=sync?.versions||{};if(sync&&!versionsDiffer_(local,remote))return{...record.data,cacheHit:true,cacheLevel:"indexeddb"};}const started=performance.now(),response=await fetch(`${APPS_SCRIPT_URL}?${new URLSearchParams({action,...params,_t:String(Date.now())})}`,{cache:"no-store",redirect:"follow"});if(!response.ok)throw new Error(`HTTP ${response.status} desde Apps Script`);const text=await response.text();let json;try{json=JSON.parse(text);}catch(_){throw new Error("Apps Script no devolvió JSON válido");}if(!json?.ok)throw new Error(json?.error?.message||`Falló ${action}`);const value={...json,elapsedMs:Math.round(performance.now()-started),payloadBytes:new Blob([text]).size};await writeCachedSource(key,value);return value;}
-export async function getRop02LatestByEquipmentProject(params={}){if(usesExternalHomeFilter_())throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");const response=await fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);return filterEquipmentOnlySnapshot_(filterHomeProjectResponse_(response));}
+export async function getRop02LatestByEquipmentProject(params={}){if(usesExternalHomeFilter_())throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");const response=await fetchSpecialAction_("get_rop02_latest_by_equipment_project",params);return filterAssignedProjectsResponse_(filterEquipmentOnlySnapshot_(filterHomeProjectResponse_(response)));}
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
 export async function getRma15OpenOtSummary(params={}){if(usesExternalHomeFilter_())return{ok:true,data:null,externalFilter:true};const response=await fetchSpecialAction_("get_rma15_open_ot_summary",params);const project=currentHomeProject_();const filtered=filterHomeProjectResponse_(response);if(project!=="TODOS")return filtered;if(!Array.isArray(response?.data)||response.data.length===0)throw new Error("Resumen de OT abiertas vacío; recalcular desde RMA15 completo");return response;}
