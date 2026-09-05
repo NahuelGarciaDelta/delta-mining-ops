@@ -53,17 +53,8 @@ export function tallerCentralNavigationVitePlugin(){
         s=s.replace('{!rows.length&&<tr><td colSpan={9}','{!visibleRows.length&&<tr><td colSpan={9}');
       }
 
-      if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaRoute.jsx')){
-        s=s.replace('import TallerCentralMovements from "../taller-central/TallerCentralMovements.jsx";','import TallerCentralMovements from "../taller-central/TallerCentralMovements.jsx";\nimport {getTallerMovements} from "../../services/tallerMovements.js";');
-        s=s.replace('function buildAtrasoDeps(deps,{readOnly=false}={}){','function buildAtrasoDeps(deps,{readOnly=false,ignoredCodes=new Set()}={}){');
-        s=s.replace('const rows=readOnly&&Array.isArray(props?.rows)?props.rows.filter(row=>!row?.admitido):props?.rows;','let rows=Array.isArray(props?.rows)?props.rows:props?.rows;if(Array.isArray(rows)&&ignoredCodes?.size){rows=rows.filter(row=>{const raw=row?.equipo||row?.maquina||row?.interno||row?._internoRaw||row?.codigo||"";return !ignoredCodes.has(formatAtrasoEquipmentCode(raw));});}if(readOnly&&Array.isArray(rows))rows=rows.filter(row=>!row?.admitido);');
-        s=s.replace('const [tallerTab,setTallerTab]=useState("RESUMEN");','const [tallerTab,setTallerTab]=useState("RESUMEN");\n  const [tallerAtrasoCodes,setTallerAtrasoCodes]=useState(()=>new Set());');
-        s=s.replace('useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);','useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);\n\n  useEffect(()=>{\n    if(!atrasoView)return;\n    let active=true;\n    Promise.all(["BAJA","MOVILIZACION","CAMBIO_EQUIPO"].map(t=>getTallerMovements(t).catch(()=>[]))).then(groups=>{\n      if(!active)return;\n      const codes=new Set();\n      groups.flat().forEach(row=>{const raw=row?.INTERNO_ORIGEN||row?.interno||row?.INTERNO||"";const c=formatAtrasoEquipmentCode(raw);if(c)codes.add(c);});\n      setTallerAtrasoCodes(codes);\n    });\n    return()=>{active=false;};\n  },[atrasoView]);');
-        s=s.replace('if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};','if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso,ignoredCodes:tallerAtrasoCodes})};');
-        s=s.replace('},[props,rop02Equipos,atrasoView,readOnlyAtraso]);','},[props,rop02Equipos,atrasoView,readOnlyAtraso,tallerAtrasoCodes]);');
-        s=s.replace('onClick={()=>setTallerTab("MOVIMIENTOS")} style={{border:', 'onClick={()=>setTallerTab("MOVIMIENTOS")} style={{display:"none",border:');
-        s=s.replace('onClick={()=>setTallerTab("RESUMEN")} style={{border:', 'onClick={()=>setTallerTab("RESUMEN")} style={{display:"none",border:');
-      }
+      // Atrasos is implemented directly in OficinaTecnicaRoute.jsx. Do not inject a second route implementation at build time.
+
 
       if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')){
         const pattern=/function ViewTallerCentral\(\{listaEquipos=\[\],rop02All=\[\],onReloadLista\}\)\{[\s\S]*?\n\}\n\n\nconst OFFICE_VIEW_NAMES/;
