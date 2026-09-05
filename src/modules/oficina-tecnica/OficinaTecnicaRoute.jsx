@@ -43,13 +43,21 @@ export function OficinaTecnicaRoute(props){
 
  // Control de errores NEVER blocks the UI. It opens with the already-loaded, project-scoped ROP02
  // and refreshes in background. A slow/failing PC/network cannot leave the user on an endless loader.
+ // Keep the view responsive with the already scoped rows. This effect never triggers a remote query.
  useEffect(()=>{
   if(!controlErrorsView){setControlErrorsRop02(null);return;}
-  let active=true;
   setControlErrorsRop02(scopedRop02ControlAll.length?scopedRop02ControlAll:scopedRop02All);
+ },[controlErrorsView,scopedRop02ControlAll,scopedRop02All]);
+
+ // Revalidate once when entering the view or changing the project scope. Do not depend on
+ // rop02ViewRevision: refreshHistoricalDataset emits that event itself and would otherwise
+ // repeatedly replace the visible rows with each in-flight response.
+ useEffect(()=>{
+  if(!controlErrorsView)return;
+  let active=true;
   refreshHistoricalDataset("rop02",historicalQuery).then(result=>{if(!active)return;const raw=Array.isArray(result?.data)?result.data:[];if(raw.length)setControlErrorsRop02(filterRowsToAssignedProjects(normalizeROP02(raw),assignedProjects));}).catch(error=>console.warn("No se pudo actualizar ROP02 en segundo plano para Control de errores.",error));
   return()=>{active=false;};
- },[controlErrorsView,rop02ViewRevision,historicalQuery,assignedProjectsKey]);
+ },[controlErrorsView,historicalQuery,assignedProjectsKey]);
 
  useEffect(()=>{if(props?.view!=="listaEquipos")return;let active=true;const query={...historicalQuery,sortDirection:"asc"};(async()=>{try{const result=await getRop02(query);if(!active)return;const raw=Array.isArray(result?.data)?result.data:[];if(raw.length)setEquiposRop02(filterRowsToAssignedProjects(normalizeROP02(raw),assignedProjects));}catch(error){console.warn("No se pudo actualizar ROP02 para Lista de Equipos; se conserva la fuente cargada.",error);}})();return()=>{active=false;};},[props?.view,historicalQuery,assignedProjectsKey]);
  const rop02Equipos=useMemo(()=>props?.view!=="listaEquipos"?scopedRop02All:mergeRop02Sources(scopedRop02All,filterRowsToAssignedProjects(equiposRop02,assignedProjects)),[props?.view,scopedRop02All,equiposRop02,assignedProjectsKey]);
