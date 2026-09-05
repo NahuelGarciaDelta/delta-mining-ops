@@ -9,6 +9,8 @@ const MARKER="[DM_ERROR_ACCEPTED_V1]";
 const MAX_JUSTIFICATION_LENGTH=2000;
 const TRANSIENT_ACCEPTANCES_KEY="dm_error_acceptances_transient_v1";
 const TRANSIENT_ACCEPTANCES_TTL_MS=10*60*1000;
+const ACCEPTANCES_SNAPSHOT_KEY="dm_error_acceptances_snapshot_v1";
+const ACCEPTANCES_SNAPSHOT_TTL_MS=4*60*60*1000;
 
 const emptyTransientState=()=>({pending:[],restored:[]});
 const acceptanceIdentity=row=>text(row?.id)||`key:${text(row?.key)}`;
@@ -50,6 +52,30 @@ function mergeAcceptances(remoteRows=[],localRows=[]){
   return [...byIdentity.values()];
 }
 
+function readAcceptanceSnapshot(){
+  if(typeof sessionStorage==="undefined")return [];
+  try{
+    const snapshot=JSON.parse(sessionStorage.getItem(ACCEPTANCES_SNAPSHOT_KEY)||"{}");
+    if(!Array.isArray(snapshot?.data)||Number(snapshot?.until)<=Date.now())return [];
+    return snapshot.data;
+  }catch(_){return [];}
+}
+
+function writeAcceptanceSnapshot(data){
+  if(typeof sessionStorage==="undefined")return;
+  try{sessionStorage.setItem(ACCEPTANCES_SNAPSHOT_KEY,JSON.stringify({data:Array.isArray(data)?data:[],until:Date.now()+ACCEPTANCES_SNAPSHOT_TTL_MS}));}
+  catch(_){}
+}
+
+function initialAcceptances(){
+  const state=readTransientState();
+  const confirmed=readAcceptanceSnapshot().filter(row=>!state.restored.some(reference=>matchesAcceptance(row,reference)));
+  const pending=state.pending
+    .map(item=>item.row)
+    .filter(row=>!state.restored.some(reference=>matchesAcceptance(row,reference)));
+  return mergeAcceptances(confirmed,pending);
+}
+
 function mergeWithTransientAcceptances(remoteRows=[]){
   const state=readTransientState();
   const remote=Array.isArray(remoteRows)?remoteRows:[];
@@ -58,7 +84,9 @@ function mergeWithTransientAcceptances(remoteRows=[]){
     .filter(item=>!state.restored.some(reference=>matchesAcceptance(item.row,reference)))
     .filter(item=>!remote.some(serverRow=>matchesAcceptance(serverRow,item.row)));
   writeTransientState({...state,pending});
-  return mergeAcceptances(visibleRemote,pending.map(item=>item.row));
+  const merged=mergeAcceptances(visibleRemote,pending.map(item=>item.row));
+  writeAcceptanceSnapshot(merged);
+  return merged;
 }
 
 const text=value=>String(value??"").trim();
@@ -179,7 +207,7 @@ export async function cancelErrorAcceptance(id,usuario){
 }
 
 export function useErrorAcceptances(allowedProjects=[],views=[]){
-  const [snapshot,setSnapshot]=useState({data:[],loading:false,error:""});
+  const [snapshot,setSnapshot]=useState(()=>({data:initialAcceptances(),loading:false,error:""}));
   const projectsKey=Array.isArray(allowedProjects)?allowedProjects.map(normalizeRop02Project).filter(Boolean).sort().join("|"):"";
   const viewsKey=JSON.stringify(views);
 
@@ -210,7 +238,11 @@ export function useErrorAcceptances(allowedProjects=[],views=[]){
     const pending=state.pending.filter(item=>!matchesAcceptance(item.row,acceptance));
     const restored=state.restored.filter(item=>!matchesAcceptance(item,acceptance));
     writeTransientState({pending:[...pending,{row:acceptance,until:Date.now()+TRANSIENT_ACCEPTANCES_TTL_MS}],restored});
-    setSnapshot(previous=>({...previous,data:mergeAcceptances(previous.data,[acceptance])}));
+    setSnapshot(previous=>{
+      const data=mergeAcceptances(previous.data,[acceptance]);
+      writeAcceptanceSnapshot(data);
+      return {...previous,data};
+    });
   },[]);
   const restore=useCallback(acceptance=>{
     if(!acceptance)return;
@@ -218,7 +250,11 @@ export function useErrorAcceptances(allowedProjects=[],views=[]){
     const pending=state.pending.filter(item=>!matchesAcceptance(item.row,acceptance));
     const restored=state.restored.filter(item=>!matchesAcceptance(item,acceptance));
     writeTransientState({pending,restored:[...restored,{id:text(acceptance.id),key:text(acceptance.key),until:Date.now()+TRANSIENT_ACCEPTANCES_TTL_MS}]});
-    setSnapshot(previous=>({...previous,data:previous.data.filter(row=>!matchesAcceptance(row,acceptance))}));
+    setSnapshot(previous=>{
+      const data=previous.data.filter(row=>!matchesAcceptance(row,acceptance));
+      writeAcceptanceSnapshot(data);
+      return {...previous,data};
+    });
   },[]);
   return {data,byKey,loading:snapshot.loading,error:snapshot.error,reload,remember,restore};
 }
