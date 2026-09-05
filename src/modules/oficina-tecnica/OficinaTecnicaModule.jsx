@@ -7,6 +7,7 @@ import {WeatherSummary} from "../weather/WeatherModule.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
 import { calculateAtrasoRop02, equipmentProjectKey, normalizeRop02Project } from "../home/homeAvailability.js";
 import {cancelEquipmentMovement,saveEquipmentMovement,useEquipmentMovements} from "../../services/equipmentMovements.js";
+import {cancelErrorAcceptance,errorAcceptanceKey,saveErrorAcceptance,useErrorAcceptances} from "../../services/errorAcceptances.js";
 import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/index.jsx";
 
@@ -3597,122 +3598,194 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
   const rop02ControlRows=useMemo(()=>rop02Prod.filter(r=>{
     const m=String(r.maquina||"").trim();
-    return !/^CAA[-_\s]*0002(?:[-_\s]*JM)?$/i.test(m) && normalizeMachineCode(m)!=="CAA-0002";
+    return !/^CAA[-_\\s]*0002(?:[-_\\s]*JM)?$/i.test(m) && normalizeMachineCode(m)!=="CAA-0002";
   }),[rop02Prod]);
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const hoy=new Date();
-  const{proyecto,maquina,año,mesIdx,tipo,tipoMaquina="todas",fechaDesde="",fechaHasta=""}=extState;
-  const set=(k,v)=>setExtState(s=>({...s,[k]:v}));
+  const {proyecto,maquina,año,mesIdx,tipo,tipoMaquina="todas",fechaDesde="",fechaHasta=""}=extState;
+  const set=(key,value)=>setExtState(state=>({...state,[key]:value}));
   const periodo=useMemo(()=>{
-    const y=parseFloat(año,10);
-    const m=Number(mesIdx);
-    const mes=String(m+1).padStart(2,"0");
-    const ultimoDia=new Date(y,m+1,0).getDate();
-    const fechaD=`${y}-${mes}-01`;
-    const fechaH=`${y}-${mes}-${String(ultimoDia).padStart(2,"0")}`;
-    return{fechaD,fechaH,label:`01/${mes}/${y} → ${String(ultimoDia).padStart(2,"0")}/${mes}/${y}`};
+    const year=parseFloat(año,10);
+    const month=Number(mesIdx);
+    const monthText=String(month+1).padStart(2,"0");
+    const lastDay=new Date(year,month+1,0).getDate();
+    return {fechaD:String(year)+"-"+monthText+"-01",fechaH:String(year)+"-"+monthText+"-"+String(lastDay).padStart(2,"0")};
   },[año,mesIdx]);
   const años=useMemo(()=>{
-    const ys=new Set(["2026","2027","2028"]);
-    rop02ControlRows.forEach(r=>{if(r.fecha)ys.add(r.fecha.slice(0,4));});
-    return[...ys].sort();
+    const years=new Set(["2026","2027","2028"]);
+    rop02ControlRows.forEach(row=>{if(row.fecha)years.add(row.fecha.slice(0,4));});
+    return [...years].sort();
   },[rop02ControlRows]);
-  const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(r=>dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
-  const proyectos=useMemo(()=>uniq(rop02ControlTipo.map(r=>r.proyecto).filter(Boolean)).sort(),[rop02ControlTipo]);
+  const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(row=>dmMatchTipoMaquinaSeleccion(row.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
+  const proyectos=useMemo(()=>uniq(rop02ControlTipo.map(row=>row.proyecto).filter(Boolean)).sort(),[rop02ControlTipo]);
+  const proyectosAutorizados=useMemo(()=>uniq(rop02Prod.map(row=>normalizeRop02Project(row.proyecto||"")).filter(Boolean)),[rop02Prod]);
   const rangoDesde=fechaDesde||periodo.fechaD;
   const rangoHasta=fechaHasta||periodo.fechaH;
   const maquinas=useMemo(()=>{
-    const base=rop02ControlTipo.filter(r=>matchMulti(r.proyecto,proyecto,"todos")&&r.fecha>=rangoDesde&&r.fecha<=rangoHasta);
-    return uniq(base.map(r=>r.maquina).filter(Boolean)).filter(m=>!isRop02ControlMachineExcluded(m)).sort();
+    const base=rop02ControlTipo.filter(row=>matchMulti(row.proyecto,proyecto,"todos")&&row.fecha>=rangoDesde&&row.fecha<=rangoHasta);
+    return uniq(base.map(row=>row.maquina).filter(Boolean)).filter(value=>!isRop02ControlMachineExcluded(value)).sort();
   },[rop02ControlTipo,proyecto,rangoDesde,rangoHasta]);
   React.useEffect(()=>{
-    if(!multiIsAll(maquina,"todas")&&(!maquina.some(m=>maquinas.includes(m))||maquina.some(m=>isRop02ControlMachineExcluded(m))))set("maquina","todas");
+    if(!multiIsAll(maquina,"todas")&&(!maquina.some(value=>maquinas.includes(value))||maquina.some(value=>isRop02ControlMachineExcluded(value))))set("maquina","todas");
   },[maquinas,maquina]);// eslint-disable-line
-  const filtered=useMemo(()=>rop02ControlTipo.filter(r=>{
-    if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
-    if(isRop02ControlMachineExcluded(r.maquina))return false;
-    if(!matchMulti(r.maquina,maquina,"todas"))return false;
-    if(r.fecha<rangoDesde||r.fecha>rangoHasta)return false;
-    return true;
+  const filtered=useMemo(()=>rop02ControlTipo.filter(row=>{
+    if(!matchMulti(row.proyecto,proyecto,"todos"))return false;
+    if(isRop02ControlMachineExcluded(row.maquina))return false;
+    if(!matchMulti(row.maquina,maquina,"todas"))return false;
+    return row.fecha>=rangoDesde&&row.fecha<=rangoHasta;
   }),[rop02ControlTipo,proyecto,maquina,rangoDesde,rangoHasta]);
   const control=useMemo(()=>calcularErroresControlEquipo(filtered),[filtered]);
   const todosErrores=useMemo(()=>[
-    ...control.erroresPartes.map(e=>({...e,_tipo:"Numeración"})),
-    ...control.erroresHoro.map(e=>({...e,_tipo:"Horómetro"})),
+    ...control.erroresPartes.map(error=>({...error,_tipo:"Numeración"})),
+    ...control.erroresHoro.map(error=>({...error,_tipo:"Horómetro"})),
   ].sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||String(a.maquina||"").localeCompare(String(b.maquina||""))),[control]);
-  const erroresTabla=tipo==="numeracion"?control.erroresPartes.map(e=>({...e,_tipo:"Numeración"})):tipo==="horometros"?control.erroresHoro.map(e=>({...e,_tipo:"Horómetro"})):todosErrores;
+  const {data:erroresAceptados,byKey:aceptadosPorClave,error:errorAceptadosError,reload:recargarErroresAceptados}=useErrorAcceptances(proyectosAutorizados,["controlErrores","controlROP02"]);
+  const [modalError,setModalError]=useState(null);
+  const [justificacionError,setJustificacionError]=useState("");
+  const [guardandoAceptacion,setGuardandoAceptacion]=useState(false);
+  const [restaurandoAceptacion,setRestaurandoAceptacion]=useState("");
+  const [mensajeAceptacion,setMensajeAceptacion]=useState(null);
+  const erroresTabla=tipo==="numeracion"
+    ?control.erroresPartes.map(error=>({...error,_tipo:"Numeración"}))
+    :tipo==="horometros"
+      ?control.erroresHoro.map(error=>({...error,_tipo:"Horómetro"}))
+      :todosErrores;
+  const erroresPendientes=useMemo(()=>erroresTabla.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey(error))),[erroresTabla,aceptadosPorClave]);
+  const todosPendientes=useMemo(()=>todosErrores.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey(error))),[todosErrores,aceptadosPorClave]);
+  const pendientesNumeracion=useMemo(()=>control.erroresPartes.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey({...error,_tipo:"Numeración"}))).length,[control.erroresPartes,aceptadosPorClave]);
+  const pendientesHorometro=useMemo(()=>control.erroresHoro.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey({...error,_tipo:"Horómetro"}))).length,[control.erroresHoro,aceptadosPorClave]);
+  const erroresAceptadosTabla=useMemo(()=>erroresAceptados.filter(error=>{
+    if(!matchMulti(error.proyecto,proyecto,"todos"))return false;
+    if(!matchMulti(error.maquina,maquina,"todas"))return false;
+    if(!dmMatchTipoMaquinaSeleccion(error.maquina,tipoMaquina))return false;
+    if(error.fecha<rangoDesde||error.fecha>rangoHasta)return false;
+    if(tipo==="numeracion"&&error.tipo!=="Numeración")return false;
+    if(tipo==="horometros"&&error.tipo!=="Horómetro")return false;
+    return true;
+  }).sort((a,b)=>String(b.fechaAceptacion||"").localeCompare(String(a.fechaAceptacion||""))),[erroresAceptados,proyecto,maquina,tipoMaquina,rangoDesde,rangoHasta,tipo]);
   const porProyecto=useMemo(()=>{
     const map={};
-    todosErrores.forEach(e=>{const k=e.proyecto||"—";map[k]=(map[k]||0)+1;});
+    todosPendientes.forEach(error=>{const key=error.proyecto||"—";map[key]=(map[key]||0)+1;});
     return Object.entries(map).sort((a,b)=>b[1]-a[1]);
-  },[todosErrores]);
+  },[todosPendientes]);
   const porMaquina=useMemo(()=>{
     const map={};
-    todosErrores.forEach(e=>{const k=e.maquina||"—";map[k]=(map[k]||0)+1;});
+    todosPendientes.forEach(error=>{const key=error.maquina||"—";map[key]=(map[key]||0)+1;});
     return Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,12);
-  },[todosErrores]);
+  },[todosPendientes]);
   const hayFiltros=!multiIsAll(tipoMaquina,"todas")||!multiIsAll(proyecto,"todos")||!multiIsAll(maquina,"todas")||año!==String(hoy.getFullYear())||mesIdx!==hoy.getMonth()||tipo!=="todos"||Boolean(fechaDesde)||Boolean(fechaHasta);
   const reset=()=>setExtState({tipoMaquina:"todas",proyecto:"todos",maquina:"todas",año:String(hoy.getFullYear()),mesIdx:hoy.getMonth(),tipo:"todos",fechaDesde:"",fechaHasta:""});
   const descargar=()=>{
     const cols=["Tipo","Proyecto","Máquina","Fecha con error","Turno","Supervisor","Parte informado","Valor informado","Valor esperado/anterior","Diferencia","Fecha anterior","Turno anterior","Parte anterior","Detalle"];
-    const data=[cols,...erroresTabla.map(e=>[e._tipo,e.proyecto,e.maquina,e.fecha,e.turno,e.supervisor,e.numeroIncorrecto||e.parte||"",e.numeroIncorrecto||e.hiActual||"",e.numeroCorrecto||e.hfAnterior||"",e.diff,e.fechaAnterior||"",e.turnoAnterior||"",e.parteAnterior||"",e.detalle||""] )];
-    const wb=XLSX.utils.book_new();
-    const ws=XLSX.utils.aoa_to_sheet(data);
-    ws["!cols"]=cols.map(h=>({wch:Math.max(h.length+2,14)}));
-    XLSX.utils.book_append_sheet(wb,ws,"Control de errores");
-    XLSX.writeFile(wb,"Control_de_errores_ROP02.xlsx");
+    const data=[cols,...erroresPendientes.map(error=>[error._tipo,error.proyecto,error.maquina,error.fecha,error.turno,error.supervisor,error.numeroIncorrecto||error.parte||"",error.numeroIncorrecto||error.hiActual||"",error.numeroCorrecto||error.hfAnterior||"",error.diff,error.fechaAnterior||"",error.turnoAnterior||"",error.parteAnterior||"",error.detalle||""])];
+    const workbook=XLSX.utils.book_new();
+    const worksheet=XLSX.utils.aoa_to_sheet(data);
+    worksheet["!cols"]=cols.map(header=>({wch:Math.max(header.length+2,14)}));
+    XLSX.utils.book_append_sheet(workbook,worksheet,"Control de errores");
+    XLSX.writeFile(workbook,"Control_de_errores_ROP02.xlsx");
   };
-  const th={padding:"8px 12px",fontSize:11,fontWeight:800,color:C.textMuted,textAlign:"left",borderBottom:`1px solid ${C.border}`};
-  const td={padding:"8px 12px",borderBottom:`1px solid ${C.border}18`,fontSize:12};
+  const descargarAceptados=()=>{
+    const cols=["Tipo","Proyecto","Máquina","Fecha con error","Turno","Detalle","Justificación","Aceptó","Fecha de aceptación"];
+    const data=[cols,...erroresAceptadosTabla.map(error=>[error.tipo,error.proyecto,error.maquina,error.fecha,error.turno,error.detalle||"",error.justificacion,error.usuario,error.fechaAceptacion?new Date(error.fechaAceptacion).toLocaleString("es-AR"):""])];
+    const workbook=XLSX.utils.book_new();
+    const worksheet=XLSX.utils.aoa_to_sheet(data);
+    worksheet["!cols"]=cols.map(header=>({wch:Math.max(header.length+2,16)}));
+    XLSX.utils.book_append_sheet(workbook,worksheet,"Errores aceptados");
+    XLSX.writeFile(workbook,"Errores_aceptados_ROP02.xlsx");
+  };
+  const abrirAceptacion=error=>{
+    setModalError(error);
+    setJustificacionError("");
+    setMensajeAceptacion(null);
+  };
+  const confirmarAceptacion=async()=>{
+    if(!modalError)return;
+    const justificacion=String(justificacionError||"").trim();
+    if(!justificacion){
+      setMensajeAceptacion({type:"error",text:"Ingresá una justificación para aceptar el error."});
+      return;
+    }
+    setGuardandoAceptacion(true);
+    setMensajeAceptacion(null);
+    try{
+      await saveErrorAcceptance(modalError,justificacion,sessionStorage.getItem("dm_user")||"Usuario");
+      await recargarErroresAceptados();
+      setModalError(null);
+      setMensajeAceptacion({type:"success",text:"El error fue aceptado y quedó registrado con su justificación."});
+    }catch(error){
+      setMensajeAceptacion({type:"error",text:error?.message||"No se pudo aceptar el error."});
+    }finally{
+      setGuardandoAceptacion(false);
+    }
+  };
+  const restaurarAceptacion=async error=>{
+    setRestaurandoAceptacion(error.id);
+    setMensajeAceptacion(null);
+    try{
+      await cancelErrorAcceptance(error.id,sessionStorage.getItem("dm_user")||"Usuario");
+      await recargarErroresAceptados();
+      setMensajeAceptacion({type:"success",text:"La aceptación fue restaurada; el error vuelve a quedar pendiente."});
+    }catch(err){
+      setMensajeAceptacion({type:"error",text:err?.message||"No se pudo restaurar la aceptación."});
+    }finally{
+      setRestaurandoAceptacion("");
+    }
+  };
+  const th={padding:"8px 12px",fontSize:11,fontWeight:800,color:C.textMuted,textAlign:"left",borderBottom:"1px solid "+C.border};
+  const td={padding:"8px 12px",borderBottom:"1px solid "+C.border+"18",fontSize:12};
   return(
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       <Card>
         <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-          <Sel label="Mes" value={String(mesIdx)} onChange={v=>set("mesIdx",Number(v))} options={MESES.map((m,i)=>({value:String(i),label:m}))}/>
-          <Sel label="Año" value={año} onChange={v=>set("año",v)} options={años.map(y=>({value:y,label:y}))}/>
-          <DateIn label="Desde" value={rangoDesde} onChange={v=>set("fechaDesde",v)} max={rangoHasta||undefined}/>
-          <DateIn label="Hasta" value={rangoHasta} onChange={v=>set("fechaHasta",v)} min={rangoDesde||undefined} warn={rangoHasta&&rangoDesde&&rangoHasta<rangoDesde?"≥ Desde":null}/>
-          <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={v=>{set("tipoMaquina",v);set("maquina","todas");}} options={dmTipoMaquinaOptions()}/>
-          <MultiSel label="Proyecto" value={proyecto} onChange={v=>{set("proyecto",v);set("maquina","todas");}} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
-          <MultiSel label="Máquina" value={maquina} onChange={v=>set("maquina",v)} options={[{value:"todas",label:"Todas"},...maquinas.map(m=>({value:m,label:m}))]}/>
-          <Sel label="Tipo de error" value={tipo} onChange={v=>set("tipo",v)} options={[{value:"todos",label:"Todos"},{value:"numeracion",label:"Numeración"},{value:"horometros",label:"Horómetros"}]}/>
-          <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:`1px solid ${C.border}`,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{fmtFecha(rangoDesde)} → {fmtFecha(rangoHasta)}</strong></div>
-          <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
+          <Sel label="Mes" value={String(mesIdx)} onChange={value=>set("mesIdx",Number(value))} options={MESES.map((month,index)=>({value:String(index),label:month}))}/>
+          <Sel label="Año" value={año} onChange={value=>set("año",value)} options={años.map(year=>({value:year,label:year}))}/>
+          <DateIn label="Desde" value={rangoDesde} onChange={value=>set("fechaDesde",value)} max={rangoHasta||undefined}/>
+          <DateIn label="Hasta" value={rangoHasta} onChange={value=>set("fechaHasta",value)} min={rangoDesde||undefined} warn={rangoHasta&&rangoDesde&&rangoHasta<rangoDesde?"≥ Desde":null}/>
+          <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{set("tipoMaquina",value);set("maquina","todas");}} options={dmTipoMaquinaOptions()}/>
+          <MultiSel label="Proyecto" value={proyecto} onChange={value=>{set("proyecto",value);set("maquina","todas");}} options={[{value:"todos",label:"Todos"},...proyectos.map(value=>({value,label:value}))]}/>
+          <MultiSel label="Máquina" value={maquina} onChange={value=>set("maquina",value)} options={[{value:"todas",label:"Todas"},...maquinas.map(value=>({value,label:value}))]}/>
+          <Sel label="Tipo de error" value={tipo} onChange={value=>set("tipo",value)} options={[{value:"todos",label:"Todos"},{value:"numeracion",label:"Numeración"},{value:"horometros",label:"Horómetros"}]}/>
+          <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:"1px solid "+C.border,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{fmtFecha(rangoDesde)} → {fmtFecha(rangoHasta)}</strong></div>
+          <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:"1px solid "+C.red+"44",background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
             <Icon name="close" size={11} color={C.red}/>Limpiar filtros
           </button>
         </div>
       </Card>
+      {mensajeAceptacion&&<AlertBanner type={mensajeAceptacion.type==="success"?"success":"error"}>{mensajeAceptacion.text}</AlertBanner>}
+      {errorAceptadosError&&<AlertBanner type="error">No se pudo actualizar la tabla de errores aceptados. Los errores pendientes continúan disponibles: {errorAceptadosError}</AlertBanner>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:12}}>
-        <StatCard icon="warn" label="Errores totales" value={fmtNum(todosErrores.length)} sub={`${filtered.length} registros controlados`} color={todosErrores.length?C.red:C.green} small/>
-        <StatCard icon="parts" label="Numeración" value={fmtNum(control.erroresPartes.length)} sub="Partes diarios no consecutivos" color={control.erroresPartes.length?C.yellow:C.green} small/>
-        <StatCard icon="hours" label="Horómetros" value={fmtNum(control.erroresHoro.length)} sub="Cortes entre días registrados" color={control.erroresHoro.length?C.red:C.green} small/>
-        <StatCard icon="equip" label="Equipos afectados" value={fmtNum(new Set(todosErrores.map(e=>e.maquina)).size)} sub={`${maquinas.length} equipos en filtro`} color={C.purple} small/>
+        <StatCard icon="warn" label="Errores pendientes" value={fmtNum(todosPendientes.length)} sub={String(filtered.length)+" registros controlados"} color={todosPendientes.length?C.red:C.green} small/>
+        <StatCard icon="parts" label="Numeración pendiente" value={fmtNum(pendientesNumeracion)} sub="Partes diarios no consecutivos" color={pendientesNumeracion?C.yellow:C.green} small/>
+        <StatCard icon="hours" label="Horómetros pendientes" value={fmtNum(pendientesHorometro)} sub="Cortes entre días registrados" color={pendientesHorometro?C.red:C.green} small/>
+        <StatCard icon="check" label="Errores aceptados" value={fmtNum(erroresAceptadosTabla.length)} sub="Con justificación registrada" color={C.green} small/>
+        <StatCard icon="equip" label="Equipos afectados" value={fmtNum(new Set(todosPendientes.map(error=>error.maquina)).size)} sub={String(maquinas.length)+" equipos en filtro"} color={C.purple} small/>
       </div>
-      {todosErrores.length===0?
-        <AlertBanner type="success">✅ Sin errores de numeración ni cortes de horómetro para los filtros seleccionados.</AlertBanner>:
+      {erroresPendientes.length===0?
+        <AlertBanner type="success">✅ No hay errores pendientes para los filtros seleccionados.</AlertBanner>:
         <>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
-            <Card title="Errores por proyecto"><div style={{padding:14,display:"flex",flexDirection:"column",gap:8}}>{porProyecto.map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:12}}><span style={{color:C.textSub,fontWeight:700}}>{k}</span><Badge color={C.red}>{v}</Badge></div>)}</div></Card>
-            <Card title="Equipos con más errores"><div style={{padding:14,display:"flex",flexDirection:"column",gap:8}}>{porMaquina.map(([k,v])=><div key={k} style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:12}}><span style={{color:C.textSub,fontWeight:800}}>{k}</span><Badge color={C.yellow}>{v}</Badge></div>)}</div></Card>
+            <Card title="Errores pendientes por proyecto"><div style={{padding:14,display:"flex",flexDirection:"column",gap:8}}>{porProyecto.map(([key,value])=><div key={key} style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:12}}><span style={{color:C.textSub,fontWeight:700}}>{key}</span><Badge color={C.red}>{value}</Badge></div>)}</div></Card>
+            <Card title="Equipos con más errores pendientes"><div style={{padding:14,display:"flex",flexDirection:"column",gap:8}}>{porMaquina.map(([key,value])=><div key={key} style={{display:"flex",justifyContent:"space-between",gap:12,fontSize:12}}><span style={{color:C.textSub,fontWeight:800}}>{key}</span><Badge color={C.yellow}>{value}</Badge></div>)}</div></Card>
           </div>
-          <Card title={`Detalle de errores (${erroresTabla.length})`} action={<BtnExcel onClick={descargar}/>}>
+          <Card title={"Detalle de errores ("+erroresPendientes.length+")"} action={<BtnExcel onClick={descargar}/>}>
             <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",minWidth:980}}>
-                <thead><tr style={{background:C.surface}}>{["Tipo","Proyecto","Máquina","Fecha","Turno","Supervisor","Dato informado","Dato esperado","Diferencia","Referencia anterior","Detalle"].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
-                <tbody>{erroresTabla.map((e,i)=>{
-                  const esParte=e._tipo==="Numeración";
-                  return <tr key={i} style={{background:i%2===0?C.red+"0a":"transparent"}}>
-                    <td style={td}><Badge color={esParte?C.yellow:C.red}>{e._tipo}</Badge></td>
-                    <td style={td}>{e.proyecto}</td>
-                    <td style={td}><Badge color={C.purple}>{e.maquina}</Badge></td>
-                    <td style={{...td,fontWeight:800}}>{fmtFecha(e.fecha)}</td>
-                    <td style={td}><Badge color={e.turno==="TD"?C.blue:C.purple}>{e.turno}</Badge></td>
-                    <td style={td}>{e.supervisor}</td>
-                    <td style={{...td,color:C.red,fontWeight:900}}>{esParte?`#${e.numeroIncorrecto}`:fmtNum(e.hiActual)}</td>
-                    <td style={{...td,color:C.yellow,fontWeight:900}}>{esParte?`#${e.numeroCorrecto}`:fmtNum(e.hfAnterior)}</td>
-                    <td style={td}><Badge color={e.diff>0?C.yellow:C.red}>{e.diff>0?`+${fmtNum(e.diff)}`:fmtNum(e.diff)}</Badge></td>
-                    <td style={td}>{fmtFecha(e.fechaAnterior)} · {e.turnoAnterior||"—"} · #{e.parteAnterior||"—"}</td>
-                    <td style={{...td,minWidth:240,color:C.textSub}}>{e.detalle||"—"}</td>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
+                <thead><tr style={{background:C.surface}}>{["Tipo","Proyecto","Máquina","Fecha","Turno","Supervisor","Dato informado","Dato esperado","Diferencia","Referencia anterior","Detalle","Acción"].map(header=><th key={header} style={th}>{header}</th>)}</tr></thead>
+                <tbody>{erroresPendientes.map((error,index)=>{
+                  const esParte=error._tipo==="Numeración";
+                  return <tr key={errorAcceptanceKey(error)} style={{background:index%2===0?C.red+"0a":"transparent"}}>
+                    <td style={td}><Badge color={esParte?C.yellow:C.red}>{error._tipo}</Badge></td>
+                    <td style={td}>{error.proyecto}</td>
+                    <td style={td}><Badge color={C.purple}>{error.maquina}</Badge></td>
+                    <td style={{...td,fontWeight:800}}>{fmtFecha(error.fecha)}</td>
+                    <td style={td}><Badge color={error.turno==="TD"?C.blue:C.purple}>{error.turno}</Badge></td>
+                    <td style={td}>{error.supervisor}</td>
+                    <td style={{...td,color:C.red,fontWeight:900}}>{esParte?"#"+error.numeroIncorrecto:fmtNum(error.hiActual)}</td>
+                    <td style={{...td,color:C.yellow,fontWeight:900}}>{esParte?"#"+error.numeroCorrecto:fmtNum(error.hfAnterior)}</td>
+                    <td style={td}><Badge color={error.diff>0?C.yellow:C.red}>{error.diff>0?"+"+fmtNum(error.diff):fmtNum(error.diff)}</Badge></td>
+                    <td style={td}>{fmtFecha(error.fechaAnterior)} · {error.turnoAnterior||"—"} · #{error.parteAnterior||"—"}</td>
+                    <td style={{...td,minWidth:240,color:C.textSub}}>{error.detalle||"—"}</td>
+                    <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}><button onClick={()=>abrirAceptacion(error)} style={{border:"1px solid "+C.green+"66",background:C.greenDim,color:C.green,borderRadius:7,padding:"6px 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Aceptar</button></td>
                   </tr>;
                 })}</tbody>
               </table>
@@ -3720,6 +3793,43 @@ function ControlDeErrores({rop02All,extState,setExtState}){
           </Card>
         </>
       }
+      <Card title={"Errores aceptados ("+erroresAceptadosTabla.length+")"} action={<BtnExcel onClick={descargarAceptados}/>}>
+        <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:420,scrollbarGutter:"stable"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:980}}>
+            <thead><tr style={{background:C.surface}}>{["Tipo","Proyecto","Máquina","Fecha","Turno","Detalle","Justificación","Aceptó","Fecha de aceptación","Acción"].map(header=><th key={header} style={th}>{header}</th>)}</tr></thead>
+            <tbody>{erroresAceptadosTabla.map((error,index)=><tr key={error.id} style={{background:index%2===0?C.green+"0a":"transparent"}}>
+              <td style={td}><Badge color={error.tipo==="Numeración"?C.yellow:C.red}>{error.tipo}</Badge></td>
+              <td style={td}>{error.proyecto}</td>
+              <td style={td}><Badge color={C.purple}>{error.maquina}</Badge></td>
+              <td style={{...td,fontWeight:800}}>{fmtFecha(error.fecha)}</td>
+              <td style={td}><Badge color={error.turno==="TD"?C.blue:C.purple}>{error.turno}</Badge></td>
+              <td style={{...td,minWidth:220,color:C.textSub}}>{error.detalle||"—"}</td>
+              <td style={{...td,minWidth:260,color:C.green,fontWeight:700}}>{error.justificacion}</td>
+              <td style={td}>{error.usuario||"Usuario"}</td>
+              <td style={td}>{error.fechaAceptacion?new Date(error.fechaAceptacion).toLocaleString("es-AR"):"—"}</td>
+              <td style={{...td,textAlign:"right"}}><button disabled={restaurandoAceptacion===error.id} onClick={()=>restaurarAceptacion(error)} style={{border:"1px solid "+C.yellow+"66",background:C.yellowDim,color:C.yellow,borderRadius:7,padding:"6px 10px",fontSize:11,fontWeight:900,cursor:restaurandoAceptacion===error.id?"wait":"pointer",opacity:restaurandoAceptacion===error.id?0.65:1}}>{restaurandoAceptacion===error.id?"Restaurando...":"Restaurar"}</button></td>
+            </tr>)}</tbody>
+          </table>
+          {erroresAceptadosTabla.length===0&&<div style={{padding:28,textAlign:"center",color:C.textMuted,fontSize:12}}>Todavía no hay errores aceptados para los filtros seleccionados.</div>}
+        </div>
+      </Card>
+      {modalError&&ReactDOM.createPortal(<div style={{position:"fixed",inset:0,zIndex:2147483647,background:"rgba(0,0,0,.62)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,boxSizing:"border-box"}}>
+        <div style={{width:"min(560px,96vw)",background:"#232323",opacity:1,backdropFilter:"none",WebkitBackdropFilter:"none",border:"1px solid "+C.border,borderRadius:14,boxShadow:"0 20px 60px rgba(0,0,0,.45)",padding:20,display:"flex",flexDirection:"column",gap:14}}>
+          <div style={{fontSize:18,fontWeight:900,color:C.text}}>Aceptar error</div>
+          <div style={{fontSize:13,color:C.textSub}}><strong style={{color:C.purple}}>{modalError.maquina}</strong> · {modalError.proyecto} · {fmtFecha(modalError.fecha)} · {modalError._tipo}</div>
+          <div style={{fontSize:12,color:C.textSub}}>{modalError.detalle||"Registrá por qué este hallazgo es válido."}</div>
+          <label style={{display:"flex",flexDirection:"column",gap:7,fontSize:12,fontWeight:800,color:C.textSub}}>
+            Justificación
+            <textarea autoFocus value={justificacionError} onChange={event=>setJustificacionError(event.target.value)} placeholder="Escribí la justificación del error aceptado..." rows={4} maxLength={2000} style={{background:C.bg,border:"1px solid "+C.border,color:C.text,borderRadius:8,padding:"10px 12px",resize:"vertical"}}/>
+          </label>
+          <div style={{fontSize:11,color:C.textMuted,textAlign:"right"}}>{justificacionError.length}/2000</div>
+          {mensajeAceptacion?.type==="error"&&<div style={{fontSize:12,fontWeight:800,color:C.red}}>{mensajeAceptacion.text}</div>}
+          <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
+            <button disabled={guardandoAceptacion} onClick={()=>setModalError(null)} style={{border:"1px solid "+C.border,background:"transparent",color:C.textSub,borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Cancelar</button>
+            <button disabled={guardandoAceptacion} onClick={confirmarAceptacion} style={{border:"1px solid "+C.green+"66",background:C.greenDim,color:C.green,borderRadius:8,padding:"9px 14px",fontWeight:900,cursor:guardandoAceptacion?"wait":"pointer",opacity:guardandoAceptacion?0.65:1}}>{guardandoAceptacion?"Guardando...":"Aceptar error"}</button>
+          </div>
+        </div>
+      </div>,document.body)}
     </div>
   );
 }
