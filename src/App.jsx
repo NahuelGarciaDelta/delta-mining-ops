@@ -197,6 +197,34 @@ export default function App(){
   const puedeEditarVista=!areaRequeridaVista||can("edit",areaRequeridaVista);
   const[loading,setLoading]=useState(false);
   const[syncing,setSyncing]=useState(false);
+
+  // When a view exposes exactly one date, ← / → advances that selected day.
+  // Ranges intentionally have two inputs and are left untouched.
+  useEffect(()=>{
+    const onDateArrow=(event)=>{
+      if(event.defaultPrevented||(event.key!=="ArrowLeft"&&event.key!=="ArrowRight"))return;
+      const active=document.activeElement;
+      if(String(active?.tagName||"").toUpperCase()==="TEXTAREA"||active?.isContentEditable)return;
+      const inputs=[...document.querySelectorAll('input[type="date"]')].filter(input=>input.offsetParent!==null&&!input.disabled);
+      if(inputs.length!==1)return;
+      const input=inputs[0];
+      const raw=String(input.value||"");
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(raw))return;
+      const date=new Date(`${raw}T12:00:00`);
+      if(Number.isNaN(date.getTime()))return;
+      date.setDate(date.getDate()+(event.key==="ArrowRight"?1:-1));
+      const value=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+      const setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value")?.set;
+      if(!setter)return;
+      setter.call(input,value);
+      input.dispatchEvent(new Event("input",{bubbles:true}));
+      input.dispatchEvent(new Event("change",{bubbles:true}));
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    window.addEventListener("keydown",onDateArrow,true);
+    return()=>window.removeEventListener("keydown",onDateArrow,true);
+  },[]);
   const[rop02All,setRop02All]=useState([]);
   const[rop02ControlAll,setRop02ControlAll]=useState([]);
   const[rop05,setRop05]=useState([]);
@@ -496,7 +524,7 @@ export default function App(){
         return {key,value:localSource,skipped:true};
       }
 
-      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord)});
+      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:1,timeoutMs:20000});
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
       const value=mergeIncrementalSource(previous,fetched);
