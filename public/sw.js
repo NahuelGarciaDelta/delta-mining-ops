@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v15-live-data-v2";
+const CACHE_NAME = "delta-mining-ops-v16-error-control-refresh";
 const APP_SHELL = [
   "/",
   "/index.html",
