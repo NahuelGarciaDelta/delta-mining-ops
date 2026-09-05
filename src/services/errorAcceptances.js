@@ -7,6 +7,60 @@ import {normalizeRop02Project} from "../modules/home/homeAvailability.js";
 
 const MARKER="[DM_ERROR_ACCEPTED_V1]";
 const MAX_JUSTIFICATION_LENGTH=2000;
+const TRANSIENT_ACCEPTANCES_KEY="dm_error_acceptances_transient_v1";
+const TRANSIENT_ACCEPTANCES_TTL_MS=10*60*1000;
+
+const emptyTransientState=()=>({pending:[],restored:[]});
+const acceptanceIdentity=row=>text(row?.id)||`key:${text(row?.key)}`;
+const matchesAcceptance=(left,right)=>{
+  const leftId=text(left?.id),rightId=text(right?.id);
+  if(leftId&&rightId)return leftId===rightId;
+  const leftKey=text(left?.key),rightKey=text(right?.key);
+  return Boolean(leftKey&&rightKey&&leftKey===rightKey);
+};
+
+function readTransientState(){
+  if(typeof sessionStorage==="undefined")return emptyTransientState();
+  try{
+    const raw=JSON.parse(sessionStorage.getItem(TRANSIENT_ACCEPTANCES_KEY)||"{}");
+    const now=Date.now();
+    return {
+      pending:(Array.isArray(raw?.pending)?raw.pending:[]).filter(item=>item?.row&&Number(item.until)>now),
+      restored:(Array.isArray(raw?.restored)?raw.restored:[]).filter(item=>item&&Number(item.until)>now),
+    };
+  }catch(_){return emptyTransientState();}
+}
+
+function writeTransientState(state){
+  if(typeof sessionStorage==="undefined")return;
+  try{
+    const pending=Array.isArray(state?.pending)?state.pending:[];
+    const restored=Array.isArray(state?.restored)?state.restored:[];
+    if(!pending.length&&!restored.length)sessionStorage.removeItem(TRANSIENT_ACCEPTANCES_KEY);
+    else sessionStorage.setItem(TRANSIENT_ACCEPTANCES_KEY,JSON.stringify({pending,restored}));
+  }catch(_){}
+}
+
+function mergeAcceptances(remoteRows=[],localRows=[]){
+  const byIdentity=new Map();
+  [...localRows,...remoteRows].forEach(row=>{
+    const identity=acceptanceIdentity(row);
+    if(identity&&identity!=="key:")byIdentity.set(identity,row);
+  });
+  return [...byIdentity.values()];
+}
+
+function mergeWithTransientAcceptances(remoteRows=[]){
+  const state=readTransientState();
+  const remote=Array.isArray(remoteRows)?remoteRows:[];
+  const visibleRemote=remote.filter(row=>!state.restored.some(reference=>matchesAcceptance(row,reference)));
+  const pending=state.pending
+    .map(item=>item.row)
+    .filter(row=>!state.restored.some(reference=>matchesAcceptance(row,reference)))
+    .filter(row=>!remote.some(serverRow=>matchesAcceptance(serverRow,row)));
+  writeTransientState({...state,pending:pending.map(row=>({row,until:Date.now()+TRANSIENT_ACCEPTANCES_TTL_MS}))});
+  return mergeAcceptances(visibleRemote,pending);
+}
 
 const text=value=>String(value??"").trim();
 const upper=value=>text(value).toUpperCase();
@@ -97,7 +151,7 @@ export async function saveErrorAcceptance(error,justificacion,usuario){
 
   const metadata={version:1,key,error:snapshot,justificacion:reason};
   const observation=`${MARKER} ${JSON.stringify(metadata)}`;
-  await postToAppsScript({
+  const response=await postToAppsScript({
     action:"save_equipment_movement",
     movement:{
       interno:`ERR-${hashKey(key)}`,
@@ -111,6 +165,12 @@ export async function saveErrorAcceptance(error,justificacion,usuario){
       fechaUltimoRop02:snapshot.fecha,
     }
   });
+  return parseAcceptance(response?.movement)||{
+    id:text(response?.movement?.id)||`pending:${hashKey(key)}`,
+    key,...snapshot,justificacion:reason,
+    usuario:text(response?.movement?.usuario)||text(usuario)||"Usuario",
+    fechaAceptacion:text(response?.movement?.fechaHora)||new Date().toISOString(),
+  };
 }
 
 export async function cancelErrorAcceptance(id,usuario){
@@ -127,7 +187,7 @@ export function useErrorAcceptances(allowedProjects=[],views=[]){
   const reload=useCallback(async()=>{
     setSnapshot(previous=>({...previous,loading:true,error:""}));
     try{
-      const data=await loadErrorAcceptances();
+      const data=mergeWithTransientAcceptances(await loadErrorAcceptances());
       setSnapshot({data,loading:false,error:""});
       return data;
     }catch(error){
@@ -145,5 +205,21 @@ export function useErrorAcceptances(allowedProjects=[],views=[]){
   },[snapshot.data,projectsKey]);
 
   const byKey=useMemo(()=>new Map(data.map(row=>[row.key,row])),[data]);
-  return {data,byKey,loading:snapshot.loading,error:snapshot.error,reload};
+  const remember=useCallback(acceptance=>{
+    if(!acceptance)return;
+    const state=readTransientState();
+    const pending=state.pending.filter(item=>!matchesAcceptance(item.row,acceptance));
+    const restored=state.restored.filter(item=>!matchesAcceptance(item,acceptance));
+    writeTransientState({pending:[...pending,{row:acceptance,until:Date.now()+TRANSIENT_ACCEPTANCES_TTL_MS}],restored});
+    setSnapshot(previous=>({...previous,data:mergeAcceptances(previous.data,[acceptance])}));
+  },[]);
+  const restore=useCallback(acceptance=>{
+    if(!acceptance)return;
+    const state=readTransientState();
+    const pending=state.pending.filter(item=>!matchesAcceptance(item.row,acceptance));
+    const restored=state.restored.filter(item=>!matchesAcceptance(item,acceptance));
+    writeTransientState({pending,restored:[...restored,{id:text(acceptance.id),key:text(acceptance.key),until:Date.now()+TRANSIENT_ACCEPTANCES_TTL_MS}]});
+    setSnapshot(previous=>({...previous,data:previous.data.filter(row=>!matchesAcceptance(row,acceptance))}));
+  },[]);
+  return {data,byKey,loading:snapshot.loading,error:snapshot.error,reload,remember,restore};
 }
