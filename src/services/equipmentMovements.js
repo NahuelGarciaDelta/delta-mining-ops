@@ -14,6 +14,8 @@ let cache={data:[],loaded:false,loading:null,error:"",version:0};
 const listeners=new Set();
 const emit=()=>listeners.forEach(listener=>listener(cache));
 const CACHE_KEY="movimientos_equipos";
+const ERROR_ACCEPTANCE_MARKER="[DM_ERROR_ACCEPTED_V1]";
+const isErrorAcceptanceMovement_=movement=>String(movement?.observacion||"").includes(ERROR_ACCEPTANCE_MARKER);
 const TALLER_ATRASO_TYPES=new Set(["BAJA","MOVILIZACION","CAMBIO_EQUIPO"]);
 const persistCache_=async(version=0)=>{
   cache={...cache,version:Number(version||cache.version||0)};
@@ -54,7 +56,7 @@ export async function loadEquipmentMovements({force=false,revalidate=true}={}){
     const serverVersion=Number(versions?.versions?.[CACHE_KEY]||0);
     if(!force&&cache.loaded&&serverVersion>0&&localVersion===serverVersion)return cache;
     const response=await fetchAction(APPS_SCRIPT_URL,"get_equipment_movements",{force,compact:false});
-    cache={data:Array.isArray(response.data)?response.data:[],loaded:true,loading:cache.loading,error:"",version:Number(response?.meta?.serverVersion||serverVersion||0)};
+    cache={data:(Array.isArray(response.data)?response.data:[]).filter(item=>!isErrorAcceptanceMovement_(item)),loaded:true,loading:cache.loading,error:"",version:Number(response?.meta?.serverVersion||serverVersion||0)};
     await persistCache_(response?.meta?.serverVersion||serverVersion);emit();return cache;
   })().catch(error=>{
     cache={...cache,loaded:true,loading:null,error:error?.message||"No fue posible cargar movimientos de equipos."};emit();
