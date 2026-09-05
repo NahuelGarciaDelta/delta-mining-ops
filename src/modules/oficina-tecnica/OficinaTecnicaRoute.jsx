@@ -7,276 +7,54 @@ import TallerCentralMovements from "../taller-central/TallerCentralMovements.jsx
 
 const LazyOficinaTecnica = React.lazy(()=>import("./OficinaTecnicaModule.jsx").then(m=>({default:m.OficinaTecnicaView})));
 
-function textContent(node){
-  if(node===null||node===undefined||typeof node==="boolean")return "";
-  if(typeof node==="string"||typeof node==="number")return String(node);
-  if(Array.isArray(node))return node.map(textContent).join(" ");
-  if(React.isValidElement(node))return textContent(node.props?.children);
-  return "";
-}
-
-function isAtrasoView(props){
-  if(props?.view==="atrasoROP02")return true;
-  return props?.view==="controlROP02"&&props?.stControlROP02?.tab==="atraso";
-}
-
-function isControlErrorsView(props){
-  if(props?.view==="controlErrores")return true;
-  return props?.view==="controlROP02"&&(!props?.stControlROP02?.tab||props?.stControlROP02?.tab==="errores");
-}
-
-function isAdministrativeAtraso(props){
-  if(typeof window==="undefined")return false;
-  const role=String(window.sessionStorage.getItem("dm_role")||"").trim().toUpperCase();
-  return role==="ADMINISTRATIVO"&&isAtrasoView(props);
-}
-
-function assignedProjectFromSession(){
-  if(typeof window==="undefined")return "";
-  const raw=String(window.sessionStorage.getItem("dm_project")||"").trim();
-  const upper=raw.toUpperCase();
-  if(!raw||upper==="TODO"||upper==="TODOS"||upper==="ALL")return "";
-  return normalizeRop02Project(raw);
-}
-
-function filterRowsToAssignedProject(rows,assignedProject){
-  const list=Array.isArray(rows)?rows:[];
-  if(!assignedProject)return list;
-  return list.filter(row=>normalizeRop02Project(row?.proyecto||row?.lugar||row?.Proyecto||row?.Lugar||"")===assignedProject);
-}
-
-function formatAtrasoEquipmentCode(value){
-  const raw=String(value||"").trim().toUpperCase().replace(/\s*\(.*?\)/g,"").replace(/[-_\s]+JM$/i,"");
-  const match=raw.match(/^([A-Z]{2,4})[-_\s]?(\d{1,4})$/);
-  if(!match)return raw;
-  return `${match[1]}-${match[2].padStart(4,"0")}`;
-}
-
-function isoFromDisplayDate(value){
-  const raw=String(value||"").trim();
-  const m=raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  return m?`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`:"";
-}
-
-function buildAtrasoDeps(deps,{readOnly=false}={}){
-  if(!deps)return deps;
-  const BaseCard=deps.Card;
-  const BaseTable=deps.Table;
-  const BaseStatCard=deps.StatCard;
-  const BaseAlertBanner=deps.AlertBanner;
-
-  const AtrasoCard=BaseCard?function AtrasoCard(props){
-    const title=String(props?.title||"").trim().toLowerCase();
-    if(readOnly&&title.startsWith("equipos aceptados"))return null;
-    return <BaseCard {...props}/>;
-  }:BaseCard;
-
-  const AtrasoTable=BaseTable?function AtrasoTable(props){
-    let cols=Array.isArray(props?.cols)?props.cols:props?.cols;
-    if(Array.isArray(cols)){
-      cols=cols.map(col=>{
-        if(String(col?.label||"").trim().toLowerCase()!=="equipo")return col;
-        const originalRender=col?.render;
-        return {...col,render:(value,row,...rest)=>{const formatted=formatAtrasoEquipmentCode(value);return typeof originalRender==="function"?originalRender(formatted,row,...rest):formatted;}};
-      });
-      if(readOnly)cols=cols.filter(col=>String(col?.label||"").trim().toLowerCase()!=="acción");
-    }
-    const rows=readOnly&&Array.isArray(props?.rows)?props.rows.filter(row=>!row?.admitido):props?.rows;
-    return <BaseTable {...props} cols={cols} rows={rows}/>;
-  }:BaseTable;
-
-  const AtrasoStatCard=BaseStatCard?function AtrasoStatCard(props){
-    const label=String(props?.label||"").trim().toLowerCase();
-    if(readOnly&&label==="atrasos aceptados")return null;
-    return <BaseStatCard {...props}/>;
-  }:BaseStatCard;
-
-  const AtrasoAlertBanner=BaseAlertBanner?function AtrasoAlertBanner(props){
-    if(readOnly){
-      const text=textContent(props?.children).toLowerCase();
-      if(text.includes("presioná")&&text.includes("justificar"))return null;
-      if(text.includes("equipos justificados")&&text.includes("equipos aceptados"))return null;
-    }
-    return <BaseAlertBanner {...props}/>;
-  }:BaseAlertBanner;
-
-  return {...deps,Card:AtrasoCard,Table:AtrasoTable,StatCard:AtrasoStatCard,AlertBanner:AtrasoAlertBanner};
-}
-
-function buildOperationalPeriodDeps(deps){
-  if(!deps?.OperationalPeriodMonthYear)return deps;
-  return {...deps,PeriodMonthYear:deps.OperationalPeriodMonthYear};
-}
-
-function mergeRop02Sources(baseRows,remoteRows){
-  const base=Array.isArray(baseRows)?baseRows:[];
-  const remote=Array.isArray(remoteRows)?remoteRows:[];
-  if(!remote.length)return base;
-  if(!base.length)return remote;
-  const merged=[];
-  const seen=new Set();
-  for(const row of [...remote,...base]){
-    const key=JSON.stringify([row?.fecha||"",row?.maquina||row?._internoRaw||"",row?.proyecto||row?.lugar||"",row?.turno||"",row?.parte||row?.nParte||row?.numeroParte||"",row?.operador||"",row?.supervisor||"",row?.hi??"",row?.hf??"",row?.horas??"",row?.combustible??"",row?.estado||"",row?.tarea||row?.descripcion||""]);
-    if(seen.has(key))continue;
-    seen.add(key);merged.push(row);
-  }
-  return merged;
-}
-
-function isFullRop02Query(params={}){
-  return String(params?.limit||"").toLowerCase()==="all"&&!String(params?.desde||"").trim()&&!String(params?.hasta||"").trim()&&String(params?.sortBy||"fecha")==="fecha"&&String(params?.sortDirection||"asc").toLowerCase()==="desc";
-}
+function textContent(node){if(node===null||node===undefined||typeof node==="boolean")return "";if(typeof node==="string"||typeof node==="number")return String(node);if(Array.isArray(node))return node.map(textContent).join(" ");if(React.isValidElement(node))return textContent(node.props?.children);return "";}
+function isAtrasoView(props){if(props?.view==="atrasoROP02")return true;return props?.view==="controlROP02"&&props?.stControlROP02?.tab==="atraso";}
+function isControlErrorsView(props){if(props?.view==="controlErrores")return true;return props?.view==="controlROP02"&&(!props?.stControlROP02?.tab||props?.stControlROP02?.tab==="errores");}
+function isAdministrativeAtraso(props){if(typeof window==="undefined")return false;const role=String(window.sessionStorage.getItem("dm_role")||"").trim().toUpperCase();return role==="ADMINISTRATIVO"&&isAtrasoView(props);}
+function normalizeSessionText(value){return String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");}
+function assignedProjectsFromSession(){if(typeof window==="undefined")return [];const raw=normalizeSessionText(window.sessionStorage.getItem("dm_project")||"");if(!raw||["TODO","TODOS","ALL"].includes(raw))return [];const projects=[];const add=value=>{const p=normalizeRop02Project(value);if(p&&!projects.includes(p))projects.push(p);};if(raw.includes("JOSE MARIA")||/(^|[^A-Z])JM([^A-Z]|$)/.test(raw))add("JOSE MARIA");if(raw.includes("FILO DEL SOL")||/(^|[^A-Z])FDS([^A-Z]|$)/.test(raw)||/(^|[^A-Z])FS([^A-Z]|$)/.test(raw))add("FILO DEL SOL");if(raw.includes("FILO SUR")||raw.includes("FILOSUR")||/(^|[^A-Z])FSUR([^A-Z]|$)/.test(raw))add("FILO SUR");if(raw.includes("EL ZORRO")||/(^|[^A-Z])ZORRO([^A-Z]|$)/.test(raw))add("EL ZORRO");if(!projects.length)add(raw);return projects;}
+function filterRowsToAssignedProjects(rows,assignedProjects){const list=Array.isArray(rows)?rows:[];if(!assignedProjects?.length)return list;const allowed=new Set(assignedProjects);return list.filter(row=>allowed.has(normalizeRop02Project(row?.proyecto||row?.lugar||row?.Proyecto||row?.Lugar||"")));}
+function formatAtrasoEquipmentCode(value){const raw=String(value||"").trim().toUpperCase().replace(/\s*\(.*?\)/g,"").replace(/[-_\s]+JM$/i,"");const match=raw.match(/^([A-Z]{2,4})[-_\s]?(\d{1,4})$/);if(!match)return raw;return `${match[1]}-${match[2].padStart(4,"0")}`;}
+function isoFromDisplayDate(value){const raw=String(value||"").trim();const m=raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`:"";}
+function buildAtrasoDeps(deps,{readOnly=false}={}){if(!deps)return deps;const BaseCard=deps.Card,BaseTable=deps.Table,BaseStatCard=deps.StatCard,BaseAlertBanner=deps.AlertBanner;const AtrasoCard=BaseCard?function(props){const title=String(props?.title||"").trim().toLowerCase();if(readOnly&&title.startsWith("equipos aceptados"))return null;return <BaseCard {...props}/>;}:BaseCard;const AtrasoTable=BaseTable?function(props){let cols=Array.isArray(props?.cols)?props.cols:props?.cols;if(Array.isArray(cols)){cols=cols.map(col=>{if(String(col?.label||"").trim().toLowerCase()!=="equipo")return col;const originalRender=col?.render;return {...col,render:(value,row,...rest)=>{const formatted=formatAtrasoEquipmentCode(value);return typeof originalRender==="function"?originalRender(formatted,row,...rest):formatted;}};});if(readOnly)cols=cols.filter(col=>String(col?.label||"").trim().toLowerCase()!=="acción");}const rows=readOnly&&Array.isArray(props?.rows)?props.rows.filter(row=>!row?.admitido):props?.rows;return <BaseTable {...props} cols={cols} rows={rows}/>;}:BaseTable;const AtrasoStatCard=BaseStatCard?function(props){const label=String(props?.label||"").trim().toLowerCase();if(readOnly&&label==="atrasos aceptados")return null;return <BaseStatCard {...props}/>;}:BaseStatCard;const AtrasoAlertBanner=BaseAlertBanner?function(props){if(readOnly){const text=textContent(props?.children).toLowerCase();if(text.includes("presioná")&&text.includes("justificar"))return null;if(text.includes("equipos justificados")&&text.includes("equipos aceptados"))return null;}return <BaseAlertBanner {...props}/>;}:BaseAlertBanner;return {...deps,Card:AtrasoCard,Table:AtrasoTable,StatCard:AtrasoStatCard,AlertBanner:AtrasoAlertBanner};}
+function buildOperationalPeriodDeps(deps){if(!deps?.OperationalPeriodMonthYear)return deps;return {...deps,PeriodMonthYear:deps.OperationalPeriodMonthYear};}
+function mergeRop02Sources(baseRows,remoteRows){const base=Array.isArray(baseRows)?baseRows:[],remote=Array.isArray(remoteRows)?remoteRows:[];if(!remote.length)return base;if(!base.length)return remote;const merged=[],seen=new Set();for(const row of [...remote,...base]){const key=JSON.stringify([row?.fecha||"",row?.maquina||row?._internoRaw||"",row?.proyecto||row?.lugar||"",row?.turno||"",row?.parte||row?.nParte||row?.numeroParte||"",row?.operador||"",row?.supervisor||"",row?.hi??"",row?.hf??"",row?.horas??"",row?.combustible??"",row?.estado||"",row?.tarea||row?.descripcion||""]);if(seen.has(key))continue;seen.add(key);merged.push(row);}return merged;}
+function isFullRop02Query(params={}){return String(params?.limit||"").toLowerCase()==="all"&&!String(params?.desde||"").trim()&&!String(params?.hasta||"").trim()&&String(params?.sortBy||"fecha")==="fecha"&&String(params?.sortDirection||"asc").toLowerCase()==="desc";}
 
 export function OficinaTecnicaRoute(props){
-  const Fallback=props?.deps?.BlockingDataLoader;
-  const atrasoView=isAtrasoView(props);
-  const controlErrorsView=isControlErrorsView(props);
-  const readOnlyAtraso=isAdministrativeAtraso(props);
-  const assignedProject=assignedProjectFromSession();
-  const scopedRop02All=useMemo(()=>filterRowsToAssignedProject(props?.rop02All,assignedProject),[props?.rop02All,assignedProject]);
-  const scopedRop02ControlAll=useMemo(()=>filterRowsToAssignedProject(props?.rop02ControlAll,assignedProject),[props?.rop02ControlAll,assignedProject]);
-  const historicalQuery=useMemo(()=>({limit:"all",sortBy:"fecha",sortDirection:"desc",...(assignedProject?{proyecto:assignedProject}:{})}),[assignedProject]);
-  const [equiposRop02,setEquiposRop02]=useState(null);
-  const [controlErrorsRop02,setControlErrorsRop02]=useState(null);
-  const [controlErrorsLoading,setControlErrorsLoading]=useState(false);
-  const [rop02ViewRevision,setRop02ViewRevision]=useState(0);
-  const [tallerTab,setTallerTab]=useState("RESUMEN");
+ const Fallback=props?.deps?.BlockingDataLoader,atrasoView=isAtrasoView(props),controlErrorsView=isControlErrorsView(props),readOnlyAtraso=isAdministrativeAtraso(props);
+ const assignedProjects=assignedProjectsFromSession();
+ const assignedProjectsKey=assignedProjects.join("|");
+ const scopedRop02All=useMemo(()=>filterRowsToAssignedProjects(props?.rop02All,assignedProjects),[props?.rop02All,assignedProjectsKey]);
+ const scopedRop02ControlAll=useMemo(()=>filterRowsToAssignedProjects(props?.rop02ControlAll,assignedProjects),[props?.rop02ControlAll,assignedProjectsKey]);
+ // Multi-project users must not send the combined label as a server-side project filter.
+ const historicalQuery=useMemo(()=>({limit:"all",sortBy:"fecha",sortDirection:"desc",...(assignedProjects.length===1?{proyecto:assignedProjects[0]}:{})}),[assignedProjectsKey]);
+ const [equiposRop02,setEquiposRop02]=useState(null),[controlErrorsRop02,setControlErrorsRop02]=useState(null),[rop02ViewRevision,setRop02ViewRevision]=useState(0),[tallerTab,setTallerTab]=useState("RESUMEN");
+ useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);
 
-  useEffect(()=>{if(props?.view!=="tallerCentral")setTallerTab("RESUMEN");},[props?.view]);
+ useEffect(()=>{
+  if(!atrasoView||readOnlyAtraso)return;let raf=0,active=true;const rows=scopedRop02All;const appAlert=props?.deps?.appAlert||((message)=>window.alert(message));
+  const validateAndPublish=(card)=>{if(!active||!card)return;const selects=[...card.querySelectorAll("select")],reasonSelect=selects[0],projectSelect=selects[1],isChange=String(reasonSelect?.value||"")==="Cambio de proyecto";let block=card.querySelector("[data-dm-project-internal-link]");if(!isChange){if(block)block.remove();window.__dmPendingEquipmentMovementLink=null;return;}if(!projectSelect)return;const info=[...card.querySelectorAll("div")].find(el=>String(el.textContent||"").includes("Equipo:")&&String(el.textContent||"").includes("Última carga:")),infoText=String(info?.textContent||""),sourceMatch=infoText.match(/Equipo:\s*([^·]+)/i),dateMatch=infoText.match(/Última carga:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i),sourceCode=formatAtrasoEquipmentCode(sourceMatch?.[1]||""),lastOrigin=isoFromDisplayDate(dateMatch?.[1]||""),destinationProject=normalizeRop02Project(projectSelect.value||"");if(!block){block=document.createElement("div");block.setAttribute("data-dm-project-internal-link","1");block.style.display="flex";block.style.flexDirection="column";block.style.gap="12px";block.innerHTML=`<label style="display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:800;color:#a3a3a3">Interno en proyecto destino<select data-dm-link-mode style="background:#171717;border:1px solid #404040;color:#fff;border-radius:8px;padding:10px 12px"><option value="MISMO">Mantiene el mismo interno</option><option value="NUEVO">Cambió de interno</option></select></label><label data-dm-new-code-wrap style="display:none;flex-direction:column;gap:7px;font-size:12px;font-weight:800;color:#a3a3a3">Nuevo interno<input data-dm-new-code placeholder="Ej.: TOP-0067" autocomplete="off" style="background:#171717;border:1px solid #404040;color:#fff;border-radius:8px;padding:10px 12px;text-transform:uppercase" /><span data-dm-link-status style="font-size:11px;font-weight:800"></span></label>`;projectSelect.closest("label")?.insertAdjacentElement("afterend",block);const mode=block.querySelector("[data-dm-link-mode]"),input=block.querySelector("[data-dm-new-code]");mode?.addEventListener("change",()=>validateAndPublish(card));input?.addEventListener("input",()=>{input.value=input.value.toUpperCase();validateAndPublish(card);});}const mode=block.querySelector("[data-dm-link-mode]"),wrap=block.querySelector("[data-dm-new-code-wrap]"),input=block.querySelector("[data-dm-new-code]"),status=block.querySelector("[data-dm-link-status]"),same=String(mode?.value||"MISMO")==="MISMO";if(wrap)wrap.style.display=same?"none":"flex";if(same){window.__dmPendingEquipmentMovementLink={valid:true,mode:"MISMO",sourceCode,destinationCode:sourceCode,destinationProject,firstDestinationDate:""};return;}const requested=formatAtrasoEquipmentCode(input?.value||""),matches=rows.filter(row=>{const rowCode=formatAtrasoEquipmentCode(row?.maquina||row?._internoRaw||""),rowProject=normalizeRop02Project(row?.proyecto||row?.lugar||""),rowDate=String(row?.fecha||"").slice(0,10);return requested&&rowCode===requested&&rowProject===destinationProject&&(!lastOrigin||rowDate>=lastOrigin);}).sort((a,b)=>String(a?.fecha||"").localeCompare(String(b?.fecha||""))),firstDate=String(matches[0]?.fecha||"").slice(0,10),valid=Boolean(requested&&destinationProject&&firstDate&&requested!==sourceCode);if(status){status.style.color=valid?"#10b981":"#ef4444";status.textContent=!requested?"Ingresá el interno nuevo.":requested===sourceCode?"Ese es el mismo interno actual.":valid?`✓ Verificado en ROP02 ${destinationProject} · primera carga posterior: ${firstDate.slice(8,10)}/${firstDate.slice(5,7)}/${firstDate.slice(0,4)}`:`No se encontró una carga posterior de ${requested} en ${destinationProject||"el proyecto destino"}.`;}window.__dmPendingEquipmentMovementLink={valid,mode:"NUEVO",sourceCode,destinationCode:requested,destinationProject,firstDestinationDate:firstDate};};
+  const scan=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>{if(!active)return;const title=[...document.querySelectorAll("div")].find(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo"),card=title?.parentElement;if(card)validateAndPublish(card);});};const onChange=(event)=>{const card=event.target?.closest?.("div"),title=card&&[...card.querySelectorAll("div")].find(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo");if(title)scan();};const onClickCapture=(event)=>{const button=event.target?.closest?.("button");if(!button||String(button.textContent||"").trim()!=="Aceptar")return;const card=button.parentElement?.parentElement;if(!card||![...card.querySelectorAll("div")].some(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo"))return;const reason=card.querySelector("select")?.value;if(reason!=="Cambio de proyecto")return;validateAndPublish(card);const pending=window.__dmPendingEquipmentMovementLink;if(!pending?.valid){event.preventDefault();event.stopPropagation();event.stopImmediatePropagation?.();appAlert("Verificá el proyecto destino y el interno nuevo antes de aceptar el cambio de proyecto.");}};const observer=new MutationObserver(scan);observer.observe(document.body,{childList:true,subtree:true});document.addEventListener("change",onChange,true);document.addEventListener("click",onClickCapture,true);scan();return()=>{active=false;cancelAnimationFrame(raf);observer.disconnect();document.removeEventListener("change",onChange,true);document.removeEventListener("click",onClickCapture,true);window.__dmPendingEquipmentMovementLink=null;};
+ },[atrasoView,readOnlyAtraso,scopedRop02All,props?.deps]);
 
-  useEffect(()=>{
-    if(!atrasoView||readOnlyAtraso)return;
-    let raf=0;
-    let active=true;
-    const rows=scopedRop02All;
-    const appAlert=props?.deps?.appAlert||((message)=>window.alert(message));
+ useEffect(()=>{const onHistoricalUpdated=(event)=>{const detail=event?.detail||{};if(detail.dataset!=="rop02"||!isFullRop02Query(detail.params))return;setRop02ViewRevision(value=>value+1);};window.addEventListener(HISTORICAL_DATASET_UPDATED_EVENT,onHistoricalUpdated);return()=>window.removeEventListener(HISTORICAL_DATASET_UPDATED_EVENT,onHistoricalUpdated);},[]);
+ useEffect(()=>registerRefreshTask("oficina-rop02-full-refresh",async()=>refreshHistoricalDataset("rop02",historicalQuery),{views:["rop02","controlROP02","controlErrores"],priority:20}),[historicalQuery]);
 
-    const validateAndPublish=(card)=>{
-      if(!active||!card)return;
-      const selects=[...card.querySelectorAll("select")];
-      const reasonSelect=selects[0];
-      const projectSelect=selects[1];
-      const isChange=String(reasonSelect?.value||"")==="Cambio de proyecto";
-      let block=card.querySelector("[data-dm-project-internal-link]");
-      if(!isChange){if(block)block.remove();window.__dmPendingEquipmentMovementLink=null;return;}
-      if(!projectSelect)return;
-      const info=[...card.querySelectorAll("div")].find(el=>String(el.textContent||"").includes("Equipo:")&&String(el.textContent||"").includes("Última carga:"));
-      const infoText=String(info?.textContent||"");
-      const sourceMatch=infoText.match(/Equipo:\s*([^·]+)/i);
-      const dateMatch=infoText.match(/Última carga:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
-      const sourceCode=formatAtrasoEquipmentCode(sourceMatch?.[1]||"");
-      const lastOrigin=isoFromDisplayDate(dateMatch?.[1]||"");
-      const destinationProject=normalizeRop02Project(projectSelect.value||"");
+ // Control de errores NEVER blocks the UI. It opens with the already-loaded, project-scoped ROP02
+ // and refreshes in background. A slow/failing PC/network cannot leave the user on an endless loader.
+ useEffect(()=>{
+  if(!controlErrorsView){setControlErrorsRop02(null);return;}
+  let active=true;
+  setControlErrorsRop02(scopedRop02ControlAll.length?scopedRop02ControlAll:scopedRop02All);
+  refreshHistoricalDataset("rop02",historicalQuery).then(result=>{if(!active)return;const raw=Array.isArray(result?.data)?result.data:[];if(raw.length)setControlErrorsRop02(filterRowsToAssignedProjects(normalizeROP02(raw),assignedProjects));}).catch(error=>console.warn("No se pudo actualizar ROP02 en segundo plano para Control de errores.",error));
+  return()=>{active=false;};
+ },[controlErrorsView,rop02ViewRevision,historicalQuery,assignedProjectsKey]);
 
-      if(!block){
-        block=document.createElement("div");
-        block.setAttribute("data-dm-project-internal-link","1");
-        block.style.display="flex";block.style.flexDirection="column";block.style.gap="12px";
-        block.innerHTML=`<label style="display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:800;color:#a3a3a3">Interno en proyecto destino<select data-dm-link-mode style="background:#171717;border:1px solid #404040;color:#fff;border-radius:8px;padding:10px 12px"><option value="MISMO">Mantiene el mismo interno</option><option value="NUEVO">Cambió de interno</option></select></label><label data-dm-new-code-wrap style="display:none;flex-direction:column;gap:7px;font-size:12px;font-weight:800;color:#a3a3a3">Nuevo interno<input data-dm-new-code placeholder="Ej.: TOP-0067" autocomplete="off" style="background:#171717;border:1px solid #404040;color:#fff;border-radius:8px;padding:10px 12px;text-transform:uppercase" /><span data-dm-link-status style="font-size:11px;font-weight:800"></span></label>`;
-        projectSelect.closest("label")?.insertAdjacentElement("afterend",block);
-        const mode=block.querySelector("[data-dm-link-mode]");
-        const input=block.querySelector("[data-dm-new-code]");
-        mode?.addEventListener("change",()=>validateAndPublish(card));
-        input?.addEventListener("input",()=>{input.value=input.value.toUpperCase();validateAndPublish(card);});
-      }
-
-      const mode=block.querySelector("[data-dm-link-mode]");
-      const wrap=block.querySelector("[data-dm-new-code-wrap]");
-      const input=block.querySelector("[data-dm-new-code]");
-      const status=block.querySelector("[data-dm-link-status]");
-      const same=String(mode?.value||"MISMO")==="MISMO";
-      if(wrap)wrap.style.display=same?"none":"flex";
-      if(same){window.__dmPendingEquipmentMovementLink={valid:true,mode:"MISMO",sourceCode,destinationCode:sourceCode,destinationProject,firstDestinationDate:""};return;}
-
-      const requested=formatAtrasoEquipmentCode(input?.value||"");
-      const matches=rows.filter(row=>{const rowCode=formatAtrasoEquipmentCode(row?.maquina||row?._internoRaw||"");const rowProject=normalizeRop02Project(row?.proyecto||row?.lugar||"");const rowDate=String(row?.fecha||"").slice(0,10);return requested&&rowCode===requested&&rowProject===destinationProject&&(!lastOrigin||rowDate>=lastOrigin);}).sort((a,b)=>String(a?.fecha||"").localeCompare(String(b?.fecha||"")));
-      const firstDate=String(matches[0]?.fecha||"").slice(0,10);
-      const valid=Boolean(requested&&destinationProject&&firstDate&&requested!==sourceCode);
-      if(status){status.style.color=valid?"#10b981":"#ef4444";status.textContent=!requested?"Ingresá el interno nuevo.":requested===sourceCode?"Ese es el mismo interno actual.":valid?`✓ Verificado en ROP02 ${destinationProject} · primera carga posterior: ${firstDate.slice(8,10)}/${firstDate.slice(5,7)}/${firstDate.slice(0,4)}`:`No se encontró una carga posterior de ${requested} en ${destinationProject||"el proyecto destino"}.`;}
-      window.__dmPendingEquipmentMovementLink={valid,mode:"NUEVO",sourceCode,destinationCode:requested,destinationProject,firstDestinationDate:firstDate};
-    };
-
-    const scan=()=>{cancelAnimationFrame(raf);raf=requestAnimationFrame(()=>{if(!active)return;const title=[...document.querySelectorAll("div")].find(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo");const card=title?.parentElement;if(card)validateAndPublish(card);});};
-    const onChange=(event)=>{const card=event.target?.closest?.("div");const title=card&&[...card.querySelectorAll("div")].find(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo");if(title)scan();};
-    const onClickCapture=(event)=>{
-      const button=event.target?.closest?.("button");
-      if(!button||String(button.textContent||"").trim()!=="Aceptar")return;
-      const card=button.parentElement?.parentElement;
-      if(!card||![...card.querySelectorAll("div")].some(el=>String(el.textContent||"").trim()==="Justificar ausencia de equipo"))return;
-      const reason=card.querySelector("select")?.value;
-      if(reason!=="Cambio de proyecto")return;
-      validateAndPublish(card);
-      const pending=window.__dmPendingEquipmentMovementLink;
-      if(!pending?.valid){event.preventDefault();event.stopPropagation();event.stopImmediatePropagation?.();appAlert("Verificá el proyecto destino y el interno nuevo antes de aceptar el cambio de proyecto.");}
-    };
-
-    const observer=new MutationObserver(scan);
-    observer.observe(document.body,{childList:true,subtree:true});
-    document.addEventListener("change",onChange,true);
-    document.addEventListener("click",onClickCapture,true);
-    scan();
-    return()=>{active=false;cancelAnimationFrame(raf);observer.disconnect();document.removeEventListener("change",onChange,true);document.removeEventListener("click",onClickCapture,true);window.__dmPendingEquipmentMovementLink=null;};
-  },[atrasoView,readOnlyAtraso,scopedRop02All,props?.deps]);
-
-  useEffect(()=>{
-    const onHistoricalUpdated=(event)=>{const detail=event?.detail||{};if(detail.dataset!=="rop02"||!isFullRop02Query(detail.params))return;setRop02ViewRevision(value=>value+1);};
-    window.addEventListener(HISTORICAL_DATASET_UPDATED_EVENT,onHistoricalUpdated);
-    return()=>window.removeEventListener(HISTORICAL_DATASET_UPDATED_EVENT,onHistoricalUpdated);
-  },[]);
-
-  useEffect(()=>registerRefreshTask("oficina-rop02-full-refresh",async()=>refreshHistoricalDataset("rop02",historicalQuery),{views:["rop02","controlROP02","controlErrores"],priority:20}),[historicalQuery]);
-
-  useEffect(()=>{
-    if(!controlErrorsView){setControlErrorsRop02(null);setControlErrorsLoading(false);return;}
-    let active=true;
-    setControlErrorsLoading(true);
-    // Control de errores siempre consulta información fresca, pero respeta
-    // estrictamente el proyecto asignado al usuario tanto en servidor como cliente.
-    refreshHistoricalDataset("rop02",historicalQuery)
-      .then(result=>{
-        if(!active)return;
-        const raw=Array.isArray(result?.data)?result.data:[];
-        setControlErrorsRop02(filterRowsToAssignedProject(normalizeROP02(raw),assignedProject));
-      })
-      .catch(error=>{
-        console.warn("No se pudo refrescar ROP02 para Control de errores; se conserva la fuente cargada.",error);
-        if(active)setControlErrorsRop02(scopedRop02All);
-      })
-      .finally(()=>{if(active)setControlErrorsLoading(false);});
-    return()=>{active=false;};
-  },[controlErrorsView,rop02ViewRevision,historicalQuery,assignedProject,scopedRop02All]);
-
-  useEffect(()=>{
-    if(props?.view!=="listaEquipos")return;
-    let active=true;
-    const query={...historicalQuery,sortDirection:"asc"};
-    (async()=>{try{const result=await getRop02(query);if(!active)return;const raw=Array.isArray(result?.data)?result.data:[];if(raw.length)setEquiposRop02(filterRowsToAssignedProject(normalizeROP02(raw),assignedProject));}catch(error){console.warn("No se pudo actualizar ROP02 para Lista de Equipos; se conserva la fuente cargada.",error);}})();
-    return()=>{active=false;};
-  },[props?.view,historicalQuery,assignedProject]);
-
-  const rop02Equipos=useMemo(()=>{if(props?.view!=="listaEquipos")return scopedRop02All;return mergeRop02Sources(scopedRop02All,filterRowsToAssignedProject(equiposRop02,assignedProject));},[props?.view,scopedRop02All,equiposRop02,assignedProject]);
-  const rop02ControlErrors=controlErrorsRop02||scopedRop02All||[];
-
-  const routedProps=useMemo(()=>{
-    let nextProps={...props,rop02All:scopedRop02All,rop02ControlAll:scopedRop02ControlAll};
-    if(props?.view==="listaEquipos")nextProps={...nextProps,rop02All:rop02Equipos};
-    if(controlErrorsView)nextProps={...nextProps,rop02All:rop02ControlErrors,rop02ControlAll:rop02ControlErrors};
-    if(props?.view==="horometros"||props?.view==="chc")nextProps={...nextProps,deps:buildOperationalPeriodDeps(nextProps.deps)};
-    if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};
-    return nextProps;
-  },[props,scopedRop02All,scopedRop02ControlAll,rop02Equipos,rop02ControlErrors,controlErrorsView,atrasoView,readOnlyAtraso]);
-
-  const moduleKey=props?.view==="rop02"?`rop02-cache-${rop02ViewRevision}`:undefined;
-  const tcColor=props?.deps?.C||{};
-
-  if(controlErrorsView&&controlErrorsLoading&&!controlErrorsRop02){
-    return Fallback?<Fallback label="Actualizando Control de errores..."/>:null;
-  }
-
-  return <Suspense fallback={Fallback?<Fallback label="Cargando Oficina Técnica..."/>:null}>
-    {props?.view==="tallerCentral"?<div style={{display:"flex",flexDirection:"column",gap:14}}>
-      <div style={{display:"flex",gap:8}}><button onClick={()=>setTallerTab("RESUMEN")} style={{border:`1px solid ${tallerTab==="RESUMEN"?(tcColor.teal||"#14b8a6"):(tcColor.border||"#3f3f46")}`,background:tallerTab==="RESUMEN"?(tcColor.tealDim||"rgba(20,184,166,.12)"):"#191919",color:tallerTab==="RESUMEN"?(tcColor.teal||"#14b8a6"):(tcColor.textSub||"#a3a3a3"),borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Resumen</button><button onClick={()=>setTallerTab("MOVIMIENTOS")} style={{border:`1px solid ${tallerTab==="MOVIMIENTOS"?(tcColor.accent||"#ef233c"):(tcColor.border||"#3f3f46")}`,background:tallerTab==="MOVIMIENTOS"?(tcColor.redDim||"rgba(239,35,60,.12)"):"#191919",color:tallerTab==="MOVIMIENTOS"?(tcColor.accent||"#ef233c"):(tcColor.textSub||"#a3a3a3"),borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Movimiento de equipos</button></div>
-      {tallerTab==="RESUMEN"?<LazyOficinaTecnica key={moduleKey} {...routedProps}/>:<TallerCentralMovements listaEquipos={props?.listaEquipos||[]} rop02All={scopedRop02All}/>} 
-    </div>:<LazyOficinaTecnica key={moduleKey} {...routedProps}/>} 
-  </Suspense>;
+ useEffect(()=>{if(props?.view!=="listaEquipos")return;let active=true;const query={...historicalQuery,sortDirection:"asc"};(async()=>{try{const result=await getRop02(query);if(!active)return;const raw=Array.isArray(result?.data)?result.data:[];if(raw.length)setEquiposRop02(filterRowsToAssignedProjects(normalizeROP02(raw),assignedProjects));}catch(error){console.warn("No se pudo actualizar ROP02 para Lista de Equipos; se conserva la fuente cargada.",error);}})();return()=>{active=false;};},[props?.view,historicalQuery,assignedProjectsKey]);
+ const rop02Equipos=useMemo(()=>props?.view!=="listaEquipos"?scopedRop02All:mergeRop02Sources(scopedRop02All,filterRowsToAssignedProjects(equiposRop02,assignedProjects)),[props?.view,scopedRop02All,equiposRop02,assignedProjectsKey]);
+ const rop02ControlErrors=controlErrorsRop02||scopedRop02ControlAll||scopedRop02All||[];
+ const routedProps=useMemo(()=>{let nextProps={...props,rop02All:scopedRop02All,rop02ControlAll:scopedRop02ControlAll};if(props?.view==="listaEquipos")nextProps={...nextProps,rop02All:rop02Equipos};if(controlErrorsView)nextProps={...nextProps,rop02All:rop02ControlErrors,rop02ControlAll:rop02ControlErrors};if(props?.view==="horometros"||props?.view==="chc")nextProps={...nextProps,deps:buildOperationalPeriodDeps(nextProps.deps)};if(atrasoView)nextProps={...nextProps,deps:buildAtrasoDeps(nextProps.deps,{readOnly:readOnlyAtraso})};return nextProps;},[props,scopedRop02All,scopedRop02ControlAll,rop02Equipos,rop02ControlErrors,controlErrorsView,atrasoView,readOnlyAtraso]);
+ const moduleKey=props?.view==="rop02"?`rop02-cache-${rop02ViewRevision}`:undefined,tcColor=props?.deps?.C||{};
+ return <Suspense fallback={Fallback?<Fallback label="Cargando Oficina Técnica..."/>:null}>{props?.view==="tallerCentral"?<div style={{display:"flex",flexDirection:"column",gap:14}}><div style={{display:"flex",gap:8}}><button onClick={()=>setTallerTab("RESUMEN")} style={{border:`1px solid ${tallerTab==="RESUMEN"?(tcColor.teal||"#14b8a6"):(tcColor.border||"#3f3f46")}`,background:tallerTab==="RESUMEN"?(tcColor.tealDim||"rgba(20,184,166,.12)"):"#191919",color:tallerTab==="RESUMEN"?(tcColor.teal||"#14b8a6"):(tcColor.textSub||"#a3a3a3"),borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Resumen</button><button onClick={()=>setTallerTab("MOVIMIENTOS")} style={{border:`1px solid ${tallerTab==="MOVIMIENTOS"?(tcColor.accent||"#ef233c"):(tcColor.border||"#3f3f46")}`,background:tallerTab==="MOVIMIENTOS"?(tcColor.redDim||"rgba(239,35,60,.12)"):"#191919",color:tallerTab==="MOVIMIENTOS"?(tcColor.accent||"#ef233c"):(tcColor.textSub||"#a3a3a3"),borderRadius:8,padding:"9px 14px",fontWeight:800,cursor:"pointer"}}>Movimiento de equipos</button></div>{tallerTab==="RESUMEN"?<LazyOficinaTecnica key={moduleKey} {...routedProps}/>:<TallerCentralMovements listaEquipos={props?.listaEquipos||[]} rop02All={scopedRop02All}/>}</div>:<LazyOficinaTecnica key={moduleKey} {...routedProps}/>}</Suspense>;
 }
