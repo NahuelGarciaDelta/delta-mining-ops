@@ -3639,7 +3639,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     ...control.erroresPartes.map(error=>({...error,_tipo:"Numeración"})),
     ...control.erroresHoro.map(error=>({...error,_tipo:"Horómetro"})),
   ].sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||String(a.maquina||"").localeCompare(String(b.maquina||""))),[control]);
-  const {data:erroresAceptados,byKey:aceptadosPorClave,error:errorAceptadosError,reload:recargarErroresAceptados}=useErrorAcceptances(proyectosAutorizados,["controlErrores","controlROP02"]);
+  const {data:erroresAceptados,byKey:aceptadosPorClave,error:errorAceptadosError,reload:recargarErroresAceptados,remember:recordarAceptacion,restore:retirarAceptacionLocal}=useErrorAcceptances(proyectosAutorizados,["controlErrores","controlROP02"]);
   const [modalError,setModalError]=useState(null);
   const [justificacionError,setJustificacionError]=useState("");
   const [guardandoAceptacion,setGuardandoAceptacion]=useState(false);
@@ -3708,7 +3708,8 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     setGuardandoAceptacion(true);
     setMensajeAceptacion(null);
     try{
-      await saveErrorAcceptance(modalError,justificacion,sessionStorage.getItem("dm_user")||"Usuario");
+      const aceptacion=await saveErrorAcceptance(modalError,justificacion,sessionStorage.getItem("dm_user")||"Usuario");
+      recordarAceptacion(aceptacion);
       await recargarErroresAceptados();
       setModalError(null);
       setMensajeAceptacion({type:"success",text:"El error fue aceptado y quedó registrado con su justificación."});
@@ -3723,6 +3724,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     setMensajeAceptacion(null);
     try{
       await cancelErrorAcceptance(error.id,sessionStorage.getItem("dm_user")||"Usuario");
+      retirarAceptacionLocal(error);
       await recargarErroresAceptados();
       setMensajeAceptacion({type:"success",text:"La aceptación fue restaurada; el error vuelve a quedar pendiente."});
     }catch(err){
