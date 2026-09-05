@@ -3946,6 +3946,24 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   const [editSaving,setEditSaving]=React.useState(false);
   const [editError,setEditError]=React.useState(null);
   const [editSuccess,setEditSuccess]=React.useState(false);
+  const moverFecha=useCallback((direccion)=>{
+    const indice=fechasDisp.indexOf(fichaActual?.fecha);
+    const siguienteIndice=direccion==="anterior"?indice+1:indice-1;
+    if(indice<0||siguienteIndice<0||siguienteIndice>=fechasDisp.length)return false;
+    setExtState(estado=>({...estado,fechaSel:fechasDisp[siguienteIndice]}));
+    setEditMode(false);
+    return true;
+  },[fechasDisp,fichaActual?.fecha,setExtState,setEditMode]);
+  React.useEffect(()=>{
+    const onKeyDown=(event)=>{
+      if(event.defaultPrevented||(event.key!=="ArrowLeft"&&event.key!=="ArrowRight"))return;
+      const target=event.target;
+      if(target instanceof HTMLTextAreaElement||target?.isContentEditable||(target instanceof HTMLInputElement&&target.type!=="date"))return;
+      if(moverFecha(event.key==="ArrowLeft"?"anterior":"siguiente"))event.preventDefault();
+    };
+    window.addEventListener("keydown",onKeyDown);
+    return()=>window.removeEventListener("keydown",onKeyDown);
+  },[moverFecha]);
   React.useEffect(()=>{
     if(!fichaActual)return;
     const mk=(r)=>r?{parte:String(r.parte||""),hi:r.horometroInicial!=null?String(r.horometroInicial):"",hf:r.horometroFinal!=null?String(r.horometroFinal):"",tarea:String(r.tipo_trabajo||""),obs:String(r.observaciones||""),desgaste:String(r.desgaste||""),combustible:r.combustible!=null&&Number(r.combustible)>0?String(r.combustible):"",aceite:String(r.aceite||""),horas:(r.estado==="OD"||r.estado==="FS"||r.estado==="EM")?String(r.horasRaw||r.estado):(r.horas!=null?String(r.horas):"")}:{};
@@ -4275,6 +4293,23 @@ function ControlRMA15PorEquipo({rma15,extState,setExtState}){
     return equipoData.find(d=>d.fecha===target)||equipoData[0];
   },[equipoData,fechaSel,fechasDisp]);
   React.useEffect(()=>{if(fechasDisp.length>0&&(!fechaSel||!fechasDisp.includes(fechaSel)))setFechaSel(fechasDisp[0]);},[fechasDisp]);// eslint-disable-line
+  const moverFecha=useCallback((direccion)=>{
+    const indice=fechasDisp.indexOf(fichaActual?.fecha);
+    const siguienteIndice=direccion==="anterior"?indice+1:indice-1;
+    if(indice<0||siguienteIndice<0||siguienteIndice>=fechasDisp.length)return false;
+    setExtState(estado=>({...estado,fechaSel:fechasDisp[siguienteIndice]}));
+    return true;
+  },[fechasDisp,fichaActual?.fecha,setExtState]);
+  React.useEffect(()=>{
+    const onKeyDown=(event)=>{
+      if(event.defaultPrevented||(event.key!=="ArrowLeft"&&event.key!=="ArrowRight"))return;
+      const target=event.target;
+      if(target instanceof HTMLTextAreaElement||target?.isContentEditable||(target instanceof HTMLInputElement&&target.type!=="date"))return;
+      if(moverFecha(event.key==="ArrowLeft"?"anterior":"siguiente"))event.preventDefault();
+    };
+    window.addEventListener("keydown",onKeyDown);
+    return()=>window.removeEventListener("keydown",onKeyDown);
+  },[moverFecha]);
 
   const equipoIdx=useMemo(()=>fichaMaquina?maquinas.indexOf(fichaMaquina):-1,[maquinas,fichaMaquina]);
   const irEquipoAnterior=useCallback(()=>{if(equipoIdx>0){setMaquina([maquinas[equipoIdx-1]]);setFechaSel("");}},[equipoIdx,maquinas]);
