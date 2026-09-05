@@ -3598,7 +3598,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
   const rop02ControlRows=useMemo(()=>rop02Prod.filter(r=>{
     const m=String(r.maquina||"").trim();
-    return !/^CAA[-_\\s]*0002(?:[-_\\s]*JM)?$/i.test(m) && normalizeMachineCode(m)!=="CAA-0002";
+    return !/^CAA[-_\s]*0002(?:[-_\s]*JM)?$/i.test(m) && normalizeMachineCode(m)!=="CAA-0002";
   }),[rop02Prod]);
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const hoy=new Date();
