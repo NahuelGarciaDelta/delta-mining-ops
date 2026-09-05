@@ -55,11 +55,10 @@ function mergeWithTransientAcceptances(remoteRows=[]){
   const remote=Array.isArray(remoteRows)?remoteRows:[];
   const visibleRemote=remote.filter(row=>!state.restored.some(reference=>matchesAcceptance(row,reference)));
   const pending=state.pending
-    .map(item=>item.row)
-    .filter(row=>!state.restored.some(reference=>matchesAcceptance(row,reference)))
-    .filter(row=>!remote.some(serverRow=>matchesAcceptance(serverRow,row)));
-  writeTransientState({...state,pending:pending.map(row=>({row,until:Date.now()+TRANSIENT_ACCEPTANCES_TTL_MS}))});
-  return mergeAcceptances(visibleRemote,pending);
+    .filter(item=>!state.restored.some(reference=>matchesAcceptance(item.row,reference)))
+    .filter(item=>!remote.some(serverRow=>matchesAcceptance(serverRow,item.row)));
+  writeTransientState({...state,pending});
+  return mergeAcceptances(visibleRemote,pending.map(item=>item.row));
 }
 
 const text=value=>String(value??"").trim();
