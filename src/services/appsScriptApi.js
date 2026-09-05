@@ -85,10 +85,13 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
 
 export async function fetchHealth(url){return fetchAction(url,"health",{compact:false});}
 export async function fetchSource(url,source,{force=false,since="",retries=2,timeoutMs=45000}={}){return fetchAction(url,source,{force,compact:true,since,retries,timeoutMs});}
-export async function fetchSyncVersions(url){
-  try{return await fetchAction(url,"get_data_versions",{compact:false,retries:1});}
+export async function fetchSyncVersions(url,{timeoutMs=7000}={}){
+  // Version checking is only an optimization. It must never hold a view open
+  // while the Apps Script endpoint is slow or unavailable.
+  const options={compact:false,retries:0,timeoutMs};
+  try{return await fetchAction(url,"get_data_versions",options);}
   catch(_){
-    try{return await fetchAction(url,"sync",{compact:false,retries:1});}
+    try{return await fetchAction(url,"sync",options);}
     catch(__){return null;}
   }
 }
