@@ -24,7 +24,8 @@ export function expandCompactResponse(json){
 
 export function buildAppsScriptUrl(baseUrl,action,params={}){
   const cleanBase=String(baseUrl||"").trim().replace(/\/+$/,"");
-  const u=new URL(cleanBase);
+  const origin=typeof window!=="undefined"&&window.location?.origin?window.location.origin:"http://localhost";
+  const u=new URL(cleanBase,origin);
   u.searchParams.set("action",action);
   u.searchParams.set("_t",String(Date.now()));
   Object.entries(params||{}).forEach(([k,v])=>{
