@@ -9,7 +9,7 @@ import UserSettingsModal from "./components/UserSettingsModal.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
 import { APPS_SCRIPT_URL } from "./config/app.js";
 import { VIEW_SOURCES } from "./config/viewSources.js";
-import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcurrency_ } from "./services/appsScriptApi.js";
+import { fetchAction, fetchHealth, fetchSource, runWithConcurrency_ } from "./services/appsScriptApi.js";
 import { clearAuthenticatedSession, getAuthenticatedUser } from "./services/authSession.js";
 import { appAlert, appConfirm } from "./services/dialogService.js";
 import { APP_FILTERS_STATE_KEY, readSavedAppFilters, readSavedDataSources, saveDataSourcesToStorage, getCachedSourceTimestamp, mergeIncrementalSource, readCachedSourceRecords, readCachedSource, writeCachedSource } from "./services/appCache.js";
@@ -504,21 +504,13 @@ export default function App(){
     return recordMap;
   },[]);
 
-  const fetchOneSource=useCallback(async(key,{force=false,serverVersions={},cacheRecords={}}={})=>{
+  const fetchOneSource=useCallback(async(key,{force=false,cacheRecords={}}={})=>{
     const existingRequest=sourceRequestsRef.current.get(key);
     if(existingRequest&&!force)return existingRequest;
 
     const task=(async()=>{
       const cacheRecord=cacheRecords[key]||await readCachedSource(key).catch(()=>null);
       const localSource=rawSourcesRef.current?.[key]||cacheRecord?.value||null;
-      const localVersion=Number(localSource?.meta?.serverVersion||cacheRecord?.value?.meta?.serverVersion||0);
-      const serverVersion=Number(serverVersions[key]||0);
-
-      if(!force&&localSource?.ok&&Array.isArray(localSource.data)&&serverVersion>0&&localVersion===serverVersion){
-        lastCheckedBySourceRef.current[key]=Date.now();
-        return {key,value:localSource,skipped:true};
-      }
-
       // ROP02 lee planillas más grandes. Se da un margen mayor y se evita
       // reintentar en paralelo: los reintentos simultáneos eran la causa de
       // los avisos intermitentes de timeout, especialmente en José María.
@@ -557,11 +549,9 @@ export default function App(){
     if(background||hasVisible)beginBackgroundSync();else setLoading(true);
 
     try{
-      const syncInfo=force?null:await fetchSyncVersions(APPS_SCRIPT_URL);
-      const serverVersions=syncInfo?.versions||{};
       // No saturar Apps Script: las fuentes comparten el mismo runtime y las
       // solicitudes masivas hacían que ROP02_JM venciera antes de empezar a responder.
-      const results=await runWithConcurrency_(toCheck,2,key=>fetchOneSource(key,{force,serverVersions,cacheRecords}));
+      const results=await runWithConcurrency_(toCheck,2,key=>fetchOneSource(key,{force,cacheRecords}));
 
       const entries=[];
       const softErrors=[];
