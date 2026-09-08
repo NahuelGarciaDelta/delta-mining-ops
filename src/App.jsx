@@ -524,7 +524,10 @@ export default function App(){
         return {key,value:localSource,skipped:true};
       }
 
-      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:1,timeoutMs:20000});
+      const esFuenteRop02=String(key||"").startsWith("rop02_");
+      // Las fuentes ROP02 son las más grandes: deben tener margen frente al
+      // proxy (55 s) y no conviene reiniciarlas luego de una descarga extensa.
+      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:esFuenteRop02?0:1,timeoutMs:esFuenteRop02?58000:30000});
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
       const value=mergeIncrementalSource(previous,fetched);
@@ -560,7 +563,21 @@ export default function App(){
     try{
       const syncInfo=force?null:await fetchSyncVersions(APPS_SCRIPT_URL);
       const serverVersions=syncInfo?.versions||{};
-      const results=await Promise.allSettled(toCheck.map(key=>fetchOneSource(key,{force,serverVersions,cacheRecords})));
+      // Apps Script comparte capacidad de ejecución: lanzar varios ROP02
+      // grandes a la vez los hace competir y terminaban venciendo a los 20 s.
+      const rop02Pendientes=toCheck.filter(key=>String(key||"").startsWith("rop02_"));
+      const otrasPendientes=toCheck.filter(key=>!String(key||"").startsWith("rop02_"));
+      const resultadosPorFuente=new Map();
+      const cargarGrupo=async(keys,concurrencia)=>{
+        if(!keys.length)return;
+        const resultados=await runWithConcurrency_(keys,concurrencia,key=>fetchOneSource(key,{force,serverVersions,cacheRecords}));
+        resultados.forEach((resultado,index)=>resultadosPorFuente.set(keys[index],resultado));
+      };
+      await Promise.all([
+        cargarGrupo(rop02Pendientes,1),
+        cargarGrupo(otrasPendientes,3)
+      ]);
+      const results=toCheck.map(key=>resultadosPorFuente.get(key)||{status:"rejected",reason:new Error("No se inició la consulta de la fuente.")});
       const entries=[];
       const softErrors=[];
       results.forEach((result,index)=>{
