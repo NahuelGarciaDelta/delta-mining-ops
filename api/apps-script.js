@@ -5,8 +5,8 @@ export const config={
 };
 
 export default async function handler(req,res){
-  if(req.method!=="GET"){
-    res.setHeader("Allow","GET");
+  if(req.method!=="GET"&&req.method!=="POST"){
+    res.setHeader("Allow","GET, POST");
     return res.status(405).json({ok:false,error:{message:"Método no permitido"}});
   }
 
@@ -21,13 +21,28 @@ export default async function handler(req,res){
     const timer=setTimeout(()=>controller.abort(),55000);
     let upstream;
     try{
-      upstream=await fetch(target.toString(),{
-        method:"GET",
+      const options={
+        method:req.method,
         redirect:"follow",
         cache:"no-store",
         signal:controller.signal,
         headers:{"accept":"application/json,text/plain,*/*"}
-      });
+      };
+
+      if(req.method==="POST"){
+        const contentType=String(req.headers["content-type"]||"application/x-www-form-urlencoded;charset=UTF-8");
+        options.headers["content-type"]=contentType;
+        if(contentType.includes("application/x-www-form-urlencoded")){
+          if(typeof req.body==="string")options.body=req.body;
+          else options.body=new URLSearchParams(req.body||{}).toString();
+        }else if(contentType.includes("application/json")){
+          options.body=typeof req.body==="string"?req.body:JSON.stringify(req.body||{});
+        }else{
+          options.body=typeof req.body==="string"?req.body:JSON.stringify(req.body||{});
+        }
+      }
+
+      upstream=await fetch(target.toString(),options);
     }finally{
       clearTimeout(timer);
     }
