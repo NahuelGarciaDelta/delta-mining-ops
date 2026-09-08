@@ -524,7 +524,11 @@ export default function App(){
         return {key,value:localSource,skipped:true};
       }
 
-      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:1,timeoutMs:20000});
+      // ROP02 lee planillas más grandes. Se da un margen mayor y se evita
+      // reintentar en paralelo: los reintentos simultáneos eran la causa de
+      // los avisos intermitentes de timeout, especialmente en José María.
+      const isRop02Source=key.startsWith("rop02_");
+      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:isRop02Source?0:1,timeoutMs:isRop02Source?45000:20000});
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
       const value=mergeIncrementalSource(previous,fetched);
@@ -560,7 +564,9 @@ export default function App(){
     try{
       const syncInfo=force?null:await fetchSyncVersions(APPS_SCRIPT_URL);
       const serverVersions=syncInfo?.versions||{};
-      const results=await Promise.allSettled(toCheck.map(key=>fetchOneSource(key,{force,serverVersions,cacheRecords})));
+      // No saturar Apps Script: las fuentes comparten el mismo runtime y las
+      // solicitudes masivas hacían que ROP02_JM venciera antes de empezar a responder.
+      const results=await runWithConcurrency_(toCheck,2,key=>fetchOneSource(key,{force,serverVersions,cacheRecords}));
 
       const entries=[];
       const softErrors=[];
