@@ -51,13 +51,12 @@ export async function runWithConcurrency_(items,limit,worker){
   return results;
 }
 
-export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,extraParams={}}={}){
+export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000}={}){
   const params={};
   if(force)params.force="1";
   if(since&&!force)params.since=since;
   if(compact&&!['health','diag','clear_cache','sync','versions','get_data_versions'].includes(action))params.compact="1";
   if(action==="rop05")params.limit="all";
-  Object.entries(extraParams||{}).forEach(([key,value])=>{if(value!==undefined&&value!==null&&value!=="")params[key]=String(value);});
 
   let lastErr=null;
   for(let attempt=0;attempt<=retries;attempt++){
@@ -86,7 +85,7 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
 }
 
 export async function fetchHealth(url){return fetchAction(url,"health",{compact:false});}
-export async function fetchSource(url,source,{force=false,since="",retries=2,timeoutMs=45000,limit,offset=0}={}){const extraParams={};if(limit!==undefined&&limit!==null)extraParams.limit=limit;if(offset)extraParams.offset=offset;return fetchAction(url,source,{force,compact:true,since,retries,timeoutMs,extraParams});}
+export async function fetchSource(url,source,{force=false,since="",retries=2,timeoutMs=45000}={}){return fetchAction(url,source,{force,compact:true,since,retries,timeoutMs});}
 export async function fetchSyncVersions(url,{timeoutMs=7000}={}){
   // Version checking is only an optimization. It must never hold a view open
   // while the Apps Script endpoint is slow or unavailable.
