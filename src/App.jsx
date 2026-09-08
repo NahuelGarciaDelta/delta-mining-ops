@@ -524,7 +524,7 @@ export default function App(){
         return {key,value:localSource,skipped:true};
       }
 
-      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?\'\':getCachedSourceTimestamp(cacheRecord),retries:1,timeoutMs:20000});
+      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:1,timeoutMs:20000});
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
       const value=mergeIncrementalSource(previous,fetched);
