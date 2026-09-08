@@ -525,9 +525,26 @@ export default function App(){
       }
 
       const esFuenteRop02=String(key||"").startsWith("rop02_");
-      // Las fuentes ROP02 son las más grandes: deben tener margen frente al
-      // proxy (55 s) y no conviene reiniciarlas luego de una descarga extensa.
-      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:esFuenteRop02?0:1,timeoutMs:esFuenteRop02?58000:30000});
+      const cargarRop02PorPaginas=async()=>{
+        const size=750,acumulados=[];
+        let offset=0,paginas=0,primera=null;
+        while(true){
+          const pagina=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:0,timeoutMs:30000,limit:size,offset});
+          if(!pagina?.ok||!Array.isArray(pagina.data))throw new Error(pagina?.error?.message||'Respuesta ROP02 sin datos válidos');
+          if(!primera)primera=pagina;
+          acumulados.push(...pagina.data);
+          const meta=pagina.meta||{},siguiente=Number(meta.nextOffset);
+          paginas+=1;
+          if(!meta.hasMore)return {...primera,data:acumulados,meta:{...meta,returnedRows:acumulados.length,hasMore:false,nextOffset:null,paginas}};
+          if(!Number.isFinite(siguiente)||siguiente<=offset||paginas>250)throw new Error('La paginación de '+key+' devolvió un desplazamiento inválido.');
+          offset=siguiente;
+        }
+      };
+      // Las planillas ROP02 se descargan en páginas para evitar que una sola
+      // respuesta grande alcance el timeout del proxy o del navegador.
+      const fetched=esFuenteRop02
+        ?await cargarRop02PorPaginas()
+        :await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:1,timeoutMs:30000});
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
       const value=mergeIncrementalSource(previous,fetched);
