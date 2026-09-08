@@ -11,7 +11,8 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
     "fernando.c@deltamining.com.ar",
     "lucas.torres@deltamining.com.ar"
   ];
-  const AUTH_TIMEOUT_MS=20000;
+  const AUTH_TIMEOUT_MS=25000;
+  const AUTH_MAX_ATTEMPTS=2;
 
   const[usuario,setUsuario]=React.useState("");
   const[pass,setPass]=React.useState("");
@@ -86,19 +87,35 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
 
     submitInFlightRef.current=true;
     setValidando(true);
-    const controller=typeof AbortController!=="undefined"?new AbortController():null;
-    const timeoutId=controller?window.setTimeout(()=>controller.abort(),AUTH_TIMEOUT_MS):null;
 
     try{
-      const response=await fetch(APPS_SCRIPT_URL,{
-        method:"POST",
-        headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-        body:new URLSearchParams({payload:JSON.stringify({action:"authenticate_user",email:mail,password:pass})}),
-        signal:controller?.signal
-      });
-      if(!response.ok)throw new Error(`HTTP ${response.status}`);
+      let json=null;
+      let lastError=null;
 
-      const json=await response.json();
+      for(let intento=1;intento<=AUTH_MAX_ATTEMPTS;intento++){
+        const controller=typeof AbortController!=="undefined"?new AbortController():null;
+        const timeoutId=controller?window.setTimeout(()=>controller.abort(),AUTH_TIMEOUT_MS):null;
+
+        try{
+          const response=await fetch(APPS_SCRIPT_URL,{
+            method:"POST",
+            headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+            body:new URLSearchParams({payload:JSON.stringify({action:"authenticate_user",email:mail,password:pass})}),
+            signal:controller?.signal
+          });
+          if(!response.ok)throw new Error(`HTTP ${response.status}`);
+
+          json=await response.json();
+          break;
+        }catch(err){
+          lastError=err;
+          if(intento<AUTH_MAX_ATTEMPTS)await new Promise(resolve=>window.setTimeout(resolve,750));
+        }finally{
+          if(timeoutId!==null)window.clearTimeout(timeoutId);
+        }
+      }
+
+      if(!json)throw lastError||new Error("Sin respuesta de autenticación");
       if(!json?.ok){
         const code=String(json?.error?.code||"").toUpperCase();
         if(code==="AUTH_INVALID")showError("No se reconoce ese correo o contraseña. Usá el correo completo registrado.");
@@ -114,7 +131,6 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
       if(err?.name==="AbortError")showError("La validación tardó demasiado. Intentá nuevamente.");
       else showError("No se pudo validar el acceso. Revisá la conexión.");
     }finally{
-      if(timeoutId!==null)window.clearTimeout(timeoutId);
       submitInFlightRef.current=false;
       setValidando(false);
     }
