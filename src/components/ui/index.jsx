@@ -649,7 +649,7 @@ export function dmProjectMatches(value,assigned=dmAssignedProject()){
   return dmNormalizeAssignedProject(value)===a;
 }
 
-export function MultiSel({label,value,onChange,options,commitOnClose=false,commitDelay=180}){
+export function MultiSel({label,value,onChange,options,commitOnClose=true,commitDelay=180}){
   const[open,setOpen]=useState(false);
   const[search,setSearch]=useState("");
   // Valor local: permite marcar varias opciones sin cerrar el desplegable ni recalcular toda la pantalla en cada click.
