@@ -576,9 +576,16 @@ export default function App(){
           if(!result.value.skipped)entries.push([key,result.value.value]);
         }else{
           const previous=rawSourcesRef.current?.[key];
-          softErrors.push({source:key.toUpperCase(),message:previous?.ok&&Array.isArray(previous.data)
-            ?`No se pudo actualizar (${result.reason?.message||'error desconocido'}). Se conservan los datos guardados.`
-            :(result.reason?.message||'No se pudo cargar la fuente.')});
+          const hasSavedData=previous?.ok&&Array.isArray(previous.data);
+          if(hasSavedData){
+            // Una actualización en segundo plano no debe interrumpir al usuario
+            // cuando la pestaña conserva una copia utilizable. Se reintentará
+            // automáticamente más adelante (o de inmediato al usar Actualizar).
+            lastCheckedBySourceRef.current[key]=Date.now();
+            console.warn(`No se pudo actualizar ${key}; se mantiene la copia local.`,result.reason);
+          }else{
+            softErrors.push({source:key.toUpperCase(),message:result.reason?.message||'No se pudo cargar la fuente.'});
+          }
         }
       });
 
@@ -611,8 +618,12 @@ export default function App(){
       if(!hasAnyUsable&&softErrors.length===toCheck.length)setFatalError('No se pudieron cargar los datos y no existe una copia local disponible.');
     }catch(err){
       const hasAnyData=requested.some(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data));
-      if(hasAnyData)setErrors(prev=>[{source:'Apps Script',message:`No se pudo actualizar (${err.message}). Se conservan los datos guardados.`},...(prev||[])]);
-      else setFatalError(err.message);
+      if(hasAnyData){
+        // La falla general de una sincronización no invalida los datos ya visibles.
+        // Se informa sólo en la consola para no llenar la aplicación de carteles.
+        requested.forEach(key=>{lastCheckedBySourceRef.current[key]=Date.now();});
+        console.warn("No se pudo completar la actualización; se mantiene la copia local.",err);
+      }else setFatalError(err.message);
     }finally{
       setLoading(false);
       if(background||hasVisible)endBackgroundSync();
