@@ -625,9 +625,7 @@ export default function App(){
     }
   },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
 
-  // ─── Precarga global ─────────────────────────────────────────────────────
-  // Al autenticarse, llena en segundo plano el cache de TODAS las fuentes comunes.
-  // No bloquea B  const refreshCurrentView=useCallback(async({background=false,reason="manual"}={})=>{
+  const refreshCurrentView=useCallback(async({background=false,reason="manual"}={})=>{
     const refreshedAt=Date.now();
     const sources=VIEW_SOURCES[view]||[];
     if(!background)setLoading(true);
