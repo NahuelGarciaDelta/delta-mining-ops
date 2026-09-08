@@ -72,7 +72,11 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
 
     const mail=normalizarMail(usuario);
     if(!mail){
-      showError("Ingresá tu usuario");
+      showError("Ingresá el correo electrónico registrado");
+      return;
+    }
+    if(!mail.includes("@")||!mail.includes(".")){
+      showError("Ingresá el correo electrónico completo registrado");
       return;
     }
     if(!pass){
@@ -96,7 +100,10 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
 
       const json=await response.json();
       if(!json?.ok){
-        showError(json?.error?.message||"Usuario o contraseña incorrectos");
+        const code=String(json?.error?.code||"").toUpperCase();
+        if(code==="AUTH_INVALID")showError("No se reconoce ese correo o contraseña. Usá el correo completo registrado.");
+        else if(code==="AUTH_INACTIVE")showError("Este usuario figura como inactivo. Pedí que lo habiliten.");
+        else showError(json?.error?.message||"No se pudo validar el acceso.");
         return;
       }
       const authenticatedUser=buildAuthenticatedUser(json,mail);
@@ -155,7 +162,7 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
           width:320,boxShadow:"0 8px 32px rgba(0,0,0,.34)",
           animation:shake?"shake .4s ease":"none"
         }}>
-          <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá tu usuario y contraseña para continuar</div>
+          <div style={{fontSize:13,color:C.textSub,textAlign:"center",fontWeight:500}}>Ingresá el correo electrónico registrado y tu contraseña para continuar</div>
           <input
             type="email"
             value={usuario}
@@ -168,7 +175,7 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
             }}
             onBlur={()=>{const mail=normalizarMail(usuario);if(mail.includes("@")&&mail.includes("."))aplicarAparienciaUsuario(mail,{central:true});}}
             onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
-            placeholder="Usuario"
+            placeholder="Correo electrónico"
             style={{background:C.surface,border:`1px solid ${error?C.red:C.border}`,borderRadius:8,color:C.text,padding:"10px 14px",fontSize:14,outline:"none",fontFamily:"Inter",width:"100%",boxSizing:"border-box",opacity:validando?.7:1}}
             autoFocus
           />
@@ -190,7 +197,7 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
             {validando?"VALIDANDO...":"INGRESAR"}
           </button>
         </div>
-        <div style={{fontSize:10,color:C.textMuted}}>Delta Mining OPS — Acceso restringido</div>
+        <div style={{fontSize:10,color:C.textMuted,textAlign:"center"}}>Usá el correo registrado en “Usuarios autorizados”.<br/>Delta Mining OPS — Acceso restringido</div>
       </div>
     </div>
   );
