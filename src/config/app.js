@@ -1,2 +1,3 @@
-export const APPS_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec";
+// All browser data requests go through the same-origin Vercel proxy.
+// This avoids PC/browser-specific stalls while following Google Apps Script redirects.
+export const APPS_SCRIPT_URL = "/api/apps-script";
