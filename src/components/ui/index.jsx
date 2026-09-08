@@ -760,7 +760,11 @@ export function MultiSel({label,value,onChange,options,commitOnClose=false,commi
 
   useEffect(()=>{
     const handler=e=>{
+      // El menú se monta en document.body mediante un portal, por lo que no
+      // pertenece al contenedor ref. Ignorarlo aquí evita cerrarlo al tildar
+      // varias opciones seguidas.
       if(ref.current&&ref.current.contains(e.target))return;
+      if(e.target?.closest?.('[data-multisel-menu="true"]'))return;
       closeMenu();
     };
     document.addEventListener("mousedown",handler);
@@ -784,7 +788,7 @@ export function MultiSel({label,value,onChange,options,commitOnClose=false,commi
   const allChecked=!Array.isArray(selected);
 
   const menu=open&&menuPos?ReactDOM.createPortal((
-    <div data-multisel-menu="true" onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} style={{position:"fixed",top:menuPos.top,left:menuPos.left,zIndex:2147483000,width:menuPos.width,maxWidth:360,maxHeight:menuPos.maxHeight,overflow:"auto",overscrollBehavior:"contain",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.82)",padding:6,contain:"layout paint",willChange:"transform",isolation:"isolate"}}>
+    <div data-multisel-menu="true" onMouseDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()} style={{position:"fixed",top:menuPos.top,left:menuPos.left,zIndex:2147483647,width:menuPos.width,maxWidth:360,maxHeight:menuPos.maxHeight,overflow:"auto",overscrollBehavior:"contain",background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,boxShadow:"0 18px 50px rgba(0,0,0,.82)",padding:6,contain:"layout paint",willChange:"transform",isolation:"isolate"}}>
       <label style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:6,cursor:"pointer",fontSize:12,color:allChecked?C.accent:C.textSub,fontWeight:allChecked?700:500}}>
         <input type="checkbox" checked={allChecked} onChange={()=>commitValue(allChecked?[]:def)} style={{accentColor:C.accent}}/>
         Todos
