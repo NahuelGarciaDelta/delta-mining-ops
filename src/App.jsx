@@ -524,27 +524,7 @@ export default function App(){
         return {key,value:localSource,skipped:true};
       }
 
-      const esFuenteRop02=String(key||"").startsWith("rop02_");
-      const cargarRop02PorPaginas=async()=>{
-        const size=750,acumulados=[];
-        let offset=0,paginas=0,primera=null;
-        while(true){
-          const pagina=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:0,timeoutMs:30000,limit:size,offset});
-          if(!pagina?.ok||!Array.isArray(pagina.data))throw new Error(pagina?.error?.message||'Respuesta ROP02 sin datos válidos');
-          if(!primera)primera=pagina;
-          acumulados.push(...pagina.data);
-          const meta=pagina.meta||{},siguiente=Number(meta.nextOffset);
-          paginas+=1;
-          if(!meta.hasMore)return {...primera,data:acumulados,meta:{...meta,returnedRows:acumulados.length,hasMore:false,nextOffset:null,paginas}};
-          if(!Number.isFinite(siguiente)||siguiente<=offset||paginas>250)throw new Error('La paginación de '+key+' devolvió un desplazamiento inválido.');
-          offset=siguiente;
-        }
-      };
-      // Las planillas ROP02 se descargan en páginas para evitar que una sola
-      // respuesta grande alcance el timeout del proxy o del navegador.
-      const fetched=esFuenteRop02
-        ?await cargarRop02PorPaginas()
-        :await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:1,timeoutMs:30000});
+      const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?\'\':getCachedSourceTimestamp(cacheRecord),retries:1,timeoutMs:20000});
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
       const value=mergeIncrementalSource(previous,fetched);
@@ -580,21 +560,8 @@ export default function App(){
     try{
       const syncInfo=force?null:await fetchSyncVersions(APPS_SCRIPT_URL);
       const serverVersions=syncInfo?.versions||{};
-      // Apps Script comparte capacidad de ejecución: lanzar varios ROP02
-      // grandes a la vez los hace competir y terminaban venciendo a los 20 s.
-      const rop02Pendientes=toCheck.filter(key=>String(key||"").startsWith("rop02_"));
-      const otrasPendientes=toCheck.filter(key=>!String(key||"").startsWith("rop02_"));
-      const resultadosPorFuente=new Map();
-      const cargarGrupo=async(keys,concurrencia)=>{
-        if(!keys.length)return;
-        const resultados=await runWithConcurrency_(keys,concurrencia,key=>fetchOneSource(key,{force,serverVersions,cacheRecords}));
-        resultados.forEach((resultado,index)=>resultadosPorFuente.set(keys[index],resultado));
-      };
-      await Promise.all([
-        cargarGrupo(rop02Pendientes,1),
-        cargarGrupo(otrasPendientes,3)
-      ]);
-      const results=toCheck.map(key=>resultadosPorFuente.get(key)||{status:"rejected",reason:new Error("No se inició la consulta de la fuente.")});
+      const results=await Promise.allSettled(toCheck.map(key=>fetchOneSource(key,{force,serverVersions,cacheRecords})));
+
       const entries=[];
       const softErrors=[];
       results.forEach((result,index)=>{
