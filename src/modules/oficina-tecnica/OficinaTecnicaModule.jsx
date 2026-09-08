@@ -6062,7 +6062,7 @@ export function OficinaTecnicaModule({
   });
   const fullDatasetCacheRef=useRef({rop02:null,rop05:null});
   const fullDatasetPendingRef=useRef({rop02:null,rop05:null});
-  const remoteDataset=view==="rop02"?"rop02":view==="rop05"?"rop05":"";
+  const remoteDataset=view==="rop05"?"rop05":"";
 
   const loadFullDataset=useCallback(async(dataset,{force=false}={})=>{
     if(!dataset)return [];
@@ -6191,8 +6191,11 @@ export function OficinaTecnicaModule({
   if(view==="tallerCentral")return dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={onReloadLista}/>:<Loader label="Cargando Taller Central..."/>;
   if(view==="listaEquipos")return dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={onReloadLista}/>:<Loader label="Cargando Lista de Equipos..."/>;
   if(view==="rop02"){
-    if(remoteTable.dataset!=="rop02"||!remoteTable.loadedOnce)return <Loader label="Cargando ROP02..."/>;
-    return <ViewROP02 rop02All={remoteTable.rows} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02} remoteTotal={remoteTable.total} remoteHasMore={false} onRemoteMore={loadMoreRemote} onRemoteExport={exportRemote}/>;
+    // Equipos y Vehículos parten del mismo ROP02 ya hidratado. No se hace una
+    // segunda consulta histórica completa: podía quedar pendiente aunque los
+    // registros ya disponibles permitieran renderizar la pestaña.
+    if(!dataHydrated||rop02All.length===0)return <Loader label="Cargando ROP02..."/>;
+    return <ViewROP02 rop02All={rop02All} listaEquipos={listaEquipos} extState={st02} setExtState={setSt02} remoteTotal={rop02All.length} remoteHasMore={false}/>;
   }
   if(view==="horometros")return dataHydrated&&rop02All.length>0?<ViewHorometros rop02All={rop02All} extState={stHorometros} setExtState={setStHorometros}/>:<Loader label="Cargando Horómetros..."/>;
   if(view==="vehiculos")return dataHydrated&&rop02All.length>0?<ViewVehiculos rop02All={rop02All} listaEquipos={listaEquipos} extState={stVeh} setExtState={setStVeh}/>:<Loader label="Cargando Vehículos..."/>;
