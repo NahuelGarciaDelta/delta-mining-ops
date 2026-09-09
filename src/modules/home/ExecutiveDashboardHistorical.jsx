@@ -4,7 +4,15 @@ import {APPS_SCRIPT_URL} from "../../config/app.js";
 import {fetchDatasetQuery} from "../../services/appsScriptApi.js";
 import {getRop02MonthlySummary} from "../../data/historicalDataService.js";
 import {dmNormalizeAssignedProject,dmProjectMatches} from "../../components/ui/index.jsx";
-import {isExcluded,normalizeROP02} from "../../shared/domain/index.jsx";
+import {
+  getInsumoExtra,
+  getValue,
+  isExcluded,
+  normalizeInsumoCode,
+  normalizeRMA15,
+  normalizeROP02,
+  toMoneyNumber,
+} from "../../shared/domain/index.jsx";
 import {resolveEquipmentCodeAlias} from "../equipment/equipmentCode.js";
 
 const safe=v=>Array.isArray(v)?v:[];
@@ -21,7 +29,7 @@ const dateKey=v=>{
   if(m){let yy=Number(m[3]);if(yy<100)yy+=2000;return`${yy}-${pad(m[2])}-${pad(m[1])}`;}
   const d=new Date(raw);return Number.isNaN(d.getTime())?"":ymd(d);
 };
-const rowDate=r=>dateKey(r?.fecha??r?.date??r?.fechaOT??r?.Fecha??r?.["Fecha del Parte Diario"]);
+const rowDate=r=>dateKey(r?.fecha??r?.date??r?.fechaOT??r?.Fecha??r?.["Fecha del Parte Diario"]??r?.["Fecha de OT"]);
 const norm=v=>String(v??"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
 const machineKey=v=>String(v??"").toUpperCase().replace(/[^A-Z0-9]/g,"").replace(/JM$/i,"");
 const formatMachine=v=>{
@@ -65,7 +73,58 @@ const scopeRows=rows=>{
   const assigned=assignedProject();
   return safe(rows).filter(r=>dmProjectMatches(r?.proyecto??r?.Proyecto??r?.PROYECTO??r?.lugar??r?.Lugar??"",assigned));
 };
-const normalizeQueryRows=raw=>scopeRows(normalizeROP02(safe(raw)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina)})));
+const projectMatches=(row,project)=>dmProjectMatches(row?.proyecto??row?.Proyecto??row?.PROYECTO??row?.lugar??row?.Lugar??"",project);
+
+const ROP02_SOURCES=[
+  {dataset:"rop02_jm",project:"JOSE MARIA"},
+  {dataset:"rop02_fs",project:"FILO DEL SOL"},
+];
+const RMA15_SOURCES=[
+  {dataset:"rma15_jm",project:"JOSE MARIA"},
+  {dataset:"rma15_fs",project:"FILO DEL SOL"},
+];
+
+function buildInsumosMap(rawSources){
+  const map={};
+  safe(rawSources?.insumos?.data).forEach(r=>{
+    const codigo=normalizeInsumoCode(getValue(r,["CODIGO","Codigo","Código","codigo","código","Cod","cod"])||"");
+    if(!codigo)return;
+    const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Insumo","Nombre"])||"").trim();
+    map[codigo]={
+      descripcion,
+      descripcionAdicional:getInsumoExtra(r,descripcion),
+      costoUnitario:toMoneyNumber(getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario con IVA","PRECIO UNITARIO CON IVA","precio unitario con IVA","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"])),
+    };
+  });
+  return map;
+}
+
+async function queryDatasetSource(dataset,range,timeoutMs=45000){
+  return fetchDatasetQuery(APPS_SCRIPT_URL,{
+    dataset,
+    desde:range.start,
+    hasta:range.end,
+    limit:"all",
+    offset:0,
+    sortBy:"fecha",
+    sortDirection:"asc",
+  },{timeoutMs});
+}
+
+function normalizeRop02Source(response,project){
+  return scopeRows(
+    normalizeROP02(safe(response?.data),project)
+      .map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina)}))
+  );
+}
+
+function normalizeRma15Source(response,project,insumosMap){
+  return scopeRows(
+    safe(response?.data)
+      .map(r=>normalizeRMA15({...r,_proyectoForzado:project},insumosMap))
+      .map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina)}))
+  );
+}
 
 function summaryRowsToSynthetic(summaryRow){
   const period=periodForMonth(summaryRow?.PERIODO??summaryRow?.periodo);
@@ -112,82 +171,100 @@ export default function ExecutiveDashboardHistorical(props){
   const currentMonth=useMemo(()=>reportingMonthForDate(new Date()),[]);
   const reportingYear=useMemo(()=>Number(String(currentMonth).slice(0,4))||new Date().getFullYear(),[currentMonth]);
   const yearRange=useMemo(()=>reportingYearRange(reportingYear),[reportingYear]);
-  const [history,setHistory]=useState({year:null,summary:null,summaryReady:false,error:""});
+  const insumosMap=useMemo(()=>buildInsumosMap(props?.rawSources||{}),[props?.rawSources?.insumos]);
+  const [ropHistory,setRopHistory]=useState({byProject:{},summary:null,error:""});
+  const [rmaHistory,setRmaHistory]=useState({byProject:{},error:""});
 
   useEffect(()=>{
     if(!yearRange)return;
     let alive=true;
 
-    // El dashboard necesita contexto anual. Antes hacía dos consultas mensuales y
-    // dependía de ROP02_RESUMEN_MENSUAL para el resto del año. Si ese acelerador no
-    // estaba reconstruido, enero-agosto quedaban en cero aunque ROP02 tuviera datos.
-    // query_dataset ya recorre las mismas planillas completas para cualquier rango,
-    // por lo que una sola consulta del año operativo es más rápida y completa que
-    // consultar mes por mes o repetir dos lecturas grandes.
-    const queryYear=async()=>{
-      const response=await fetchDatasetQuery(APPS_SCRIPT_URL,{
-        dataset:"rop02",
-        desde:yearRange.start,
-        hasta:yearRange.end,
-        limit:"all",
-        offset:0,
-        sortBy:"fecha",
-        sortDirection:"asc",
-      },{timeoutMs:52000});
-      const rows=normalizeQueryRows(response?.data);
-      if(!rows.length)throw new Error("La consulta histórica anual de ROP02 volvió vacía");
-      return rows;
-    };
-
-    Promise.allSettled([
-      queryYear(),
-      getRop02MonthlySummary({limit:"all",offset:0}),
-    ]).then(([yearResult,summaryResult])=>{
-      if(!alive)return;
-      const year=yearResult.status==="fulfilled"&&yearResult.value.length?yearResult.value:null;
-      const summaryResponse=summaryResult.status==="fulfilled"?summaryResult.value:null;
-      const summary=summaryResponse?.ok&&Array.isArray(summaryResponse.data)?summaryResponse.data:null;
+    // La consulta anual combinada de ROP02 abría las cuatro planillas en una sola
+    // ejecución de Apps Script. En varias PCs esa ejecución agotaba el tiempo del
+    // proxy y el dashboard terminaba usando solamente la carga reciente de App.jsx,
+    // por eso julio/agosto aparecían en cero. Se consulta cada proyecto por separado:
+    // una falla ya no invalida a los demás y cada lectura es mucho más liviana.
+    (async()=>{
+      const next={};
       const errors=[];
-      if(yearResult.status==="rejected")errors.push(String(yearResult.reason?.message||yearResult.reason||"No se pudo cargar ROP02 histórico"));
-      if(summaryResult.status==="rejected")errors.push(String(summaryResult.reason?.message||summaryResult.reason||"No se pudo cargar el resumen mensual"));
-      setHistory({year,summary,summaryReady:summaryResponse?.ready===true,error:errors.join(" · ")});
-    });
+      const results=await Promise.allSettled(ROP02_SOURCES.map(async source=>{
+        const response=await queryDatasetSource(source.dataset,yearRange,45000);
+        const rows=normalizeRop02Source(response,source.project);
+        if(!rows.length)throw new Error(`${source.project}: historial ROP02 vacío`);
+        return{...source,rows};
+      }));
+      results.forEach((result,index)=>{
+        const source=ROP02_SOURCES[index];
+        if(result.status==="fulfilled")next[source.project]=result.value.rows;
+        else errors.push(String(result.reason?.message||result.reason||`${source.project}: no se pudo cargar ROP02`));
+      });
+      if(alive)setRopHistory(prev=>({...prev,byProject:next,error:errors.join(" · ")}));
+    })();
+
+    getRop02MonthlySummary({limit:"all",offset:0}).then(response=>{
+      if(!alive)return;
+      if(response?.ok&&Array.isArray(response.data))setRopHistory(prev=>({...prev,summary:response.data}));
+    }).catch(()=>{});
 
     return()=>{alive=false;};
   },[yearRange?.start,yearRange?.end]);
 
+  useEffect(()=>{
+    if(!yearRange||Object.keys(insumosMap).length===0)return;
+    let alive=true;
+    (async()=>{
+      const next={};
+      const errors=[];
+      const results=await Promise.allSettled(RMA15_SOURCES.map(async source=>{
+        const response=await queryDatasetSource(source.dataset,yearRange,45000);
+        const rows=normalizeRma15Source(response,source.project,insumosMap);
+        if(!rows.length)throw new Error(`${source.project}: historial RMA15 vacío`);
+        return{...source,rows};
+      }));
+      results.forEach((result,index)=>{
+        const source=RMA15_SOURCES[index];
+        if(result.status==="fulfilled")next[source.project]=result.value.rows;
+        else errors.push(String(result.reason?.message||result.reason||`${source.project}: no se pudo cargar RMA15`));
+      });
+      if(alive)setRmaHistory({byProject:next,error:errors.join(" · ")});
+    })();
+    return()=>{alive=false;};
+  },[yearRange?.start,yearRange?.end,insumosMap]);
+
   const effectiveRop02=useMemo(()=>{
     let rows=scopeRows(props?.rop02All);
 
-    // La consulta anual real tiene prioridad absoluta para todos los períodos del año.
-    // Esto hace que comparaciones, evolución mensual, disponibilidad y utilización
-    // trabajen con el historial verdadero y no con la carga parcial que tenga App.jsx.
-    if(history.year?.length&&yearRange){
-      rows=rows.filter(r=>!inRange(r,yearRange));
-      rows.push(...history.year);
-      return rows;
-    }
+    // Reemplazar solamente el proyecto cuya consulta histórica real terminó bien.
+    // Si José María falla pero Filo del Sol responde (o al revés), el proyecto sano
+    // conserva todo su año y el fallido mantiene los datos ya cargados por App.jsx.
+    Object.entries(ropHistory.byProject||{}).forEach(([project,historyRows])=>{
+      if(!historyRows?.length||!yearRange)return;
+      rows=rows.filter(r=>!(inRange(r,yearRange)&&projectMatches(r,project)));
+      rows.push(...historyRows);
+    });
 
-    // Fallback: si la consulta anual no respondió, aprovechamos todos los meses que
-    // existan en el acelerador mensual. No exige ready=true porque una reconstrucción
-    // parcial todavía es mejor que convertir meses existentes en cero.
-    if(history.summary?.length){
-      const byMonth=new Map();
-      history.summary.forEach(item=>{
-        const month=String(item?.PERIODO??item?.periodo??"").trim();
-        if(!month||!month.startsWith(`${reportingYear}-`))return;
-        const list=byMonth.get(month)||[];
-        list.push(item);
-        byMonth.set(month,list);
-      });
-      byMonth.forEach((items,month)=>{
-        rows=rows.filter(r=>periodKeyForRow(r)!==month);
-        items.forEach(item=>rows.push(...summaryRowsToSynthetic(item)));
-      });
-    }
+    // El resumen mensual es únicamente fallback. Solo completa un mes/proyecto cuando
+    // no existe ningún registro real para ese mismo mes/proyecto; nunca pisa datos reales.
+    safe(ropHistory.summary).forEach(item=>{
+      const month=String(item?.PERIODO??item?.periodo??"").trim();
+      const project=String(item?.PROYECTO??item?.proyecto??"").trim();
+      if(!month||!month.startsWith(`${reportingYear}-`)||!project)return;
+      const hasReal=rows.some(r=>periodKeyForRow(r)===month&&projectMatches(r,project));
+      if(!hasReal)rows.push(...summaryRowsToSynthetic(item));
+    });
 
     return rows;
-  },[props?.rop02All,history.year,history.summary,yearRange,reportingYear]);
+  },[props?.rop02All,ropHistory.byProject,ropHistory.summary,yearRange,reportingYear]);
 
-  return <ExecutiveDashboard {...props} rop02All={effectiveRop02}/>;
+  const effectiveRma15=useMemo(()=>{
+    let rows=scopeRows(props?.rma15);
+    Object.entries(rmaHistory.byProject||{}).forEach(([project,historyRows])=>{
+      if(!historyRows?.length||!yearRange)return;
+      rows=rows.filter(r=>!(inRange(r,yearRange)&&projectMatches(r,project)));
+      rows.push(...historyRows);
+    });
+    return rows;
+  },[props?.rma15,rmaHistory.byProject,yearRange]);
+
+  return <ExecutiveDashboard {...props} rop02All={effectiveRop02} rma15={effectiveRma15}/>;
 }
