@@ -1,7 +1,10 @@
 export const VIEW_SOURCES = Object.freeze({
   bienvenida:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rma15_fs","rma15_jm","insumos"],
   equipmentProfile:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"],
-  dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
+  // Dashboard obtiene ROP02 + RMA15 desde dashboard_snapshot como una transacción
+  // atómica. App sólo hidrata ROP05 para no competir contra el snapshot con cuatro
+  // lecturas ROP02 paralelas ni publicar combinaciones parciales por orden de llegada.
+  dashboard:["rop05"],
   rop02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   horometros:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   vehiculos:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],
