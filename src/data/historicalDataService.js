@@ -87,7 +87,7 @@ function officeControlRawRows_(dataset,rows){
     "Proyecto":row?.proyecto||"",
     "HI":row?.horometroInicial??"",
     "HF":row?.horometroFinal??"",
-    "Cant. Hs.":row?.horasRaw||row?.horas??"",
+    "Cant. Hs.":row?.horasRaw||(row?.horas??""),
     "Combustible":row?.combustible??"",
     "Aceite":row?.aceite||"",
     "Descripción de los trabajos realizados":row?.tipo_trabajo||"",
