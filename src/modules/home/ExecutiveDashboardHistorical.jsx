@@ -63,7 +63,6 @@ const scopeRows=rows=>{
   return safe(rows).filter(r=>dmProjectMatches(r?.proyecto??r?.Proyecto??r?.PROYECTO??r?.lugar??r?.Lugar??"",assigned));
 };
 const normalizeQueryRows=raw=>scopeRows(normalizeROP02(safe(raw)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina)})));
-const groupKey=r=>`${periodKeyForRow(r)}|${projectCode(r?.proyecto)}|${machineKey(r?.maquina)}`;
 
 function summaryRowsToSynthetic(summaryRow){
   const period=periodForMonth(summaryRow?.PERIODO??summaryRow?.periodo);
@@ -145,9 +144,8 @@ export default function ExecutiveDashboardHistorical(props){
   const effectiveRop02=useMemo(()=>{
     let rows=scopeRows(props?.rop02All);
 
-    // Las dos ventanas más importantes se reemplazan por consultas históricas exactas.
-    // Así el dashboard no depende de que la precarga global haya conseguido leer todas
-    // las planillas ROP02 en esa PC.
+    // Los dos períodos más recientes se intentan obtener con detalle real.
+    // Si responden, reemplazan por completo cualquier carga parcial de App.jsx.
     if(history.current?.length){
       rows=rows.filter(r=>!inPeriod(r,currentPeriod));
       rows.push(...history.current);
@@ -157,22 +155,27 @@ export default function ExecutiveDashboardHistorical(props){
       rows.push(...history.previous);
     }
 
-    // Los meses anteriores se completan con el resumen histórico central ROP02.
-    // Solo se sintetiza un equipo/proyecto/período cuando esa combinación no está
-    // ya presente en la base real, evitando duplicar horas.
+    // Para el resto del año usamos ROP02_RESUMEN_MENSUAL, que es la base histórica
+    // central preparada precisamente para este dashboard. Cada período presente en
+    // ese resumen reemplaza cualquier subconjunto parcial que haya quedado en memoria.
     if(history.summary?.length){
-      const existing=new Set(rows.map(groupKey).filter(Boolean));
-      const synthetic=[];
+      const byMonth=new Map();
       history.summary.forEach(item=>{
-        const month=String(item?.PERIODO??item?.periodo??"");
-        if(!month||month===currentMonth||month===priorMonth)return;
-        const key=`${month}|${projectCode(item?.PROYECTO??item?.proyecto)}|${machineKey(item?.INTERNO??item?.interno)}`;
-        if(existing.has(key))return;
-        const generated=summaryRowsToSynthetic(item);
-        if(generated.length){synthetic.push(...generated);existing.add(key);}
+        const month=String(item?.PERIODO??item?.periodo??"").trim();
+        if(!month)return;
+        if(month===currentMonth&&history.current?.length)return;
+        if(month===priorMonth&&history.previous?.length)return;
+        const list=byMonth.get(month)||[];
+        list.push(item);
+        byMonth.set(month,list);
       });
-      rows.push(...synthetic);
+
+      byMonth.forEach((items,month)=>{
+        rows=rows.filter(r=>periodKeyForRow(r)!==month);
+        items.forEach(item=>rows.push(...summaryRowsToSynthetic(item)));
+      });
     }
+
     return rows;
   },[props?.rop02All,history,currentMonth,priorMonth,currentPeriod,priorPeriod]);
 
