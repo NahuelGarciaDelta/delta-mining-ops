@@ -15,8 +15,6 @@ import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
 installLegacyRefreshIntervalPolicy();
 
 // La apariencia elegida por el último usuario se aplica ANTES de montar React.
-// Así el mismo fondo se conserva también en Inicio de sesión y Bienvenida, sin
-// mostrar primero una imagen fija y reemplazarla unos milisegundos después.
 if(typeof window!=="undefined"){
   applyAppearance(readLastAppearance(),C);
   window.addEventListener("dm-appearance-saved",event=>{
@@ -35,8 +33,7 @@ createRoot(document.getElementById("root")).render(
 );
 
 // Mantiene calientes los históricos comunes (ROP02/ROP05/RMA15) aunque el usuario
-// esté trabajando en otra pestaña. Siempre conserva el cache visible y actualiza
-// la copia persistida en segundo plano.
+// esté trabajando en otra pestaña.
 if(typeof window!=="undefined"){
   let lastHistoricalRefresh=Date.now();
   const refreshHistorical=()=>{
@@ -60,13 +57,52 @@ if(typeof window!=="undefined"){
   },{once:true});
 }
 
-// Registro PWA e instalación en el escritorio.
+// PWA: actualización obligatoria del Service Worker y del bundle.
+// El objetivo es impedir que una ventana instalada siga ejecutando una versión
+// anterior del Dashboard aunque Vercel ya haya desplegado el código nuevo.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((error) => {
-      console.error("No se pudo registrar el Service Worker:", error);
-    });
+  let swRegistration=null;
+  let controllerReloading=false;
+  const reloadKey="dm_sw_controller_v17_dashboard_history";
+
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{
+    if(controllerReloading)return;
+    controllerReloading=true;
+    try{
+      if(sessionStorage.getItem(reloadKey)!=="1"){
+        sessionStorage.setItem(reloadKey,"1");
+        window.location.reload();
+        return;
+      }
+      sessionStorage.removeItem(reloadKey);
+    }catch(_){}
   });
+
+  const updateServiceWorker=async()=>{
+    try{
+      if(swRegistration)await swRegistration.update();
+    }catch(_){}
+  };
+
+  window.addEventListener("load",async()=>{
+    try{
+      swRegistration=await navigator.serviceWorker.register(
+        "/sw.js?v=20260909-dashboard-history-v17",
+        {updateViaCache:"none"}
+      );
+      await swRegistration.update();
+      if(swRegistration.waiting){
+        swRegistration.waiting.postMessage({type:"SKIP_WAITING"});
+      }
+    }catch(error){
+      console.error("No se pudo registrar/actualizar el Service Worker:",error);
+    }
+  });
+
+  document.addEventListener("visibilitychange",()=>{
+    if(!document.hidden)updateServiceWorker();
+  });
+  window.addEventListener("online",updateServiceWorker);
 }
 
 let deferredInstallPrompt = null;
