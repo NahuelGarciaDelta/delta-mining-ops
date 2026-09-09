@@ -49,24 +49,16 @@ function normalizeRecord_(record){
   return {...record,data,value:data,version:Number(record.version||data?.meta?.serverVersion||0)};
 }
 
-// ROP02 es la fuente de verdad de Cargas, Atrasos y Control de errores.
-// Nunca se lee NI se escribe una copia persistida por dispositivo. De esta forma
-// dos PCs, tablets o teléfonos que consulten el mismo proyecto calculan siempre
-// sobre la misma respuesta del backend y no sobre snapshots locales distintos.
-function isLiveRop02Key_(key){
-  const value=String(key||"").toLowerCase();
-  return value==="rop02_jm"||value==="rop02_fs"||value==="rop02_filosur"||value==="rop02_zorro"||value.startsWith("query:rop02|")||value.startsWith("query:rop02?")||value.startsWith("query:rop02:");
-}
-
+// Todos los datasets, incluido ROP02, se guardan en IndexedDB para que la app
+// pueda abrir inmediatamente con la última copia válida del dispositivo.
+// La caché NO es la fuente definitiva: App.jsx y la política global revalidan
+// contra el backend cada 5 minutos y cualquier respuesta completa nueva reemplaza
+// esta copia. El botón Actualizar fuerza esa revalidación de inmediato.
 export async function readCachedSourceRecords(keys){
   const wanted=[...new Set((keys||[]).filter(Boolean))];
   if(!wanted.length)return{};
-  const liveKeys=new Set(wanted.filter(isLiveRop02Key_));
-  liveKeys.forEach(key=>memoryCache_.delete(key));
-  const cacheable=wanted.filter(key=>!liveKeys.has(key));
-  if(!cacheable.length)return Object.fromEntries(wanted.map(key=>[key,null]));
   try{
-    const missing=cacheable.filter(key=>!memoryCache_.has(key));
+    const missing=wanted.filter(key=>!memoryCache_.has(key));
     if(missing.length){
       const db=await openAppCacheDB();
       const tx=db.transaction(APP_IDB_STORE,"readonly");
@@ -74,9 +66,9 @@ export async function readCachedSourceRecords(keys){
       const pairs=await Promise.all(missing.map(async key=>[key,normalizeRecord_(await idbRequest_(store.get(key)).catch(()=>null))]));
       pairs.forEach(([key,record])=>{if(record)memoryCache_.set(key,record);});
     }
-    return Object.fromEntries(wanted.map(key=>[key,liveKeys.has(key)?null:(memoryCache_.get(key)||null)]));
+    return Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)||null]));
   }catch(_){
-    return Object.fromEntries(wanted.map(key=>[key,liveKeys.has(key)?null:(memoryCache_.get(key)||null)]));
+    return Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)||null]));
   }
 }
 export async function readCachedSources(keys){
@@ -86,8 +78,7 @@ export async function readCachedSources(keys){
   return out;
 }
 async function writeCachedSources(sources){
-  // Las fuentes ROP02 quedan deliberadamente fuera de cualquier cache local.
-  const entries=Object.entries(sources||{}).filter(([key])=>!isLiveRop02Key_(key));
+  const entries=Object.entries(sources||{}).filter(([key,data])=>key&&data);
   if(!entries.length)return;
   const updatedAt=new Date().toISOString();
   const records=entries.map(([key,data])=>({key,data,updatedAt,count:Array.isArray(data?.data)?data.data.length:0,version:Number(data?.meta?.serverVersion||APP_CACHE_VERSION)}));
@@ -98,7 +89,7 @@ async function writeCachedSources(sources){
     const store=tx.objectStore(APP_IDB_STORE);
     records.forEach(rec=>store.put(rec));
     await idbTransactionDone_(tx);
-  }catch(_){/* La copia de sesión sigue disponible; no duplicamos datasets grandes en localStorage. */}
+  }catch(_){/* La copia de sesión sigue disponible aunque IndexedDB falle. */}
 }
 export function readSavedDataSources(){
   const manifest=readCacheManifest_();
