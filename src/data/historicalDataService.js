@@ -81,22 +81,28 @@ async function fetchRop02SourceFallback_(params={}){
   }catch(error){firstError=error;}
 
   const sources=requestedProject&&requestedProject!=="TODOS"?ROP02_SOURCE_MAP.filter(([,project])=>normalizeProjectParam_(project)===requestedProject):ROP02_SOURCE_MAP;
+  if(!sources.length)throw firstError||new Error(`No existe una fuente ROP02 para ${requestedProject||"el proyecto solicitado"}`);
+
   const settled=await Promise.allSettled(sources.map(async([source,project])=>{
-    const response=await withHardTimeout_(fetchSource(APPS_SCRIPT_URL,source,{force:false,retries:0,timeoutMs:6000}),ROP02_HARD_TIMEOUT_MS,"ROP02");
-    const data=Array.isArray(response?.data)?response.data:[];
-    return data.map(row=>({...row,proyecto:row?.proyecto||row?.Proyecto||row?.PROYECTO||project,PROYECTO:row?.PROYECTO||row?.Proyecto||row?.proyecto||project}));
+    const response=await withHardTimeout_(fetchSource(APPS_SCRIPT_URL,source,{force:false,retries:0,timeoutMs:6000}),ROP02_HARD_TIMEOUT_MS,`ROP02 ${project}`);
+    if(!response?.ok||!Array.isArray(response?.data))throw new Error(`${project}: respuesta ROP02 inválida`);
+    return response.data.map(row=>({...row,proyecto:row?.proyecto||row?.Proyecto||row?.PROYECTO||project,PROYECTO:row?.PROYECTO||row?.Proyecto||row?.proyecto||project}));
   }));
+
+  const failures=settled
+    .map((result,index)=>({result,source:sources[index]?.[0],project:sources[index]?.[1]}))
+    .filter(({result})=>result.status!=="fulfilled");
+  if(failures.length){
+    const detail=failures.map(({source,project,result})=>`${project||source}: ${String(result.reason?.message||result.reason||"sin respuesta")}`).join(" · ");
+    throw new Error(`ROP02 incompleto. Se conserva la carga anterior y no se calculan faltantes con datos parciales. ${detail}`);
+  }
+
   let data=[];
-  let fallbackError=firstError;
-  settled.forEach(result=>{
-    if(result.status==="fulfilled")data.push(...result.value);
-    else if(!fallbackError)fallbackError=result.reason instanceof Error?result.reason:new Error(String(result.reason||"ROP02 no disponible"));
-  });
-  if(!data.length&&fallbackError)console.warn("ROP02 no respondió dentro del tiempo límite.",fallbackError);
+  settled.forEach(result=>{data.push(...result.value);});
   data=data.filter(row=>rowMatchesRop02Params_(row,params));
   const direction=String(params.sortDirection||"desc").toLowerCase()==="asc"?1:-1;
   data.sort((a,b)=>direction*String(a?.FECHA??a?.fecha??a?.Fecha??"").localeCompare(String(b?.FECHA??b?.fecha??b?.Fecha??"")));
-  return{ok:true,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length,fallbackSources:true,...(!data.length&&fallbackError?{error:String(fallbackError?.message||fallbackError)}:{})};
+  return{ok:true,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length,fallbackSources:true,queryFallbackError:firstError?String(firstError?.message||firstError):""};
 }
 export async function readDatasetQuery(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(isLiveDataset_(dataset)){memory.delete(key);return null;}if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}const record=await readCachedSource(`query:${key}`).catch(()=>null);if(record?.data?.ok){remember_(key,record.data);return{...record.data,cacheHit:true,cacheLevel:"indexeddb",cacheUpdatedAt:record.updatedAt||null};}return null;}
 export async function fetchDatasetPage(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(pending.has(key))return pending.get(key);const started=performance.now();const work=(async()=>{let response;if(isLiveDataset_(dataset))response=await fetchRop02SourceFallback_(params);else response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});const value={...response,cacheHit:false,cacheLevel:response?.fallbackSources?"source-live":"network",elapsedMs:Math.round(performance.now()-started)};if(!isLiveDataset_(dataset))remember_(key,value);else memory.delete(key);lastRevalidatedAt.set(key,Date.now());await writeCachedSource(`query:${key}`,value).catch(()=>{});if(!isLiveDataset_(dataset))notifyDatasetUpdated_(dataset,key,value,params);return value;})();const guarded=isLiveDataset_(dataset)?withHardTimeout_(work,ROP02_HARD_TIMEOUT_MS+1000,"ROP02"):work;const task=guarded.catch(error=>{if(isLiveDataset_(dataset))return{ok:true,data:[],rows:0,total:0,hasMore:false,nextOffset:0,cacheHit:false,cacheLevel:"rop02-timeout",elapsedMs:Math.round(performance.now()-started),error:String(error?.message||error)};throw error;}).finally(()=>{if(pending.get(key)===task)pending.delete(key);});pending.set(key,task);return task;}
