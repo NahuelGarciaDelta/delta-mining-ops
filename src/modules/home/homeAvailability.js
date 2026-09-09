@@ -22,6 +22,11 @@ const dateISO=value=>{
   return Number.isNaN(parsed.getTime())?"":parsed.toISOString().slice(0,10);
 };
 
+const localTodayISO=()=>{
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
+
 const addDaysISO=(iso,days)=>{
   const d=new Date(`${iso}T12:00:00`);
   d.setDate(d.getDate()+days);
@@ -113,7 +118,13 @@ export function calculateAtrasoRop02(rop02Rows=[],admitidos={},options={}){
   const validRows=(rop02Rows||[]).filter(row=>eligible(row)&&dateISO(row?.fecha));
   const fechaMaximaROP02=getMaxRop02Date(validRows,{normalizeEquipmentCode:normalizeCode});
   if(!fechaMaximaROP02)return {fechaMaximaROP02:"",atrasados:[],latestRop02ByCode:new Map()};
-  const ventanaDesde=addDaysISO(fechaMaximaROP02,-6);
+
+  // El atraso se calcula contra el día actual, no contra la última fecha global
+  // cargada en ROP02. Así, si hoy es 09/09 y un equipo cargó por última vez el
+  // 07/09, aparece directamente como atrasado (2 días) aunque ningún equipo haya
+  // cargado el 08/09 o el 09/09 todavía.
+  const fechaReferencia=dateISO(options.referenceDate)||localTodayISO();
+  const ventanaDesde=addDaysISO(fechaReferencia,-6);
   const recordsByEquipmentProject=new Map();
   for(const row of validRows){
     const code=normalizeCode(row.maquina||row._internoRaw);
@@ -137,22 +148,22 @@ export function calculateAtrasoRop02(rop02Rows=[],admitidos={},options={}){
   for(const current of recordsByEquipmentProject.values()){
     const ultimaCarga=current.ultimaCarga||"";
     latestRop02ByEquipmentProject.set(current.movementKey,ultimaCarga);
-    const diasSinCarga=Math.floor((new Date(`${fechaMaximaROP02}T00:00:00`)-new Date(`${ultimaCarga}T00:00:00`))/86400000);
-    if(!ultimaCarga||ultimaCarga>=fechaMaximaROP02||diasSinCarga<minDays)continue;
+    const diasSinCarga=Math.floor((new Date(`${fechaReferencia}T00:00:00`)-new Date(`${ultimaCarga}T00:00:00`))/86400000);
+    if(!ultimaCarga||ultimaCarga>=fechaReferencia||diasSinCarga<minDays)continue;
     const id=`atrasado_${current.codigo}_${current.proyecto}_${ultimaCarga}`;
     const legacyId=`atrasado_${current.codigo}_${ultimaCarga}`;
     const saved=admitidos?.[id]||admitidos?.[legacyId]||{};
     atrasados.push({
       id,tipo:"Atrasado",codigo:current.codigo,maquina:current.maquina,proyecto:current.proyecto,
       supervisor:current.supervisor,ultimaCarga,diasSinCarga,
-      diasConCarga:[...current.fechas].filter(fecha=>fecha>=ventanaDesde&&fecha<=fechaMaximaROP02).length,
+      diasConCarga:[...current.fechas].filter(fecha=>fecha>=ventanaDesde&&fecha<=fechaReferencia).length,
       registros:current.registros,causa:String(saved.causa||"").trim(),
       admitido:Boolean(saved.admitido||saved.causa),fechaAdmitido:saved.fechaAdmitido||"",usuario:saved.usuario||"",
       proyectoDestino:saved.proyectoDestino||"",tipoMovimiento:saved.tipoMovimiento||"",observacion:saved.observacion||""
     });
   }
   atrasados.sort((a,b)=>b.diasSinCarga-a.diasSinCarga||a.maquina.localeCompare(b.maquina));
-  return {fechaMaximaROP02,ventanaDesde,ventanaHasta:fechaMaximaROP02,atrasados,latestRop02ByEquipmentProject,recordsByEquipmentProject};
+  return {fechaMaximaROP02,fechaReferencia,ventanaDesde,ventanaHasta:fechaReferencia,atrasados,latestRop02ByEquipmentProject,recordsByEquipmentProject};
 }
 
 export function currentAtrasoJustificationForEquipment(admitidos={},code,latestDate){
