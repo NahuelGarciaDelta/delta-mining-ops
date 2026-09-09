@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v16-error-control-refresh";
+const CACHE_NAME = "delta-mining-ops-v17-dashboard-history-20260909";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -23,7 +23,7 @@ async function safePut(cache, request, response) {
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await Promise.allSettled(APP_SHELL.map((url) => cache.add(url)));
+    await Promise.allSettled(APP_SHELL.map((url) => cache.add(new Request(url,{cache:"reload"}))));
     await self.skipWaiting();
   })());
 });
@@ -36,30 +36,46 @@ self.addEventListener("activate", (event) => {
   })());
 });
 
+self.addEventListener("message", event=>{
+  if(event?.data?.type==="SKIP_WAITING")self.skipWaiting();
+});
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Navegación y assets ejecutables: RED primero. Así todas las PCs reciben
-  // la misma versión del frontend y no quedan ejecutando JS antiguo desde cache.
-  const isExecutable = request.mode === "navigate" || request.destination === "script" || request.destination === "style" || /\.(?:js|mjs|css)(?:$|\?)/i.test(url.pathname + url.search);
+  // NUNCA servir HTML/JS/CSS viejo cuando hay red. El Dashboard depende de que
+  // todas las PCs ejecuten exactamente la misma versión del bundle desplegado.
+  const isExecutable =
+    request.mode === "navigate" ||
+    request.destination === "script" ||
+    request.destination === "style" ||
+    url.pathname === "/" ||
+    url.pathname === "/index.html" ||
+    url.pathname === "/sw.js" ||
+    /\.(?:js|mjs|css)(?:$|\?)/i.test(url.pathname + url.search);
+
   if (isExecutable) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       try {
         const response = await fetch(request, { cache: "no-store" });
-        await safePut(cache, request.mode === "navigate" ? "/index.html" : request, response);
+        if(url.pathname!=="/sw.js"){
+          await safePut(cache, request.mode === "navigate" ? "/index.html" : request, response);
+        }
         return response;
       } catch (_) {
-        return (await cache.match(request)) || (request.mode === "navigate" ? await cache.match("/index.html") : null) || Response.error();
+        return (await cache.match(request)) ||
+          (request.mode === "navigate" ? await cache.match("/index.html") : null) ||
+          Response.error();
       }
     })());
     return;
   }
 
-  // Imágenes y demás recursos estáticos sí pueden usar cache para conservar modo offline.
+  // Recursos puramente estáticos pueden conservar cache offline.
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(request);
