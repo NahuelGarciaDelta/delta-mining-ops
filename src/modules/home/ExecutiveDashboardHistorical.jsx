@@ -23,7 +23,6 @@ const dateKey=v=>{
 };
 const rowDate=r=>dateKey(r?.fecha??r?.date??r?.fechaOT??r?.Fecha??r?.["Fecha del Parte Diario"]);
 const norm=v=>String(v??"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
-const projectCode=v=>{const n=norm(v);if(n.includes("JOSE")&&n.includes("MARIA"))return"JM";if(n.includes("FILO")&&n.includes("SOL"))return"FS";if(n.includes("FILO")&&n.includes("SUR"))return"FILO SUR";if(n.includes("ZORRO"))return"EL ZORRO";return n;};
 const machineKey=v=>String(v??"").toUpperCase().replace(/[^A-Z0-9]/g,"").replace(/JM$/i,"");
 const formatMachine=v=>{
   const raw=machineKey(v);
@@ -43,13 +42,17 @@ const periodForMonth=month=>{
   const end=new Date(yy,mm-1,25,12);
   return{month,start:ymd(start),end:ymd(end),startDate:start,endDate:end};
 };
-const previousMonth=month=>{
-  const [yy,mm]=String(month||"").split("-").map(Number);
-  if(!yy||!mm)return"";
-  const d=new Date(yy,mm-2,1,12);
-  return`${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+const reportingYearRange=year=>{
+  const yy=Number(year);
+  if(!yy)return null;
+  const first=periodForMonth(`${yy}-01`);
+  const last=periodForMonth(`${yy}-12`);
+  return first&&last?{year:yy,start:first.start,end:last.end}:null;
 };
-const inPeriod=(row,period)=>{const d=rowDate(row);return !!d&&!!period&&d>=period.start&&d<=period.end;};
+const inRange=(row,range)=>{
+  const d=rowDate(row);
+  return !!d&&!!range&&d>=range.start&&d<=range.end;
+};
 const periodKeyForRow=row=>{
   const d=rowDate(row);if(!d)return"";
   return reportingMonthForDate(new Date(`${d}T12:00:00`));
@@ -107,69 +110,76 @@ function summaryRowsToSynthetic(summaryRow){
 
 export default function ExecutiveDashboardHistorical(props){
   const currentMonth=useMemo(()=>reportingMonthForDate(new Date()),[]);
-  const priorMonth=useMemo(()=>previousMonth(currentMonth),[currentMonth]);
-  const currentPeriod=useMemo(()=>periodForMonth(currentMonth),[currentMonth]);
-  const priorPeriod=useMemo(()=>periodForMonth(priorMonth),[priorMonth]);
-  const [history,setHistory]=useState({current:null,previous:null,summary:null});
+  const reportingYear=useMemo(()=>Number(String(currentMonth).slice(0,4))||new Date().getFullYear(),[currentMonth]);
+  const yearRange=useMemo(()=>reportingYearRange(reportingYear),[reportingYear]);
+  const [history,setHistory]=useState({year:null,summary:null,summaryReady:false,error:""});
 
   useEffect(()=>{
+    if(!yearRange)return;
     let alive=true;
-    const query=async period=>{
+
+    // El dashboard necesita contexto anual. Antes hacía dos consultas mensuales y
+    // dependía de ROP02_RESUMEN_MENSUAL para el resto del año. Si ese acelerador no
+    // estaba reconstruido, enero-agosto quedaban en cero aunque ROP02 tuviera datos.
+    // query_dataset ya recorre las mismas planillas completas para cualquier rango,
+    // por lo que una sola consulta del año operativo es más rápida y completa que
+    // consultar mes por mes o repetir dos lecturas grandes.
+    const queryYear=async()=>{
       const response=await fetchDatasetQuery(APPS_SCRIPT_URL,{
         dataset:"rop02",
-        desde:period.start,
-        hasta:period.end,
+        desde:yearRange.start,
+        hasta:yearRange.end,
         limit:"all",
         offset:0,
         sortBy:"fecha",
         sortDirection:"asc",
-      },{timeoutMs:50000});
-      return normalizeQueryRows(response?.data);
+      },{timeoutMs:52000});
+      const rows=normalizeQueryRows(response?.data);
+      if(!rows.length)throw new Error("La consulta histórica anual de ROP02 volvió vacía");
+      return rows;
     };
+
     Promise.allSettled([
-      query(currentPeriod),
-      query(priorPeriod),
+      queryYear(),
       getRop02MonthlySummary({limit:"all",offset:0}),
-    ]).then(([cur,prev,summary])=>{
+    ]).then(([yearResult,summaryResult])=>{
       if(!alive)return;
-      setHistory({
-        current:cur.status==="fulfilled"&&cur.value.length?cur.value:null,
-        previous:prev.status==="fulfilled"&&prev.value.length?prev.value:null,
-        summary:summary.status==="fulfilled"&&summary.value?.ok&&Array.isArray(summary.value.data)?summary.value.data:null,
-      });
+      const year=yearResult.status==="fulfilled"&&yearResult.value.length?yearResult.value:null;
+      const summaryResponse=summaryResult.status==="fulfilled"?summaryResult.value:null;
+      const summary=summaryResponse?.ok&&Array.isArray(summaryResponse.data)?summaryResponse.data:null;
+      const errors=[];
+      if(yearResult.status==="rejected")errors.push(String(yearResult.reason?.message||yearResult.reason||"No se pudo cargar ROP02 histórico"));
+      if(summaryResult.status==="rejected")errors.push(String(summaryResult.reason?.message||summaryResult.reason||"No se pudo cargar el resumen mensual"));
+      setHistory({year,summary,summaryReady:summaryResponse?.ready===true,error:errors.join(" · ")});
     });
+
     return()=>{alive=false;};
-  },[currentPeriod?.start,currentPeriod?.end,priorPeriod?.start,priorPeriod?.end]);
+  },[yearRange?.start,yearRange?.end]);
 
   const effectiveRop02=useMemo(()=>{
     let rows=scopeRows(props?.rop02All);
 
-    // Los dos períodos más recientes se intentan obtener con detalle real.
-    // Si responden, reemplazan por completo cualquier carga parcial de App.jsx.
-    if(history.current?.length){
-      rows=rows.filter(r=>!inPeriod(r,currentPeriod));
-      rows.push(...history.current);
-    }
-    if(history.previous?.length){
-      rows=rows.filter(r=>!inPeriod(r,priorPeriod));
-      rows.push(...history.previous);
+    // La consulta anual real tiene prioridad absoluta para todos los períodos del año.
+    // Esto hace que comparaciones, evolución mensual, disponibilidad y utilización
+    // trabajen con el historial verdadero y no con la carga parcial que tenga App.jsx.
+    if(history.year?.length&&yearRange){
+      rows=rows.filter(r=>!inRange(r,yearRange));
+      rows.push(...history.year);
+      return rows;
     }
 
-    // Para el resto del año usamos ROP02_RESUMEN_MENSUAL, que es la base histórica
-    // central preparada precisamente para este dashboard. Cada período presente en
-    // ese resumen reemplaza cualquier subconjunto parcial que haya quedado en memoria.
+    // Fallback: si la consulta anual no respondió, aprovechamos todos los meses que
+    // existan en el acelerador mensual. No exige ready=true porque una reconstrucción
+    // parcial todavía es mejor que convertir meses existentes en cero.
     if(history.summary?.length){
       const byMonth=new Map();
       history.summary.forEach(item=>{
         const month=String(item?.PERIODO??item?.periodo??"").trim();
-        if(!month)return;
-        if(month===currentMonth&&history.current?.length)return;
-        if(month===priorMonth&&history.previous?.length)return;
+        if(!month||!month.startsWith(`${reportingYear}-`))return;
         const list=byMonth.get(month)||[];
         list.push(item);
         byMonth.set(month,list);
       });
-
       byMonth.forEach((items,month)=>{
         rows=rows.filter(r=>periodKeyForRow(r)!==month);
         items.forEach(item=>rows.push(...summaryRowsToSynthetic(item)));
@@ -177,7 +187,7 @@ export default function ExecutiveDashboardHistorical(props){
     }
 
     return rows;
-  },[props?.rop02All,history,currentMonth,priorMonth,currentPeriod,priorPeriod]);
+  },[props?.rop02All,history.year,history.summary,yearRange,reportingYear]);
 
   return <ExecutiveDashboard {...props} rop02All={effectiveRop02}/>;
 }
