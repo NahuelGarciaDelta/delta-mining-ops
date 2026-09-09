@@ -201,5 +201,12 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
     }
     return[...unique.values()];
   },[wantsTallerProfile,tallerCanonical,snapshot.data]);
-  return{...snapshot,loading:Boolean(snapshot.loading)||!snapshot.loaded,movements:profileMovements,activeMovementByEquipment,admitidos,reload:useCallback(()=>loadEquipmentMovements({force:true}),[])};
+
+  // En Atraso ROP02 los equipos se muestran inmediatamente con la información
+  // disponible de ROP02. La consulta de movimientos/justificaciones se enriquece
+  // en segundo plano y nunca bloquea ni vacía la lista de equipos atrasados.
+  const atrasoHasRop02=wantsTallerAtraso&&Array.isArray(rop02Rows)&&rop02Rows.length>0;
+  const effectiveLoading=atrasoHasRop02?false:(Boolean(snapshot.loading)||!snapshot.loaded);
+  const effectiveError=atrasoHasRop02?"":snapshot.error;
+  return{...snapshot,error:effectiveError,loading:effectiveLoading,movements:profileMovements,activeMovementByEquipment,admitidos,reload:useCallback(()=>loadEquipmentMovements({force:true}),[])};
 }
