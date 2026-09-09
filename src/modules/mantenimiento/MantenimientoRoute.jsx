@@ -1,11 +1,10 @@
 import React from "react";
 import { PageLoadingMotoniveladora } from "../../components/ui/index.jsx";
-import {createHistoricalPagedController,fetchAllDatasetPages} from "../../data/historicalDataService.js";
-import {normalizeRMA15} from "../../shared/domain/index.jsx";
 import DesgasteView from "./DesgasteView.jsx";
 import {WEAR_FLAG,WEAR_ACTIVE_EVENT,WEAR_CLOSE_EVENT} from "./wearSidebarBridge.js";
 
 const LazyMantenimientoModule = React.lazy(() => import("./MantenimientoModule.jsx"));
+const LEGACY_PERIOD_MIGRATION_KEY="dm_mantenimiento_periodo_operativo_v1";
 
 function cloneRma15Rows(rows){
   return (Array.isArray(rows)?rows:[]).map(row=>{
@@ -16,14 +15,23 @@ function cloneRma15Rows(rows){
   });
 }
 
-function normalizeRemoteRows(rows,insumos){
-  return (Array.isArray(rows)?rows:[]).map(row=>normalizeRMA15({...row,_proyectoForzado:row.Proyecto||row.proyecto||"S/D"},insumos||{}));
+function isoDate_(date){
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+}
+
+function migrateCalendarMonthToOperationalPeriod_(desde,hasta){
+  const match=String(desde||"").match(/^(\d{4})-(\d{2})-01$/);
+  if(!match)return null;
+  const year=Number(match[1]),month=Number(match[2]);
+  if(!year||month<1||month>12)return null;
+  const calendarEnd=new Date(year,month,0,12);
+  if(String(hasta||"")!==isoDate_(calendarEnd))return null;
+  const operationalStart=new Date(year,month-2,26,12);
+  const operationalEnd=new Date(year,month-1,25,12);
+  return{desde:isoDate_(operationalStart),hasta:isoDate_(operationalEnd)};
 }
 
 export default function MantenimientoRoute(props){
-  const controllerRef=React.useRef(null);
-  const requestRef=React.useRef(0);
-  const [remote,setRemote]=React.useState(null);
   const [wearMode,setWearMode]=React.useState(()=>props.mode==="mantenimiento"&&sessionStorage.getItem(WEAR_FLAG)==="desgaste");
 
   React.useEffect(()=>{
@@ -50,68 +58,29 @@ export default function MantenimientoRoute(props){
     };
   },[wearMode,props.mode]);
 
-  if(!controllerRef.current)controllerRef.current=createHistoricalPagedController();
-  const baseRma15=React.useMemo(()=>cloneRma15Rows(props.rma15),[props.rma15]);
-
-  const state=props.extState||{};
-  const single=value=>Array.isArray(value)?(value.length===1?value[0]:""):value;
-  const mainSort=state.rma15Sorts?.ordenesPeriodo;
-  const params=React.useMemo(()=>({
-    desde:state.modo==="dia"?(state.fechaDia||""):(state.fechaD||""),
-    hasta:state.modo==="dia"?(state.fechaDia||""):(state.fechaH||""),
-    proyecto:single(state.proyecto)!=="todos"?single(state.proyecto):"",
-    equipo:single(state.maquina)!=="todas"?single(state.maquina):"",
-    tipo:single(state.tipoMant)!=="todos"?single(state.tipoMant):"",
-    sortBy:mainSort?.key||"fecha",sortDirection:mainSort?.dir||"desc"
-  }),[state.modo,state.fechaDia,state.fechaD,state.fechaH,state.proyecto,state.maquina,state.tipoMant,mainSort?.key,mainSort?.dir]);
-  const hasRemoteFilter=React.useMemo(()=>Boolean(params.desde||params.hasta||params.proyecto||params.equipo||params.tipo),[params.desde,params.hasta,params.proyecto,params.equipo,params.tipo]);
-
+  // Migración única del selector mensual anterior (1 → fin de mes) al período
+  // operativo corporativo (26 del mes anterior → 25 del mes seleccionado).
+  // Esto evita que un filtro guardado como "Agosto" siga mostrando 01/08–31/08
+  // mientras el Dashboard usa 26/07–25/08.
   React.useEffect(()=>{
-    if(wearMode||props.mode!=="mantenimiento"||!hasRemoteFilter){++requestRef.current;setRemote(null);return;}
-    const requestId=++requestRef.current;
-    let alive=true;
-    const rows=[];
-    setRemote(null);
+    if(props.mode!=="mantenimiento"||props.extState?.modo!=="periodo"||typeof props.setExtState!=="function")return;
+    try{
+      if(window.localStorage.getItem(LEGACY_PERIOD_MIGRATION_KEY)==="1")return;
+      const migrated=migrateCalendarMonthToOperationalPeriod_(props.extState?.fechaD,props.extState?.fechaH);
+      window.localStorage.setItem(LEGACY_PERIOD_MIGRATION_KEY,"1");
+      if(migrated){
+        props.setExtState(prev=>({...prev,fechaD:migrated.desde,fechaH:migrated.hasta}));
+      }
+    }catch(_){}
+  },[props.mode,props.extState?.modo,props.extState?.fechaD,props.extState?.fechaH,props.setExtState]);
 
-    // IMPORTANTE: los KPI y costos de mantenimiento no pueden calcularse con la
-    // primera página de una consulta paginada. Antes se mostraba inicialmente el
-    // total local y, cuando llegaban sólo los primeros 250 registros remotos, el
-    // costo disminuía. Ahora la consulta filtrada se publica recién cuando están
-    // cargadas TODAS sus páginas.
-    fetchAllDatasetPages("rma15",params,page=>{rows.push(...page);}).then(result=>{
-      if(!alive||requestId!==requestRef.current)return;
-      const normalized=cloneRma15Rows(normalizeRemoteRows(rows,props.insumos));
-      setRemote({
-        rows:normalized,
-        total:Number(result?.total||normalized.length),
-        hasMore:false,
-        requestId,
-      });
-    }).catch(()=>{});
-
-    return()=>{alive=false;};
-  },[wearMode,props.mode,hasRemoteFilter,params,props.insumos]);
-
-  const loadMore=React.useCallback(()=>{
-    if(!hasRemoteFilter)return Promise.resolve(null);
-    const requestId=requestRef.current;
-    return controllerRef.current.loadMore("rma15",params).then(result=>{
-      if(requestId!==requestRef.current||result.stale)return result;
-      setRemote({rows:cloneRma15Rows(normalizeRemoteRows(result.rows,props.insumos)),total:result.total,hasMore:result.hasMore,requestId});return result;
-    });
-  },[hasRemoteFilter,params,props.insumos]);
-
-  const exportAll=React.useCallback(async()=>{
-    if(!hasRemoteFilter)return cloneRma15Rows(baseRma15);
-    if(remote&&!remote.hasMore)return cloneRma15Rows(remote.rows);
-    const rows=[];await fetchAllDatasetPages("rma15",params,page=>{rows.push(...page);});return cloneRma15Rows(normalizeRemoteRows(rows,props.insumos));
-  },[hasRemoteFilter,baseRma15,params,props.insumos,remote]);
-
-  const effective=React.useMemo(()=>{
-    const isolatedProps={...props,rma15:baseRma15};
-    if(props.mode!=="mantenimiento"||!hasRemoteFilter||!remote)return isolatedProps;
-    return {...isolatedProps,rma15:cloneRma15Rows(remote.rows),remoteTotal:remote.total,remoteHasMore:false,onRemoteMore:loadMore,onRemoteExport:exportAll};
-  },[props,baseRma15,hasRemoteFilter,remote,loadMore,exportAll]);
+  // Mantenimiento y Dashboard deben calcular sobre EXACTAMENTE la misma base RMA15.
+  // La app ya carga rma15_fs + rma15_jm completos en App.jsx. La consulta histórica
+  // adicional que se hacía al tocar filtros duplicaba la descarga, demoraba la vista
+  // y podía terminar reemplazando temporalmente la base por otra respuesta paginada.
+  // Desde ahora el filtrado queda local sobre la base compartida y cacheable.
+  const baseRma15=React.useMemo(()=>cloneRma15Rows(props.rma15),[props.rma15]);
+  const effective=React.useMemo(()=>({...props,rma15:baseRma15}),[props,baseRma15]);
 
   if(props.mode==="mantenimiento"&&wearMode)return <DesgasteView rma15={baseRma15} usdRate={props.usdRate}/>;
   return <React.Suspense fallback={<PageLoadingMotoniveladora label="Cargando Mantenimiento..."/>}><LazyMantenimientoModule {...effective}/></React.Suspense>;
