@@ -10,8 +10,7 @@ import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
 
-// Una sola política para toda la aplicación: cualquier auto-refresh legacy de
-// 5 minutos se normaliza a 10 minutos antes de que React monte sus effects.
+// Una sola política para toda la aplicación: cache inmediato + revalidación cada 5 minutos.
 installLegacyRefreshIntervalPolicy();
 
 // La apariencia elegida por el último usuario se aplica ANTES de montar React.
@@ -33,7 +32,8 @@ createRoot(document.getElementById("root")).render(
 );
 
 // Mantiene calientes los históricos comunes (ROP02/ROP05/RMA15) aunque el usuario
-// esté trabajando en otra pestaña.
+// esté trabajando en otra pestaña. La revalidación de 5 minutos actualiza las
+// copias cacheadas si el backend cambió.
 if(typeof window!=="undefined"){
   let lastHistoricalRefresh=Date.now();
   const refreshHistorical=()=>{
@@ -80,7 +80,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load",async()=>{
     try{
       swRegistration=await navigator.serviceWorker.register(
-        "/sw.js?v=20260909-dashboard-history-v18",
+        "/sw.js?v=20260909-cache5m-maint-dashboard-v20",
         {updateViaCache:"none"}
       );
       await swRegistration.update();
