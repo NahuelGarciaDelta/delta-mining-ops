@@ -58,24 +58,17 @@ if(typeof window!=="undefined"){
 }
 
 // PWA: actualización obligatoria del Service Worker y del bundle.
-// El objetivo es impedir que una ventana instalada siga ejecutando una versión
-// anterior del Dashboard aunque Vercel ya haya desplegado el código nuevo.
+// Cuando un SW nuevo toma control, esta página se recarga exactamente una vez.
+// No se usa sessionStorage: esa bandera podía sobrevivir a un deployment y dejar
+// una pestaña ejecutando un bundle JS viejo aunque el SW ya fuera el nuevo.
 if ("serviceWorker" in navigator) {
   let swRegistration=null;
   let controllerReloading=false;
-  const reloadKey="dm_sw_controller_v17_dashboard_history";
 
   navigator.serviceWorker.addEventListener("controllerchange",()=>{
     if(controllerReloading)return;
     controllerReloading=true;
-    try{
-      if(sessionStorage.getItem(reloadKey)!=="1"){
-        sessionStorage.setItem(reloadKey,"1");
-        window.location.reload();
-        return;
-      }
-      sessionStorage.removeItem(reloadKey);
-    }catch(_){}
+    window.location.reload();
   });
 
   const updateServiceWorker=async()=>{
@@ -87,7 +80,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load",async()=>{
     try{
       swRegistration=await navigator.serviceWorker.register(
-        "/sw.js?v=20260909-dashboard-history-v17",
+        "/sw.js?v=20260909-dashboard-history-v18",
         {updateViaCache:"none"}
       );
       await swRegistration.update();
