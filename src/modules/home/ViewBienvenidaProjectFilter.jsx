@@ -52,6 +52,7 @@ export default function ViewBienvenidaProjectFilter(props){
   const [selectedDay,setSelectedDay]=React.useState("");
   const [portalHost,setPortalHost]=React.useState(null);
   const [open,setOpen]=React.useState(false);
+  const [dashboardVisible,setDashboardVisible]=React.useState(false);
   const controlRef=React.useRef(null);
 
   const projectValues=React.useMemo(()=>collectProjects(props.rop02All,props.rop05,props.rma15),[props.rop02All,props.rop05,props.rma15]);
@@ -94,13 +95,30 @@ export default function ViewBienvenidaProjectFilter(props){
     document.addEventListener("mousedown",close);document.addEventListener("keydown",onKey);
     return()=>{document.removeEventListener("mousedown",close);document.removeEventListener("keydown",onKey);};
   },[open]);
+  React.useEffect(()=>{
+    // ViewBienvenida usa el mismo prop rop02All para el Resumen General y para
+    // su Dashboard Gerencial interno. El resumen sí debe respetar el día elegido,
+    // pero el Dashboard necesita TODO el histórico para aplicar Mes/Desde/Hasta.
+    const syncDashboardVisibility=()=>setDashboardVisible(Boolean(document.querySelector(".dm-home-dashboard-shell")));
+    syncDashboardVisibility();
+    const observer=new MutationObserver(syncDashboardVisibility);
+    observer.observe(document.body,{childList:true,subtree:true});
+    return()=>observer.disconnect();
+  },[]);
 
   const filteredProps=React.useMemo(()=>{
     const filterRows=rows=>Array.isArray(rows)?(allSelected?rows:rows.filter(row=>selectedSet.has(projectFromRow(row)))):rows;
     const filteredRma=filterRows(props.rma15);
-    const filteredRop02=effectiveDay?projectFilteredRop02.filter(row=>dateFromRop02Row(row)===effectiveDay):projectFilteredRop02;
-    return {...props,rop02All:filteredRop02,rop05:filterRows(props.rop05),rma15:Array.isArray(filteredRma)&&filteredRma.length?filteredRma:[EMPTY_RMA_SENTINEL],summaryDayFiltered:Boolean(effectiveDay)};
-  },[props,allSelected,selectedSet,projectFilteredRop02,effectiveDay]);
+    const dailySummaryRop02=effectiveDay?projectFilteredRop02.filter(row=>dateFromRop02Row(row)===effectiveDay):projectFilteredRop02;
+    const rop02ForCurrentHomeView=dashboardVisible?projectFilteredRop02:dailySummaryRop02;
+    return {
+      ...props,
+      rop02All:rop02ForCurrentHomeView,
+      rop05:filterRows(props.rop05),
+      rma15:Array.isArray(filteredRma)&&filteredRma.length?filteredRma:[EMPTY_RMA_SENTINEL],
+      summaryDayFiltered:!dashboardVisible&&Boolean(effectiveDay),
+    };
+  },[props,allSelected,selectedSet,projectFilteredRop02,effectiveDay,dashboardVisible]);
 
   const toggleProject=value=>{
     setSelectedDay("");
