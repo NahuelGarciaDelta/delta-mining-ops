@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v20-cache5m-maint-dashboard-20260909";
+const CACHE_NAME = "delta-mining-ops-v21-dashboard-atomic-20260909";
 const APP_SHELL = [
   "/",
   "/index.html",
