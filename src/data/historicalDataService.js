@@ -61,6 +61,68 @@ function filterAssignedProjectsResponse_(response){
   return {...response,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length};
 }
 
+// La vista ROP02 vs ROP05 ya recibe ambas bases hidratadas desde App.jsx.
+// Volver a pedir las bases completas al entrar a la pestaña agregaba varios segundos
+// de espera y, si una fuente fallaba, podía producir falsos faltantes. Para la consulta
+// completa de ESA vista solamente, reutilizamos los mismos datos que ya están visibles
+// en la aplicación. Se convierten otra vez a la forma cruda porque OficinaTecnicaModule
+// normaliza el resultado de getRop02/getRop05 antes de calcular la consistencia.
+function isOfficeControlFullQuery_(params={}){
+  if(String(params?.limit||"").toLowerCase()!=="all")return false;
+  if(Number(params?.offset||0)!==0)return false;
+  const filteredKeys=["desde","hasta","equipo","proyecto","project","supervisor","operario","estado","tipo","tarea","unidad"];
+  return !filteredKeys.some(key=>String(params?.[key]??"").trim());
+}
+function officeControlRawRows_(dataset,rows){
+  const list=Array.isArray(rows)?rows:[];
+  if(dataset==="rop02")return list.map(row=>({
+    "Fecha":row?.fecha||"",
+    "Interno":row?._internoRaw||row?.maquina||"",
+    "Equipo":row?._equipoRaw||row?.equipo||row?._tipo||"",
+    "Operador":row?.operario||"",
+    "Supervisor Delta":row?.supervisor||"",
+    "Supervisor Vial Cliente":row?.supervisorCliente||"",
+    "Turno":row?.turno||"",
+    "N° Parte":row?.parte||"",
+    "Proyecto":row?.proyecto||"",
+    "HI":row?.horometroInicial??"",
+    "HF":row?.horometroFinal??"",
+    "Cant. Hs.":row?.horasRaw||row?.horas??"",
+    "Combustible":row?.combustible??"",
+    "Aceite":row?.aceite||"",
+    "Descripción de los trabajos realizados":row?.tipo_trabajo||"",
+    "Desgaste":row?.desgaste||"",
+    "Observaciones":row?.observaciones||""
+  }));
+  if(dataset==="rop05")return list.map(row=>({
+    "Fecha del Parte Diario":row?.fecha||"",
+    "Supervisor":row?.supervisor||"",
+    "Proyecto":row?.proyecto||"",
+    "Codigo Int":row?.maquina||"",
+    "N° de Parte":row?.parte||"",
+    "Tipo Equipo":row?.tipo_maquina||row?._tipo||"",
+    "Tarea":row?.tarea||"",
+    "Hs":row?.horas??"",
+    "Largo":row?.largo??"",
+    "Ancho":row?.ancho??"",
+    "Profundidad":row?.profundidad??"",
+    "Cantidad":row?.cantidad??"",
+    "Unidad":row?.unidad||"",
+    "Observación":row?.observaciones||"",
+    "Mes":row?.mes||""
+  }));
+  return list;
+}
+function officeControlImmediateResponse_(dataset,params={}){
+  if(typeof window==="undefined"||!isOfficeControlFullQuery_(params))return null;
+  const snapshot=window.__dmOfficeImmediateDatasets;
+  if(!snapshot||snapshot.activeView!=="control")return null;
+  const sourceRows=Array.isArray(snapshot?.[dataset])?snapshot[dataset]:[];
+  if(!sourceRows.length)return null;
+  const data=officeControlRawRows_(dataset,sourceRows);
+  return{ok:true,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length,offset:0,limit:"all",cacheHit:true,cacheLevel:"app-hydrated",officeControlImmediate:true};
+}
+
 function normalizeEquipmentSnapshotCode_(value){return String(value||"").trim().toUpperCase().replace(/\s*\(.*?\)/g,"").replace(/[^A-Z0-9]/g,"");}
 function isVehicleSnapshotRow_(row){const code=normalizeEquipmentSnapshotCode_(row?.INTERNO??row?.equipo??row?.maquina??row?.Interno??"");if(!code)return false;if(/^CTA/.test(code))return true;if(/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return true;if(["CAC","CAR","CAV","CAA"].some(prefix=>code.startsWith(prefix)))return true;return code==="CAT0073";}
 function filterEquipmentOnlySnapshot_(response){if(!Array.isArray(response?.data))return response;const data=response.data.filter(row=>!isVehicleSnapshotRow_(row));return {...response,data,rows:data.length,total:data.length};}
@@ -110,6 +172,8 @@ function shouldRevalidate_(key){const last=Number(lastRevalidatedAt.get(key)||0)
 function revalidateDatasetInBackground_(dataset,params,cached){const key=buildDatasetQueryKey(dataset,params);if(!shouldRevalidate_(key))return;lastRevalidatedAt.set(key,Date.now());fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{if(!sync)return null;if(versionsDiffer_(cached?.versions||{},sync?.versions||{}))return fetchDatasetPage(dataset,params);return null;}).catch(()=>{});}
 export async function getDataset(dataset,params={}){if(isLiveDataset_(dataset))return fetchDatasetPage(dataset,{...params,requireFresh:undefined});const cached=await readDatasetQuery(dataset,params);if(!cached)return fetchDatasetPage(dataset,params);const requireFresh=Boolean(params?.requireFresh||params?.desde||params?.hasta);if(requireFresh){try{const sync=await fetchSyncVersions(APPS_SCRIPT_URL);if(sync&&versionsDiffer_(cached.versions||{},sync?.versions||{}))return await fetchDatasetPage(dataset,params);lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());}catch(_){}return cached;}revalidateDatasetInBackground_(dataset,params,cached);return cached;}
 export async function getRop02(params={}){
+  const immediate=officeControlImmediateResponse_("rop02",params);
+  if(immediate)return filterAssignedProjectsResponse_(immediate);
   const response=await getDataset("rop02",params);
   const data=Array.isArray(response?.data)?response.data:[];
   // Nunca convertir un timeout/fallo de ROP02 en un dataset vacío "válido".
@@ -118,7 +182,11 @@ export async function getRop02(params={}){
   if(!data.length&&response?.error)throw new Error(String(response.error));
   return filterAssignedProjectsResponse_(response);
 }
-export const getRop05=params=>getDataset("rop05",params);
+export async function getRop05(params={}){
+  const immediate=officeControlImmediateResponse_("rop05",params);
+  if(immediate)return immediate;
+  return getDataset("rop05",params);
+}
 export const getRma15=params=>getDataset("rma15",params);
 export const refreshHistoricalDataset=(dataset,params={})=>fetchDatasetPage(dataset,params);
 export const HISTORICAL_DATASET_UPDATED_EVENT=HISTORICAL_UPDATED_EVENT;
