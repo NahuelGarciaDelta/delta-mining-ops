@@ -68,11 +68,27 @@ export default function MantenimientoRoute(props){
 
   React.useEffect(()=>{
     if(wearMode||props.mode!=="mantenimiento"||!hasRemoteFilter){++requestRef.current;setRemote(null);return;}
-    const requestId=++requestRef.current;let alive=true;setRemote(null);
-    controllerRef.current.loadFirst("rma15",params).then(result=>{
-      if(!alive||requestId!==requestRef.current||result.stale)return;
-      setRemote({rows:cloneRma15Rows(normalizeRemoteRows(result.rows,props.insumos)),total:result.total,hasMore:result.hasMore,requestId});
+    const requestId=++requestRef.current;
+    let alive=true;
+    const rows=[];
+    setRemote(null);
+
+    // IMPORTANTE: los KPI y costos de mantenimiento no pueden calcularse con la
+    // primera página de una consulta paginada. Antes se mostraba inicialmente el
+    // total local y, cuando llegaban sólo los primeros 250 registros remotos, el
+    // costo disminuía. Ahora la consulta filtrada se publica recién cuando están
+    // cargadas TODAS sus páginas.
+    fetchAllDatasetPages("rma15",params,page=>{rows.push(...page);}).then(result=>{
+      if(!alive||requestId!==requestRef.current)return;
+      const normalized=cloneRma15Rows(normalizeRemoteRows(rows,props.insumos));
+      setRemote({
+        rows:normalized,
+        total:Number(result?.total||normalized.length),
+        hasMore:false,
+        requestId,
+      });
     }).catch(()=>{});
+
     return()=>{alive=false;};
   },[wearMode,props.mode,hasRemoteFilter,params,props.insumos]);
 
@@ -87,13 +103,14 @@ export default function MantenimientoRoute(props){
 
   const exportAll=React.useCallback(async()=>{
     if(!hasRemoteFilter)return cloneRma15Rows(baseRma15);
+    if(remote&&!remote.hasMore)return cloneRma15Rows(remote.rows);
     const rows=[];await fetchAllDatasetPages("rma15",params,page=>{rows.push(...page);});return cloneRma15Rows(normalizeRemoteRows(rows,props.insumos));
-  },[hasRemoteFilter,baseRma15,params,props.insumos]);
+  },[hasRemoteFilter,baseRma15,params,props.insumos,remote]);
 
   const effective=React.useMemo(()=>{
     const isolatedProps={...props,rma15:baseRma15};
     if(props.mode!=="mantenimiento"||!hasRemoteFilter||!remote)return isolatedProps;
-    return {...isolatedProps,rma15:cloneRma15Rows(remote.rows),remoteTotal:remote.total,remoteHasMore:remote.hasMore,onRemoteMore:loadMore,onRemoteExport:exportAll};
+    return {...isolatedProps,rma15:cloneRma15Rows(remote.rows),remoteTotal:remote.total,remoteHasMore:false,onRemoteMore:loadMore,onRemoteExport:exportAll};
   },[props,baseRma15,hasRemoteFilter,remote,loadMore,exportAll]);
 
   if(props.mode==="mantenimiento"&&wearMode)return <DesgasteView rma15={baseRma15} usdRate={props.usdRate}/>;
