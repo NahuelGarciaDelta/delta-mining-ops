@@ -1,14 +1,14 @@
 // Política única de carga/actualización de Delta Mining OPS.
 // Regla general: mostrar cache válido inmediatamente y revalidar sin bloquear.
-export const DATA_REFRESH_INTERVAL_MS=10*60*1000;
+export const DATA_REFRESH_INTERVAL_MS=5*60*1000;
 export const LEGACY_REFRESH_INTERVAL_MS=5*60*1000;
 export const DATA_REFRESH_POLICY_EVENT="dm-data-refresh-policy-tick";
 
 let intervalPolicyInstalled=false;
 let nativeSetInterval=null;
 
-// Compatibilidad con módulos legacy que todavía tengan un intervalo de 5 minutos
-// hardcodeado. Se normaliza a 10 minutos sin tocar otros timers de la aplicación.
+// Compatibilidad con módulos legacy: cualquier intervalo histórico de 5 minutos
+// queda alineado con la política global de 5 minutos, sin modificar otros timers.
 export function installLegacyRefreshIntervalPolicy(){
   if(intervalPolicyInstalled||typeof window==="undefined")return;
   intervalPolicyInstalled=true;
