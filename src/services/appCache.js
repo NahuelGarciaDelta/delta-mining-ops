@@ -5,6 +5,7 @@ const APP_IDB_STORE="datasets";
 const APP_CACHE_VERSION=7;
 const APP_CACHE_MANIFEST_KEY="dm_app_cache_manifest_v7";
 const APP_LOCAL_CACHE_PREFIX="dm_app_cache_source_v7_";
+const ROP02_CACHE_SOURCES=new Set(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"]);
 
 let appCacheDBPromise_=null;
 const memoryCache_=new Map();
@@ -48,12 +49,21 @@ function normalizeRecord_(record){
   if(!data)return null;
   return {...record,data,value:data,version:Number(record.version||data?.meta?.serverVersion||0)};
 }
+function atomicRop02Records_(wanted,records){
+  const keys=wanted.filter(key=>ROP02_CACHE_SOURCES.has(key));
+  if(keys.length<2)return records;
+  const ropRecords=keys.map(key=>records[key]||null);
+  if(ropRecords.some(record=>!record?.value?.ok||!Array.isArray(record.value.data)))return {...records,...Object.fromEntries(keys.map(key=>[key,null]))};
+  const bundleIds=ropRecords.map(record=>String(record.value?.meta?.bundleId||"")).filter(Boolean);
+  // Los caches históricos anteriores no tenían bundleId y podían mezclar JM/FDS
+  // de cargas distintas. Se ignoran una sola vez; el nuevo backend vuelve a
+  // guardar las cuatro fuentes con el mismo bundleId y desde allí abre instantáneo.
+  if(bundleIds.length!==keys.length||new Set(bundleIds).size!==1){
+    return {...records,...Object.fromEntries(keys.map(key=>[key,null]))};
+  }
+  return records;
+}
 
-// Todos los datasets, incluido ROP02, se guardan en IndexedDB para que la app
-// pueda abrir inmediatamente con la última copia válida del dispositivo.
-// La caché NO es la fuente definitiva: App.jsx y la política global revalidan
-// contra el backend cada 5 minutos y cualquier respuesta completa nueva reemplaza
-// esta copia. El botón Actualizar fuerza esa revalidación de inmediato.
 export async function readCachedSourceRecords(keys){
   const wanted=[...new Set((keys||[]).filter(Boolean))];
   if(!wanted.length)return{};
@@ -66,9 +76,11 @@ export async function readCachedSourceRecords(keys){
       const pairs=await Promise.all(missing.map(async key=>[key,normalizeRecord_(await idbRequest_(store.get(key)).catch(()=>null))]));
       pairs.forEach(([key,record])=>{if(record)memoryCache_.set(key,record);});
     }
-    return Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)||null]));
+    const records=Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)||null]));
+    return atomicRop02Records_(wanted,records);
   }catch(_){
-    return Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)||null]));
+    const records=Object.fromEntries(wanted.map(key=>[key,memoryCache_.get(key)||null]));
+    return atomicRop02Records_(wanted,records);
   }
 }
 export async function readCachedSources(keys){
