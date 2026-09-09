@@ -98,7 +98,7 @@ export const createOficinaTecnicaDeps = BlockingDataLoader => Object.freeze({
 });
 
 export const MANTENIMIENTO_DEPS = Object.freeze({
-  APPS_SCRIPT_URL, C, Card, Badge, LoadingMotoniveladora, MultiSel, Sel, DateIn, PeriodMonthYear:CalendarPeriodMonthYear, TabBtn, StatCard, SortableTH, BtnExcel, Icon,
+  APPS_SCRIPT_URL, C, Card, Badge, LoadingMotoniveladora, MultiSel, Sel, DateIn, PeriodMonthYear, TabBtn, StatCard, SortableTH, BtnExcel, Icon,
   fmtNum, fmtUSD, fmtFecha, normDate, uniq, matchMulti, multiIsAll, tipoMatchMachineROP05,
   normalizeInsumoCode, positionTip, sortRowsForTable, appAlert, appConfirm, proyColor, getValue,
   generarExcelMantenimiento, ROP05_TIPOS_MAQUINA, CodeMultiSearch
