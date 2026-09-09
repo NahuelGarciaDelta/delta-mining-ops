@@ -2,129 +2,36 @@ import React,{useCallback,useEffect,useMemo,useRef,useState} from "react";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
 import {APPS_SCRIPT_URL} from "../../config/app.js";
 import {fetchAction} from "../../services/appsScriptApi.js";
-import {writeCachedSource} from "../../services/appCache.js";
+import {readCachedSource,writeCachedSource} from "../../services/appCache.js";
 import {registerRefreshTask} from "../../services/refreshManager.js";
-import {C,PageLoadingMotoniveladora,dmNormalizeAssignedProject,dmProjectMatches} from "../../components/ui/index.jsx";
+import {C,PageLoadingMotoniveladora} from "../../components/ui/index.jsx";
 import {resolveEquipmentCodeAlias} from "../equipment/equipmentCode.js";
+import {
+  DASHBOARD_SNAPSHOT_CACHE_VERSION,
+  resolveDashboardScope,
+  validateDashboardSnapshotResponse,
+  validateCachedDashboardSnapshot,
+} from "./dashboardSnapshotPolicy.js";
 
-const safe=v=>Array.isArray(v)?v:[];
-const DASHBOARD_CACHE_VERSION=7;
-const SNAPSHOT_BACKEND_MARK="DASHBOARD-SNAPSHOT-V1";
-
-const normText=v=>String(v??"")
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g,"")
-  .replace(/\s+/g," ")
-  .trim()
-  .toUpperCase();
-
-function dashboardScope(){
-  if(typeof window==="undefined")return{global:true,project:"TODO",scopeKey:"server"};
-  const area=normText(window.sessionStorage?.getItem("dm_area")||"");
-  const role=normText(window.sessionStorage?.getItem("dm_role")||"");
-  const project=dmNormalizeAssignedProject(window.sessionStorage?.getItem("dm_project")||"TODO");
-  const global=
-    area.includes("OFICINA TECNICA")||
-    role.includes("GERENTE")||
-    role.includes("ADMINISTRADOR")||
-    role.includes("PRESIDENTE")||
-    project==="TODO";
-  return{global,project,scopeKey:global?"GLOBAL":normText(project).replace(/[^A-Z0-9]+/g,"_")};
-}
-
-function applyScope(rows,scope){
-  if(scope?.global)return safe(rows);
-  return safe(rows).filter(r=>dmProjectMatches(
-    r?.proyecto??r?.Proyecto??r?.PROYECTO??r?.lugar??r?.Lugar??"",
-    scope?.project||"TODO",
-  ));
-}
+const safe=value=>Array.isArray(value)?value:[];
 
 function aliasRows(rows){
-  return safe(rows).map(r=>({
-    ...r,
-    maquina:resolveEquipmentCodeAlias(r?.maquina||r?.interno||""),
+  return safe(rows).map(row=>({
+    ...row,
+    maquina:resolveEquipmentCodeAlias(row?.maquina||row?.interno||""),
   }));
 }
 
-function operationalMonthKey(value){
-  const m=String(value||"").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if(!m)return"";
-  let year=Number(m[1]),month=Number(m[2]);
-  const day=Number(m[3]);
-  if(day>=26){
-    month+=1;
-    if(month===13){month=1;year+=1;}
-  }
-  return`${year}-${String(month).padStart(2,"0")}`;
-}
-
-function historicalDistribution(rows){
-  const out={};
-  safe(rows).forEach(r=>{
-    if(r?._excluded)return;
-    const period=operationalMonthKey(r?.fecha);
-    if(!period)return;
-    if(!out[period])out[period]={rows:0,hours:0};
-    out[period].rows+=1;
-    const h=Number(r?.horas||0);
-    if(Number.isFinite(h)&&h>0)out[period].hours+=h;
-  });
-  return out;
-}
-
-function validateSnapshot(response,year){
-  if(!response?.ok||response?.action!=="dashboard_snapshot"){
-    throw new Error("El backend no devolvió el snapshot completo del Dashboard.");
-  }
-
-  const backendVersion=String(response?.backendVersion||"");
-  if(!backendVersion.includes(SNAPSHOT_BACKEND_MARK)){
-    throw new Error(
-      "BACKEND_DESACTUALIZADO: falta publicar el Apps Script con DASHBOARD-SNAPSHOT-V1. "+
-      `Versión recibida: ${backendVersion||"sin versión"}.`
-    );
-  }
-
-  if(!Array.isArray(response?.rop02)||!Array.isArray(response?.rma15)){
-    throw new Error("El snapshot llegó sin ROP02/RMA15 completos.");
-  }
-
-  const ropCount=Number(response?.stats?.rop02??response.rop02.length)||0;
-  const rmaCount=Number(response?.stats?.rma15??response.rma15.length)||0;
-  const valued=Number(response?.stats?.rma15Valorizados||0);
-  const ropMin=String(response?.coverage?.rop02Min||"");
-  const ropMax=String(response?.coverage?.rop02Max||"");
-  const distribution=historicalDistribution(response.rop02);
-
-  if(year===2026){
-    if(ropCount<5000)throw new Error(`ROP02 incompleto: ${ropCount} registros. Se requieren más de 5.000 para 2026.`);
-    if(rmaCount<1000)throw new Error(`RMA15 incompleto: ${rmaCount} registros. Se requieren más de 1.000 para 2026.`);
-    if(!ropMin||ropMin>"2026-02-01")throw new Error(`Cobertura ROP02 incompleta: inicia en ${ropMin||"S/D"}.`);
-    if(!ropMax||ropMax<"2026-08-01")throw new Error(`Cobertura ROP02 incompleta: termina en ${ropMax||"S/D"}.`);
-
-    // No alcanza con tener miles de filas: exigimos distribución histórica real.
-    // Esto impide que una respuesta concentrada en agosto/septiembre se acepte como año completo.
-    ["2026-02","2026-03","2026-04","2026-05","2026-06","2026-07","2026-08"].forEach(period=>{
-      const p=distribution[period];
-      if(!p||p.rows<20||p.hours<=0){
-        throw new Error(`HISTORICO_INCOMPLETO: el período ${period} no contiene registros/horas productivas suficientes.`);
-      }
-    });
-
-    if(Number(response?.stats?.rma15ConCodigos||0)>0&&valued<=0){
-      throw new Error("RMA15 tiene insumos pero el backend no valorizó ningún mantenimiento.");
-    }
-  }
-
-  return{response,distribution};
+function currentDashboardScope(){
+  if(typeof window==="undefined")return resolveDashboardScope("TODO");
+  return resolveDashboardScope(window.sessionStorage?.getItem("dm_project")||"TODO");
 }
 
 export default function ExecutiveDashboardHistorical(props){
   const currentYear=useMemo(()=>new Date().getFullYear(),[]);
-  const scope=useMemo(()=>dashboardScope(),[]);
+  const scope=useMemo(()=>currentDashboardScope(),[]);
   const cacheKey=useMemo(
-    ()=>`dashboard-snapshot-v${DASHBOARD_CACHE_VERSION}-${currentYear}-${scope.scopeKey}`,
+    ()=>`dashboard-atomic-snapshot-v${DASHBOARD_SNAPSHOT_CACHE_VERSION}-${currentYear}-${scope.scopeKey}`,
     [currentYear,scope.scopeKey],
   );
   const mountedRef=useRef(true);
@@ -133,110 +40,170 @@ export default function ExecutiveDashboardHistorical(props){
     loading:true,
     refreshing:false,
     ready:false,
+    stale:false,
     error:"",
     rop02:[],
     rma15:[],
     stats:null,
     coverage:null,
     distribution:null,
+    projectStats:null,
+    updatedAt:"",
+    source:"",
   });
+
+  const publishDiagnostics=useCallback(snapshot=>{
+    if(typeof window==="undefined"||!snapshot)return;
+    window.__dmDashboardSnapshotDiagnostics={
+      source:snapshot.source||"",
+      updatedAt:snapshot.updatedAt||"",
+      scope:{global:scope.global,projects:[...scope.projects],requiredSources:[...scope.requiredSources],scopeKey:scope.scopeKey},
+      rop02:snapshot.rop02?.length||0,
+      rma15:snapshot.rma15?.length||0,
+      projectStats:snapshot.projectStats||null,
+      coverage:snapshot.coverage||null,
+      distribution:snapshot.distribution||null,
+      backendVersion:snapshot.backendVersion||"",
+    };
+  },[scope]);
 
   const loadSnapshot=useCallback(async({background=false}={})=>{
     const sequence=++sequenceRef.current;
-    setState(prev=>({...prev,loading:!background,refreshing:background,error:""}));
+    setState(prev=>({
+      ...prev,
+      loading:prev.ready?false:!background,
+      refreshing:prev.ready||background,
+      error:"",
+    }));
 
     try{
-      // IMPORTANTE: el Dashboard ya NO abre desde IndexedDB/cache local.
-      // Siempre espera un snapshot fresco y validado del Apps Script antes de mostrar números.
-      const checked=validateSnapshot(
-        await fetchAction(APPS_SCRIPT_URL,"dashboard_snapshot",{
-          force:true,
-          compact:false,
-          retries:1,
-          timeoutMs:55000,
-        }),
-        currentYear,
-      );
-      const response=checked.response;
-
-      const rop02=applyScope(aliasRows(response.rop02),scope);
-      const rma15=applyScope(aliasRows(response.rma15),scope);
-      if(!rop02.length)throw new Error("El snapshot no contiene ROP02 para el alcance del usuario.");
-      if(!rma15.length)throw new Error("El snapshot no contiene RMA15 para el alcance del usuario.");
-
-      // Validación adicional DESPUÉS de aplicar el alcance del usuario.
-      // Oficina Técnica/gerencia es GLOBAL, por lo que julio debe contener horas reales.
-      const scopedDistribution=historicalDistribution(rop02);
-      if(currentYear===2026&&scope.global){
-        const july=scopedDistribution["2026-07"];
-        if(!july||july.rows<20||july.hours<=0){
-          throw new Error("JULIO_2026_INCOMPLETO: el snapshot recibido no contiene las horas reales del 26/06 al 25/07.");
-        }
-      }
+      // El endpoint dashboard_snapshot arma ROP02 + RMA15 como una única respuesta.
+      // La respuesta NO se publica hasta que la política comprueba todos los
+      // proyectos requeridos y la cobertura histórica. Así el Dashboard nunca
+      // ve "JM nuevo + FDS faltante" ni cualquier otra combinación parcial.
+      const response=await fetchAction(APPS_SCRIPT_URL,"dashboard_snapshot",{
+        force:true,
+        compact:false,
+        retries:1,
+        timeoutMs:55000,
+      });
+      const checked=validateDashboardSnapshotResponse(response,currentYear,scope);
+      const rop02=aliasRows(checked.rop02);
+      const rma15=aliasRows(checked.rma15);
+      const updatedAt=new Date().toISOString();
 
       const cachedValue={
         ok:true,
-        cacheVersion:DASHBOARD_CACHE_VERSION,
+        cacheVersion:DASHBOARD_SNAPSHOT_CACHE_VERSION,
         year:currentYear,
         scopeKey:scope.scopeKey,
-        updatedAt:new Date().toISOString(),
-        backendVersion:response.backendVersion,
+        updatedAt,
+        backendVersion:checked.backendVersion,
         rop02,
         rma15,
-        stats:response.stats||null,
-        coverage:response.coverage||null,
-        distribution:scopedDistribution,
+        stats:checked.stats,
+        coverage:checked.coverage,
+        distribution:checked.distribution,
+        projectStats:checked.projectStats,
       };
 
-      // Se escribe cache sólo como respaldo diagnóstico; nunca se usa para pintar la carga inicial.
+      // Este cache es un SNAPSHOT COMPUESTO ya validado, no cuatro caches ROP02
+      // independientes. Se escribe solamente después de validar la transacción.
       await writeCachedSource(cacheKey,cachedValue).catch(()=>{});
       if(!mountedRef.current||sequence!==sequenceRef.current)return cachedValue;
 
-      setState({
+      const next={
         loading:false,
         refreshing:false,
         ready:true,
+        stale:false,
         error:"",
         rop02,
         rma15,
-        stats:cachedValue.stats,
-        coverage:cachedValue.coverage,
-        distribution:scopedDistribution,
-      });
+        stats:checked.stats,
+        coverage:checked.coverage,
+        distribution:checked.distribution,
+        projectStats:checked.projectStats,
+        updatedAt,
+        source:"network",
+        backendVersion:checked.backendVersion,
+      };
+      setState(next);
+      publishDiagnostics(next);
       return cachedValue;
     }catch(error){
       if(!mountedRef.current||sequence!==sequenceRef.current)throw error;
-      const message=String(error?.message||error||"No se pudo cargar el Dashboard completo.");
-      setState(prev=>({
-        ...prev,
-        loading:false,
-        refreshing:false,
-        ready:false,
-        error:message,
-        rop02:[],
-        rma15:[],
-      }));
+      const message=String(error?.message||error||"No se pudo actualizar el Dashboard completo.");
+
+      // CRÍTICO: un refresh fallido JAMÁS borra el último snapshot válido.
+      // Si ya hay uno visible se conserva entero y sólo se informa la falla.
+      setState(prev=>{
+        if(prev.ready){
+          const next={...prev,loading:false,refreshing:false,stale:true,error:message};
+          publishDiagnostics(next);
+          return next;
+        }
+        return {...prev,loading:false,refreshing:false,ready:false,error:message};
+      });
       throw error;
     }
-  },[cacheKey,currentYear,scope]);
+  },[cacheKey,currentYear,publishDiagnostics,scope]);
 
   useEffect(()=>{
     mountedRef.current=true;
-    loadSnapshot({background:false}).catch(()=>{});
+    let cancelled=false;
+
+    const bootstrap=async()=>{
+      let usedCache=false;
+      try{
+        const record=await readCachedSource(cacheKey).catch(()=>null);
+        const cached=validateCachedDashboardSnapshot(record?.value??record?.data,currentYear,scope);
+        if(!cancelled&&mountedRef.current&&cached){
+          const next={
+            loading:false,
+            refreshing:true,
+            ready:true,
+            stale:true,
+            error:"",
+            rop02:aliasRows(cached.rop02),
+            rma15:aliasRows(cached.rma15),
+            stats:cached.stats||null,
+            coverage:cached.coverage||null,
+            distribution:cached.distribution||null,
+            projectStats:cached.projectStats||null,
+            updatedAt:cached.updatedAt||"",
+            source:"validated-cache",
+            backendVersion:cached.backendVersion||"",
+          };
+          usedCache=true;
+          setState(next);
+          publishDiagnostics(next);
+        }
+      }catch(_){}
+
+      // El cache sólo acelera/aporta continuidad. Siempre se fuerza una
+      // revalidación real contra backend al montar el Dashboard.
+      if(!cancelled&&mountedRef.current){
+        loadSnapshot({background:usedCache}).catch(()=>{});
+      }
+    };
+
+    bootstrap();
     return()=>{
+      cancelled=true;
       mountedRef.current=false;
       sequenceRef.current+=1;
     };
-  },[loadSnapshot]);
+  },[cacheKey,currentYear,loadSnapshot,publishDiagnostics,scope]);
 
   useEffect(()=>registerRefreshTask(
-    "dashboard-verified-snapshot",
-    ()=>loadSnapshot({background:state.ready}),
+    "dashboard-atomic-snapshot",
+    ()=>loadSnapshot({background:true}),
     {views:["dashboard"],priority:10},
-  ),[loadSnapshot,state.ready]);
+  ),[loadSnapshot]);
 
   if(!state.ready&&state.loading){
-    return <PageLoadingMotoniveladora label="Cargando y validando histórico completo 2026..."/>;
+    return <PageLoadingMotoniveladora label={`Cargando snapshot completo ${currentYear}...`}/>;
   }
 
   if(!state.ready&&state.error){
@@ -248,7 +215,10 @@ export default function ExecutiveDashboardHistorical(props){
   }
 
   return <>
-    {state.refreshing&&<div style={{marginBottom:8,fontSize:10,color:C.textMuted}}>Actualizando snapshot histórico verificado…</div>}
+    {state.refreshing&&<div style={{marginBottom:8,fontSize:10,color:C.textMuted}}>Actualizando snapshot histórico completo sin retirar los datos visibles…</div>}
+    {state.ready&&state.error&&<div role="alert" style={{marginBottom:8,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.textSub,fontSize:10,lineHeight:1.45}}>
+      No se pudo completar la última actualización. Se conserva íntegro el último snapshot validado{state.updatedAt?` (${new Date(state.updatedAt).toLocaleString("es-AR")})`:""}. {state.error}
+    </div>}
     <ExecutiveDashboard {...props} rop02All={state.rop02} rma15={state.rma15}/>
   </>;
 }
