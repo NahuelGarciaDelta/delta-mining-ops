@@ -1,5 +1,5 @@
 export const VIEW_SOURCES = Object.freeze({
-  bienvenida:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rma15_fs","rma15_jm"],
+  bienvenida:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rma15_fs","rma15_jm","insumos"],
   equipmentProfile:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"],
   dashboard:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos","lista_equipos"],
   rop02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
