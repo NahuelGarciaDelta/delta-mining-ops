@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import {C} from "./components/ui/index.jsx";
 import {applyAppearance,readLastAppearance} from "./services/userAppearance.js";
-import {preloadHistoricalDatasets} from "./services/globalPreload.js";
 import {DATA_REFRESH_INTERVAL_MS,dispatchDataRefreshPolicyTick,installLegacyRefreshIntervalPolicy} from "./services/dataRefreshPolicy.js";
 import {installAdministrativeTableExports} from "./services/administrativeTableExports.js";
 import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
@@ -31,23 +30,22 @@ createRoot(document.getElementById("root")).render(
   </React.StrictMode>
 );
 
-// Mantiene calientes los históricos comunes (ROP02/ROP05/RMA15) aunque el usuario
-// esté trabajando en otra pestaña. La revalidación de 5 minutos actualiza las
-// copias cacheadas si el backend cambió.
+// Solo dispara la política de actualización. Ya NO vuelve a descargar por la fuerza
+// ROP02 + ROP05 + RMA15 completos cada 5 minutos: esa precarga competía con la vista
+// activa, multiplicaba tráfico y era una de las causas de la lentitud general.
 if(typeof window!=="undefined"){
-  let lastHistoricalRefresh=Date.now();
-  const refreshHistorical=()=>{
+  let lastRefresh=Date.now();
+  const refreshPolicy=()=>{
     if(document.hidden||navigator.onLine===false)return;
-    lastHistoricalRefresh=Date.now();
+    lastRefresh=Date.now();
     dispatchDataRefreshPolicyTick("auto");
-    preloadHistoricalDatasets({force:true}).catch(()=>{});
   };
-  const id=window.setInterval(refreshHistorical,DATA_REFRESH_INTERVAL_MS);
+  const id=window.setInterval(refreshPolicy,DATA_REFRESH_INTERVAL_MS);
   const onVisible=()=>{
     if(document.hidden)return;
-    if(Date.now()-lastHistoricalRefresh>=DATA_REFRESH_INTERVAL_MS)refreshHistorical();
+    if(Date.now()-lastRefresh>=DATA_REFRESH_INTERVAL_MS)refreshPolicy();
   };
-  const onOnline=()=>refreshHistorical();
+  const onOnline=()=>refreshPolicy();
   document.addEventListener("visibilitychange",onVisible);
   window.addEventListener("online",onOnline);
   window.addEventListener("beforeunload",()=>{
@@ -59,8 +57,6 @@ if(typeof window!=="undefined"){
 
 // PWA: actualización obligatoria del Service Worker y del bundle.
 // Cuando un SW nuevo toma control, esta página se recarga exactamente una vez.
-// No se usa sessionStorage: esa bandera podía sobrevivir a un deployment y dejar
-// una pestaña ejecutando un bundle JS viejo aunque el SW ya fuera el nuevo.
 if ("serviceWorker" in navigator) {
   let swRegistration=null;
   let controllerReloading=false;
@@ -80,7 +76,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load",async()=>{
     try{
       swRegistration=await navigator.serviceWorker.register(
-        "/sw.js?v=20260909-cache5m-maint-dashboard-v20",
+        "/sw.js?v=20260909-api-network-only-v22",
         {updateViaCache:"none"}
       );
       await swRegistration.update();
