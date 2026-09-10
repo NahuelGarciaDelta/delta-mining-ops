@@ -53,9 +53,8 @@ export async function runWithConcurrency_(items,limit,worker){
   });
   await Promise.all(runners);
 
-  // Cuando una vista solicita varias fuentes ROP02 en el mismo ciclo, no se
-  // permite publicar sólo una parte del conjunto. fetchSource las obtiene desde
-  // el mismo bundle, pero esta barrera también protege ante errores inesperados.
+  // ROP02 se lee por fuente en paralelo, pero se publica como un conjunto.
+  // Si una fuente falla, se rechazan todas y la app conserva el último conjunto válido.
   const ropIndexes=items.map((item,index)=>ROP02_BUNDLE_SOURCE_SET.has(String(item||""))?index:-1).filter(index=>index>=0);
   if(ropIndexes.length>1){
     const failed=ropIndexes.find(index=>results[index]?.status!=="fulfilled");
@@ -101,7 +100,9 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
   throw lastErr;
 }
 
-export async function fetchRop02Bundle(url,{force=false,retries=1,timeoutMs=55000}={}){
+// Se conserva sólo para diagnóstico/precalentamiento. El frontend ya no depende
+// de una única llamada gigante que en frío lee las cuatro planillas secuencialmente.
+export async function fetchRop02Bundle(url,{force=false,retries=0,timeoutMs=45000}={}){
   const key=force?"force":"normal";
   const now=Date.now();
   if(!force&&rop02BundleMemo_.key===key&&rop02BundleMemo_.value&&now-rop02BundleMemo_.at<30000){
@@ -136,15 +137,23 @@ export async function fetchRop02Bundle(url,{force=false,retries=1,timeoutMs=5500
 }
 
 export async function fetchHealth(url){return fetchAction(url,"health",{compact:false});}
+
 export async function fetchSource(url,source,{force=false,since="",retries=2,timeoutMs=45000}={}){
-  if(ROP02_BUNDLE_SOURCE_SET.has(String(source||""))){
-    const bundle=await fetchRop02Bundle(url,{force,retries:Math.min(1,retries),timeoutMs:Math.max(timeoutMs,55000)});
-    const value=bundle.sources?.[source];
-    if(!value?.ok||!Array.isArray(value.data))throw new Error(`El bundle ROP02 no contiene ${source}.`);
-    return value;
+  const sourceKey=String(source||"");
+  if(ROP02_BUNDLE_SOURCE_SET.has(sourceKey)){
+    // JM/FDS/Filo Sur/El Zorro se solicitan individualmente; runWithConcurrency_
+    // permite que las llamadas corran en paralelo y mantiene atomicidad al publicar.
+    return fetchAction(url,sourceKey,{
+      force,
+      compact:true,
+      since,
+      retries:Math.min(1,Math.max(0,Number(retries)||0)),
+      timeoutMs:Math.min(45000,Math.max(15000,Number(timeoutMs)||30000))
+    });
   }
-  return fetchAction(url,source,{force,compact:true,since,retries,timeoutMs});
+  return fetchAction(url,sourceKey,{force,compact:true,since,retries,timeoutMs});
 }
+
 export async function fetchSyncVersions(url,{timeoutMs=7000}={}){
   const options={compact:false,retries:0,timeoutMs};
   try{return await fetchAction(url,"get_data_versions",options);}
