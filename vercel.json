@@ -1,10 +1,10 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/apps-script",
-      "destination": "https://script.google.com/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/apps-script.js": {
+      "maxDuration": 60
     }
-  ],
+  },
   "headers": [
     {
       "source": "/api/apps-script",
