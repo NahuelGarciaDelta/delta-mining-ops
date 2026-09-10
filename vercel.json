@@ -1,15 +1,17 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "functions": {
-    "api/apps-script.js": {
-      "maxDuration": 60
+  "rewrites": [
+    {
+      "source": "/api/apps-script",
+      "destination": "https://script.google.com/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec"
     }
-  },
+  ],
   "headers": [
     {
       "source": "/api/apps-script",
       "headers": [
-        {"key": "Cache-Control", "value": "no-store, max-age=0"}
+        {"key": "Cache-Control", "value": "no-store, max-age=0"},
+        {"key": "x-vercel-enable-rewrite-caching", "value": "0"}
       ]
     },
     {
