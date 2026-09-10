@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v21-dashboard-atomic-20260909";
+const CACHE_NAME = "delta-mining-ops-v22-api-network-only-20260909";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -46,8 +46,13 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // NUNCA servir HTML/JS/CSS viejo cuando hay red. El Dashboard depende de que
-  // todas las PCs ejecuten exactamente la misma versión del bundle desplegado.
+  // API: siempre red directa. Nunca guardar respuestas del backend en CacheStorage.
+  // La app ya tiene su propia cache validada en IndexedDB para los datasets.
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request,{cache:"no-store"}));
+    return;
+  }
+
   const isExecutable =
     request.mode === "navigate" ||
     request.destination === "script" ||
