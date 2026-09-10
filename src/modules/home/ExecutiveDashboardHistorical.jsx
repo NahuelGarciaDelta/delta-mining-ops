@@ -36,21 +36,28 @@ export default function ExecutiveDashboardHistorical(props){
   );
   const mountedRef=useRef(true);
   const sequenceRef=useRef(0);
-  const [state,setState]=useState({
-    loading:true,
-    refreshing:false,
-    ready:false,
-    stale:false,
+
+  // Si App ya tiene ROP02/RMA15 hidratados, el Dashboard se pinta en el primer frame.
+  // El snapshot validado se actualiza por detrás sin reemplazar la pantalla por un loader.
+  const initialRop02=aliasRows(props.rop02All);
+  const initialRma15=aliasRows(props.rma15);
+  const initialReady=initialRop02.length>0&&initialRma15.length>0;
+
+  const [state,setState]=useState(()=>({
+    loading:!initialReady,
+    refreshing:initialReady,
+    ready:initialReady,
+    stale:initialReady,
     error:"",
-    rop02:[],
-    rma15:[],
+    rop02:initialRop02,
+    rma15:initialRma15,
     stats:null,
     coverage:null,
     distribution:null,
     projectStats:null,
     updatedAt:"",
-    source:"",
-  });
+    source:initialReady?"app-hydrated":"",
+  }));
 
   const publishDiagnostics=useCallback(snapshot=>{
     if(typeof window==="undefined"||!snapshot)return;
@@ -67,7 +74,7 @@ export default function ExecutiveDashboardHistorical(props){
     };
   },[scope]);
 
-  const loadSnapshot=useCallback(async({background=false}={})=>{
+  const loadSnapshot=useCallback(async({background=false,force=false}={})=>{
     const sequence=++sequenceRef.current;
     setState(prev=>({
       ...prev,
@@ -77,12 +84,10 @@ export default function ExecutiveDashboardHistorical(props){
     }));
 
     try{
-      // El endpoint dashboard_snapshot arma ROP02 + RMA15 como una única respuesta.
-      // La respuesta NO se publica hasta que la política comprueba todos los
-      // proyectos requeridos y la cobertura histórica. Así el Dashboard nunca
-      // ve "JM nuevo + FDS faltante" ni cualquier otra combinación parcial.
+      // En carga normal NO se fuerza al backend: así aprovecha la caché caliente V4.
+      // Sólo el botón Actualizar fuerza una reconstrucción real.
       const response=await fetchAction(APPS_SCRIPT_URL,"dashboard_snapshot",{
-        force:true,
+        force,
         compact:false,
         retries:1,
         timeoutMs:55000,
@@ -107,8 +112,6 @@ export default function ExecutiveDashboardHistorical(props){
         projectStats:checked.projectStats,
       };
 
-      // Este cache es un SNAPSHOT COMPUESTO ya validado, no cuatro caches ROP02
-      // independientes. Se escribe solamente después de validar la transacción.
       await writeCachedSource(cacheKey,cachedValue).catch(()=>{});
       if(!mountedRef.current||sequence!==sequenceRef.current)return cachedValue;
 
@@ -125,7 +128,7 @@ export default function ExecutiveDashboardHistorical(props){
         distribution:checked.distribution,
         projectStats:checked.projectStats,
         updatedAt,
-        source:"network",
+        source:response?.serverCacheHit?"server-cache":"network",
         backendVersion:checked.backendVersion,
       };
       setState(next);
@@ -134,9 +137,6 @@ export default function ExecutiveDashboardHistorical(props){
     }catch(error){
       if(!mountedRef.current||sequence!==sequenceRef.current)throw error;
       const message=String(error?.message||error||"No se pudo actualizar el Dashboard completo.");
-
-      // CRÍTICO: un refresh fallido JAMÁS borra el último snapshot válido.
-      // Si ya hay uno visible se conserva entero y sólo se informa la falla.
       setState(prev=>{
         if(prev.ready){
           const next={...prev,loading:false,refreshing:false,stale:true,error:message};
@@ -154,7 +154,7 @@ export default function ExecutiveDashboardHistorical(props){
     let cancelled=false;
 
     const bootstrap=async()=>{
-      let usedCache=false;
+      let usedCache=initialReady;
       try{
         const record=await readCachedSource(cacheKey).catch(()=>null);
         const cached=validateCachedDashboardSnapshot(record?.value??record?.data,currentYear,scope);
@@ -181,10 +181,8 @@ export default function ExecutiveDashboardHistorical(props){
         }
       }catch(_){}
 
-      // El cache sólo acelera/aporta continuidad. Siempre se fuerza una
-      // revalidación real contra backend al montar el Dashboard.
       if(!cancelled&&mountedRef.current){
-        loadSnapshot({background:usedCache}).catch(()=>{});
+        loadSnapshot({background:usedCache,force:false}).catch(()=>{});
       }
     };
 
@@ -198,26 +196,25 @@ export default function ExecutiveDashboardHistorical(props){
 
   useEffect(()=>registerRefreshTask(
     "dashboard-atomic-snapshot",
-    ()=>loadSnapshot({background:true}),
+    context=>loadSnapshot({background:true,force:context?.reason==="manual"}),
     {views:["dashboard"],priority:10},
   ),[loadSnapshot]);
 
   if(!state.ready&&state.loading){
-    return <PageLoadingMotoniveladora label={`Cargando snapshot completo ${currentYear}...`}/>;
+    return <PageLoadingMotoniveladora label="Cargando datos..."/>;
   }
 
   if(!state.ready&&state.error){
     return <div style={{maxWidth:900,margin:"48px auto",padding:20,borderRadius:12,border:`1px solid ${C.red}66`,background:C.redDim,color:C.text}}>
-      <div style={{fontSize:16,fontWeight:900,color:C.red,marginBottom:8}}>Dashboard bloqueado para evitar datos falsos o parciales</div>
+      <div style={{fontSize:16,fontWeight:900,color:C.red,marginBottom:8}}>No se pudieron cargar los datos del Dashboard</div>
       <div style={{fontSize:12,lineHeight:1.55,color:C.textSub,marginBottom:14}}>{state.error}</div>
-      <button type="button" onClick={()=>loadSnapshot({background:false}).catch(()=>{})} style={{border:`1px solid ${C.accent}66`,background:C.accentDim,color:C.accent,borderRadius:8,padding:"8px 13px",fontWeight:800,cursor:"pointer"}}>Reintentar carga verificada</button>
+      <button type="button" onClick={()=>loadSnapshot({background:false,force:true}).catch(()=>{})} style={{border:`1px solid ${C.accent}66`,background:C.accentDim,color:C.accent,borderRadius:8,padding:"8px 13px",fontWeight:800,cursor:"pointer"}}>Reintentar</button>
     </div>;
   }
 
   return <>
-    {state.refreshing&&<div style={{marginBottom:8,fontSize:10,color:C.textMuted}}>Actualizando snapshot histórico completo sin retirar los datos visibles…</div>}
     {state.ready&&state.error&&<div role="alert" style={{marginBottom:8,padding:"8px 10px",borderRadius:8,border:`1px solid ${C.yellow}55`,background:C.yellowDim,color:C.textSub,fontSize:10,lineHeight:1.45}}>
-      No se pudo completar la última actualización. Se conserva íntegro el último snapshot validado{state.updatedAt?` (${new Date(state.updatedAt).toLocaleString("es-AR")})`:""}. {state.error}
+      No se pudo completar la última actualización. Se mantienen los últimos datos completos disponibles. {state.error}
     </div>}
     <ExecutiveDashboard {...props} rop02All={state.rop02} rma15={state.rma15}/>
   </>;
