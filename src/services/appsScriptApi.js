@@ -1,7 +1,6 @@
 const ROP02_BUNDLE_SOURCES=Object.freeze(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"]);
 const ROP02_BUNDLE_SOURCE_SET=new Set(ROP02_BUNDLE_SOURCES);
-const ROP02_CORE_SOURCES=Object.freeze(["rop02_jm","rop02_fs"]);
-const ROP02_CORE_SOURCE_SET=new Set(ROP02_CORE_SOURCES);
+const ROP02_CORE_SOURCE_SET=new Set(["rop02_jm","rop02_fs"]);
 const ROP02_OPTIONAL_SOURCE_SET=new Set(["rop02_filosur","rop02_zorro"]);
 let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
 
@@ -56,24 +55,10 @@ export async function runWithConcurrency_(items,limit,worker){
   });
   await Promise.all(runners);
 
-  // JM + FDS son el núcleo operativo del ROP02 y deben mantenerse consistentes.
-  // Filo Sur y El Zorro son fuentes complementarias/históricas: si una de ellas
-  // tarda o falla, no debe invalidar JM/FDS ni bloquear el ingreso a la app.
-  const coreIndexes=items
-    .map((item,index)=>ROP02_CORE_SOURCE_SET.has(String(item||""))?index:-1)
-    .filter(index=>index>=0);
-
-  if(coreIndexes.length===ROP02_CORE_SOURCES.length){
-    const failed=coreIndexes.find(index=>results[index]?.status!=="fulfilled");
-    if(failed!==undefined){
-      const cause=results[failed]?.reason;
-      const reason=new Error(
-        `ROP02 principal incompleto: falló ${String(items[failed]).toUpperCase()}. `+
-        `Se conserva JM/FDS anterior. ${String(cause?.message||cause||"")}`.trim()
-      );
-      coreIndexes.forEach(index=>{results[index]={status:"rejected",reason};});
-    }
-  }
+  // Cada fuente se resuelve de forma independiente. Una falla de JM, FDS,
+  // Filo Sur o El Zorro nunca convierte artificialmente otra fuente exitosa
+  // en fallida; la capa superior conserva únicamente la última copia válida
+  // de la fuente que haya fallado.
   return results;
 }
 
