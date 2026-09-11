@@ -1,5 +1,8 @@
 const ROP02_BUNDLE_SOURCES=Object.freeze(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"]);
 const ROP02_BUNDLE_SOURCE_SET=new Set(ROP02_BUNDLE_SOURCES);
+const ROP02_CORE_SOURCES=Object.freeze(["rop02_jm","rop02_fs"]);
+const ROP02_CORE_SOURCE_SET=new Set(ROP02_CORE_SOURCES);
+const ROP02_OPTIONAL_SOURCE_SET=new Set(["rop02_filosur","rop02_zorro"]);
 let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
 
 export function expandCompactSource(src){
@@ -53,15 +56,22 @@ export async function runWithConcurrency_(items,limit,worker){
   });
   await Promise.all(runners);
 
-  // ROP02 se lee por fuente en paralelo, pero se publica como un conjunto.
-  // Si una fuente falla, se rechazan todas y la app conserva el último conjunto válido.
-  const ropIndexes=items.map((item,index)=>ROP02_BUNDLE_SOURCE_SET.has(String(item||""))?index:-1).filter(index=>index>=0);
-  if(ropIndexes.length>1){
-    const failed=ropIndexes.find(index=>results[index]?.status!=="fulfilled");
+  // JM + FDS son el núcleo operativo del ROP02 y deben mantenerse consistentes.
+  // Filo Sur y El Zorro son fuentes complementarias/históricas: si una de ellas
+  // tarda o falla, no debe invalidar JM/FDS ni bloquear el ingreso a la app.
+  const coreIndexes=items
+    .map((item,index)=>ROP02_CORE_SOURCE_SET.has(String(item||""))?index:-1)
+    .filter(index=>index>=0);
+
+  if(coreIndexes.length===ROP02_CORE_SOURCES.length){
+    const failed=coreIndexes.find(index=>results[index]?.status!=="fulfilled");
     if(failed!==undefined){
       const cause=results[failed]?.reason;
-      const reason=new Error(`ROP02 incompleto: falló ${String(items[failed]).toUpperCase()}. Se conserva el conjunto anterior. ${String(cause?.message||cause||"")}`.trim());
-      ropIndexes.forEach(index=>{results[index]={status:"rejected",reason};});
+      const reason=new Error(
+        `ROP02 principal incompleto: falló ${String(items[failed]).toUpperCase()}. `+
+        `Se conserva JM/FDS anterior. ${String(cause?.message||cause||"")}`.trim()
+      );
+      coreIndexes.forEach(index=>{results[index]={status:"rejected",reason};});
     }
   }
   return results;
@@ -140,17 +150,27 @@ export async function fetchHealth(url){return fetchAction(url,"health",{compact:
 
 export async function fetchSource(url,source,{force=false,since="",retries=2,timeoutMs=45000}={}){
   const sourceKey=String(source||"");
-  if(ROP02_BUNDLE_SOURCE_SET.has(sourceKey)){
-    // JM/FDS/Filo Sur/El Zorro se solicitan individualmente; runWithConcurrency_
-    // permite que las llamadas corran en paralelo y mantiene atomicidad al publicar.
+
+  if(ROP02_CORE_SOURCE_SET.has(sourceKey)){
     return fetchAction(url,sourceKey,{
       force,
       compact:true,
       since,
       retries:Math.min(1,Math.max(0,Number(retries)||0)),
-      timeoutMs:Math.min(45000,Math.max(15000,Number(timeoutMs)||30000))
+      timeoutMs:Math.min(45000,Math.max(20000,Number(timeoutMs)||30000))
     });
   }
+
+  if(ROP02_OPTIONAL_SOURCE_SET.has(sourceKey)){
+    return fetchAction(url,sourceKey,{
+      force,
+      compact:true,
+      since,
+      retries:0,
+      timeoutMs:Math.min(20000,Math.max(10000,Number(timeoutMs)||15000))
+    });
+  }
+
   return fetchAction(url,sourceKey,{force,compact:true,since,retries,timeoutMs});
 }
 
