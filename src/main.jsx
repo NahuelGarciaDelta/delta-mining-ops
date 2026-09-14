@@ -5,6 +5,7 @@ import {C} from "./components/ui/index.jsx";
 import {applyAppearance,readLastAppearance} from "./services/userAppearance.js";
 import {DATA_REFRESH_INTERVAL_MS,dispatchDataRefreshPolicyTick,installLegacyRefreshIntervalPolicy} from "./services/dataRefreshPolicy.js";
 import {installAdministrativeTableExports} from "./services/administrativeTableExports.js";
+import {installGlobalTableColumnFilters} from "./services/globalTableColumnFilters.js";
 import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
@@ -19,6 +20,7 @@ if(typeof window!=="undefined"){
     applyAppearance(event?.detail||readLastAppearance(),C);
   });
   installAdministrativeTableExports();
+  installGlobalTableColumnFilters();
   installMechanicRoleGuard();
   installUserHeaderDisplay();
   installWelcomeRefreshButton();
@@ -76,7 +78,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load",async()=>{
     try{
       swRegistration=await navigator.serviceWorker.register(
-        "/sw.js?v=20260914-raba03-supabase-v25",
+        "/sw.js?v=20260914-global-column-filters-v26",
         {updateViaCache:"none"}
       );
       await swRegistration.update();
