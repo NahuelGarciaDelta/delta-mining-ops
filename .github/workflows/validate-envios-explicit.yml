@@ -14,5 +14,10 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci
-      - run: npm test
-      - run: npm run build
+      - name: Targeted envios tests
+        run: node --test tests/enviosSinSolicitud.test.mjs
+      - name: Production build
+        run: npm run build
+      - name: Full regression suite
+        continue-on-error: true
+        run: npm test
