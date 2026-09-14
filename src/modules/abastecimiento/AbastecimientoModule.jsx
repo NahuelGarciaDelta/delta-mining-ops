@@ -609,8 +609,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     rowsAllocated.forEach((row,index)=>{
       const code=normCode(row.codigoArticulo);
       const proyecto=normalizeCentroCosto(row.centroCosto);
-      if(!code||!proyecto)return;
-      const key=`${code}__${proyecto}`;
+      const insumoKey=norm(row.descripcion);
+      if(!code||!proyecto||!insumoKey)return;
+      // Clave de asignación: código + proyecto + nombre normalizado del insumo.
+      // La fecha NO se usa para mezclar períodos: se valida abajo como límite temporal.
+      const key=[code,proyecto,insumoKey].join("__");
       if(!byKey.has(key))byKey.set(key,[]);
       byKey.get(key).push({row,index,fechaMs:parseChronoDateMs(row.fechaSolicitud)});
     });
@@ -623,11 +626,12 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       const fechaMs=parseChronoDateMs(fecha);
       (remito.items||[]).forEach((item,itemIndex)=>{
         const code=normCode(item.codigo);
+        const insumoKey=norm(item.descripcion);
         const cantidad=toNumber(item.cantidad);
-        if(!code||cantidad<=0)return;
+        if(!code||!insumoKey||cantidad<=0)return;
         shipments.push({
           id:`${remito.id||remito.comprobante||"remito"}-${itemIndex}-${code}`,
-          code,proyecto,fecha,fechaMs,cantidad,
+          code,proyecto,insumoKey,fecha,fechaMs,cantidad,
           numero:remito.comprobante||"",
           lugar:remito.destino||remito.observaciones||remito.origen||"",
           insumo:item.descripcion||"",
@@ -640,11 +644,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     const unmatched=[];
     shipments.forEach(shipment=>{
       let restanteEnvio=shipment.cantidad;
-      const key=shipment.proyecto?`${shipment.code}__${shipment.proyecto}`:"";
+      const key=shipment.proyecto&&shipment.insumoKey?[shipment.code,shipment.proyecto,shipment.insumoKey].join("__"):"";
       const queue=key?(byKey.get(key)||[]):[];
       for(const req of queue){
         if(restanteEnvio<=0)break;
-        // A shipment can only satisfy a request that already existed on shipment date.
+        // Regla contractual: un envío jamás puede descontarse de una solicitud creada después.
         if(req.fechaMs&&shipment.fechaMs&&req.fechaMs>shipment.fechaMs)continue;
         const row=rowsAllocated[req.index];
         const pendiente=Math.max(0,toNumber(row.cantidadSolicitada)-toNumber(row.cantidadEnviada));
@@ -669,7 +673,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       }
     });
     return {rows:rowsAllocated,unmatched};
-  },[normCode,toNumber,normalizeCentroCosto,formatDateLocal]);
+  },[normCode,norm,toNumber,normalizeCentroCosto,formatDateLocal]);
 
   const buildSolicitudKey=useCallback((row)=>{
     return buildSolicitudStableKeyFromParts({
@@ -1183,11 +1187,21 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
   },[codigoEdits,loadRaba03]);
 
+  // Recalcular asignación excluyendo solicitudes rechazadas. Una rechazada nunca
+  // consume remitos y siempre debe mostrarse con Cant. enviada = 0.
+  const stateAwareRows=useMemo(()=>{
+    const base=(rows||[]).map(row=>({...row,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),_matchedRemitos:[]}));
+    const activas=base.filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)]);
+    const asignadas=allocateRemitosToRequests(activas,remitos).rows;
+    const activasById=new Map(asignadas.map(row=>[row.id,row]));
+    return base.map(row=>rejectedSolicitudes?.[buildSolicitudKey(row)]?row:(activasById.get(row.id)||row));
+  },[rows,remitos,rejectedSolicitudes,buildSolicitudKey,allocateRemitosToRequests,toNumber]);
+
   // Base visible para el usuario conectado. Todos los indicadores, gráficos y
   // tablas de solicitudes se calculan exclusivamente sobre estas filas.
   const assignedRows=useMemo(()=>
-    (rows||[]).filter(r=>dmProjectMatches(r.centroCosto,assignedProject)),
-  [rows,assignedProject]);
+    (stateAwareRows||[]).filter(r=>dmProjectMatches(r.centroCosto,assignedProject)),
+  [stateAwareRows,assignedProject]);
   const projects=useMemo(()=>Array.from(new Set(assignedRows.map(r=>r.centroCosto).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows]);
   const companies=useMemo(()=>Array.from(new Set(assignedRows.map(r=>r.empresa).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows]);
   const supervisors=useMemo(()=>Array.from(new Set(assignedRows.map(r=>canonicalSupervisor(r.pedidoPor)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows,canonicalSupervisor]);
@@ -1366,13 +1380,15 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   },[raba03DashboardRows,assignedRows,toNumber,parseRabaDateMs,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);
 
   const enviosSinSolicitudRows=useMemo(()=>{
-    const base=(rows||[]).map(r=>({...r,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(r.cantidadSolicitada)),_matchedRemitos:[]}));
+    const base=(rows||[])
+      .filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)])
+      .map(r=>({...r,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(r.cantidadSolicitada)),_matchedRemitos:[]}));
     return allocateRemitosToRequests(base,remitos).unmatched.sort((a,b)=>{
       const fa=parseChronoDateMs(a.fechaEnvio),fb=parseChronoDateMs(b.fechaEnvio);
       if(fa!==fb)return fb-fa;
       return String(a.codigoArticulo||"").localeCompare(String(b.codigoArticulo||""),"es",{numeric:true,sensitivity:"base"});
     });
-  },[rows,remitos,toNumber,allocateRemitosToRequests]);
+  },[rows,remitos,toNumber,allocateRemitosToRequests,rejectedSolicitudes,buildSolicitudKey]);
 
   const exportarEnviosSinSolicitud=useCallback(()=>{
     if(!enviosSinSolicitudRows.length){
@@ -2059,7 +2075,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     const d=abastecimientoDashboardData;
     const pieColors=[C.yellow,C.blue,C.green,C.red,C.teal];
     return (
-      <div style={{display:"grid",gap:14}}>
+      <div data-dm-disable-global-column-filters="1" style={{display:"grid",gap:14}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
           <StatCard icon="report" label="Promedio indicador" value={`${fmtNum(d.avg.toFixed(1))} días`} sub="fecha salida - fecha solicitud" color={C.red} small/>
           <StatCard icon="check" label="Ítems con salida" value={fmtNum(d.movimientos.length)} sub="con remito asignado" color={C.green} small/>
