@@ -4,10 +4,9 @@ export const VIEW_SOURCES = Object.freeze({
   // ROP05 también se precarga para que Productividad/Control abran sin espera.
   bienvenida:["rop02_fs","rop02_jm","rma15_fs","rma15_jm","insumos","lista_equipos","rop05","rop02_filosur","rop02_zorro"],
   equipmentProfile:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"],
-  // Dashboard obtiene ROP02 + RMA15 desde dashboard_snapshot como una transacción
-  // atómica. App sólo hidrata ROP05 para no competir contra el snapshot con cuatro
-  // lecturas ROP02 paralelas ni publicar combinaciones parciales por orden de llegada.
-  dashboard:["rop05"],
+  // Dashboard usa los mismos datasets hidratados por App desde Supabase.
+  // No existe una segunda carga monolítica ni un snapshot bloqueante de Apps Script.
+  dashboard:["rop02_fs","rop02_jm","rma15_fs","rma15_jm","rop05","insumos","lista_equipos","rop02_filosur","rop02_zorro"],
   rop02:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   horometros:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"],
   vehiculos:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],
