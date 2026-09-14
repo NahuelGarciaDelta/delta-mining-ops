@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v23-supabase-primary-20260914";
+const CACHE_NAME = "delta-mining-ops-v24-dashboard-direct-20260914";
 const APP_SHELL = [
   "/",
   "/index.html",
