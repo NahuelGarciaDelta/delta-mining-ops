@@ -1,5 +1,24 @@
+const normalizeHeader = (value) =>
+  String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+function pickRaw(row, names = []) {
+  const source = row?.row_data && typeof row.row_data === "object" ? row.row_data : row;
+  const keys = Object.keys(source || {});
+  for (const name of names) {
+    const wanted = normalizeHeader(name);
+    const found = keys.find((key) => normalizeHeader(key) === wanted);
+    if (found !== undefined) return source[found];
+  }
+  return "";
+}
+
 export function buildEnviosSinSolicitudRows({
-  rows = [],
+  raba03Rows = [],
   remitos = [],
   normCode,
   toNumber,
@@ -15,27 +34,48 @@ export function buildEnviosSinSolicitudRows({
     return [];
   }
 
-  // Un cache anterior a esta corrección no contiene los campos explícitos de
-  // RABA03. En ese caso no inferimos resultados hasta que llegue la lectura
-  // fresca, evitando clasificar todos los remitos como "sin solicitud".
-  const explicitSourceReady = (rows || []).some(
-    (row) => row && row._raba03ExplicitLinksLoaded === true,
-  );
-  if (!explicitSourceReady) return [];
+  // No inferir resultados hasta que la fuente RABA03 real esté cargada.
+  if (!Array.isArray(raba03Rows) || raba03Rows.length === 0) return [];
 
-  const explicitLinks = (rows || []).filter((row) =>
-    String(row?.numeroRemitoFuente || "").trim(),
-  );
+  const links = raba03Rows
+    .map((row) => ({
+      codigo: normCode(
+        pickRaw(row, [
+          "Código de articulo",
+          "Código de artículo",
+          "Codigo de articulo",
+          "Codigo de artículo",
+          "Código artículo",
+          "Codigo articulo",
+          "Código",
+          "Codigo",
+        ]),
+      ),
+      proyecto: normalizeCentroCosto(
+        pickRaw(row, ["Centro de Costo", "Centro de costo", "Proyecto", "CC"]),
+      ),
+      remito: String(
+        pickRaw(row, [
+          "Nº Remito",
+          "N° Remito",
+          "N Remito",
+          "Numero Remito",
+          "Número Remito",
+        ]) || "",
+      ).trim(),
+      fechaSolicitud: pickRaw(row, [
+        "Fecha de solicitud",
+        "Fecha solicitud",
+        "F. Sol.",
+      ]),
+    }))
+    .filter((link) => link.codigo && link.proyecto && link.remito);
 
   const remitoCellContains = (cellValue, remitoNumber) => {
     const cellKey = normCode(cellValue);
     const remitoKey = normCode(remitoNumber);
     if (!cellKey || !remitoKey) return false;
-    // Los remitos normales tienen el formato TIN 00001-00000xxx. Para valores
-    // excepcionalmente cortos exigimos igualdad exacta para evitar falsos positivos.
-    return remitoKey.length < 6
-      ? cellKey === remitoKey
-      : cellKey.includes(remitoKey);
+    return remitoKey.length < 6 ? cellKey === remitoKey : cellKey.includes(remitoKey);
   };
 
   const unmatched = [];
@@ -56,24 +96,18 @@ export function buildEnviosSinSolicitudRows({
     (remito?.items || []).forEach((item, itemIndex) => {
       const code = normCode(item?.codigo);
       const cantidad = toNumber(item?.cantidad);
-      if (!code || cantidad <= 0) return;
+      if (!code || cantidad <= 0 || !numeroRemito) return;
 
-      const linked = explicitLinks.some((row) => {
+      const linked = links.some((link) => {
         if (
-          normCode(row?.codigoArticulo) !== code ||
-          normalizeCentroCosto(row?.centroCosto) !== proyecto ||
-          !remitoCellContains(row?.numeroRemitoFuente, numeroRemito)
+          link.codigo !== code ||
+          link.proyecto !== proyecto ||
+          !remitoCellContains(link.remito, numeroRemito)
         ) {
           return false;
         }
-        const fechaSolicitudMs = parseChronoDateMs(row?.fechaSolicitud);
-        // Si la solicitud fue creada después del envío, el artículo sí fue
-        // enviado sin solicitud previa y debe permanecer en esta vista.
-        return !(
-          fechaSolicitudMs &&
-          fechaEnvioMs &&
-          fechaSolicitudMs > fechaEnvioMs
-        );
+        const fechaSolicitudMs = parseChronoDateMs(link.fechaSolicitud);
+        return !(fechaSolicitudMs && fechaEnvioMs && fechaSolicitudMs > fechaEnvioMs);
       });
 
       if (linked) return;
