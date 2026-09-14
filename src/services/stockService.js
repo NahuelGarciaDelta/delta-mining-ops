@@ -1,4 +1,7 @@
 import { getAuthenticatedUser } from "./authSession.js";
+import { readCachedSource, writeCachedSource } from "./appCache.js";
+
+const STOCK_CACHE_KEY="stock_excel_data";
 
 function actor() {
   const currentUser = getAuthenticatedUser();
@@ -41,7 +44,19 @@ function getStock(url, action) {
 }
 
 export function fetchStockStatus(url) { return getStock(url, "stock_excel_status"); }
-export function fetchStockData(url) { return getStock(url, "stock_excel_data"); }
+export async function fetchStockData(url) {
+  const response=await getStock(url, "stock_excel_data");
+  const rows=Array.isArray(response?.rows)?response.rows:[];
+  await writeCachedSource(STOCK_CACHE_KEY,{ok:true,data:rows,meta:response?.meta||null}).catch(()=>{});
+  return response;
+}
+
+export async function readCachedStockData(){
+  const record=await readCachedSource(STOCK_CACHE_KEY).catch(()=>null);
+  const value=record?.value||record?.data||null;
+  if(!value?.ok||!Array.isArray(value.data))return null;
+  return {ok:true,rows:value.data,meta:value.meta||null,cacheUpdatedAt:record?.updatedAt||null};
+}
 
 export function uploadStockExcel(url, { file, rows, sheetName, replace = false }) {
   return postStock(url, {
