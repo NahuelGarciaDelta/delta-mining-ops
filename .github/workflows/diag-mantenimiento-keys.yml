@@ -1,0 +1,32 @@
+name: Diagnose mantenimiento keys error
+
+on:
+  push:
+    branches: [diag/mantenimiento-keys-20260914]
+    paths:
+      - '.github/workflows/diag-mantenimiento-keys.yml'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: ESLint no-undef scan
+        shell: bash
+        run: |
+          set +e
+          npm run lint:eslint > eslint.log 2>&1
+          STATUS=$?
+          cat eslint.log
+          echo "lint_status=$STATUS"
+          exit 0
+      - name: Search keys identifiers
+        shell: bash
+        run: |
+          grep -RInE '(^|[^A-Za-z0-9_$])keys([^A-Za-z0-9_$]|$)' src scripts tests > keys-search.log || true
+          cat keys-search.log
