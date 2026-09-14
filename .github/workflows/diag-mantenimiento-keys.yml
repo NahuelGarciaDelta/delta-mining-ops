@@ -1,13 +1,20 @@
-name: Diagnose mantenimiento keys error
+name: Validate mantenimiento runtime fix
 
 on:
   push:
     branches: [diag/mantenimiento-keys-20260914]
     paths:
       - '.github/workflows/diag-mantenimiento-keys.yml'
+      - 'scripts/vehicle-km-maintenance-vite-plugin.mjs'
+      - 'scripts/pm-vehicle-scope-vite-plugin.mjs'
+      - 'scripts/pm-vehicle-display-vite-plugin.mjs'
+      - 'src/modules/mantenimiento/MantenimientoProgramadoView.jsx'
+      - 'src/modules/mantenimiento/pmRules.js'
+      - 'tests/pm-truck-rules.test.mjs'
+      - 'tests/pm-vite-pipeline-regression.test.mjs'
 
 jobs:
-  diagnose:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,17 +23,7 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - name: ESLint no-undef scan
-        shell: bash
-        run: |
-          set +e
-          npm run lint:eslint > eslint.log 2>&1
-          STATUS=$?
-          cat eslint.log
-          echo "lint_status=$STATUS"
-          exit 0
-      - name: Search keys identifiers
-        shell: bash
-        run: |
-          grep -RInE '(^|[^A-Za-z0-9_$])keys([^A-Za-z0-9_$]|$)' src scripts tests > keys-search.log || true
-          cat keys-search.log
+      - name: PM business and Vite pipeline regressions
+        run: node --test tests/pm-truck-rules.test.mjs tests/pm-vite-pipeline-regression.test.mjs
+      - name: Production build
+        run: npm run build
