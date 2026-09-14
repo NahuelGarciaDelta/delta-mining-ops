@@ -51,18 +51,30 @@ export function buildEnviosSinSolicitudRows({
     );
     const numeroRemito = String(remito?.comprobante || "").trim();
     const fechaEnvio = remito?.fecha || "";
+    const fechaEnvioMs = parseChronoDateMs(fechaEnvio);
 
     (remito?.items || []).forEach((item, itemIndex) => {
       const code = normCode(item?.codigo);
       const cantidad = toNumber(item?.cantidad);
       if (!code || cantidad <= 0) return;
 
-      const linked = explicitLinks.some(
-        (row) =>
-          normCode(row?.codigoArticulo) === code &&
-          normalizeCentroCosto(row?.centroCosto) === proyecto &&
-          remitoCellContains(row?.numeroRemitoFuente, numeroRemito),
-      );
+      const linked = explicitLinks.some((row) => {
+        if (
+          normCode(row?.codigoArticulo) !== code ||
+          normalizeCentroCosto(row?.centroCosto) !== proyecto ||
+          !remitoCellContains(row?.numeroRemitoFuente, numeroRemito)
+        ) {
+          return false;
+        }
+        const fechaSolicitudMs = parseChronoDateMs(row?.fechaSolicitud);
+        // Si la solicitud fue creada después del envío, el artículo sí fue
+        // enviado sin solicitud previa y debe permanecer en esta vista.
+        return !(
+          fechaSolicitudMs &&
+          fechaEnvioMs &&
+          fechaSolicitudMs > fechaEnvioMs
+        );
+      });
 
       if (linked) return;
 
