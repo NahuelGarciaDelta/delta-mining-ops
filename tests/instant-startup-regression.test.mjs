@@ -7,6 +7,7 @@ const plugin=fs.readFileSync(new URL("../scripts/intelligent-refresh-vite-plugin
 const abastoPlugin=fs.readFileSync(new URL("../scripts/abastecimiento-instant-vite-plugin.mjs",import.meta.url),"utf8");
 const views=fs.readFileSync(new URL("../src/config/viewSources.js",import.meta.url),"utf8");
 const api=fs.readFileSync(new URL("../src/services/appsScriptApi.js",import.meta.url),"utf8");
+const supabaseRead=fs.readFileSync(new URL("../src/services/supabaseReadApi.js",import.meta.url),"utf8");
 const proxy=fs.readFileSync(new URL("../api/apps-script.js",import.meta.url),"utf8");
 const stockService=fs.readFileSync(new URL("../src/services/stockService.js",import.meta.url),"utf8");
 const stockHook=fs.readFileSync(new URL("../src/modules/abastecimiento/stock/useSharedStock.js",import.meta.url),"utf8");
@@ -33,6 +34,17 @@ test("refrescos de lectura no fuerzan Sheets ni duplican reintentos",()=>{
 test("bienvenida prioriza ROP02 y RMA15 principales y precarga ROP05",()=>{
   assert.match(views,/bienvenida:\["rop02_fs","rop02_jm","rma15_fs","rma15_jm"/);
   assert.match(views,/bienvenida:\[[^\]]*"rop05"/);
+});
+
+test("lecturas pesadas usan Supabase y no Apps Script",()=>{
+  assert.match(api,/SUPABASE_TYPED_SOURCES\.has/);
+  assert.match(api,/fetchSupabaseSource/);
+  assert.match(api,/fetchSupabaseDatasetQuery/);
+  assert.match(api,/fetchSupabaseVersions/);
+  assert.match(supabaseRead,/rop02_frontend/);
+  assert.match(supabaseRead,/rma15_frontend/);
+  assert.match(supabaseRead,/PAGE_CONCURRENCY=4/);
+  assert.match(supabaseRead,/REQUEST_TIMEOUT_MS=12000/);
 });
 
 test("el pool respeta el limite pedido y coalesce heartbeats de versiones",()=>{
