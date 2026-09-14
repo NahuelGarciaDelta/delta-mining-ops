@@ -1,0 +1,84 @@
+name: Validate dual Abastecimiento allocation
+
+on:
+  push:
+    branches: [fix/abastecimiento-dual-allocation-20260914]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Apply source patch
+        run: node scripts/apply-abastecimiento-dual-allocation.mjs
+      - name: Regression tests
+        run: node --test tests/abastecimiento-dual-allocation.test.mjs tests/abastecimiento-allocation-regression.test.mjs tests/enviosSinSolicitud.test.mjs
+      - name: Validate current Supabase snapshot
+        run: |
+          node <<'NODE'
+          import fs from 'node:fs';
+          const api=fs.readFileSync('src/services/raba03ReadApi.js','utf8');
+          const url=(api.match(/https:\/\/[^"']+\.supabase\.co/)||[])[0];
+          const key=(api.match(/sb_publishable_[A-Za-z0-9_-]+/)||[])[0];
+          if(!url||!key)throw new Error('No se pudo leer URL/key pública de Supabase');
+          const norm=v=>String(v??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+          const normCode=v=>String(v??'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]+/g,'').trim();
+          const project=v=>{const t=norm(v);const compact=t.replace(/\s+/g,'');if(t.includes('jose maria')||compact.includes('josemaria'))return 'JOSE MARIA';if(t.includes('filo del sol')||compact.includes('filodelsol'))return 'FILO DEL SOL';return String(v??'').trim().toUpperCase();};
+          const dateMs=v=>{const s=String(v??'').trim();if(!s)return 0;const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(iso)return new Date(+iso[1],+iso[2]-1,+iso[3]).getTime();const dm=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);if(dm){let y=+dm[3];if(y<100)y+=2000;return new Date(y,+dm[2]-1,+dm[1]).getTime();}const d=new Date(s);return Number.isNaN(d.getTime())?0:d.getTime();};
+          const res=await fetch(url+'/rest/v1/rpc/abastecimiento_snapshot',{method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'},body:'{}'});
+          if(!res.ok)throw new Error('snapshot HTTP '+res.status+' '+(await res.text()).slice(0,160));
+          const snap=await res.json();
+          const rejected=new Set((snap.estados||[]).filter(e=>String(e.ESTADO||'').toUpperCase()==='RECHAZADA').map(e=>String(e.CLAVE_SOLICITUD||'').trim()).filter(Boolean));
+          const requests=(snap.raba03||[]).map((r,i)=>{
+            const code=normCode(r['Código de articulo']||r['Código de artículo']);
+            const p=project(r['Centro de Costo']);
+            const desc=norm(r['Descripción de lo que se pidio']||r['Descripción de lo que se pidió']);
+            const ds=String(r['Fecha de solicitud']||'').slice(0,10);
+            const pedido=String(r['N° de pedido']||r['N° de solicitud']||'').trim();
+            const stable=[normCode(pedido),code,ds].join('|');
+            return {i,code,p,desc,date:dateMs(r['Fecha de solicitud']),qty:Number(String(r['Cant. Solicitada']||r['Cantidad']||0).replace(',','.'))||0,stable,sent:0};
+          }).filter(r=>r.code&&r.p&&r.desc&&!rejected.has(r.stable));
+          const byKey=new Map();
+          for(const r of requests){const k=[r.code,r.p,r.desc].join('__');if(!byKey.has(k))byKey.set(k,[]);byKey.get(k).push(r);}
+          for(const q of byKey.values())q.sort((a,b)=>a.date-b.date||a.i-b.i);
+          const shipments=(snap.remitos||[]).map((r,i)=>({i,code:normCode(r.CODIGO_ARTICULO),p:project(r.PROYECTO||r.OBSERVACIONES||r.DESTINO||r.ORIGEN),desc:norm(r.DESCRIPCION),date:dateMs(r.FECHA_REMITO),qty:Number(r.CANTIDAD_ENVIADA)||0})).filter(r=>r.code&&r.p&&r.desc&&r.qty>0).sort((a,b)=>a.date-b.date||a.i-b.i);
+
+          // Estado operativo: TODOS los remitos compatibles descuentan solicitudes,
+          // aunque el remito sea anterior a la solicitud.
+          for(const s of shipments){let remain=s.qty;const q=byKey.get([s.code,s.p,s.desc].join('__'))||[];for(const r of q){if(remain<=0)break;const pend=Math.max(0,r.qty-r.sent);if(!pend)continue;const used=Math.min(pend,remain);r.sent+=used;remain-=used;}}
+          const pending=requests.filter(r=>r.sent<=0).length;
+          const partial=requests.filter(r=>r.sent>0&&r.sent<r.qty).length;
+          const closed=requests.filter(r=>r.qty>0&&r.sent>=r.qty).length;
+
+          // Auditoría: Envíos sin solicitud conserva fechaSolicitud <= fechaEnvio.
+          for(const r of requests)r.sent=0;
+          let unmatchedLines=0,unmatchedQty=0;
+          for(const s of shipments){let remain=s.qty;const q=byKey.get([s.code,s.p,s.desc].join('__'))||[];for(const r of q){if(remain<=0)break;if(r.date&&s.date&&r.date>s.date)continue;const pend=Math.max(0,r.qty-r.sent);if(!pend)continue;const used=Math.min(pend,remain);r.sent+=used;remain-=used;}if(remain>0){unmatchedLines++;unmatchedQty+=remain;}}
+
+          const metrics={raba03:(snap.raba03||[]).length,remitoLines:shipments.length,rejected:rejected.size,pending,partial,closed,unmatchedLines,unmatchedQty};
+          console.log('ABASTECIMIENTO_METRICS '+JSON.stringify(metrics));
+          if(pending<150||pending>400)throw new Error('Pendientes fuera de rango de control esperado: '+pending);
+          if(unmatchedLines<250)throw new Error('Envíos sin solicitud demasiado bajos: '+unmatchedLines);
+          NODE
+      - name: Production build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
+      - name: Commit validated source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/modules/abastecimiento/AbastecimientoModule.jsx tests/abastecimiento-dual-allocation.test.mjs
+          git rm scripts/apply-abastecimiento-dual-allocation.mjs .github/workflows/validate-abastecimiento-dual-allocation.yml
+          git commit -m "fix: separate Abastecimiento audit and pending allocation"
+          git push origin HEAD:fix/abastecimiento-dual-allocation-20260914
