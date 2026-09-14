@@ -7,6 +7,11 @@ export function abastecimientoInstantVitePlugin(){
       let next=code;
 
       next=next.replace(
+        'import { registerRefreshTask } from "../../services/refreshManager.js";',
+        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase } from "../../services/raba03ReadApi.js";'
+      );
+
+      next=next.replace(
         'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";',
         'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";\nconst RABA03_VIEW_CACHE_KEY = "dm_raba03_view_rows_v1";'
       );
@@ -19,6 +24,11 @@ export function abastecimientoInstantVitePlugin(){
       next=next.replace(
         'const [loading,setLoading]=useState(()=>!["remito","stock","stockDashboard"].includes(initialTab));',
         'const [loading,setLoading]=useState(()=>!["remito","stock","stockDashboard"].includes(initialTab)&&rows.length===0);'
+      );
+
+      next=next.replace(
+        'const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;\n      const res=await fetch(url,{cache:"no-store"});\n      const json=await res.json();',
+        'const json=await fetchRaba03FromSupabase();'
       );
 
       next=next.replace(
