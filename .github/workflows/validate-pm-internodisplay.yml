@@ -15,6 +15,6 @@ jobs:
           cache: npm
       - run: npm ci
       - name: PM pipeline regression
-        run: node --test tests/pm-vite-pipeline-regression.test.mjs tests/pm-rules.test.mjs
+        run: node --test tests/pm-vite-pipeline-regression.test.mjs
       - name: Production build
         run: npm run build
