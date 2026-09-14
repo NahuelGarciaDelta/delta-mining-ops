@@ -1,0 +1,72 @@
+name: Diagnose explicit remito links
+
+on:
+  push:
+    branches:
+      - diag/envios-sin-solicitud-20260914
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Compare live remitos with explicit RABA03 links
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const norm=v=>String(v??'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]+/g,'').trim();
+          const normKey=v=>String(v??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+          const read=(o,names)=>{const ks=Object.keys(o||{});for(const n of names){const w=normKey(n),k=ks.find(x=>normKey(x)===w);if(k!==undefined)return o[k];}for(const n of names){const w=normKey(n),k=ks.find(x=>{const a=normKey(x);return a&&(a.includes(w)||w.includes(a));});if(k!==undefined)return o[k];}return '';};
+          const num=v=>{if(v==null||v==='')return 0;let s=String(v).trim().replace(/\s/g,'');if(s.includes(',')&&s.includes('.'))s=s.replace(/\./g,'').replace(',','.');else if(s.includes(','))s=s.replace(',','.');const n=Number(s);return Number.isFinite(n)?n:0;};
+          const project=v=>{const s=normKey(v);if(s.includes('jose maria')||/\bjm\b/.test(s))return 'JOSEMARIA';if(s.includes('filo del sol')||/\bfds\b/.test(s)||/\bfs\b/.test(s))return 'FILODELSOL';return norm(v);};
+          async function json(url,headers={}){const r=await fetch(url,{headers});const t=await r.text();if(!r.ok)throw new Error(`${r.status} ${t.slice(0,250)}`);return JSON.parse(t);}
+          (async()=>{
+            const rem=await json('https://delta-mining-ops.vercel.app/api/apps-script?action=remitos_cargados&limit=all&force=1');
+            const rr=Array.isArray(rem?.data)?rem.data:[];
+            const live=rr.map((r,i)=>({
+              i,
+              id:String(read(r,['ID_REMITO','idRemito','id'])||'').trim(),
+              remito:String(read(r,['N_REMITO','nRemito','comprobante'])||'').trim(),
+              code:String(read(r,['CODIGO_ARTICULO','codigoArticulo','codigo'])||'').trim(),
+              qty:num(read(r,['CANTIDAD_ENVIADA','cantidadEnviada','cantidad'])),
+              proj:project(read(r,['PROYECTO','proyecto'])||read(r,['OBSERVACIONES','observaciones'])||read(r,['DESTINO','destino'])||read(r,['ORIGEN','origen']))
+            })).filter(x=>x.remito&&x.code&&x.qty>0);
+
+            const src=fs.readFileSync('src/services/raba03ReadApi.js','utf8');
+            const url=(src.match(/VITE_SUPABASE_URL\|\|"([^"]+)"/)||[])[1];
+            const key=(src.match(/VITE_SUPABASE_ANON_KEY\|\|"([^"]+)"/)||[])[1];
+            let raw=[];for(let off=0;;off+=1000){const p=await json(`${url}/rest/v1/abastecimiento_raba03?select=source_row,row_data&order=source_row.asc&limit=1000&offset=${off}`,{apikey:key,Authorization:`Bearer ${key}`});raw.push(...p);if(p.length<1000)break;}
+            const raba=raw.map(x=>x.row_data||{}).map((r,i)=>({
+              i,
+              remito:String(read(r,['Nº Remito','N° Remito','Numero Remito'])||'').trim(),
+              code:String(read(r,['Código de articulo','Código de artículo'])||'').trim(),
+              qty:num(read(r,['Cant. Enviada','Cantidad enviada'])||read(r,['Cantidad'])),
+              proj:project(read(r,['Centro de Costo','Proyecto']))
+            })).filter(x=>x.remito);
+
+            const distinctLive=[...new Set(live.map(x=>x.remito))];
+            const matchCell=(cell,remito)=>{const a=norm(cell),b=norm(remito);return !!a&&!!b&&(a.includes(b)||b.includes(a));};
+            const liveRemMatched=distinctLive.filter(remito=>raba.some(r=>matchCell(r.remito,remito)));
+            console.log('LIVE_LINES',live.length,'LIVE_REMITOS',distinctLive.length,'RABA_EXPLICIT_ROWS',raba.length,'LIVE_REMITOS_FOUND_ANYWHERE',liveRemMatched.length,'LIVE_REMITOS_NOT_FOUND',distinctLive.length-liveRemMatched.length);
+            console.log('LIVE_REMITOS_NOT_FOUND_SAMPLE',JSON.stringify(distinctLive.filter(x=>!liveRemMatched.includes(x)).slice(0,20)));
+
+            let exactLines=0,noExplicitLines=0,excessLines=0,excessQty=0,linkedQty=0;
+            const missing=[];
+            for(const s of live){
+              const candidates=raba.filter(r=>matchCell(r.remito,s.remito)&&norm(r.code)===norm(s.code)&&r.proj===s.proj);
+              const rq=candidates.reduce((a,r)=>a+r.qty,0);
+              if(candidates.length===0){noExplicitLines++;missing.push({...s,reason:'NO_EXPLICIT'});continue;}
+              exactLines++; linkedQty+=Math.min(s.qty,rq);
+              if(s.qty>rq+1e-9){excessLines++;excessQty+=s.qty-rq;missing.push({...s,rabaQty:rq,reason:'EXCESS'});}
+            }
+            console.log('EXPLICIT_LINKED_LINES',exactLines,'NO_EXPLICIT_LINES',noExplicitLines,'EXCESS_LINES',excessLines,'EXCESS_QTY',excessQty,'LINKED_QTY',linkedQty);
+            console.log('UNREQUESTED_SAMPLE',JSON.stringify(missing.slice(0,30)));
+          })().catch(e=>{console.error('DIAG_FAIL',e.stack||e);process.exit(1);});
+          NODE
