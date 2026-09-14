@@ -4,7 +4,7 @@ export const config = {
   maxDuration: 60,
 };
 
-const RETRYABLE_STATUS = new Set([404, 429, 500, 502, 503, 504]);
+const RETRYABLE_STATUS = new Set([404, 429, 500, 502, 503]);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function appendQuery(target, query = {}) {
@@ -46,6 +46,14 @@ function buildOptions(req, signal) {
   return options;
 }
 
+function sendUpstream(res, status, body, contentType, attempt) {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Content-Type", contentType || "application/json; charset=utf-8");
+  res.setHeader("X-Delta-Upstream-Status", String(status));
+  res.setHeader("X-Delta-Proxy-Attempt", String(attempt + 1));
+  return res.status(status).send(body);
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
     res.setHeader("Allow", "GET, POST");
@@ -55,14 +63,19 @@ export default async function handler(req, res) {
   const target = new URL(APPS_SCRIPT_TARGET);
   appendQuery(target, req.query || {});
 
+  // GET puede reintentarse una vez únicamente ante un HTTP transitorio que volvió
+  // rápido. POST jamás se reintenta: repetir una escritura podría duplicarla.
+  const maxAttempts = req.method === "GET" ? 2 : 1;
   let lastStatus = 502;
   let lastBody = "";
   let lastContentType = "application/json; charset=utf-8";
   let lastError = null;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 27000);
+    // Un único intento largo, pero siempre por debajo del timeout del cliente ROP02.
+    // Si expira NO se lanza otro intento de 27 s que prolongue artificialmente la espera.
+    const timer = setTimeout(() => controller.abort(), 40000);
 
     try {
       const upstream = await fetch(target.toString(), buildOptions(req, controller.signal));
@@ -73,35 +86,31 @@ export default async function handler(req, res) {
       lastBody = body;
       lastContentType = contentType;
 
-      if (!RETRYABLE_STATUS.has(upstream.status) || attempt === 1) {
-        res.setHeader("Cache-Control", "no-store, max-age=0");
-        res.setHeader("Content-Type", contentType);
-        res.setHeader("X-Delta-Upstream-Status", String(upstream.status));
-        return res.status(upstream.status).send(body);
+      if (!RETRYABLE_STATUS.has(upstream.status) || attempt === maxAttempts - 1) {
+        return sendUpstream(res, upstream.status, body, contentType, attempt);
       }
     } catch (error) {
       lastError = error;
-      if (attempt === 1) break;
+      // Un timeout ya consumió el presupuesto útil. No repetir una ejecución lenta.
+      if (error?.name === "AbortError" || attempt === maxAttempts - 1) break;
     } finally {
       clearTimeout(timer);
     }
 
-    await sleep(500);
+    await sleep(300);
   }
 
   if (lastBody) {
-    res.setHeader("Cache-Control", "no-store, max-age=0");
-    res.setHeader("Content-Type", lastContentType);
-    res.setHeader("X-Delta-Upstream-Status", String(lastStatus));
-    return res.status(lastStatus).send(lastBody);
+    return sendUpstream(res, lastStatus, lastBody, lastContentType, maxAttempts - 1);
   }
 
   const timedOut = lastError?.name === "AbortError";
+  res.setHeader("Cache-Control", "no-store, max-age=0");
   return res.status(timedOut ? 504 : 502).json({
     ok: false,
     error: {
       message: timedOut
-        ? "Apps Script no respondió dentro del tiempo disponible"
+        ? "Apps Script no respondió dentro de 40 segundos"
         : String(lastError?.message || lastError || "No se pudo contactar Apps Script"),
     },
   });
