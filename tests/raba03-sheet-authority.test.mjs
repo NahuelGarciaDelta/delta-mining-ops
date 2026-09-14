@@ -12,6 +12,7 @@ test("RABA03 GET always bypasses Apps Script cache",()=>{
 });
 
 test("delete control remains explicitly scoped to N° de solicitud",()=>{
-  assert.match(deleteUi,/N° de solicitud a eliminar/);
+  assert.match(deleteUi,/N° de solicitud \(columna A\)/);
+  assert.match(deleteUi,/No ingreses el N° de pedido/);
   assert.match(deleteUi,/delete_raba03_solicitud_numero/);
 });
