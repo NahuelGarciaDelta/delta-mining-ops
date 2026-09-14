@@ -1,0 +1,23 @@
+name: Validate envios rejected-request FIFO fix
+
+on:
+  push:
+    branches:
+      - fix/envios-rechazadas-fifo-20260914
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Envíos sin solicitud transform regression
+        run: node --test tests/abastecimiento-envios-parity.test.mjs
+      - name: Existing envios helper regressions
+        run: node --test tests/enviosSinSolicitud.test.mjs
+      - name: Production build
+        run: npm run build
