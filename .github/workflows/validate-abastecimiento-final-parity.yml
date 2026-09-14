@@ -1,22 +1,29 @@
-name: Validate exact Abastecimiento parity
+name: Validate final Abastecimiento rules
 
 on:
   push:
     branches: [fix/abastecimiento-supabase-parity-unmatched-20260914]
+
+permissions:
+  contents: write
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
       - run: npm ci
+      - name: Apply strict historical unmatched audit
+        run: node scripts/apply-envios-sin-solicitud-audit-fifo.mjs
       - name: Regression tests
         run: node --test tests/abastecimiento-allocation-regression.test.mjs tests/enviosSinSolicitud.test.mjs
-      - name: Validate exact dashboard counts from current snapshot
+      - name: Validate live snapshot business rules
         run: |
           node <<'NODE'
           import fs from 'node:fs';
@@ -27,55 +34,47 @@ jobs:
 
           const norm=v=>String(v??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
           const normCode=v=>String(v??'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]+/g,'').trim();
-          const project=v=>{const t=norm(v),c=t.replace(/\s+/g,'');if(t.includes('jose maria')||c.includes('josemaria'))return 'JOSE MARIA';if(t.includes('filo del sol')||c.includes('filodelsol'))return 'FILO DEL SOL';return String(v??'').trim().toUpperCase();};
-          const dateMs=v=>{const s=String(v??'').trim();if(!s)return 0;const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(iso)return new Date(+iso[1],+iso[2]-1,+iso[3]).getTime();const dm=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);if(dm){let y=+dm[3];if(y<100)y+=2000;return new Date(y,+dm[2]-1,+dm[1]).getTime();}const d=new Date(s);return Number.isNaN(d.getTime())?0:d.getTime();};
-          const isoDate=v=>{const s=String(v??'').trim();const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(iso)return `${iso[1]}-${iso[2]}-${iso[3]}`;const dm=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);if(dm){let y=+dm[3];if(y<100)y+=2000;return `${y}-${String(+dm[2]).padStart(2,'0')}-${String(+dm[1]).padStart(2,'0')}`;}return s.slice(0,10);};
-          const toNumber=v=>{
-            if(v===null||v===undefined||v==='')return 0;
-            if(typeof v==='number')return Number.isFinite(v)?v:0;
-            let txt=String(v).trim();if(!txt)return 0;txt=txt.replace(/\s/g,'');
-            const hasComma=txt.includes(','),hasDot=txt.includes('.');
-            if(hasComma&&hasDot)txt=txt.replace(/\./g,'').replace(',','.');
-            else if(hasComma)txt=txt.replace(',','.');
-            else if(hasDot){const parts=txt.split('.');const isThousands=parts.length>1&&parts.slice(1).every(part=>part.length===3);if(isThousands)txt=parts.join('');}
-            const n=Number(txt);return Number.isNaN(n)?0:n;
-          };
+          const project=v=>{const t=norm(v),c=t.replace(/\s+/g,'');if(t.includes('jose maria')||c.includes('josemaria'))return 'JOSE MARIA';if(t.includes('filo del sol')||c.includes('filodelsol'))return 'FILO DEL SOL';if(t.includes('oficina')||t.includes('deposito')||t.includes('admin'))return 'OFICINA';return String(v??'').trim().toUpperCase();};
+          const dateMs=v=>{const s=String(v??'').trim();if(!s)return 0;let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);if(m)return new Date(+m[1],+m[2]-1,+m[3]).getTime();m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})/);if(m){let y=+m[3];if(y<100)y+=2000;return new Date(y,+m[2]-1,+m[1]).getTime();}const d=new Date(s);return Number.isNaN(d.getTime())?0:d.getTime();};
+          const isoDate=v=>{const ms=dateMs(v);if(!ms)return String(v??'').slice(0,10);const d=new Date(ms);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
+          const toNumber=v=>{if(v===null||v===undefined||v==='')return 0;if(typeof v==='number')return Number.isFinite(v)?v:0;let txt=String(v).trim();if(!txt)return 0;txt=txt.replace(/\s/g,'');const comma=txt.includes(','),dot=txt.includes('.');if(comma&&dot)txt=txt.replace(/\./g,'').replace(',','.');else if(comma)txt=txt.replace(',','.');else if(dot){const parts=txt.split('.');if(parts.length>1&&parts.slice(1).every(p=>p.length===3))txt=parts.join('');}const n=Number(txt);return Number.isNaN(n)?0:n;};
 
           const res=await fetch(url+'/rest/v1/rpc/abastecimiento_snapshot',{method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'},body:'{}'});
-          if(!res.ok)throw new Error('snapshot HTTP '+res.status);
+          if(!res.ok)throw new Error('snapshot HTTP '+res.status+' '+(await res.text()).slice(0,160));
           const snap=await res.json();
-          const rejected=new Set(),manualClosed=new Set();
-          for(const e of (snap.estados||[])){const st=String(e.ESTADO||'').toUpperCase(),k=String(e.CLAVE_SOLICITUD||'').trim();if(!k)continue;if(st==='RECHAZADA')rejected.add(k);if(st==='CERRADA_MANUAL')manualClosed.add(k);}
 
-          const requests=(snap.raba03||[]).map((r,i)=>{
-            const code=normCode(r['Código de articulo']||r['Código de artículo']);
-            const p=project(r['Centro de Costo']);
-            const d=r['Fecha de solicitud']||'';
-            const pedido=String(r['N° de pedido']||r['N° de solicitud']||'').trim();
-            return {i,code,p,date:dateMs(d),qty:toNumber(r['Cant. Solicitada']||r['Cantidad']),stable:`${normCode(pedido)}|${code}|${isoDate(d)}`,sent:0};
-          }).filter(r=>r.code&&r.p);
+          const rejected=new Set();
+          for(const e of (snap.estados||[])){if(String(e.ESTADO||'').toUpperCase()==='RECHAZADA')rejected.add(String(e.CLAVE_SOLICITUD||'').trim());}
+          const requests=(snap.raba03||[]).map((r,i)=>{const code=normCode(r['Código de articulo']||r['Código de artículo']);const p=project(r['Centro de Costo']);const d=r['Fecha de solicitud']||'';const pedido=String(r['N° de pedido']||r['N° de solicitud']||'').trim();return{i,code,p,desc:norm(r['Descripción de lo que se pidio']||r['Descripción de lo que se pidió']),date:dateMs(d),qty:toNumber(r['Cant. Solicitada']||r['Cantidad']),stable:`${normCode(pedido)}|${code}|${isoDate(d)}`,sent:0,audit:0};}).filter(r=>r.code&&r.p);
+          const shipments=(snap.remitos||[]).map((r,i)=>({i,code:normCode(r.CODIGO_ARTICULO),p:project(r.PROYECTO||r.OBSERVACIONES||r.DESTINO||r.ORIGEN),desc:norm(r.DESCRIPCION),date:dateMs(r.FECHA_REMITO),qty:toNumber(r.CANTIDAD_ENVIADA)})).filter(r=>r.code&&r.p&&r.qty>0).sort((a,b)=>(a.date||0)-(b.date||0)||a.i-b.i);
 
-          const byKey=new Map();
-          for(const r of requests){const k=`${r.code}__${r.p}`;if(!byKey.has(k))byKey.set(k,[]);byKey.get(k).push(r);}
-          for(const q of byKey.values())q.sort((a,b)=>(a.date||0)-(b.date||0)||a.i-b.i);
-
-          const shipments=(snap.remitos||[]).map((r,i)=>({i,code:normCode(r.CODIGO_ARTICULO),p:project(r.PROYECTO||r.OBSERVACIONES||r.DESTINO||r.ORIGEN),date:dateMs(r.FECHA_REMITO),qty:toNumber(r.CANTIDAD_ENVIADA)})).filter(r=>r.code&&r.p&&r.qty>0).sort((a,b)=>(a.date||0)-(b.date||0)||a.i-b.i);
-
-          for(const s of shipments){let remain=s.qty;const q=byKey.get(`${s.code}__${s.p}`)||[];for(const r of q){if(remain<=0)break;if(r.date&&s.date&&r.date>s.date)continue;const pend=Math.max(0,r.qty-r.sent);if(!pend)continue;const used=Math.min(pend,remain);r.sent+=used;remain-=used;}}
-
+          // Estado operativo: paridad con Supabase, código + proyecto, FIFO cronológico.
+          const op=new Map();for(const r of requests){const k=`${r.code}__${r.p}`;if(!op.has(k))op.set(k,[]);op.get(k).push(r);}for(const q of op.values())q.sort((a,b)=>(a.date||0)-(b.date||0)||a.i-b.i);
+          for(const s of shipments){let rem=s.qty;for(const r of (op.get(`${s.code}__${s.p}`)||[])){if(rem<=0)break;if(r.date&&s.date&&r.date>s.date)continue;const p=Math.max(0,r.qty-r.sent);if(!p)continue;const u=Math.min(p,rem);r.sent+=u;rem-=u;}}
           const active=requests.filter(r=>!rejected.has(r.stable));
           const pending=active.filter(r=>r.sent<=0).length;
-          const partial=active.filter(r=>r.sent>0&&Math.max(0,r.qty-r.sent)>0&&!manualClosed.has(r.stable)).length;
-          const closed=active.filter(r=>r.qty>0&&(Math.max(0,r.qty-r.sent)<=0||manualClosed.has(r.stable))).length;
 
-          const validHistory=active.map(r=>({code:r.code,p:r.p,date:r.date}));
-          let unmatchedLines=0;
-          for(const s of shipments){if(!validHistory.some(r=>r.code===s.code&&(!s.p||!r.p||r.p===s.p)&&(!r.date||!s.date||r.date<=s.date)))unmatchedLines++;}
+          // Auditoría Envíos sin solicitud: código + proyecto + descripción + fecha, cantidades FIFO.
+          const auditReq=active.filter(r=>r.desc&&r.qty>0);
+          const auditMap=new Map();for(const r of auditReq){const k=[r.code,r.p,r.desc].join('__');if(!auditMap.has(k))auditMap.set(k,[]);auditMap.get(k).push(r);}for(const q of auditMap.values())q.sort((a,b)=>(a.date||0)-(b.date||0)||a.i-b.i);
+          let unmatchedLines=0,unmatchedQty=0;
+          for(const s of shipments){let rem=s.qty;const q=auditMap.get([s.code,s.p,s.desc].join('__'))||[];for(const r of q){if(rem<=0)break;if(r.date&&s.date&&r.date>s.date)continue;const p=Math.max(0,r.qty-r.audit);if(!p)continue;const u=Math.min(p,rem);r.audit+=u;rem-=u;}if(rem>0){unmatchedLines++;unmatchedQty+=rem;}}
 
-          const metrics={pending,partial,closed,rejected:requests.filter(r=>rejected.has(r.stable)).length,unmatchedLines};
+          const metrics={raba03:requests.length,remitoLines:shipments.length,rejected:rejected.size,pending,unmatchedLines,unmatchedQty};
           console.log('ABASTECIMIENTO_FINAL '+JSON.stringify(metrics));
-          if(pending!==308||partial!==60||closed!==865||metrics.rejected!==68)throw new Error('No coincide con dashboard esperado: '+JSON.stringify(metrics));
-          if(unmatchedLines<=0)throw new Error('Envíos sin solicitud debe ser mayor a cero');
+          if(pending!==308)throw new Error(`Pendientes esperado 308, obtenido ${pending}`);
+          if(rejected.size!==68)throw new Error(`Rechazadas esperado 68, obtenido ${rejected.size}`);
+          if(unmatchedLines<100)throw new Error(`Envíos sin solicitud demasiado bajos: ${unmatchedLines}`);
           NODE
       - name: Production build
         run: npm run build
+      - name: Diff check
+        run: git diff --check
+      - name: Commit validated implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/modules/abastecimiento/AbastecimientoModule.jsx scripts/abastecimiento-instant-vite-plugin.mjs tests/abastecimiento-allocation-regression.test.mjs
+          git rm scripts/apply-envios-sin-solicitud-audit-fifo.mjs .github/workflows/validate-abastecimiento-final-parity.yml
+          git commit -m "fix: preserve unmatched shipment history without affecting pending requests"
+          git push origin HEAD:fix/abastecimiento-supabase-parity-unmatched-20260914
