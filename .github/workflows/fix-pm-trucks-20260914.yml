@@ -54,7 +54,6 @@ jobs:
         run: |
           from pathlib import Path
           from textwrap import dedent
-
           path=Path('src/modules/mantenimiento/MantenimientoProgramadoView.jsx')
           s=path.read_text(encoding='utf-8')
 
@@ -191,10 +190,10 @@ jobs:
           s=s.replace('  }, [rop02All, fechaDesde, fechaHasta]);','  }, [rop02All, fechaDesde, fechaHasta, truckInternos]);',1)
 
           old='''      const cfg = configMap.get(key) || {};
-              base.push(statusFor({'''
+              base.push(statusFor({'''.replace('              ','      ')
           new='''      const cfg = configMap.get(key) || {};
               const pmEsCamion = esCamionPM(e);
-              base.push(statusFor({'''
+              base.push(statusFor({'''.replace('              ','      ')
           if old not in s: raise SystemExit('cfg block not found')
           s=s.replace(old,new,1)
 
@@ -202,84 +201,58 @@ jobs:
                 intervalo: num(cfg.intervalo) || DEFAULTS.intervalo,
                 alertaDesde: num(cfg.alertaDesde) || DEFAULTS.alertaDesde,
                 atrasadoDesde: num(cfg.atrasadoDesde) || DEFAULTS.atrasadoDesde,
-                horometroUltimoPM: num(cfg.horometroUltimoPM),'''
+                horometroUltimoPM: num(cfg.horometroUltimoPM),'''.replace('                ','        ')
           new='''        proyecto: actividad.proyecto || cfg.proyecto || e.proyecto,
                 pmEsCamion,
                 intervalo: pmEsCamion ? TRUCK_PM_INTERVAL_HOURS : (num(cfg.intervalo) || DEFAULTS.intervalo),
                 alertaDesde: pmEsCamion ? TRUCK_PM_ALERT_FROM_HOURS : (num(cfg.alertaDesde) || DEFAULTS.alertaDesde),
                 atrasadoDesde: pmEsCamion ? TRUCK_PM_OVERDUE_FROM_HOURS : (num(cfg.atrasadoDesde) || DEFAULTS.atrasadoDesde),
                 unidadMantenimiento: pmEsCamion ? "h" : cfg.unidadMantenimiento,
-                horometroUltimoPM: num(cfg.horometroUltimoPM),'''
+                horometroUltimoPM: num(cfg.horometroUltimoPM),'''.replace('                ','        ')
           if old not in s: raise SystemExit('PM fields block not found')
           s=s.replace(old,new,1)
           path.write_text(s,encoding='utf-8')
 
-          rules=dedent('''
+          Path('src/modules/mantenimiento/pmRules.js').write_text(dedent('''
           export const TRUCK_PM_INTERVAL_HOURS = 500;
           export const TRUCK_PM_ALERT_FROM_HOURS = 400;
           export const TRUCK_PM_OVERDUE_FROM_HOURS = 600;
-
-          const numeric = value => {
-            const n = Number(value);
-            return Number.isFinite(n) ? n : 0;
-          };
-
-          const normalizeFamily = value => String(value ?? "")
-            .normalize("NFD")
-            .replace(/[\\u0300-\\u036f]/g, "")
-            .toUpperCase()
-            .replace(/[^A-Z0-9]+/g, " ")
-            .trim();
-
-          export function isCanonicalTruckFamily(value) {
-            return /^CAMION(?:\\s|$)/.test(normalizeFamily(value));
+          const numeric = value => { const n=Number(value); return Number.isFinite(n)?n:0; };
+          const normalizeFamily = value => String(value ?? "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+          export function isCanonicalTruckFamily(value){ return /^CAMION(?:\\s|$)/.test(normalizeFamily(value)); }
+          export function selectMaintenanceCounter({horometerCandidates=[],mileageCandidates=[]}={}, {isTruck=false}={}){
+            const maxValue=values=>Math.max(0,...(values||[]).map(numeric));
+            const horometer=maxValue(horometerCandidates);
+            return isTruck?horometer:Math.max(horometer,maxValue(mileageCandidates));
           }
-
-          export function selectMaintenanceCounter({ horometerCandidates = [], mileageCandidates = [] } = {}, { isTruck = false } = {}) {
-            const maxValue = values => Math.max(0, ...(values || []).map(numeric));
-            const horometer = maxValue(horometerCandidates);
-            if (isTruck) return horometer;
-            return Math.max(horometer, maxValue(mileageCandidates));
-          }
-
-          export function getNextTruckPmHour(currentHour, lastPmHour = 0) {
-            const current = Math.max(0, numeric(currentHour));
-            const last = Math.max(0, numeric(lastPmHour));
-            if (!current) return 0;
-            let target = Math.ceil(current / TRUCK_PM_INTERVAL_HOURS) * TRUCK_PM_INTERVAL_HOURS;
-            if (target === current && last >= current) target += TRUCK_PM_INTERVAL_HOURS;
+          export function getNextTruckPmHour(currentHour,lastPmHour=0){
+            const current=Math.max(0,numeric(currentHour));
+            const last=Math.max(0,numeric(lastPmHour));
+            if(!current)return 0;
+            let target=Math.ceil(current/TRUCK_PM_INTERVAL_HOURS)*TRUCK_PM_INTERVAL_HOURS;
+            if(target===current&&last>=current)target+=TRUCK_PM_INTERVAL_HOURS;
             return target;
           }
-          ''').lstrip()
-          Path('src/modules/mantenimiento/pmRules.js').write_text(rules,encoding='utf-8')
+          ''').lstrip(),encoding='utf-8')
 
-          tests=dedent('''
+          Path('tests/pm-truck-rules.test.mjs').write_text(dedent('''
           import test from "node:test";
           import assert from "node:assert/strict";
-          import { TRUCK_PM_INTERVAL_HOURS, getNextTruckPmHour, isCanonicalTruckFamily, selectMaintenanceCounter } from "../src/modules/mantenimiento/pmRules.js";
-
-          test("truck family classification includes trucks and excludes camionetas", () => {
-            assert.equal(isCanonicalTruckFamily("CAMION"), true);
-            assert.equal(isCanonicalTruckFamily("CAMIÓN REGADOR"), true);
-            assert.equal(isCanonicalTruckFamily("CAMION VOLCADOR"), true);
-            assert.equal(isCanonicalTruckFamily("CAMION DE COMBUSTIBLE"), true);
-            assert.equal(isCanonicalTruckFamily("CAMION TRACTOR"), true);
-            assert.equal(isCanonicalTruckFamily("CAMIONETA"), false);
-            assert.equal(isCanonicalTruckFamily("CAMIONETA CON MOCHILA"), false);
+          import {TRUCK_PM_INTERVAL_HOURS,getNextTruckPmHour,isCanonicalTruckFamily,selectMaintenanceCounter} from "../src/modules/mantenimiento/pmRules.js";
+          test("truck family classification includes trucks and excludes camionetas",()=>{
+            for(const family of ["CAMION","CAMIÓN REGADOR","CAMION VOLCADOR","CAMION DE COMBUSTIBLE","CAMION TRACTOR"]) assert.equal(isCanonicalTruckFamily(family),true);
+            for(const family of ["CAMIONETA","CAMIONETA CON MOCHILA"]) assert.equal(isCanonicalTruckFamily(family),false);
           });
-
-          test("truck PM uses horometer and ignores mileage", () => {
+          test("truck PM uses horometer and ignores mileage",()=>{
             assert.equal(selectMaintenanceCounter({horometerCandidates:[1380],mileageCandidates:[126000]},{isTruck:true}),1380);
           });
-
-          test("truck PM interval and next milestone are exactly 500 hours", () => {
+          test("truck PM interval and next milestone are exactly 500 hours",()=>{
             assert.equal(TRUCK_PM_INTERVAL_HOURS,500);
             assert.equal(getNextTruckPmHour(1380,1000),1500);
             assert.equal(1500-1380,120);
             assert.equal(getNextTruckPmHour(1500,1500),2000);
           });
-          ''').lstrip()
-          Path('tests/pm-truck-rules.test.mjs').write_text(tests,encoding='utf-8')
+          ''').lstrip(),encoding='utf-8')
 
       - name: Validate
         run: npm run validate
