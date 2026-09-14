@@ -1,0 +1,56 @@
+name: Compare RABA03 live source
+
+on:
+  push:
+    branches:
+      - diag/envios-sin-solicitud-20260914
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Compare Google Sheet proxy vs Supabase mirror
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const norm=v=>String(v??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+          const read=(o,names)=>{const ks=Object.keys(o||{});for(const n of names){const w=norm(n),k=ks.find(x=>norm(x)===w);if(k!==undefined)return o[k];}return '';};
+          const sig=r=>[
+            String(read(r,['N° de solicitud','Nº de solicitud'])||'').trim(),
+            String(read(r,['N° de pedido','Nº de pedido'])||'').trim(),
+            String(read(r,['Fecha de solicitud'])||'').trim(),
+            String(read(r,['Centro de Costo'])||'').trim(),
+            String(read(r,['Código de articulo','Código de artículo'])||'').trim(),
+            String(read(r,['Cant. Solicitada'])||'').trim()
+          ].join('|');
+          async function json(url,headers={}){const r=await fetch(url,{headers});const t=await r.text();if(!r.ok)throw new Error(`${r.status} ${t.slice(0,220)}`);return JSON.parse(t);}
+          (async()=>{
+            const sheet=await json('https://delta-mining-ops.vercel.app/api/apps-script?action=raba03&limit=all&force=1');
+            const sheetRows=Array.isArray(sheet?.data)?sheet.data:[];
+            console.log('SHEET_OK',sheet?.ok,'SHEET_ROWS',sheetRows.length);
+
+            const src=fs.readFileSync('src/services/raba03ReadApi.js','utf8');
+            const url=(src.match(/VITE_SUPABASE_URL\|\|"([^"]+)"/)||[])[1];
+            const key=(src.match(/VITE_SUPABASE_ANON_KEY\|\|"([^"]+)"/)||[])[1];
+            let raw=[];
+            for(let offset=0;;offset+=1000){const part=await json(`${url}/rest/v1/abastecimiento_raba03?select=source_row,row_data&order=source_row.asc&limit=1000&offset=${offset}`,{apikey:key,Authorization:`Bearer ${key}`});raw.push(...part);if(part.length<1000)break;}
+            const supaRows=raw.map(x=>x.row_data||{});
+            console.log('SUPA_ROWS',supaRows.length,'SOURCE_MIN',Math.min(...raw.map(x=>Number(x.source_row)||0)),'SOURCE_MAX',Math.max(...raw.map(x=>Number(x.source_row)||0)));
+
+            const count=m=>{const out=new Map();for(const r of m){const s=sig(r);out.set(s,(out.get(s)||0)+1);}return out;};
+            const a=count(sheetRows),b=count(supaRows);
+            let onlySheet=0,onlySupa=0;
+            for(const [k,n] of a)onlySheet+=Math.max(0,n-(b.get(k)||0));
+            for(const [k,n] of b)onlySupa+=Math.max(0,n-(a.get(k)||0));
+            console.log('ONLY_SHEET_SIGNATURES',onlySheet,'ONLY_SUPABASE_SIGNATURES',onlySupa);
+            console.log('SAME_MULTISET',onlySheet===0&&onlySupa===0&&sheetRows.length===supaRows.length);
+          })().catch(e=>{console.error('COMPARE_FAIL',e.stack||e);process.exit(1);});
+          NODE
