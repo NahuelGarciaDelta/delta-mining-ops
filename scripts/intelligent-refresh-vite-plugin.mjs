@@ -6,10 +6,11 @@ export function intelligentRefreshVitePlugin(){
       if(!id.endsWith('/src/App.jsx'))return null;
       let next=code;
 
-      // El refresco automático nunca fuerza Sheets; sólo el botón manual puede hacerlo.
+      // Ningún refresco de lectura salta la caché compartida. El backend V8 usa
+      // versión + fecha real del archivo para detectar cambios sin servir datos viejos.
       next=next.replace(
         'if(sources.length)await loadSources(sources,{force:true,background});',
-        'if(sources.length)await loadSources(sources,{force:reason==="manual",background});'
+        'if(sources.length)await loadSources(sources,{force:false,background});'
       );
 
       // Cuatro lecturas concurrentes fue validado con las cuatro fuentes ROP02 y evita
@@ -17,6 +18,13 @@ export function intelligentRefreshVitePlugin(){
       next=next.replace(
         'const results=await runWithConcurrency_(toCheck,2,key=>fetchOneSource(key,{force,cacheRecords}));',
         'const results=await runWithConcurrency_(toCheck,4,key=>fetchOneSource(key,{force,cacheRecords}));'
+      );
+
+      // El proxy ya resuelve un HTTP transitorio. Reintentar nuevamente desde React
+      // duplicaba ejecuciones de Apps Script y empeoraba la saturación.
+      next=next.replace(
+        'retries:isRop02Source?0:1,timeoutMs:isRop02Source?45000:20000',
+        'retries:0,timeoutMs:isRop02Source?45000:20000'
       );
 
       // IndexedDB es la fuente de arranque. Actualizamos refs ANTES de iniciar red para
