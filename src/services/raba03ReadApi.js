@@ -4,7 +4,7 @@ const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDd
 const PAGE_SIZE=1000;
 const TIMEOUT_MS=12000;
 
-function headers(){return {apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,Accept:"application/json"};}
+function headers(extra={}){return {apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,Accept:"application/json",...extra};}
 
 async function page(offset){
   const controller=typeof AbortController!=="undefined"?new AbortController():null;
@@ -36,4 +36,26 @@ export async function fetchRaba03FromSupabase(){
   const data=raw.map(row=>({...((row&&row.row_data)||{}),_sourceRow:row?.source_row??null}));
   const latest=raw.reduce((max,row)=>Math.max(max,new Date(row?.synced_at||0).getTime()||0),0);
   return {ok:true,source:"supabase",data,meta:{rows:data.length,serverTime:new Date(latest||Date.now()).toISOString()}};
+}
+
+export async function fetchAbastecimientoSnapshot(){
+  const controller=typeof AbortController!=="undefined"?new AbortController():null;
+  const timer=controller?setTimeout(()=>controller.abort(),TIMEOUT_MS):null;
+  try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/abastecimiento_snapshot`,{
+      method:"POST",
+      cache:"no-store",
+      signal:controller?.signal,
+      headers:headers({"Content-Type":"application/json"}),
+      body:"{}"
+    });
+    const text=await res.text();
+    if(!res.ok)throw new Error(`Supabase Abastecimiento HTTP ${res.status}: ${text.slice(0,180)}`);
+    let data={};
+    try{data=text?JSON.parse(text):{};}catch(_){throw new Error("Supabase Abastecimiento devolvió una respuesta inválida");}
+    return {...(data||{}),ok:true,source:"supabase"};
+  }catch(error){
+    if(error?.name==="AbortError")throw new Error("Abastecimiento no respondió dentro de 12 segundos");
+    throw error;
+  }finally{if(timer)clearTimeout(timer);}
 }
