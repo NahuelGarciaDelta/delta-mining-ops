@@ -8,7 +8,7 @@ export function abastecimientoInstantVitePlugin(){
 
       next=next.replace(
         'import { registerRefreshTask } from "../../services/refreshManager.js";',
-        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase } from "../../services/raba03ReadApi.js";\nimport { buildEnviosSinSolicitudRows } from "./enviosSinSolicitud.js";'
+        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase } from "../../services/raba03ReadApi.js";'
       );
 
       next=next.replace(
@@ -27,40 +27,6 @@ export function abastecimientoInstantVitePlugin(){
       );
 
       next=next.replace(
-        `      cantidadSolicitada:solicitada,
-      cantidadEnviada:enviada,
-      cantidadRestante:restante
-    };`,
-        `      cantidadSolicitada:solicitada,
-      cantidadEnviada:enviada,
-      cantidadRestante:restante,
-      numeroRemitoFuente:String(pick(r,["Nº Remito","N° Remito","Numero Remito","Número Remito"])||"").trim(),
-      fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"])),
-      cantidadEnviadaFuente:toNumber(pick(r,["Cant. Enviada","Cantidad enviada","Cant Enviada"])),
-      _raba03ExplicitLinksLoaded:true
-    };`
-      );
-
-      next=next.replace(
-        `  const enviosSinSolicitudRows=useMemo(()=>{
-    const base=(rows||[]).map(r=>({...r,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(r.cantidadSolicitada)),_matchedRemitos:[]}));
-    return allocateRemitosToRequests(base,remitos).unmatched.sort((a,b)=>{
-      const fa=parseChronoDateMs(a.fechaEnvio),fb=parseChronoDateMs(b.fechaEnvio);
-      if(fa!==fb)return fb-fa;
-      return String(a.codigoArticulo||"").localeCompare(String(b.codigoArticulo||""),"es",{numeric:true,sensitivity:"base"});
-    });
-  },[rows,remitos,toNumber,allocateRemitosToRequests]);`,
-        `  const enviosSinSolicitudRows=useMemo(()=>buildEnviosSinSolicitudRows({
-    rows,
-    remitos,
-    normCode,
-    toNumber,
-    normalizeCentroCosto,
-    parseChronoDateMs
-  }),[rows,remitos,normCode,toNumber,normalizeCentroCosto]);`
-      );
-
-      next=next.replace(
         'const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;\n      const res=await fetch(url,{cache:"no-store"});\n      const json=await res.json();',
         'const json=await fetchRaba03FromSupabase();'
       );
@@ -74,8 +40,17 @@ export function abastecimientoInstantVitePlugin(){
       const parallel=`const run=async()=>{\n      const [remitosResult]=await Promise.allSettled([\n        loadRemitosCompartidos({silent:true}),\n        loadEstadosSolicitudesCompartidos({silent:true})\n      ]);\n      if(cancelled)return;\n      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;\n      await loadRaba03({silent:rows.length>0,remitosOverride:sharedRemitos});\n    };`;
       next=next.replace(sequential,parallel);
 
-      if(!next.includes('numeroRemitoFuente:')||!next.includes('buildEnviosSinSolicitudRows({')){
-        throw new Error('No se pudo aplicar la corrección de Envíos sin solicitud sobre AbastecimientoModule.jsx');
+      // Envíos sin solicitud debe conservar exactamente el FIFO del módulo base,
+      // igual que delta-mining-web-supabase. No reemplazarlo por vínculos explícitos
+      // del RABA03 porque eso ocultaba envíos válidos en OPS.
+      if(!next.includes('allocateRemitosToRequests(base,remitos).unmatched')){
+        throw new Error('No se encontró el FIFO esperado de Envíos sin solicitud en AbastecimientoModule.jsx');
+      }
+      if(next.includes('buildEnviosSinSolicitudRows({')){
+        throw new Error('Envíos sin solicitud no debe ser reemplazado por la lógica de vínculos explícitos');
+      }
+      if(!next.includes('fetchRaba03FromSupabase')||!next.includes('RABA03_VIEW_CACHE_KEY')){
+        throw new Error('No se pudo aplicar la optimización Supabase/cache de Abastecimiento');
       }
 
       if(next===code)return null;
