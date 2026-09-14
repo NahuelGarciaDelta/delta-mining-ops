@@ -26,7 +26,7 @@ jobs:
       - name: Validate against current Supabase snapshot
         run: |
           node <<'NODE'
-          const fs=require('fs');
+          import fs from 'node:fs';
           const api=fs.readFileSync('src/services/raba03ReadApi.js','utf8');
           const url=(api.match(/https:\/\/[^"']+\.supabase\.co/)||[])[0];
           const key=(api.match(/sb_publishable_[A-Za-z0-9_-]+/)||[])[0];
