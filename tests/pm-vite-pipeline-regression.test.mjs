@@ -25,6 +25,21 @@ test("pipeline PM declara keys antes de usarla", () => {
   assert.ok(usage > declaration, "keys debe declararse antes de usarse en actividad ROP02");
 });
 
+test("pipeline PM declara internoDisplay antes del shorthand que lo usa", () => {
+  const code = transformedPmSource();
+  const declaration = code.indexOf("const internoDisplay =");
+  const usage = code.indexOf("\n        internoDisplay,");
+  assert.ok(declaration >= 0, "Debe existir la declaración local de internoDisplay");
+  assert.ok(usage > declaration, "internoDisplay debe declararse antes de agregarse al objeto");
+  assert.match(code, /const displayInterno = row => row\?\.internoDisplay \|\| row\?\.interno \|\| '';/);
+});
+
+test("camionetas ROP02 usan fallback CAMIONETA compatible con el plugin visual", () => {
+  const code = transformedPmSource();
+  assert.match(code, /const familiaRop = text\(row\?\._tipo \|\| row\?\.equipo \|\| 'CAMIONETA'\);/);
+  assert.match(code, /const patente = text\(listaMatch\?\.codigoDrusila \|\| ''\);/);
+});
+
 test("camiones quedan fuera de la lógica por kilometraje", () => {
   const code = transformedPmSource();
   assert.match(code, /return family\.includes\('CAMIONETA'\) \|\| internal\.startsWith\('CTA'\);/);
