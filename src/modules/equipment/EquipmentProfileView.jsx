@@ -8,6 +8,7 @@ import { cleanEquipmentCode, canonicalEquipmentCode } from "./equipmentCode.js";
 import {indexPersistedMovementsByEquipment,mergeEquipmentMovements} from "./equipmentMovementHistory.js";
 import {useEquipmentMovements} from "../../services/equipmentMovements.js";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from "recharts";
+import { getNextTruckPmHour, hasInconsistentPmReadings, isCanonicalTruckFamily, positiveOr } from "../mantenimiento/pmRules.js";
 
 function norm(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[^A-Z0-9]/g,"");}
 function pick(row,names){const keys=Object.keys(row||{});for(const n of names){const nn=norm(n);const exact=keys.find(k=>norm(k)===nn);if(exact)return row[exact];}for(const n of names){const nn=norm(n);const partial=keys.find(k=>norm(k).includes(nn)||nn.includes(norm(k)));if(partial)return row[partial];}return"";}
@@ -188,13 +189,19 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
     const latestReg=pmReg[0]||null;
     const lastH=Number(latestReg?pick(latestReg,["Horometro","Horómetro","Km / hs"]):pick(cfg,["horometroUltimoPM","Horómetro último PM"]))||0;
     const lastDate=latestReg?pick(latestReg,["Fecha","Fecha PM"]):pick(cfg,["fechaUltimoPM","Fecha último PM"]);
-    const interval=Number(pick(cfg,["intervalo","Intervalo"]))||250;
-    const next=lastH?lastH+interval:0;
-    const since=lastH&&summary.currentH?Math.max(0,summary.currentH-lastH):0;
-    const remaining=next&&summary.currentH?next-summary.currentH:null;
-    let status="SIN BASE";if(lastH){status=remaining!=null&&remaining<0?"ATRASADO":remaining!=null&&remaining<=50?"PRÓXIMO":"AL DÍA";}
-    return{lastH,lastDate,interval,next,since,remaining,status};
-  },[pmCfgIndex,selectedKey,pmReg,summary.currentH]);
+    const latestOp=op[op.length-1]||{};
+    const currentH=Number(latestOp.horometroFinal??latestOp.hf??latestOp.horometro??0)||0;
+    const isTruck=isCanonicalTruckFamily(pick(master||{},["Familia","Tipo","Equipo"]));
+    const interval=isTruck?500:positiveOr(pick(cfg,["intervalo","Intervalo"]),250);
+    const inconsistent=hasInconsistentPmReadings(currentH,lastH);
+    const next=lastH&&!inconsistent?(isTruck?getNextTruckPmHour(currentH,lastH):lastH+interval):0;
+    const since=lastH&&currentH&&!inconsistent?Math.max(0,currentH-lastH):0;
+    const remaining=next&&currentH?next-currentH:null;
+    let status="SIN BASE";
+    if(inconsistent)status="REVISAR DATOS";
+    else if(lastH)status=remaining!=null&&remaining<0?"ATRASADO":remaining!=null&&remaining<=Math.min(100,interval*.2)?"PRÓXIMO":"AL DÍA";
+    return{lastH,lastDate,interval,next,since,remaining,status,currentH,isTruck,inconsistent,latestOp};
+  },[pmCfgIndex,selectedKey,pmReg,op,master]);
   const projectMovements=useMemo(()=>{
     return mergeEquipmentMovements(op,movementIndex.get(selectedKey)||[],selectedKey);
   },[op,movementIndex,selectedKey]);
@@ -328,7 +335,7 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
 
     {selectedKey&&activeTab==="resumen"&&<>
       <div className="dm-equipment-metrics dm-equipment-metrics-5" style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:12,minWidth:0}}>
-        {compactMetric("Horómetro actual",summary.currentH?`${fmt(summary.currentH)} h`:"—",C.blue,"Último horómetro final registrado en ROP02.",summary.lastOp?.fecha?`Última lectura: ${shortDate(summary.lastOp.fecha)}`:undefined,"hours")}
+        {compactMetric("Horómetro actual",pmInfo.currentH?`${fmt(pmInfo.currentH)} h`:"—",pmInfo.inconsistent?C.red:C.blue,"Último horómetro final real registrado en ROP02, independiente del filtro visual.",pmInfo.latestOp?.fecha?`Última lectura: ${shortDate(pmInfo.latestOp.fecha)}`:undefined,"hours")}
         {compactMetric("Horas ROP02 (período)",`${fmt(summary.totalHours)} h`,C.teal,"Horas acumuladas del equipo en ROP02 para el período filtrado.",periodLabel,"clock")}
         {compactMetric("Horas productivas",`${fmt(summary.prodHours)} h`,C.green,"Horas productivas registradas en ROP05 para el período filtrado.",summary.totalHours>0?`${fmt(summary.prodHours/summary.totalHours*100)}% del total ROP02`:undefined,"barChart")}
         {compactMetric("Consumo observado",summary.fuelRate>0?`${fmt(summary.fuelRate,2)} L/h`:"—",C.purple,"Combustible registrado dividido por horas ROP02 del período.","Promedio período","fuel")}
@@ -355,7 +362,7 @@ function EquipmentProfileView({listaEquipos=[],rop02All=[],rop05=[],rma15=[],ins
           {dataRow("Próximo PM",pmInfo.next?`${fmt(pmInfo.next)} h`:"—",pmInfo.status==="ATRASADO"?C.red:C.text)}
           {dataRow("Faltan / atraso",pmInfo.remaining==null?"—":pmInfo.remaining<0?`${fmt(Math.abs(pmInfo.remaining))} h de atraso`:`${fmt(pmInfo.remaining)} h`,pmInfo.remaining!=null&&pmInfo.remaining<0?C.red:C.green)}
           {dataRow("Periodicidad",`${fmt(pmInfo.interval)} h`)}
-          {dataRow("Estado",pmInfo.status,pmInfo.status==="ATRASADO"?C.red:pmInfo.status==="PRÓXIMO"?C.yellow:C.green)}
+          {dataRow("Estado",pmInfo.status,pmInfo.status==="ATRASADO"||pmInfo.status==="REVISAR DATOS"?C.red:pmInfo.status==="PRÓXIMO"?C.yellow:C.green)}
           <div style={{marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:C.textMuted,marginBottom:5}}><span>Progreso del intervalo</span><strong style={{color:C.green}}>{fmt(pmProgress)}%</strong></div><div style={{height:6,borderRadius:999,background:"rgba(255,255,255,.08)",overflow:"hidden"}}><div style={{height:"100%",width:`${pmProgress}%`,background:pmProgress>=100?C.red:pmProgress>=80?C.yellow:C.green,borderRadius:999}}/></div></div>
         </div></Card>
         <Card title="Resumen de utilización (período)" tooltip="Distribución de días ROP02 del equipo seleccionado dentro de los filtros activos."><div className="dm-equipment-utilization" style={{padding:"14px 16px",display:"grid",gridTemplateColumns:"150px minmax(0,1fr)",alignItems:"center",gap:18}}>
