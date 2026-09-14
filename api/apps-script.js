@@ -61,7 +61,16 @@ export default async function handler(req, res) {
   }
 
   const target = new URL(APPS_SCRIPT_TARGET);
-  appendQuery(target, req.query || {});
+  const query = { ...(req.query || {}) };
+
+  // RABA03 tiene a Google Sheet como fuente de verdad. Nunca permitir que una
+  // respuesta vieja del CacheService del Apps Script sobreviva a una edición,
+  // alta o baja hecha directamente sobre la hoja.
+  if (req.method === "GET" && String(query.action || "").trim().toLowerCase() === "raba03") {
+    query.force = "1";
+    query.limit = "all";
+  }
+  appendQuery(target, query);
 
   // GET puede reintentarse una vez únicamente ante un HTTP transitorio que volvió
   // rápido. POST jamás se reintenta: repetir una escritura podría duplicarla.
