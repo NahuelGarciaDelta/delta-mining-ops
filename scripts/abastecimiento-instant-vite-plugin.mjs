@@ -8,7 +8,7 @@ export function abastecimientoInstantVitePlugin(){
 
       next=next.replace(
         'import { registerRefreshTask } from "../../services/refreshManager.js";',
-        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase, fetchAbastecimientoSnapshot } from "../../services/raba03ReadApi.js";\nimport { buildEnviosSinSolicitudRows } from "./enviosSinSolicitud.js";'
+        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase, fetchAbastecimientoSnapshot } from "../../services/raba03ReadApi.js";'
       );
 
       next=next.replace(
@@ -52,11 +52,14 @@ export function abastecimientoInstantVitePlugin(){
       if(start<0||end<0){
         throw new Error('No se encontró el bloque de Envíos sin solicitud en AbastecimientoModule.jsx');
       }
-      const unmatched=`  const enviosSinSolicitudRows=useMemo(()=>buildEnviosSinSolicitudRows({\n    raba03Rows:rawRaba03RowsRef.current,\n    remitos,\n    normCode,\n    toNumber,\n    normalizeCentroCosto,\n    parseChronoDateMs\n  }),[rows,remitos,normCode,toNumber,normalizeCentroCosto]);`;
+      const unmatched=`  const enviosSinSolicitudRows=useMemo(()=>{\n    const solicitudesValidas=(rows||[]).filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)]);\n    const base=solicitudesValidas.map(row=>({\n      ...row,\n      cantidadEnviada:0,\n      cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),\n      _matchedRemitos:[]\n    }));\n    return allocateRemitosToRequests(base,remitos).unmatched.sort((a,b)=>{\n      const fa=parseChronoDateMs(a.fechaEnvio),fb=parseChronoDateMs(b.fechaEnvio);\n      if(fa!==fb)return fb-fa;\n      return String(a.codigoArticulo||\"\").localeCompare(String(b.codigoArticulo||\"\"),\"es\",{numeric:true,sensitivity:\"base\"});\n    });\n  },[rows,remitos,toNumber,allocateRemitosToRequests,rejectedSolicitudes,buildSolicitudKey]);`;
       next=next.slice(0,start)+unmatched+next.slice(end);
 
-      if(!next.includes('buildEnviosSinSolicitudRows({')||!next.includes('raba03Rows:rawRaba03RowsRef.current')){
-        throw new Error('No se pudo aplicar la lógica real de Envíos sin solicitud');
+      if(!next.includes('solicitudesValidas=(rows||[]).filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)])')){
+        throw new Error('Envíos sin solicitud debe excluir solicitudes rechazadas antes del FIFO');
+      }
+      if(!next.includes('allocateRemitosToRequests(base,remitos).unmatched')){
+        throw new Error('No se pudo aplicar el FIFO de Envíos sin solicitud');
       }
       if(!next.includes('fetchRaba03FromSupabase')||!next.includes('fetchAbastecimientoSnapshot')||!next.includes('RABA03_VIEW_CACHE_KEY')){
         throw new Error('No se pudo aplicar la optimización Supabase/cache de Abastecimiento');
