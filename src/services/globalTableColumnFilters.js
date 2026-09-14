@@ -37,18 +37,15 @@ function installStyles(){
   document.head.appendChild(style);
 }
 
-function nativeFilterButtonNear(table){
+function hasNativeColumnFilters(table){
   const scrollHost=table.closest?.(".dm-table-scroll")||table.parentElement;
-  const candidates=[scrollHost?.previousElementSibling,scrollHost?.parentElement];
-  for(const node of candidates){
-    if(!node)continue;
-    const buttons=[...node.querySelectorAll?.("button")||[]];
-    if(buttons.some(button=>normalized(button.textContent)==="filtros por columna"))return true;
-    // No subir más de lo necesario: un card puede contener varias tablas.
-    if(node===scrollHost?.previousElementSibling)continue;
-    break;
-  }
-  return false;
+  // La tabla compartida de la app renderiza su barra inmediatamente antes del
+  // contenedor de scroll. Miramos sólo ese hermano para no confundir dos tablas
+  // distintas que estén dentro del mismo card.
+  const nativeToolbar=scrollHost?.previousElementSibling;
+  if(!nativeToolbar)return false;
+  return [...nativeToolbar.querySelectorAll?.("button")||[]]
+    .some(button=>normalized(button.textContent)==="filtros por columna");
 }
 
 function leafHeaderLabels(table){
@@ -160,9 +157,8 @@ function ensureToolbar(table){
 function eligible(table){
   if(!(table instanceof HTMLTableElement)||!visible(table))return false;
   if(table.closest?.("[data-dm-disable-global-column-filters='1']"))return false;
-  if(nativeFilterButtonNear(table))return false;
-  const labels=leafHeaderLabels(table);
-  return labels.length>0;
+  if(hasNativeColumnFilters(table))return false;
+  return leafHeaderLabels(table).length>0;
 }
 
 function decorateTable(table){
