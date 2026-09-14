@@ -19,6 +19,7 @@ function pickRaw(row, names = []) {
 
 export function buildEnviosSinSolicitudRows({
   raba03Rows = [],
+  rows = [],
   remitos = [],
   normCode,
   toNumber,
@@ -34,13 +35,24 @@ export function buildEnviosSinSolicitudRows({
     return [];
   }
 
-  // No inferir resultados hasta que la fuente RABA03 real esté cargada.
-  if (!Array.isArray(raba03Rows) || raba03Rows.length === 0) return [];
+  const hasRawRaba03 = Array.isArray(raba03Rows) && raba03Rows.length > 0;
+  const sourceRows = hasRawRaba03 ? raba03Rows : rows;
+  if (!Array.isArray(sourceRows) || sourceRows.length === 0) return [];
 
-  const links = raba03Rows
+  // Compatibilidad con cachés normalizados anteriores: si no vino la fuente
+  // RABA03 cruda, solo confiar en filas marcadas explícitamente como completas.
+  if (
+    !hasRawRaba03 &&
+    !sourceRows.some((row) => row && row._raba03ExplicitLinksLoaded === true)
+  ) {
+    return [];
+  }
+
+  const links = sourceRows
     .map((row) => ({
       codigo: normCode(
         pickRaw(row, [
+          "codigoArticulo",
           "Código de articulo",
           "Código de artículo",
           "Codigo de articulo",
@@ -52,10 +64,17 @@ export function buildEnviosSinSolicitudRows({
         ]),
       ),
       proyecto: normalizeCentroCosto(
-        pickRaw(row, ["Centro de Costo", "Centro de costo", "Proyecto", "CC"]),
+        pickRaw(row, [
+          "centroCosto",
+          "Centro de Costo",
+          "Centro de costo",
+          "Proyecto",
+          "CC",
+        ]),
       ),
       remito: String(
         pickRaw(row, [
+          "numeroRemitoFuente",
           "Nº Remito",
           "N° Remito",
           "N Remito",
@@ -64,6 +83,7 @@ export function buildEnviosSinSolicitudRows({
         ]) || "",
       ).trim(),
       fechaSolicitud: pickRaw(row, [
+        "fechaSolicitud",
         "Fecha de solicitud",
         "Fecha solicitud",
         "F. Sol.",
