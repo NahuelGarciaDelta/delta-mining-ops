@@ -1,4 +1,4 @@
-name: PM final isolated validation
+name: PM baseline validation
 
 on:
   push:
@@ -6,53 +6,34 @@ on:
     paths:
       - '.github/workflows/pm-final-validate.yml'
 
-permissions:
-  contents: write
-
 jobs:
-  validate:
+  validate-baseline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - name: Apply PM corrections in workspace
-        run: node scripts/apply-pm-consistency-fix.mjs
-      - name: Validate and build with captured logs
-        id: checks
+      - name: Baseline validate
+        id: check
         shell: bash
         run: |
           set +e
-          npm run validate > validate.log 2>&1
-          VALIDATE_STATUS=$?
-          npm run build > build.log 2>&1
-          BUILD_STATUS=$?
-          echo "validate_status=$VALIDATE_STATUS" >> "$GITHUB_OUTPUT"
-          echo "build_status=$BUILD_STATUS" >> "$GITHUB_OUTPUT"
-          printf 'validate=%s\nbuild=%s\n' "$VALIDATE_STATUS" "$BUILD_STATUS" > check-status.txt
+          npm run validate > baseline-validate.log 2>&1
+          STATUS=$?
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          printf 'validate=%s\n' "$STATUS" > baseline-status.txt
           set -e
-      - name: Upload diagnostic logs
+      - name: Upload baseline logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pm-final-validation-logs
+          name: pm-baseline-validation-logs
           path: |
-            validate.log
-            build.log
-            check-status.txt
-      - name: Commit validated corrections to branch
-        if: steps.checks.outputs.validate_status == '0' && steps.checks.outputs.build_status == '0'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/services/supabaseReadApi.js src/services/appsScriptApi.js src/modules/mantenimiento/MantenimientoProgramadoView.jsx src/modules/equipment/EquipmentProfileView.jsx
-          git commit -m "fix: stabilize PM data and truck maintenance rules"
-          git push origin HEAD:fix/pm-final-20260914
-      - name: Fail if checks failed
-        if: steps.checks.outputs.validate_status != '0' || steps.checks.outputs.build_status != '0'
+            baseline-validate.log
+            baseline-status.txt
+      - name: Preserve baseline result
+        if: steps.check.outputs.status != '0'
         run: exit 1
