@@ -8,7 +8,7 @@ export function abastecimientoInstantVitePlugin(){
 
       next=next.replace(
         'import { registerRefreshTask } from "../../services/refreshManager.js";',
-        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase } from "../../services/raba03ReadApi.js";\nimport { buildEnviosSinSolicitudRows } from "./enviosSinSolicitud.js";'
+        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase, fetchAbastecimientoSnapshot } from "../../services/raba03ReadApi.js";\nimport { buildEnviosSinSolicitudRows } from "./enviosSinSolicitud.js";'
       );
 
       next=next.replace(
@@ -29,6 +29,11 @@ export function abastecimientoInstantVitePlugin(){
       next=next.replace(
         'const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;\n      const res=await fetch(url,{cache:"no-store"});\n      const json=await res.json();',
         'const json=await fetchRaba03FromSupabase();'
+      );
+
+      next=next.replace(
+        '      const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&force=1&_=${Date.now()}`;\n      const res=await fetch(url,{method:"GET",cache:"no-store",redirect:"follow"});\n      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);\n      const json=await res.json();\n      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los remitos cargados.");\n      const shared=buildRemitosCompartidos(json.data||[]);',
+        '      const json=await fetchAbastecimientoSnapshot();\n      if(!json?.ok)throw new Error("No se pudieron leer los remitos cargados desde Supabase.");\n      const shared=buildRemitosCompartidos(json.remitos||[]);'
       );
 
       next=next.replace(
@@ -53,8 +58,11 @@ export function abastecimientoInstantVitePlugin(){
       if(!next.includes('buildEnviosSinSolicitudRows({')||!next.includes('raba03Rows:rawRaba03RowsRef.current')){
         throw new Error('No se pudo aplicar la lógica real de Envíos sin solicitud');
       }
-      if(!next.includes('fetchRaba03FromSupabase')||!next.includes('RABA03_VIEW_CACHE_KEY')){
+      if(!next.includes('fetchRaba03FromSupabase')||!next.includes('fetchAbastecimientoSnapshot')||!next.includes('RABA03_VIEW_CACHE_KEY')){
         throw new Error('No se pudo aplicar la optimización Supabase/cache de Abastecimiento');
+      }
+      if(next.includes('action=remitos_cargados')){
+        throw new Error('Abastecimiento no debe volver a leer remitos pesados desde Apps Script');
       }
 
       if(next===code)return null;
