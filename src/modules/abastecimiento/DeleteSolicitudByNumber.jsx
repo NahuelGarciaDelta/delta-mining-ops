@@ -16,11 +16,11 @@ export default function DeleteSolicitudByNumber({ deps = {}, onDeleted }) {
 
   const handleDelete = async () => {
     if (busy) return;
-    const numero = String(window.prompt("Ingresá el N° de solicitud a eliminar:", "") || "").trim();
+    const numero = String(window.prompt("Ingresá el N° de solicitud (columna A) a eliminar. No ingreses el N° de pedido:", "") || "").trim();
     if (!numero) return;
 
     const confirmed = await confirmUser(
-      `¿Eliminar completamente la solicitud N° ${numero}?\n\nSe eliminarán todas las filas de RABA03 que tengan ese N° de solicitud. Esta acción no se puede deshacer.`,
+      `¿Eliminar completamente la solicitud N° ${numero}?\n\nSe eliminarán todas las filas de RABA03 que tengan ese N° de solicitud (columna A). El N° de pedido es otro dato distinto. Esta acción no se puede deshacer.`,
     );
     if (!confirmed) return;
 
@@ -53,7 +53,7 @@ export default function DeleteSolicitudByNumber({ deps = {}, onDeleted }) {
 
       const deletedRows = Number(json.deletedRows || 0);
       if (deletedRows <= 0) {
-        await alertUser(`No se encontró ninguna fila con el N° de solicitud ${numero}.`);
+        await alertUser(`No se encontró ninguna fila con el N° de solicitud ${numero} en la columna A. Si ${numero} es un N° de pedido, no corresponde a este botón.`);
         return;
       }
 
@@ -85,7 +85,7 @@ export default function DeleteSolicitudByNumber({ deps = {}, onDeleted }) {
           opacity: busy ? 0.65 : 1,
         }}
       >
-        {busy ? "Eliminando..." : "Eliminar solicitud"}
+        {busy ? "Eliminando..." : "Eliminar solicitud (N° solicitud)"}
       </button>
     </div>
   );
