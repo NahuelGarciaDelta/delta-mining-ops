@@ -18,8 +18,9 @@ jobs:
           node-version: '20'
       - run: npm ci
       - name: Patch Abastecimiento to use explicit RABA03 remito links
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           from pathlib import Path
 
           path = Path('src/modules/abastecimiento/AbastecimientoModule.jsx')
@@ -71,6 +72,7 @@ jobs:
               raise SystemExit('enviosSinSolicitudRows anchor not found')
 
           path.write_text(text, encoding='utf-8')
+          PY
       - name: Regression assertions
         shell: bash
         run: |
