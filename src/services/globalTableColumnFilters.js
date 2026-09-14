@@ -157,6 +157,9 @@ function ensureToolbar(table){
 function eligible(table){
   if(!(table instanceof HTMLTableElement)||!visible(table))return false;
   if(table.closest?.("[data-dm-disable-global-column-filters='1']"))return false;
+  // Los gráficos de Recharts pueden contener estructuras auxiliares. Nunca se
+  // debe inyectar la barra global de filtros dentro de un dashboard/gráfico.
+  if(table.closest?.(".recharts-wrapper,.recharts-responsive-container,[class*='recharts-']"))return false;
   if(hasNativeColumnFilters(table))return false;
   return leafHeaderLabels(table).length>0;
 }
