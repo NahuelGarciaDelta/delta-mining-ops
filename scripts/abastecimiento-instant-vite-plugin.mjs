@@ -45,17 +45,19 @@ export function abastecimientoInstantVitePlugin(){
       const parallel=`const run=async()=>{\n      const [remitosResult]=await Promise.allSettled([\n        loadRemitosCompartidos({silent:true}),\n        loadEstadosSolicitudesCompartidos({silent:true})\n      ]);\n      if(cancelled)return;\n      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;\n      await loadRaba03({silent:rows.length>0,remitosOverride:sharedRemitos});\n    };`;
       next=next.replace(sequential,parallel);
 
-      // La lógica de "Envíos sin solicitud" vive en el source y NO se reemplaza
-      // durante el build. Debe conservar la semántica histórica: una solicitud
-      // futura nunca puede absorber retroactivamente un remito anterior.
-      if(!next.includes('const solicitudesHistoricas=(rows||[])')){
-        throw new Error('No se encontró la lógica histórica de Envíos sin solicitud');
+      // Envíos sin solicitud es una auditoría histórica independiente del FIFO
+      // operativo. Debe conservar código+proyecto+descripción y la barrera temporal.
+      if(!next.includes('const solicitudesAudit=(rows||[])')){
+        throw new Error('No se encontró la auditoría histórica de Envíos sin solicitud');
       }
-      if(!next.includes('const teniaSolicitudAlEnviar=solicitudesHistoricas.some')){
-        throw new Error('Envíos sin solicitud debe validar existencia de solicitud a la fecha del envío');
+      if(!next.includes('const key=[req.codigo,req.proyecto,req.insumoKey].join("__")')){
+        throw new Error('Envíos sin solicitud debe conservar la key código+proyecto+descripción');
+      }
+      if(!next.includes('if(req.fechaMs&&shipment.fechaMs&&req.fechaMs>shipment.fechaMs)continue;')){
+        throw new Error('Envíos sin solicitud debe impedir que solicitudes futuras absorban envíos anteriores');
       }
       if(next.includes('allocateRemitosToRequests(base,remitos).unmatched')){
-        throw new Error('El build no debe reemplazar Envíos sin solicitud por el FIFO operativo');
+        throw new Error('El build no debe reemplazar la auditoría por el FIFO operativo');
       }
       if(!next.includes('fetchRaba03FromSupabase')||!next.includes('fetchAbastecimientoSnapshot')||!next.includes('RABA03_VIEW_CACHE_KEY')){
         throw new Error('No se pudo aplicar la optimización Supabase/cache de Abastecimiento');
