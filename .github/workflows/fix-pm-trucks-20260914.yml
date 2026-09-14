@@ -1,0 +1,234 @@
+name: Fix PM trucks 500h
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-pm-trucks-20260914.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply truck PM correction
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/modules/mantenimiento/MantenimientoProgramadoView.jsx')
+          s = path.read_text(encoding='utf-8')
+
+          old_import = 'import { registerRefreshTask } from "../../services/refreshManager.js";'
+          new_import = '''import { registerRefreshTask } from "../../services/refreshManager.js";
+          import { normalizeVehicleFamily } from "../../shared/domain/index.jsx";
+          import {
+            TRUCK_PM_INTERVAL_HOURS,
+            TRUCK_PM_ALERT_FROM_HOURS,
+            TRUCK_PM_OVERDUE_FROM_HOURS,
+            getNextTruckPmHour,
+            isCanonicalTruckFamily,
+            selectMaintenanceCounter,
+          } from "./pmRules.js";'''
+          if old_import not in s:
+              raise SystemExit('Expected refreshManager import not found')
+          s = s.replace(old_import, new_import, 1)
+
+          old_category = '''function categoriaPM(equipo) {
+            return esCamionetaPM(equipo) ? "vehiculos" : "pesados";
+          }'''
+          new_category = '''function esCamionPM(equipo) {
+            const familiaCanonica = normalizeVehicleFamily(equipo?.familia || equipo?.tipoEquipo || equipo?.equipo || "");
+            return isCanonicalTruckFamily(familiaCanonica);
+          }
+
+          function categoriaPM(equipo) {
+            return esCamionetaPM(equipo) ? "vehiculos" : "pesados";
+          }'''
+          if old_category not in s:
+              raise SystemExit('Expected categoriaPM block not found')
+          s = s.replace(old_category, new_category, 1)
+
+          old_rop = '''function ropHoras(row) {
+            // Compatibilidad con datos normalizados (`horometroFinal`) y datos crudos (`HF`).
+            return Math.max(
+              num(row?.horometroFinal),
+              num(row?.horometroInicial),
+              num(pick(row, ["hf", "horometro final", "horómetro final", "km final", "kilometraje final"])),
+              num(pick(row, ["hi", "horometro inicial", "horómetro inicial"])),
+              num(row?.horas),
+              num(pick(row, ["horas", "hs"]))
+            );
+          }'''
+          new_rop = '''function ropHoras(row, { esCamion = false } = {}) {
+            // Camiones: el PM se controla exclusivamente por HORÓMETRO. El kilometraje
+            // puede seguir existiendo en datos legacy, pero nunca participa del PM.
+            const horometerCandidates = [
+              num(row?.horometroFinal),
+              num(row?.horometroInicial),
+              num(pick(row, ["hf", "horometro final", "horómetro final"])),
+              num(pick(row, ["hi", "horometro inicial", "horómetro inicial"])),
+              num(row?.horas),
+              num(pick(row, ["horas", "hs"]))
+            ];
+            const mileageCandidates = [
+              num(row?.kilometrajeFinal),
+              num(row?.kmFinal),
+              num(pick(row, ["km final", "kilometraje final"]))
+            ];
+            return selectMaintenanceCounter({ horometerCandidates, mileageCandidates }, { isTruck: esCamion });
+          }'''
+          if old_rop not in s:
+              raise SystemExit('Expected ropHoras block not found')
+          s = s.replace(old_rop, new_rop, 1)
+
+          old_status = '''function statusFor(row) {
+            const actual = num(row.horometroActual);
+            const ultimo = num(row.horometroUltimoPM);
+            const transcurridas = ultimo > 0 ? Math.max(0, actual - ultimo) : 0;
+            const alerta = num(row.alertaDesde) || DEFAULTS.alertaDesde;
+            const atrasado = num(row.atrasadoDesde) || DEFAULTS.atrasadoDesde;
+            const intervalo = num(row.intervalo) || DEFAULTS.intervalo;
+            let estado = "AL DÍA", color = "ok";
+            const margenUrgente = Math.max(20, Math.min(50, atrasado - intervalo));
+            if (!ultimo) { estado = "SIN BASE"; color = "muted"; }
+            else if (transcurridas >= atrasado) { estado = "PM ATRASADO"; color = "danger"; }
+            else if (transcurridas >= intervalo || transcurridas >= atrasado - margenUrgente) { estado = "PM URGENTE"; color = "danger"; }
+            else if (transcurridas >= alerta) { estado = "PM PRÓXIMO"; color = "warn"; }
+            return {
+              ...row,
+              transcurridas,
+              proximoPM: ultimo ? ultimo + intervalo : 0,
+              faltan: ultimo ? Math.max(0, (ultimo + intervalo) - actual) : 0,
+              estado,
+              color,
+            };
+          }'''
+          new_status = '''function statusFor(row) {
+            const actual = num(row.horometroActual);
+            const ultimo = num(row.horometroUltimoPM);
+            const esCamion = !!row.pmEsCamion;
+            const transcurridas = ultimo > 0 ? Math.max(0, actual - ultimo) : 0;
+            const alerta = esCamion ? TRUCK_PM_ALERT_FROM_HOURS : (num(row.alertaDesde) || DEFAULTS.alertaDesde);
+            const atrasado = esCamion ? TRUCK_PM_OVERDUE_FROM_HOURS : (num(row.atrasadoDesde) || DEFAULTS.atrasadoDesde);
+            const intervalo = esCamion ? TRUCK_PM_INTERVAL_HOURS : (num(row.intervalo) || DEFAULTS.intervalo);
+            const proximoPM = esCamion ? getNextTruckPmHour(actual, ultimo) : (ultimo ? ultimo + intervalo : 0);
+            let estado = "AL DÍA", color = "ok";
+            const margenUrgente = Math.max(20, Math.min(50, atrasado - intervalo));
+            if (!ultimo) { estado = "SIN BASE"; color = "muted"; }
+            else if (transcurridas >= atrasado) { estado = "PM ATRASADO"; color = "danger"; }
+            else if (transcurridas >= intervalo || transcurridas >= atrasado - margenUrgente) { estado = "PM URGENTE"; color = "danger"; }
+            else if (transcurridas >= alerta) { estado = "PM PRÓXIMO"; color = "warn"; }
+            return {
+              ...row,
+              intervalo,
+              alertaDesde: alerta,
+              atrasadoDesde: atrasado,
+              unidadMantenimiento: esCamion ? "h" : row.unidadMantenimiento,
+              transcurridas,
+              proximoPM,
+              faltan: proximoPM ? Math.max(0, proximoPM - actual) : 0,
+              estado,
+              color,
+            };
+          }'''
+          if old_status not in s:
+              raise SystemExit('Expected statusFor block not found')
+          s = s.replace(old_status, new_status, 1)
+
+          marker = '''  const actividad7Dias = useMemo(() => {'''
+          insert = '''  const truckInternos = useMemo(() => {
+            const out = new Set();
+            (listaEquipos || []).forEach(raw => {
+              const equipo = equipoFromLista(raw);
+              if (esCamionPM(equipo)) {
+                const key = norm(equipo.interno);
+                if (key) out.add(key);
+              }
+            });
+            return out;
+          }, [listaEquipos]);
+
+          const actividad7Dias = useMemo(() => {'''
+          if marker not in s:
+              raise SystemExit('actividad7Dias marker not found')
+          s = s.replace(marker, insert, 1)
+
+          old_hours = '      const horas = ropHoras(row);'
+          new_hours = '      const horas = ropHoras(row, { esCamion: truckInternos.has(key) });'
+          if old_hours not in s:
+              raise SystemExit('actividad ropHoras call not found')
+          s = s.replace(old_hours, new_hours, 1)
+
+          old_dep = '  }, [rop02All, fechaDesde, fechaHasta]);'
+          new_dep = '  }, [rop02All, fechaDesde, fechaHasta, truckInternos]);'
+          if old_dep not in s:
+              raise SystemExit('actividad dependency block not found')
+          s = s.replace(old_dep, new_dep, 1)
+
+          old_cfg = '''      const cfg = configMap.get(key) || {};
+              base.push(statusFor({'''
+          new_cfg = '''      const cfg = configMap.get(key) || {};
+              const pmEsCamion = esCamionPM(e);
+              base.push(statusFor({'''
+          if old_cfg not in s:
+              raise SystemExit('equipment cfg block not found')
+          s = s.replace(old_cfg, new_cfg, 1)
+
+          old_fields = '''        proyecto: actividad.proyecto || cfg.proyecto || e.proyecto,
+                intervalo: num(cfg.intervalo) || DEFAULTS.intervalo,
+                alertaDesde: num(cfg.alertaDesde) || DEFAULTS.alertaDesde,
+                atrasadoDesde: num(cfg.atrasadoDesde) || DEFAULTS.atrasadoDesde,
+                horometroUltimoPM: num(cfg.horometroUltimoPM),'''
+          new_fields = '''        proyecto: actividad.proyecto || cfg.proyecto || e.proyecto,
+                pmEsCamion,
+                intervalo: pmEsCamion ? TRUCK_PM_INTERVAL_HOURS : (num(cfg.intervalo) || DEFAULTS.intervalo),
+                alertaDesde: pmEsCamion ? TRUCK_PM_ALERT_FROM_HOURS : (num(cfg.alertaDesde) || DEFAULTS.alertaDesde),
+                atrasadoDesde: pmEsCamion ? TRUCK_PM_OVERDUE_FROM_HOURS : (num(cfg.atrasadoDesde) || DEFAULTS.atrasadoDesde),
+                unidadMantenimiento: pmEsCamion ? "h" : cfg.unidadMantenimiento,
+                horometroUltimoPM: num(cfg.horometroUltimoPM),'''
+          if old_fields not in s:
+              raise SystemExit('equipment PM fields block not found')
+          s = s.replace(old_fields, new_fields, 1)
+
+          path.write_text(s, encoding='utf-8')
+
+          rules = Path('src/modules/mantenimiento/pmRules.js')
+          rules.write_text('''export const TRUCK_PM_INTERVAL_HOURS = 500;\nexport const TRUCK_PM_ALERT_FROM_HOURS = 400;\nexport const TRUCK_PM_OVERDUE_FROM_HOURS = 600;\n\nconst numeric = value => {\n  const n = Number(value);\n  return Number.isFinite(n) ? n : 0;\n};\n\nconst normalizeFamily = value => String(value ?? "")\n  .normalize("NFD")\n  .replace(/[\\u0300-\\u036f]/g, "")\n  .toUpperCase()\n  .replace(/[^A-Z0-9]+/g, " ")\n  .trim();\n\nexport function isCanonicalTruckFamily(value) {\n  // CAMIONETA deliberately does not match: after CAMION there must be whitespace or end-of-string.\n  return /^CAMION(?:\\s|$)/.test(normalizeFamily(value));\n}\n\nexport function selectMaintenanceCounter({ horometerCandidates = [], mileageCandidates = [] } = {}, { isTruck = false } = {}) {\n  const maxValue = values => Math.max(0, ...(values || []).map(numeric));\n  const horometer = maxValue(horometerCandidates);\n  if (isTruck) return horometer;\n  return Math.max(horometer, maxValue(mileageCandidates));\n}\n\nexport function getNextTruckPmHour(currentHour, lastPmHour = 0) {\n  const current = Math.max(0, numeric(currentHour));\n  const last = Math.max(0, numeric(lastPmHour));\n  if (!current) return 0;\n\n  // Truck PM milestones are absolute multiples of 500 h: 500, 1000, 1500...\n  let target = Math.ceil(current / TRUCK_PM_INTERVAL_HOURS) * TRUCK_PM_INTERVAL_HOURS;\n  // If the equipment is exactly on a milestone that was already recorded as its last PM,\n  // the next target is the following 500-hour milestone.\n  if (target === current && last >= current) target += TRUCK_PM_INTERVAL_HOURS;\n  return target;\n}\n''', encoding='utf-8')
+
+          test = Path('tests/pm-truck-rules.test.mjs')
+          test.write_text('''import test from "node:test";\nimport assert from "node:assert/strict";\nimport {\n  TRUCK_PM_INTERVAL_HOURS,\n  getNextTruckPmHour,\n  isCanonicalTruckFamily,\n  selectMaintenanceCounter,\n} from "../src/modules/mantenimiento/pmRules.js";\n\ntest("truck family classification includes trucks and excludes camionetas", () => {\n  assert.equal(isCanonicalTruckFamily("CAMION"), true);\n  assert.equal(isCanonicalTruckFamily("CAMIÓN REGADOR"), true);\n  assert.equal(isCanonicalTruckFamily("CAMION VOLCADOR"), true);\n  assert.equal(isCanonicalTruckFamily("CAMION DE COMBUSTIBLE"), true);\n  assert.equal(isCanonicalTruckFamily("CAMION TRACTOR"), true);\n  assert.equal(isCanonicalTruckFamily("CAMIONETA"), false);\n  assert.equal(isCanonicalTruckFamily("CAMIONETA CON MOCHILA"), false);\n});\n\ntest("truck PM uses horometer and ignores mileage", () => {\n  const counter = selectMaintenanceCounter(\n    { horometerCandidates: [1380, 1370], mileageCandidates: [125000, 126000] },\n    { isTruck: true },\n  );\n  assert.equal(counter, 1380);\n});\n\ntest("truck interval is exactly 500 hours and next PM is the next 500-hour milestone", () => {\n  assert.equal(TRUCK_PM_INTERVAL_HOURS, 500);\n  assert.equal(getNextTruckPmHour(1380, 1000), 1500);\n  assert.equal(1500 - 1380, 120);\n  assert.equal(getNextTruckPmHour(1500, 1500), 2000);\n});\n''', encoding='utf-8')
+
+      - name: Validate
+        run: npm run validate
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit validated correction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/modules/mantenimiento/MantenimientoProgramadoView.jsx src/modules/mantenimiento/pmRules.js tests/pm-truck-rules.test.mjs
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "fix(pm): enforce 500-hour maintenance for trucks"
+          git push origin main
