@@ -1,0 +1,58 @@
+name: Validate Abastecimiento envios visibility fix
+
+on:
+  push:
+    branches: [fix/abastecimiento-envios-visible-20260914]
+    paths:
+      - '.github/workflows/fix-abastecimiento-envios-visible.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Restore Solicitudes group visibility
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('src/App.jsx')
+          s=p.read_text(encoding='utf-8')
+          old='const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_control_rop02:true,grp_rop05:true,grp_rma15:true,grp_abastecimiento:true,grp_stockcritico:true,grp_admin:true}));'
+          new='const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_control_rop02:true,grp_rop05:true,grp_rma15:true,grp_abastecimiento:true,grp_solicitudes:true,grp_stockcritico:true,grp_admin:true}));'
+          if old not in s:
+              raise SystemExit('navOpen expected anchor not found')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+      - name: Regression assertions
+        shell: python
+        run: |
+          from pathlib import Path
+          s=Path('src/App.jsx').read_text(encoding='utf-8')
+          checks={
+            'Solicitudes group defaults open':'grp_abastecimiento:true,grp_solicitudes:true,grp_stockcritico:true',
+            'Envios nav item':'{id:"abastecimientoEnviosSinSolicitud",icon:"warn",label:"Envíos sin solicitud"}',
+            'Envios route mapping':'abastecimientoEnviosSinSolicitud:"enviosSinSolicitud"',
+          }
+          missing=[name for name,needle in checks.items() if needle not in s]
+          if missing:
+              raise SystemExit('Missing regressions: '+', '.join(missing))
+      - name: Production build
+        run: npm run build
+      - name: Commit functional change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.jsx
+          git diff --cached --check
+          git commit -m "fix: keep Abastecimiento solicitudes group visible"
+          git push origin HEAD:fix/abastecimiento-envios-visible-20260914
