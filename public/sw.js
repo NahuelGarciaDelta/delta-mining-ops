@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v25-raba03-supabase-20260914";
+const CACHE_NAME = "delta-mining-ops-v26-global-column-filters-20260914";
 const APP_SHELL = [
   "/",
   "/index.html",
