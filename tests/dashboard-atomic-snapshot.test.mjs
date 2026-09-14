@@ -54,7 +54,7 @@ test("fechas del dashboard aceptan ISO, DD/MM/YYYY y timestamps",()=>{
   assert.equal(dashboardDateKey("2026-07-31T18:30:00-03:00"),"2026-07-31");
 });
 
-test("snapshot válido se publica con los dos proyectos autorizados y conserva histórico",()=>{
+test("snapshot histórico legado conserva los dos proyectos autorizados",()=>{
   const checked=validateDashboardSnapshotResponse(response(),2026,scopeTwo);
   assert.equal(checked.rop02.length,350);
   assert.ok(checked.rop02.every(row=>["JOSE MARIA","FILO DEL SOL"].includes(row.proyecto)));
@@ -64,12 +64,12 @@ test("snapshot válido se publica con los dos proyectos autorizados y conserva h
   }
 });
 
-test("si falta una fuente autorizada la transacción completa se rechaza",()=>{
+test("el validador legado sigue rechazando un snapshot incompleto",()=>{
   const onlyJm=completeRop.filter(row=>row.proyecto!=="FILO DEL SOL");
   assert.throws(()=>validateDashboardSnapshotResponse(response(onlyJm),2026,scopeTwo),/falta FILO DEL SOL/i);
 });
 
-test("el último snapshot compuesto sólo se acepta para la misma versión/año/alcance",()=>{
+test("la validación de caché histórica conserva compatibilidad",()=>{
   const checked=validateDashboardSnapshotResponse(response(),2026,scopeTwo);
   const cached={
     ok:true,
@@ -85,13 +85,16 @@ test("el último snapshot compuesto sólo se acepta para la misma versión/año/
   assert.equal(validateCachedDashboardSnapshot({...cached,cacheVersion:7},2026,scopeTwo),null);
 });
 
-test("las dos entradas del Dashboard usan snapshot atómico y no la caché ROP02 por fuente",()=>{
+test("Dashboard no vuelve a depender de dashboard_snapshot ni de un loader bloqueante",()=>{
   const wrapper=fs.readFileSync(new URL("../src/modules/home/ExecutiveDashboardHistorical.jsx",import.meta.url),"utf8");
   const homeFilter=fs.readFileSync(new URL("../src/modules/home/ViewBienvenidaProjectFilter.jsx",import.meta.url),"utf8");
   const sources=fs.readFileSync(new URL("../src/config/viewSources.js",import.meta.url),"utf8");
-  assert.match(wrapper,/dashboard-atomic-snapshot/);
-  assert.match(wrapper,/if\(prev\.ready\)/);
-  assert.match(homeFilter,/validateDashboardSnapshotResponse/);
-  assert.match(homeFilter,/dashboardSnapshot\.ready\?dashboardSnapshot\.rop02:\[\]/);
-  assert.match(sources,/dashboard:\["rop05"\]/);
+  assert.doesNotMatch(wrapper,/dashboard_snapshot/);
+  assert.doesNotMatch(wrapper,/PageLoadingMotoniveladora/);
+  assert.match(wrapper,/ExecutiveDashboard \{\.\.\.props\}/);
+  assert.doesNotMatch(homeFilter,/dashboard_snapshot/);
+  assert.doesNotMatch(homeFilter,/Cargando snapshot completo/);
+  assert.doesNotMatch(homeFilter,/dashboardGuard/);
+  assert.match(homeFilter,/rop02All:Array\.isArray\(props\.rop02All\)\?props\.rop02All:\[\]/);
+  assert.match(sources,/dashboard:\[[^\]]*"rop02_fs"[^\]]*"rop02_jm"[^\]]*"rma15_fs"[^\]]*"rma15_jm"/);
 });
