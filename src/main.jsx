@@ -76,7 +76,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load",async()=>{
     try{
       swRegistration=await navigator.serviceWorker.register(
-        "/sw.js?v=20260914-supabase-primary-v23",
+        "/sw.js?v=20260914-dashboard-direct-v24",
         {updateViaCache:"none"}
       );
       await swRegistration.update();
