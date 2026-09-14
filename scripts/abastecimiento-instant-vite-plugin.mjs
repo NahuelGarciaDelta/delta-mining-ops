@@ -45,21 +45,17 @@ export function abastecimientoInstantVitePlugin(){
       const parallel=`const run=async()=>{\n      const [remitosResult]=await Promise.allSettled([\n        loadRemitosCompartidos({silent:true}),\n        loadEstadosSolicitudesCompartidos({silent:true})\n      ]);\n      if(cancelled)return;\n      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;\n      await loadRaba03({silent:rows.length>0,remitosOverride:sharedRemitos});\n    };`;
       next=next.replace(sequential,parallel);
 
-      const unmatchedStart='  const enviosSinSolicitudRows=useMemo(()=>{';
-      const unmatchedEnd='\n  const exportarEnviosSinSolicitud=useCallback(()=>{';
-      const start=next.indexOf(unmatchedStart);
-      const end=start>=0?next.indexOf(unmatchedEnd,start):-1;
-      if(start<0||end<0){
-        throw new Error('No se encontró el bloque de Envíos sin solicitud en AbastecimientoModule.jsx');
+      // La lógica de "Envíos sin solicitud" vive en el source y NO se reemplaza
+      // durante el build. Debe conservar la semántica histórica: una solicitud
+      // futura nunca puede absorber retroactivamente un remito anterior.
+      if(!next.includes('const solicitudesHistoricas=(rows||[])')){
+        throw new Error('No se encontró la lógica histórica de Envíos sin solicitud');
       }
-      const unmatched=`  const enviosSinSolicitudRows=useMemo(()=>{\n    const solicitudesValidas=(rows||[]).filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)]);\n    const base=solicitudesValidas.map(row=>({\n      ...row,\n      cantidadEnviada:0,\n      cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),\n      _matchedRemitos:[]\n    }));\n    return allocateRemitosToRequests(base,remitos).unmatched.sort((a,b)=>{\n      const fa=parseChronoDateMs(a.fechaEnvio),fb=parseChronoDateMs(b.fechaEnvio);\n      if(fa!==fb)return fb-fa;\n      return String(a.codigoArticulo||\"\").localeCompare(String(b.codigoArticulo||\"\"),\"es\",{numeric:true,sensitivity:\"base\"});\n    });\n  },[rows,remitos,toNumber,allocateRemitosToRequests,rejectedSolicitudes,buildSolicitudKey]);`;
-      next=next.slice(0,start)+unmatched+next.slice(end);
-
-      if(!next.includes('solicitudesValidas=(rows||[]).filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)])')){
-        throw new Error('Envíos sin solicitud debe excluir solicitudes rechazadas antes del FIFO');
+      if(!next.includes('const teniaSolicitudAlEnviar=solicitudesHistoricas.some')){
+        throw new Error('Envíos sin solicitud debe validar existencia de solicitud a la fecha del envío');
       }
-      if(!next.includes('allocateRemitosToRequests(base,remitos).unmatched')){
-        throw new Error('No se pudo aplicar el FIFO de Envíos sin solicitud');
+      if(next.includes('allocateRemitosToRequests(base,remitos).unmatched')){
+        throw new Error('El build no debe reemplazar Envíos sin solicitud por el FIFO operativo');
       }
       if(!next.includes('fetchRaba03FromSupabase')||!next.includes('fetchAbastecimientoSnapshot')||!next.includes('RABA03_VIEW_CACHE_KEY')){
         throw new Error('No se pudo aplicar la optimización Supabase/cache de Abastecimiento');
