@@ -11,6 +11,8 @@ const VERSIONED_SERVER_CACHE_SOURCES=new Set([
   "rma15_jm","rma15_fs","insumos","rop05","lista_equipos"
 ]);
 let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
+let syncVersionsMemo_={url:"",value:null,at:0,promise:null};
+const SYNC_VERSIONS_MEMO_MS=15000;
 
 export function expandCompactSource(src){
   if(!src||!src.compact||!Array.isArray(src.headers)||!Array.isArray(src.rows))return src;
@@ -53,10 +55,9 @@ export function sleep_(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 export async function runWithConcurrency_(items,limit,worker){
   const results=new Array(items.length);
   let cursor=0;
-  // En lecturas normales usamos hasta cuatro ejecuciones. Ya se comprobó en
-  // producción que las cuatro fuentes ROP02 responden correctamente en paralelo
-  // y esto evita cuatro tandas consecutivas al entrar a la aplicación.
-  const concurrency=Math.min(Math.max(1,Math.max(Number(limit)||1,4)),items.length);
+  // Respetar el límite pedido por cada flujo. App.jsx usa 4 para la precarga
+  // principal; otros módulos pueden pedir menos para no competir entre sí.
+  const concurrency=Math.min(Math.max(1,Number(limit)||1),items.length);
   const runners=Array.from({length:concurrency},async()=>{
     while(true){
       const index=cursor++;
@@ -177,12 +178,28 @@ export async function fetchSource(url,source,{force=false,since="",retries=2,tim
 }
 
 export async function fetchSyncVersions(url,{timeoutMs=7000}={}){
-  const options={compact:false,retries:0,timeoutMs};
-  try{return await fetchAction(url,"get_data_versions",options);}
-  catch(_){
-    try{return await fetchAction(url,"sync",options);}
-    catch(__){return null;}
+  const key=String(url||"");
+  const now=Date.now();
+  if(syncVersionsMemo_.url===key&&syncVersionsMemo_.value&&now-syncVersionsMemo_.at<SYNC_VERSIONS_MEMO_MS){
+    return syncVersionsMemo_.value;
   }
+  if(syncVersionsMemo_.url===key&&syncVersionsMemo_.promise)return syncVersionsMemo_.promise;
+
+  const options={compact:false,retries:0,timeoutMs};
+  const task=(async()=>{
+    let value=null;
+    try{value=await fetchAction(url,"get_data_versions",options);}
+    catch(_){
+      try{value=await fetchAction(url,"sync",options);}
+      catch(__){value=null;}
+    }
+    if(value)syncVersionsMemo_={url:key,value,at:Date.now(),promise:null};
+    return value;
+  })();
+
+  syncVersionsMemo_={url:key,value:syncVersionsMemo_.url===key?syncVersionsMemo_.value:null,at:syncVersionsMemo_.url===key?syncVersionsMemo_.at:0,promise:task};
+  try{return await task;}
+  finally{if(syncVersionsMemo_.promise===task)syncVersionsMemo_={...syncVersionsMemo_,promise:null};}
 }
 
 export async function fetchDatasetQuery(url,params={},options={}){
