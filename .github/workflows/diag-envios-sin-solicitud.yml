@@ -1,0 +1,165 @@
+name: Diagnose envios sin solicitud
+
+on:
+  push:
+    branches:
+      - diag/envios-sin-solicitud-20260914
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Diagnose live remitos and RABA03 allocation
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+
+          const norm=v=>String(v??'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+          const normCode=v=>String(v??'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]+/g,'').trim();
+          const toNumber=v=>{
+            if(v==null||v==='')return 0;
+            if(typeof v==='number')return Number.isFinite(v)?v:0;
+            let txt=String(v).trim().replace(/\s/g,'');
+            if(!txt)return 0;
+            const c=txt.includes(','),d=txt.includes('.');
+            if(c&&d)txt=txt.replace(/\./g,'').replace(',','.');
+            else if(c)txt=txt.replace(',','.');
+            else if(d){const parts=txt.split('.');if(parts.length>1&&parts.slice(1).every(p=>p.length===3))txt=parts.join('');}
+            const n=Number(txt);return Number.isNaN(n)?0:n;
+          };
+          const parseDate=v=>{
+            const raw=String(v??'').trim(); if(!raw)return 0;
+            let m=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if(m)return new Date(+m[1],+m[2]-1,+m[3]).getTime();
+            m=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})/); if(m){let y=+m[3];if(y<100)y+=2000;return new Date(y,+m[2]-1,+m[1]).getTime();}
+            const d=new Date(raw); return Number.isNaN(d.getTime())?0:d.getTime();
+          };
+          const normalizeProject=v=>{
+            const raw=String(v??'').trim(); const t=norm(raw); if(!t)return '';
+            const compact=t.replace(/\s+/g,'');
+            if(t.includes('jose maria')||compact.includes('josemaria')||/\bjm\b/.test(t))return 'JOSE MARIA';
+            if(t.includes('filo del sol')||compact.includes('filodelsol')||/\bfs\b/.test(t)||/\bfds\b/.test(t))return 'FILO DEL SOL';
+            if(t.includes('oficina')||t.includes('deposito')||t.includes('admin'))return 'OFICINA';
+            return raw.toUpperCase();
+          };
+          const read=(obj,names)=>{
+            const keys=Object.keys(obj||{});
+            for(const name of names){const w=norm(name),k=keys.find(x=>norm(x)===w);if(k!==undefined)return obj[k];}
+            for(const name of names){const w=norm(name),k=keys.find(x=>{const n=norm(x);return n&&(n.includes(w)||w.includes(n));});if(k!==undefined)return obj[k];}
+            return '';
+          };
+
+          async function fetchJson(url,headers={}){
+            const r=await fetch(url,{headers});
+            const text=await r.text();
+            if(!r.ok)throw new Error(`${url} -> HTTP ${r.status}: ${text.slice(0,300)}`);
+            return JSON.parse(text);
+          }
+
+          async function fetchRemitos(){
+            const hosts=['https://deltaminingops.vercel.app','https://delta-mining-ops.vercel.app'];
+            for(const host of hosts){
+              try{
+                const url=`${host}/api/apps-script?action=remitos_cargados&limit=all&force=1`;
+                const json=await fetchJson(url);
+                console.log('REM_HOST',host,'ok=',json?.ok,'rawRows=',Array.isArray(json?.data)?json.data.length:'NA');
+                if(json?.ok&&Array.isArray(json.data))return {host,rows:json.data};
+              }catch(e){console.log('REM_HOST_FAIL',host,e.message.slice(0,250));}
+            }
+            throw new Error('No live remitos endpoint succeeded');
+          }
+
+          function groupRemitos(rows){
+            const grouped=new Map();
+            for(const row of rows){
+              const id=String(read(row,['ID_REMITO','idRemito','id'])||'').trim();
+              const codigo=String(read(row,['CODIGO_ARTICULO','codigoArticulo','codigo'])||'').trim();
+              const cantidad=toNumber(read(row,['CANTIDAD_ENVIADA','cantidadEnviada','cantidad']));
+              if(!id||!codigo||cantidad<=0)continue;
+              if(!grouped.has(id)){
+                const observaciones=String(read(row,['OBSERVACIONES','observaciones'])||'').trim();
+                const destino=String(read(row,['DESTINO','destino'])||'').trim();
+                const origen=String(read(row,['ORIGEN','origen'])||'').trim();
+                const proyecto=normalizeProject(read(row,['PROYECTO','proyecto'])||observaciones||destino||origen);
+                grouped.set(id,{id,comprobante:String(read(row,['N_REMITO','nRemito','comprobante'])||'S/N').trim(),fecha:String(read(row,['FECHA_REMITO','fechaRemito','fecha'])||'').trim(),origen,destino,proyecto,observaciones,items:[]});
+              }
+              grouped.get(id).items.push({codigo,descripcion:String(read(row,['DESCRIPCION','descripcion'])||'').trim(),cantidad});
+            }
+            return [...grouped.values()];
+          }
+
+          function normalizeRabaRow(r,idx){
+            const codigo=String(read(r,['Código de articulo','Código de artículo','Codigo de articulo','Codigo de artículo','Código artículo','Codigo articulo','Código','Codigo'])||'').trim();
+            const solicitada=toNumber(read(r,['Cant. Solicitada','Cantidad solicitada','Cant Solicitada','Cantidad']));
+            const centroRaw=String(read(r,['Centro de Costo','Centro de costo','Proyecto','CC'])||'').trim();
+            return {idx,codigoArticulo:codigo,cantidadSolicitada:solicitada,centroCosto:normalizeProject(centroRaw)||centroRaw,fechaSolicitud:String(read(r,['Fecha de solicitud','Fecha solicitud','F. Sol.'])||'').trim()};
+          }
+
+          function allocate(requestRows,remitos){
+            const rows=requestRows.map(r=>({...r,cantidadEnviada:0}));
+            const byKey=new Map();
+            rows.forEach((row,index)=>{
+              const code=normCode(row.codigoArticulo),p=normalizeProject(row.centroCosto); if(!code||!p)return;
+              const key=`${code}__${p}`; if(!byKey.has(key))byKey.set(key,[]);
+              byKey.get(key).push({index,fechaMs:parseDate(row.fechaSolicitud)});
+            });
+            byKey.forEach(q=>q.sort((a,b)=>(a.fechaMs||0)-(b.fechaMs||0)||a.index-b.index));
+            const shipments=[];
+            remitos.forEach((rem,ri)=>{
+              const p=normalizeProject(rem.proyecto||rem.observaciones||rem.destino||rem.origen||'');
+              const fm=parseDate(rem.fecha);
+              (rem.items||[]).forEach((it,ii)=>{const code=normCode(it.codigo),qty=toNumber(it.cantidad);if(code&&qty>0)shipments.push({code,project:p,date:rem.fecha,dateMs:fm,qty,remito:rem.comprobante,ri,ii});});
+            });
+            shipments.sort((a,b)=>(a.dateMs||0)-(b.dateMs||0)||a.ri-b.ri||a.ii-b.ii);
+            let unmatchedLines=0, unmatchedQty=0, matchedLines=0, matchedQty=0;
+            const unmatched=[]; const matchedAges=[];
+            for(const s of shipments){
+              let remaining=s.qty; const q=s.project?(byKey.get(`${s.code}__${s.project}`)||[]):[]; let applied=0; let oldestGap=null;
+              for(const req of q){
+                if(remaining<=0)break;
+                if(req.fechaMs&&s.dateMs&&req.fechaMs>s.dateMs)continue;
+                const row=rows[req.index]; const pending=Math.max(0,toNumber(row.cantidadSolicitada)-toNumber(row.cantidadEnviada)); if(pending<=0)continue;
+                const a=Math.min(pending,remaining); if(a<=0)continue;
+                row.cantidadEnviada+=a; remaining-=a; applied+=a;
+                if(req.fechaMs&&s.dateMs){const gap=Math.round((s.dateMs-req.fechaMs)/86400000); oldestGap=oldestGap==null?gap:Math.max(oldestGap,gap);}
+              }
+              if(applied>0){matchedLines++;matchedQty+=applied;if(oldestGap!=null)matchedAges.push(oldestGap);}
+              if(remaining>0){unmatchedLines++;unmatchedQty+=remaining;unmatched.push({code:s.code,project:s.project,date:s.date,remito:s.remito,qty:remaining});}
+            }
+            return {shipments,unmatchedLines,unmatchedQty,unmatched,matchedLines,matchedQty,matchedAges};
+          }
+
+          (async()=>{
+            const {rows:remRows}=await fetchRemitos();
+            const remitos=groupRemitos(remRows);
+            console.log('REM_GROUPED',remitos.length,'items=',remitos.reduce((n,r)=>n+r.items.length,0));
+            console.log('REM_PROJECTS',JSON.stringify(remitos.reduce((m,r)=>(m[r.proyecto||'EMPTY']=(m[r.proyecto||'EMPTY']||0)+1,m),{})));
+
+            const src=fs.readFileSync('src/services/raba03ReadApi.js','utf8');
+            const url=(src.match(/VITE_SUPABASE_URL\|\|"([^"]+)"/)||[])[1];
+            const key=(src.match(/VITE_SUPABASE_ANON_KEY\|\|"([^"]+)"/)||[])[1];
+            if(!url||!key)throw new Error('Could not parse Supabase client defaults');
+            let raw=[];
+            for(let offset=0;;offset+=1000){
+              const part=await fetchJson(`${url}/rest/v1/abastecimiento_raba03?select=source_row,row_data,synced_at&order=source_row.asc&limit=1000&offset=${offset}`,{apikey:key,Authorization:`Bearer ${key}`,Accept:'application/json'});
+              raw.push(...part); if(part.length<1000)break;
+            }
+            const raba=raw.map((x,i)=>normalizeRabaRow(x.row_data||{},i)).filter(r=>r.codigoArticulo||r.cantidadSolicitada||r.centroCosto||r.fechaSolicitud);
+            console.log('RABA_ROWS',raba.length,'validCodeProject=',raba.filter(r=>normCode(r.codigoArticulo)&&normalizeProject(r.centroCosto)).length);
+            console.log('RABA_PROJECTS',JSON.stringify(raba.reduce((m,r)=>(m[normalizeProject(r.centroCosto)||'EMPTY']=(m[normalizeProject(r.centroCosto)||'EMPTY']||0)+1,m),{})));
+
+            const result=allocate(raba,remitos);
+            console.log('SHIPMENTS',result.shipments.length,'MATCHED_LINES',result.matchedLines,'MATCHED_QTY',result.matchedQty,'UNMATCHED_LINES',result.unmatchedLines,'UNMATCHED_QTY',result.unmatchedQty);
+            const gt30=result.matchedAges.filter(x=>x>30).length,gt90=result.matchedAges.filter(x=>x>90).length,gt180=result.matchedAges.filter(x=>x>180).length;
+            console.log('MATCH_AGE_GT30',gt30,'GT90',gt90,'GT180',gt180,'MAX_DAYS',result.matchedAges.length?Math.max(...result.matchedAges):0);
+            console.log('UNMATCHED_SAMPLE',JSON.stringify(result.unmatched.slice(0,20)));
+          })().catch(e=>{console.error('DIAG_FAIL',e.stack||e);process.exit(1);});
+          NODE
