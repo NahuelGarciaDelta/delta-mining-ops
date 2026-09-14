@@ -18,8 +18,16 @@ const normalizeCentroCosto = (value) => {
   return text.trim();
 };
 const parseChronoDateMs = (value) => {
-  const m = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime() : 0;
+  const raw = String(value || "").trim();
+  let m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  m = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})/);
+  if (m) {
+    let year = Number(m[3]);
+    if (year < 100) year += 2000;
+    return new Date(year, Number(m[2]) - 1, Number(m[1])).getTime();
+  }
+  return 0;
 };
 
 const run = (rows, remitos) =>
@@ -65,6 +73,7 @@ test("reconoce un remito explícitamente asociado en RABA03", () => {
       numeroRemitoFuente: "TIN 00001-00000583 / TIN 00001-00000604",
       codigoArticulo: "30",
       centroCosto: "FILO DEL SOL",
+      fechaSolicitud: "2026-09-01",
     },
   ];
   const remitos = [
@@ -80,6 +89,31 @@ test("reconoce un remito explícitamente asociado en RABA03", () => {
   assert.deepEqual(run(rows, remitos), []);
 });
 
+test("una solicitud creada después del envío no deja de ser envío sin solicitud previa", () => {
+  const rows = [
+    {
+      _raba03ExplicitLinksLoaded: true,
+      numeroRemitoFuente: "TIN 00001-00000604",
+      codigoArticulo: "30",
+      centroCosto: "FILO DEL SOL",
+      fechaSolicitud: "2026-09-08",
+    },
+  ];
+  const remitos = [
+    {
+      id: "r1",
+      comprobante: "TIN 00001-00000604",
+      fecha: "2026-09-07",
+      proyecto: "FILO DEL SOL",
+      items: [{ codigo: "30", descripcion: "Insumo", cantidad: 5 }],
+    },
+  ];
+
+  const result = run(rows, remitos);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].numeroRemito, "TIN 00001-00000604");
+});
+
 test("mismo remito no alcanza si código o proyecto no coinciden", () => {
   const rows = [
     {
@@ -87,12 +121,14 @@ test("mismo remito no alcanza si código o proyecto no coinciden", () => {
       numeroRemitoFuente: "TIN 00001-00000604",
       codigoArticulo: "999",
       centroCosto: "FILO DEL SOL",
+      fechaSolicitud: "2026-09-01",
     },
     {
       _raba03ExplicitLinksLoaded: true,
       numeroRemitoFuente: "TIN 00001-00000604",
       codigoArticulo: "30",
       centroCosto: "JOSE MARIA",
+      fechaSolicitud: "2026-09-01",
     },
   ];
   const remitos = [
