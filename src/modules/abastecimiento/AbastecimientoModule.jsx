@@ -609,11 +609,10 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     rowsAllocated.forEach((row,index)=>{
       const code=normCode(row.codigoArticulo);
       const proyecto=normalizeCentroCosto(row.centroCosto);
-      const insumoKey=norm(row.descripcion);
-      if(!code||!proyecto||!insumoKey)return;
-      // Clave de asignación: código + proyecto + nombre normalizado del insumo.
-      // La fecha NO se usa para mezclar períodos: se valida abajo como límite temporal.
-      const key=[code,proyecto,insumoKey].join("__");
+      if(!code||!proyecto)return;
+      // Paridad con la app Supabase: asignación por código + proyecto.
+      // La fecha se valida después para impedir consumir solicitudes futuras.
+      const key=`${code}__${proyecto}`;
       if(!byKey.has(key))byKey.set(key,[]);
       byKey.get(key).push({row,index,fechaMs:parseChronoDateMs(row.fechaSolicitud)});
     });
@@ -626,12 +625,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       const fechaMs=parseChronoDateMs(fecha);
       (remito.items||[]).forEach((item,itemIndex)=>{
         const code=normCode(item.codigo);
-        const insumoKey=norm(item.descripcion);
         const cantidad=toNumber(item.cantidad);
-        if(!code||!insumoKey||cantidad<=0)return;
+        if(!code||cantidad<=0)return;
         shipments.push({
           id:`${remito.id||remito.comprobante||"remito"}-${itemIndex}-${code}`,
-          code,proyecto,insumoKey,fecha,fechaMs,cantidad,
+          code,proyecto,fecha,fechaMs,cantidad,
           numero:remito.comprobante||"",
           lugar:remito.destino||remito.observaciones||remito.origen||"",
           insumo:item.descripcion||"",
@@ -644,7 +642,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     const unmatched=[];
     shipments.forEach(shipment=>{
       let restanteEnvio=shipment.cantidad;
-      const key=shipment.proyecto&&shipment.insumoKey?[shipment.code,shipment.proyecto,shipment.insumoKey].join("__"):"";
+      const key=shipment.proyecto?`${shipment.code}__${shipment.proyecto}`:"";
       const queue=key?(byKey.get(key)||[]):[];
       for(const req of queue){
         if(restanteEnvio<=0)break;
@@ -673,7 +671,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       }
     });
     return {rows:rowsAllocated,unmatched};
-  },[normCode,norm,toNumber,normalizeCentroCosto,formatDateLocal]);
+  },[normCode,toNumber,normalizeCentroCosto,formatDateLocal]);
 
   const buildSolicitudKey=useCallback((row)=>{
     return buildSolicitudStableKeyFromParts({
@@ -1187,21 +1185,17 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
   },[codigoEdits,loadRaba03]);
 
-  // Recalcular asignación excluyendo solicitudes rechazadas. Una rechazada nunca
-  // consume remitos y siempre debe mostrarse con Cant. enviada = 0.
-  const stateAwareRows=useMemo(()=>{
-    const base=(rows||[]).map(row=>({...row,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),_matchedRemitos:[]}));
-    const activas=base.filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)]);
-    const asignadas=allocateRemitosToRequests(activas,remitos).rows;
-    const activasById=new Map(asignadas.map(row=>[row.id,row]));
-    return base.map(row=>rejectedSolicitudes?.[buildSolicitudKey(row)]?row:(activasById.get(row.id)||row));
-  },[rows,remitos,rejectedSolicitudes,buildSolicitudKey,allocateRemitosToRequests,toNumber]);
-
-  // Base visible para el usuario conectado. Todos los indicadores, gráficos y
-  // tablas de solicitudes se calculan exclusivamente sobre estas filas.
+  // Paridad con Supabase: la asignación base se conserva tal como fue calculada
+  // sobre todas las solicitudes. Para las rechazadas sólo se corrige la presentación:
+  // Cant. enviada = 0 y Cant. restante = solicitada, sin redistribuir sus remitos a
+  // otras solicitudes y alterar los conteos operativos.
   const assignedRows=useMemo(()=>
-    (stateAwareRows||[]).filter(r=>dmProjectMatches(r.centroCosto,assignedProject)),
-  [stateAwareRows,assignedProject]);
+    (rows||[])
+      .filter(r=>dmProjectMatches(r.centroCosto,assignedProject))
+      .map(row=>rejectedSolicitudes?.[buildSolicitudKey(row)]
+        ? {...row,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),_matchedRemitos:[]}
+        : row),
+  [rows,assignedProject,rejectedSolicitudes,buildSolicitudKey,toNumber]);
   const projects=useMemo(()=>Array.from(new Set(assignedRows.map(r=>r.centroCosto).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows]);
   const companies=useMemo(()=>Array.from(new Set(assignedRows.map(r=>r.empresa).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows]);
   const supervisors=useMemo(()=>Array.from(new Set(assignedRows.map(r=>canonicalSupervisor(r.pedidoPor)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows,canonicalSupervisor]);
@@ -1380,16 +1374,48 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   },[raba03DashboardRows,assignedRows,toNumber,parseRabaDateMs,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);
 
   const enviosSinSolicitudRows=useMemo(()=>{
-    const base=(rows||[])
+    // Regla histórica: una línea de remito sólo deja de ser "sin solicitud" si
+    // al momento del envío YA existía una solicitud válida del mismo código/proyecto.
+    // Una solicitud creada posteriormente nunca absorbe retroactivamente ese envío.
+    const solicitudesHistoricas=(rows||[])
       .filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)])
-      .map(r=>({...r,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(r.cantidadSolicitada)),_matchedRemitos:[]}));
-    return allocateRemitosToRequests(base,remitos).unmatched.sort((a,b)=>{
+      .map(r=>({
+        codigo:normCode(r.codigoArticulo),
+        proyecto:normalizeCentroCosto(r.centroCosto),
+        fechaMs:parseChronoDateMs(r.fechaSolicitud)
+      }))
+      .filter(r=>r.codigo);
+    const out=[];
+    (remitos||[]).forEach(rem=>{
+      const fecha=rem.fecha||"";
+      const fechaMs=parseChronoDateMs(fecha);
+      const proyecto=normalizeCentroCosto(rem.proyecto||rem.observaciones||rem.destino||rem.centroCosto||rem.origen||"");
+      (rem.items||[]).forEach((item,index)=>{
+        const codigoNormalizado=normCode(item.codigo);
+        if(!codigoNormalizado)return;
+        const teniaSolicitudAlEnviar=solicitudesHistoricas.some(sol=>
+          sol.codigo===codigoNormalizado&&
+          (!proyecto||!sol.proyecto||sol.proyecto===proyecto)&&
+          (!sol.fechaMs||!fechaMs||sol.fechaMs<=fechaMs)
+        );
+        if(teniaSolicitudAlEnviar)return;
+        out.push({
+          id:`${rem.id||rem.comprobante||"remito"}-${index}-${codigoNormalizado}`,
+          codigoArticulo:String(item.codigo||"").trim(),
+          descripcion:String(item.descripcion||"").trim(),
+          proyecto:proyecto||"SIN PROYECTO",
+          cantidadEnviada:toNumber(item.cantidad),
+          fechaEnvio:fecha,
+          numeroRemito:rem.comprobante||""
+        });
+      });
+    });
+    return out.sort((a,b)=>{
       const fa=parseChronoDateMs(a.fechaEnvio),fb=parseChronoDateMs(b.fechaEnvio);
       if(fa!==fb)return fb-fa;
       return String(a.codigoArticulo||"").localeCompare(String(b.codigoArticulo||""),"es",{numeric:true,sensitivity:"base"});
     });
-  },[rows,remitos,toNumber,allocateRemitosToRequests,rejectedSolicitudes,buildSolicitudKey]);
-
+  },[rows,remitos,normCode,toNumber,normalizeCentroCosto,rejectedSolicitudes,buildSolicitudKey]);
   const exportarEnviosSinSolicitud=useCallback(()=>{
     if(!enviosSinSolicitudRows.length){
       appAlert("No hay envíos sin solicitud para exportar.");
