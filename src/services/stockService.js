@@ -1,5 +1,5 @@
 import { getAuthenticatedUser } from "./authSession.js";
-import { readCachedSource, writeCachedSource } from "./appCache.js";
+import { clearDatasetCache, readCachedSource, writeCachedSource } from "./appCache.js";
 
 const STOCK_CACHE_KEY="stock_excel_data";
 
@@ -58,16 +58,20 @@ export async function readCachedStockData(){
   return {ok:true,rows:value.data,meta:value.meta||null,cacheUpdatedAt:record?.updatedAt||null};
 }
 
-export function uploadStockExcel(url, { file, rows, sheetName, replace = false }) {
-  return postStock(url, {
+export async function uploadStockExcel(url, { file, rows, sheetName, replace = false }) {
+  const response=await postStock(url, {
     action: replace ? "stock_excel_replace" : "stock_excel_upload",
     fileName: file.name,
     mimeType: file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     rows,
     sheetName: sheetName || "",
   });
+  await clearDatasetCache(STOCK_CACHE_KEY).catch(()=>{});
+  return response;
 }
 
-export function clearSharedStock(url) {
-  return postStock(url, { action: "stock_excel_clear" });
+export async function clearSharedStock(url) {
+  const response=await postStock(url, { action: "stock_excel_clear" });
+  await clearDatasetCache(STOCK_CACHE_KEY).catch(()=>{});
+  return response;
 }
