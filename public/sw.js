@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v24-dashboard-direct-20260914";
+const CACHE_NAME = "delta-mining-ops-v25-raba03-supabase-20260914";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -47,7 +47,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   // API local: siempre red directa. Los datasets pesados ya se leen desde
-  // Supabase y la app mantiene su propia copia validada en IndexedDB.
+  // Supabase y la app mantiene su propia copia validada en IndexedDB/local cache.
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(fetch(request,{cache:"no-store"}));
     return;
