@@ -2,6 +2,14 @@ const ROP02_BUNDLE_SOURCES=Object.freeze(["rop02_jm","rop02_fs","rop02_filosur",
 const ROP02_BUNDLE_SOURCE_SET=new Set(ROP02_BUNDLE_SOURCES);
 const ROP02_CORE_SOURCE_SET=new Set(["rop02_jm","rop02_fs"]);
 const ROP02_OPTIONAL_SOURCE_SET=new Set(["rop02_filosur","rop02_zorro"]);
+// Estas fuentes ya tienen una versión de dataset en Apps Script. La clave de
+// CacheService incluye esa versión, por lo que cuando cambia la planilla el
+// trigger invalida naturalmente la respuesta anterior. No hace falta forzar una
+// relectura completa de Google Sheets cada 5 minutos desde el frontend.
+const VERSIONED_SERVER_CACHE_SOURCES=new Set([
+  "rop02_jm","rop02_fs","rop02_filosur","rop02_zorro",
+  "rma15_jm","rma15_fs","insumos","rop05","lista_equipos"
+]);
 let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
 
 export function expandCompactSource(src){
@@ -45,7 +53,11 @@ export function sleep_(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 export async function runWithConcurrency_(items,limit,worker){
   const results=new Array(items.length);
   let cursor=0;
-  const runners=Array.from({length:Math.min(Math.max(1,limit),items.length)},async()=>{
+  // En lecturas normales usamos hasta cuatro ejecuciones. Ya se comprobó en
+  // producción que las cuatro fuentes ROP02 responden correctamente en paralelo
+  // y esto evita cuatro tandas consecutivas al entrar a la aplicación.
+  const concurrency=Math.min(Math.max(1,Math.max(Number(limit)||1,4)),items.length);
+  const runners=Array.from({length:concurrency},async()=>{
     while(true){
       const index=cursor++;
       if(index>=items.length)return;
@@ -135,10 +147,15 @@ export async function fetchHealth(url){return fetchAction(url,"health",{compact:
 
 export async function fetchSource(url,source,{force=false,since="",retries=2,timeoutMs=45000}={}){
   const sourceKey=String(source||"");
+  // Para datasets versionados se reutiliza siempre la caché compartida del
+  // Apps Script. Si la hoja cambió, el trigger incrementa la versión y la nueva
+  // clave obliga a reconstruir sólo esa fuente. Esto elimina las relecturas
+  // completas periódicas que hacían esperar al usuario sin necesidad.
+  const effectiveForce=VERSIONED_SERVER_CACHE_SOURCES.has(sourceKey)?false:force;
 
   if(ROP02_CORE_SOURCE_SET.has(sourceKey)){
     return fetchAction(url,sourceKey,{
-      force,
+      force:effectiveForce,
       compact:true,
       since,
       retries:Math.min(1,Math.max(0,Number(retries)||0)),
@@ -148,7 +165,7 @@ export async function fetchSource(url,source,{force=false,since="",retries=2,tim
 
   if(ROP02_OPTIONAL_SOURCE_SET.has(sourceKey)){
     return fetchAction(url,sourceKey,{
-      force,
+      force:effectiveForce,
       compact:true,
       since,
       retries:0,
@@ -156,7 +173,7 @@ export async function fetchSource(url,source,{force=false,since="",retries=2,tim
     });
   }
 
-  return fetchAction(url,sourceKey,{force,compact:true,since,retries,timeoutMs});
+  return fetchAction(url,sourceKey,{force:effectiveForce,compact:true,since,retries,timeoutMs});
 }
 
 export async function fetchSyncVersions(url,{timeoutMs=7000}={}){
