@@ -578,8 +578,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     const centroCostoRaw=String(pick(r,["Centro de Costo","Centro de costo","Proyecto","CC"])||"").trim();
     const centroCostoNorm=normalizeCentroCosto(centroCostoRaw);
     const codeNorm=normCode(codigo);
-    const enviada=0;
-    const restante=Math.max(0,solicitada);
+    // La fuente RABA03 conserva la imputación histórica oficial.
+    // No recalcular Cant. enviada con remitos viejos: eso hacía que un envío
+    // anterior absorbiera solicitudes cargadas posteriormente.
+    const enviada=toNumber(pick(r,["Cant. Enviada","Cantidad enviada","Cant enviada","Cant.Enviada"]));
+    const restante=Math.max(0,solicitada-enviada);
     const pedidoRaw=pickExact(r,["N° de pedido","Nº de pedido","N de pedido","Numero de pedido","Número de pedido"]);
     const solicitudLegacy=pickExact(r,["N° de solicitud","Nº de solicitud","N de solicitud","Numero de solicitud","Número de solicitud","Solicitud"]);
     const fechaSolicitudRaw=pick(r,["Fecha de solicitud","Fecha solicitud","F. Sol."]);
@@ -873,8 +876,10 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       !String(r.empresa||"").toLowerCase().includes("aprobado") &&
       !String(r.empresa||"").toLowerCase().includes("empresa")
     );
-    return allocateRemitosToRequests(base,sourceRemitos).rows;
-  },[normalizeRow,allocateRemitosToRequests]);
+    // Cant. enviada/restante vienen de la fuente RABA03. Los remitos se usan
+    // para trazabilidad/dashboard, no para reescribir retroactivamente estados.
+    return base;
+  },[normalizeRow]);
 
   const loadRaba03=useCallback(async({silent=false,remitosOverride=null}={})=>{
     if(!silent){
@@ -1187,14 +1192,19 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
   },[codigoEdits,loadRaba03]);
 
-  // Recalcular asignación excluyendo solicitudes rechazadas. Una rechazada nunca
-  // consume remitos y siempre debe mostrarse con Cant. enviada = 0.
+  // Los estados operativos respetan Cant. enviada de RABA03 (misma fuente que la
+  // app Supabase). Sólo las rechazadas se fuerzan a 0. La asignación cronológica
+  // de remitos se conserva aparte para trazabilidad, sin alterar esos totales.
   const stateAwareRows=useMemo(()=>{
-    const base=(rows||[]).map(row=>({...row,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),_matchedRemitos:[]}));
-    const activas=base.filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)]);
-    const asignadas=allocateRemitosToRequests(activas,remitos).rows;
-    const activasById=new Map(asignadas.map(row=>[row.id,row]));
-    return base.map(row=>rejectedSolicitudes?.[buildSolicitudKey(row)]?row:(activasById.get(row.id)||row));
+    const activas=(rows||[]).filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)]);
+    const trazabilidad=allocateRemitosToRequests(activas,remitos).rows;
+    const trazabilidadById=new Map(trazabilidad.map(row=>[row.id,row]));
+    return (rows||[]).map(row=>{
+      if(rejectedSolicitudes?.[buildSolicitudKey(row)]){
+        return {...row,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),_matchedRemitos:[]};
+      }
+      return {...row,_matchedRemitos:trazabilidadById.get(row.id)?._matchedRemitos||[]};
+    });
   },[rows,remitos,rejectedSolicitudes,buildSolicitudKey,allocateRemitosToRequests,toNumber]);
 
   // Base visible para el usuario conectado. Todos los indicadores, gráficos y
@@ -1380,16 +1390,53 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   },[raba03DashboardRows,assignedRows,toNumber,parseRabaDateMs,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);
 
   const enviosSinSolicitudRows=useMemo(()=>{
-    const base=(rows||[])
+    // Auditoría histórica independiente de Pendientes: un envío sólo deja de ser
+    // "sin solicitud" si en la fecha del remito ya existía una solicitud válida
+    // del mismo código, proyecto y nombre normalizado del insumo. Una solicitud
+    // cargada después nunca absorbe retroactivamente ese envío.
+    const solicitudesHistoricas=(rows||[])
       .filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)])
-      .map(r=>({...r,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(r.cantidadSolicitada)),_matchedRemitos:[]}));
-    return allocateRemitosToRequests(base,remitos).unmatched.sort((a,b)=>{
+      .map(r=>({
+        codigo:normCode(r.codigoArticulo),
+        proyecto:normalizeCentroCosto(r.centroCosto),
+        descripcion:norm(r.descripcion),
+        fechaMs:parseChronoDateMs(r.fechaSolicitud)
+      }))
+      .filter(r=>r.codigo&&r.descripcion);
+    const out=[];
+    (remitos||[]).forEach(rem=>{
+      const fecha=rem.fecha||"";
+      const fechaMs=parseChronoDateMs(fecha);
+      const proyecto=normalizeCentroCosto(rem.proyecto||rem.observaciones||rem.destino||rem.centroCosto||rem.origen||"");
+      (rem.items||[]).forEach((item,index)=>{
+        const codigoNormalizado=normCode(item.codigo);
+        const descripcionNormalizada=norm(item.descripcion);
+        const cantidad=toNumber(item.cantidad);
+        if(!codigoNormalizado||!descripcionNormalizada||cantidad<=0)return;
+        const teniaSolicitudAlEnviar=solicitudesHistoricas.some(sol=>
+          sol.codigo===codigoNormalizado&&
+          (!proyecto||!sol.proyecto||sol.proyecto===proyecto)&&
+          sol.descripcion===descripcionNormalizada&&
+          (!sol.fechaMs||!fechaMs||sol.fechaMs<=fechaMs)
+        );
+        if(teniaSolicitudAlEnviar)return;
+        out.push({
+          id:`${rem.id||rem.comprobante||"remito"}-${index}-${codigoNormalizado}`,
+          codigoArticulo:String(item.codigo||"").trim(),
+          descripcion:String(item.descripcion||"").trim(),
+          proyecto:proyecto||"SIN PROYECTO",
+          cantidadEnviada:cantidad,
+          fechaEnvio:fecha,
+          numeroRemito:rem.comprobante||""
+        });
+      });
+    });
+    return out.sort((a,b)=>{
       const fa=parseChronoDateMs(a.fechaEnvio),fb=parseChronoDateMs(b.fechaEnvio);
       if(fa!==fb)return fb-fa;
       return String(a.codigoArticulo||"").localeCompare(String(b.codigoArticulo||""),"es",{numeric:true,sensitivity:"base"});
     });
-  },[rows,remitos,toNumber,allocateRemitosToRequests,rejectedSolicitudes,buildSolicitudKey]);
-
+  },[rows,remitos,normCode,norm,toNumber,normalizeCentroCosto,rejectedSolicitudes,buildSolicitudKey]);
   const exportarEnviosSinSolicitud=useCallback(()=>{
     if(!enviosSinSolicitudRows.length){
       appAlert("No hay envíos sin solicitud para exportar.");

@@ -3,25 +3,34 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const source=fs.readFileSync(new URL('../src/modules/abastecimiento/AbastecimientoModule.jsx',import.meta.url),'utf8');
+const plugin=fs.readFileSync(new URL('../scripts/abastecimiento-instant-vite-plugin.mjs',import.meta.url),'utf8');
 
-test('allocation key includes code, project and normalized item description',()=>{
-  assert.match(source,/const insumoKey=norm\(row\.descripcion\)/);
-  assert.match(source,/const key=\[code,proyecto,insumoKey\]\.join\("__"\)/);
-  assert.match(source,/const insumoKey=norm\(item\.descripcion\)/);
-  assert.match(source,/\[shipment\.code,shipment\.proyecto,shipment\.insumoKey\]\.join\("__"\)/);
+test('estados usan Cant. Enviada persistida en RABA03 como fuente de verdad',()=>{
+  assert.match(source,/const enviada=toNumber\(pick\(r,\["Cant\. Enviada"/);
+  assert.match(source,/return base;\n  \},\[normalizeRow\]\);/);
 });
 
-test('shipment never consumes a request created after shipment date',()=>{
-  assert.match(source,/req\.fechaMs>shipment\.fechaMs/);
+test('rechazadas se muestran con enviada cero sin recalcular estados activos',()=>{
+  assert.match(source,/if\(rejectedSolicitudes\?\.\[buildSolicitudKey\(row\)\]\)\{/);
+  assert.match(source,/cantidadEnviada:0,cantidadRestante:Math\.max\(0,toNumber\(row\.cantidadSolicitada\)\)/);
+  assert.match(source,/return \{\.\.\.row,_matchedRemitos:/);
 });
 
-test('rejected requests never consume shipments and remain sent zero',()=>{
-  assert.match(source,/const stateAwareRows=useMemo/);
-  assert.match(source,/activas=base\.filter\(row=>!rejectedSolicitudes\?\.\[buildSolicitudKey\(row\)\]\)/);
-  assert.match(source,/rejectedSolicitudes\?\.\[buildSolicitudKey\(row\)\]\?row:/);
-  assert.match(source,/\.filter\(r=>!rejectedSolicitudes\?\.\[buildSolicitudKey\(r\)\]\)/);
+test('envíos sin solicitud conservan clave histórica y nunca usan pedidos futuros',()=>{
+  assert.match(source,/codigo:normCode\(r\.codigoArticulo\)/);
+  assert.match(source,/proyecto:normalizeCentroCosto\(r\.centroCosto\)/);
+  assert.match(source,/descripcion:norm\(r\.descripcion\)/);
+  assert.match(source,/sol\.descripcion===descripcionNormalizada/);
+  assert.match(source,/sol\.fechaMs<=fechaMs/);
+  assert.doesNotMatch(source,/15\s*\*\s*24\s*\*\s*60/);
 });
 
-test('Abastecimiento dashboard opts out of global table column filter decoration',()=>{
+test('vite no reemplaza Envíos sin solicitud por FIFO retroactivo',()=>{
+  assert.match(plugin,/Envíos sin solicitud perdió su clave histórica/);
+  assert.match(plugin,/allocateRemitosToRequests\(base,remitos\)\.unmatched/);
+  assert.match(plugin,/next\.includes\('allocateRemitosToRequests\(base,remitos\)\.unmatched'\)/);
+});
+
+test('Dashboard de Abastecimiento excluye decorador global de filtros por columna',()=>{
   assert.match(source,/renderAbastecimientoDashboard[\s\S]*data-dm-disable-global-column-filters="1"/);
 });
