@@ -1,5 +1,8 @@
 export const VIEW_SOURCES = Object.freeze({
-  bienvenida:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rma15_fs","rma15_jm","insumos"],
+  // El inicio precarga primero las cuatro bases operativas principales. Concurrencia=4:
+  // FDS/JM + RMA15 FDS/JM salen en la primera tanda; el resto queda listo detrás.
+  // ROP05 también se precarga para que Productividad/Control abran sin espera.
+  bienvenida:["rop02_fs","rop02_jm","rma15_fs","rma15_jm","insumos","lista_equipos","rop05","rop02_filosur","rop02_zorro"],
   equipmentProfile:["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"],
   // Dashboard obtiene ROP02 + RMA15 desde dashboard_snapshot como una transacción
   // atómica. App sólo hidrata ROP05 para no competir contra el snapshot con cuatro
