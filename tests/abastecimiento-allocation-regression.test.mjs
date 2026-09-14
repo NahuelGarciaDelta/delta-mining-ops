@@ -4,15 +4,19 @@ import fs from 'node:fs';
 
 const source=fs.readFileSync(new URL('../src/modules/abastecimiento/AbastecimientoModule.jsx',import.meta.url),'utf8');
 
-test('allocation key includes code, project and normalized item description',()=>{
-  assert.match(source,/const insumoKey=norm\(row\.descripcion\)/);
-  assert.match(source,/const key=\[code,proyecto,insumoKey\]\.join\("__"\)/);
-  assert.match(source,/const insumoKey=norm\(item\.descripcion\)/);
-  assert.match(source,/\[shipment\.code,shipment\.proyecto,shipment\.insumoKey\]\.join\("__"\)/);
+test('allocation key uses historical code plus project identity',()=>{
+  assert.match(source,/const key=`\$\{code\}__\$\{proyecto\}`/);
+  assert.match(source,/const key=shipment\.proyecto\?`\$\{shipment\.code\}__\$\{shipment\.proyecto\}`:""/);
+  assert.doesNotMatch(source,/const insumoKey=norm\(row\.descripcion\)/);
 });
 
 test('shipment never consumes a request created after shipment date',()=>{
-  assert.match(source,/req\.fechaMs>shipment\.fechaMs/);
+  assert.match(source,/if\(req\.fechaMs&&shipment\.fechaMs&&req\.fechaMs>shipment\.fechaMs\)continue/);
+});
+
+test('description differences do not block same code and project after request exists',()=>{
+  assert.doesNotMatch(source,/\[code,proyecto,insumoKey\]\.join\("__"\)/);
+  assert.doesNotMatch(source,/shipment\.insumoKey/);
 });
 
 test('rejected requests never consume shipments and remain sent zero',()=>{
