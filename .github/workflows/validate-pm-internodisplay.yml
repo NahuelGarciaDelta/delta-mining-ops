@@ -1,0 +1,20 @@
+name: Validate PM internoDisplay fix
+
+on:
+  push:
+    branches: [fix/mantenimiento-internodisplay-20260914]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: PM pipeline regression
+        run: node --test tests/pm-vite-pipeline-regression.test.mjs tests/pm-rules.test.mjs
+      - name: Production build
+        run: npm run build
