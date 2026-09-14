@@ -1,2 +1,2 @@
-export const APP_VERSION = "3.9.30";
+export const APP_VERSION = "3.9.31";
 export const APP_BUILD_LABEL = `Delta Mining OPS v${APP_VERSION}`;
