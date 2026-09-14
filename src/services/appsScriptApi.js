@@ -1,4 +1,4 @@
-import {SUPABASE_TYPED_SOURCES,fetchSupabaseDatasetQuery,fetchSupabaseHealth,fetchSupabaseSource,fetchSupabaseVersions} from "./supabaseReadApi.js";
+import {SUPABASE_TYPED_SOURCES,fetchSupabaseDatasetQuery,fetchSupabaseHealth,fetchSupabasePmSnapshot,fetchSupabaseSource,fetchSupabaseVersions} from "./supabaseReadApi.js";
 
 const ROP02_BUNDLE_SOURCES=Object.freeze(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"]);
 let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
@@ -39,6 +39,7 @@ export async function runWithConcurrency_(items,limit,worker){
 // Apps Script queda reservado para acciones que todavía no fueron migradas y para
 // escrituras. Los datasets pesados ya no pasan por este camino.
 export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,params:extraParams={}}={}){
+  if(String(action||"")==="mantenimiento_programado")return fetchSupabasePmSnapshot();
   if(SUPABASE_TYPED_SOURCES.has(String(action||"")))return fetchSupabaseSource(String(action||""));
 
   const requestParams={...(extraParams||{})};

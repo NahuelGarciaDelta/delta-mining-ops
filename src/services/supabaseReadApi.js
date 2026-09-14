@@ -163,6 +163,11 @@ export async function fetchSupabaseVersions(){
   }catch(error){console.warn("No se pudo leer el manifiesto Supabase",error);return null;}
 }
 
+export async function fetchSupabasePmSnapshot(){
+  const {data}=await request("/rest/v1/rpc/app_pm_snapshot",{method:"POST",body:{},timeoutMs:12000});
+  return data||{ok:false,error:{message:"Supabase no devolvió Mantenimiento Programado."}};
+}
+
 export async function fetchSupabaseHealth(){
   const started=performance.now();await request("/rest/v1/rop02?select=id&limit=1",{timeoutMs:5000});
   return {ok:true,source:"supabase",latencyMs:Math.round(performance.now()-started),serverTime:new Date().toISOString()};

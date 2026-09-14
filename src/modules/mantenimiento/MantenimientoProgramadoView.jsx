@@ -3,6 +3,17 @@ import { APPS_SCRIPT_URL as DEFAULT_APPS_SCRIPT_URL } from "../../config/app.js"
 import { PM_INITIAL_SEED } from "./pmInitialSeed.js";
 import { rangoTurnoPorFecha } from "../analytics/OperationalAnalytics.jsx";
 import { registerRefreshTask } from "../../services/refreshManager.js";
+import { fetchAction } from "../../services/appsScriptApi.js";
+import {
+  TRUCK_PM_ALERT_FROM_HOURS,
+  TRUCK_PM_INTERVAL_HOURS,
+  TRUCK_PM_OVERDUE_FROM_HOURS,
+  getNextTruckPmHour,
+  hasInconsistentPmReadings,
+  isCanonicalTruckFamily,
+  positiveOr,
+  selectMaintenanceCounter,
+} from "./pmRules.js";
 
 const DEFAULTS = Object.freeze({ intervalo: 250, alertaDesde: 200, atrasadoDesde: 350 });
 const ALL = "todos";
@@ -68,6 +79,10 @@ function esCamionetaPM(equipo) {
   return familia.includes("CAMIONETA") || /^CTA\d+/.test(interno);
 }
 
+function esCamionPM(equipo) {
+  return isCanonicalTruckFamily(equipo?.familia || equipo?.tipoEquipo || equipo?.equipo || "");
+}
+
 function categoriaPM(equipo) {
   return esCamionetaPM(equipo) ? "vehiculos" : "pesados";
 }
@@ -86,16 +101,19 @@ function ropInterno(row) {
   // ROP02 ya llega normalizado desde App.jsx: el interno canónico está en `maquina`.
   return text(row?.maquina || row?._internoRaw || pick(row, ["interno", "codigo int", "código interno del equipo", "codigo interno del equipo", "equipo interno"]));
 }
-function ropHoras(row) {
-  // Compatibilidad con datos normalizados (`horometroFinal`) y datos crudos (`HF`).
-  return Math.max(
-    num(row?.horometroFinal),
-    num(row?.horometroInicial),
-    num(pick(row, ["hf", "horometro final", "horómetro final", "km final", "kilometraje final"])),
-    num(pick(row, ["hi", "horometro inicial", "horómetro inicial"])),
-    num(row?.horas),
-    num(pick(row, ["horas", "hs"]))
-  );
+function ropHoras(row, esCamion = false) {
+  return selectMaintenanceCounter({
+    horometerCandidates: [
+      row?.horometroFinal, row?.horometroInicial,
+      pick(row, ["hf", "horometro final", "horómetro final"]),
+      pick(row, ["hi", "horometro inicial", "horómetro inicial"]),
+      row?.horas, pick(row, ["horas", "hs"]),
+    ],
+    mileageCandidates: [
+      row?.kilometrajeFinal, row?.kmFinal,
+      pick(row, ["km final", "kilometraje final"]),
+    ],
+  }, { isTruck: esCamion });
 }
 function ropFecha(row) {
   return parseDateValue(row?.fecha || pick(row, ["fecha", "fecha del parte diario", "fecha parte", "día", "dia"]));
@@ -107,23 +125,27 @@ function ropProyecto(row) {
 function statusFor(row) {
   const actual = num(row.horometroActual);
   const ultimo = num(row.horometroUltimoPM);
-  const transcurridas = ultimo > 0 ? Math.max(0, actual - ultimo) : 0;
-  const alerta = num(row.alertaDesde) || DEFAULTS.alertaDesde;
-  const atrasado = num(row.atrasadoDesde) || DEFAULTS.atrasadoDesde;
-  const intervalo = num(row.intervalo) || DEFAULTS.intervalo;
+  const esCamion = Boolean(row.pmEsCamion);
+  const intervalo = esCamion ? TRUCK_PM_INTERVAL_HOURS : positiveOr(row.intervalo, DEFAULTS.intervalo);
+  const alerta = esCamion ? TRUCK_PM_ALERT_FROM_HOURS : positiveOr(row.alertaDesde, DEFAULTS.alertaDesde);
+  const atrasado = esCamion ? TRUCK_PM_OVERDUE_FROM_HOURS : positiveOr(row.atrasadoDesde, DEFAULTS.atrasadoDesde);
+  const inconsistente = hasInconsistentPmReadings(actual, ultimo);
+  const transcurridas = ultimo > 0 && !inconsistente ? Math.max(0, actual - ultimo) : 0;
+  let proximoPM = 0;
+  if (ultimo && !inconsistente) proximoPM = esCamion ? getNextTruckPmHour(actual, ultimo) : ultimo + intervalo;
   let estado = "AL DÍA", color = "ok";
-  const margenUrgente = Math.max(20, Math.min(50, atrasado - intervalo));
+  const margenUrgente = Math.max(20, Math.min(50, Math.max(0, atrasado - intervalo)));
   if (!ultimo) { estado = "SIN BASE"; color = "muted"; }
+  else if (inconsistente) { estado = "REVISAR DATOS"; color = "danger"; }
   else if (transcurridas >= atrasado) { estado = "PM ATRASADO"; color = "danger"; }
   else if (transcurridas >= intervalo || transcurridas >= atrasado - margenUrgente) { estado = "PM URGENTE"; color = "danger"; }
   else if (transcurridas >= alerta) { estado = "PM PRÓXIMO"; color = "warn"; }
   return {
-    ...row,
-    transcurridas,
-    proximoPM: ultimo ? ultimo + intervalo : 0,
-    faltan: ultimo ? Math.max(0, (ultimo + intervalo) - actual) : 0,
-    estado,
-    color,
+    ...row, intervalo, alertaDesde: alerta, atrasadoDesde: atrasado,
+    unidadMantenimiento: esCamion ? "h" : row.unidadMantenimiento,
+    inconsistente, transcurridas, proximoPM,
+    faltan: proximoPM ? Math.max(0, proximoPM - actual) : 0,
+    estado, color,
   };
 }
 
@@ -186,9 +208,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
-      if (!APPS_SCRIPT_URL) throw new Error("No está configurada la URL del Apps Script.");
-      const response = await fetch(`${APPS_SCRIPT_URL}?action=mantenimiento_programado&ts=${Date.now()}`, { cache: "no-store" });
-      const json = await readJsonResponse(response, "Carga de Mantenimiento Programado");
+      const json = await fetchAction(APPS_SCRIPT_URL, "mantenimiento_programado", { force: true });
       if (!json?.ok) throw new Error(json?.error?.message || "No se pudo cargar Mantenimiento Programado.");
       setConfigs(Array.isArray(json.config) ? json.config : []);
       setRegistros(Array.isArray(json.registros) ? json.registros : []);
@@ -209,6 +229,16 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     priority: 20
   }), [load]);
 
+  const truckInternos = useMemo(() => {
+    const set = new Set();
+    (listaEquipos || []).forEach(raw => {
+      const e = equipoFromLista(raw);
+      const key = norm(e.interno);
+      if (key && esCamionPM(e)) set.add(key);
+    });
+    return set;
+  }, [listaEquipos]);
+
   const actividad7Dias = useMemo(() => {
     const fechasValidas = (rop02All || []).map(ropFecha).filter(Boolean);
     const referenciaDatos = fechasValidas.length
@@ -225,7 +255,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       if (!fecha || fecha < desde || fecha > hasta) return;
       const key = norm(ropInterno(row));
       if (!key) return;
-      const horas = ropHoras(row);
+      const horas = ropHoras(row, truckInternos.has(key));
       const proyecto = ropProyecto(row);
       const prev = map.get(key);
       if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && horas > prev.horas)) {
@@ -235,7 +265,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       }
     });
     return map;
-  }, [rop02All, fechaDesde, fechaHasta]);
+  }, [rop02All, fechaDesde, fechaHasta, truckInternos]);
 
   const mergedConfigs = useMemo(() => {
     const map = new Map(PM_INITIAL_SEED.map(item => [norm(item.interno), {
@@ -281,6 +311,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       if (!key || seen.has(key) || !actividad) return;
       seen.add(key);
       const cfg = configMap.get(key) || {};
+      const pmEsCamion = esCamionPM(e);
       base.push(statusFor({
         ...e,
         ...cfg,
@@ -290,16 +321,17 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
         marca: e.marca,
         modelo: e.modelo,
         proyecto: actividad.proyecto || cfg.proyecto || e.proyecto,
-        intervalo: num(cfg.intervalo) || DEFAULTS.intervalo,
-        alertaDesde: num(cfg.alertaDesde) || DEFAULTS.alertaDesde,
-        atrasadoDesde: num(cfg.atrasadoDesde) || DEFAULTS.atrasadoDesde,
+        pmEsCamion,
+        intervalo: pmEsCamion ? TRUCK_PM_INTERVAL_HOURS : positiveOr(cfg.intervalo, DEFAULTS.intervalo),
+        alertaDesde: pmEsCamion ? TRUCK_PM_ALERT_FROM_HOURS : positiveOr(cfg.alertaDesde, DEFAULTS.alertaDesde),
+        atrasadoDesde: pmEsCamion ? TRUCK_PM_OVERDUE_FROM_HOURS : positiveOr(cfg.atrasadoDesde, DEFAULTS.atrasadoDesde),
         horometroUltimoPM: num(cfg.horometroUltimoPM),
         horometroActual: actividad.horas,
         ultimaActividad: actividad.fecha.toISOString().slice(0, 10),
         activo: String(cfg.activo ?? "SI").toUpperCase() !== "NO",
       }));
     });
-    const rank = { "PM ATRASADO": 0, "PM URGENTE": 1, "PM PRÓXIMO": 2, "SIN BASE": 3, "AL DÍA": 4 };
+    const rank = { "REVISAR DATOS": 0, "PM ATRASADO": 1, "PM URGENTE": 2, "PM PRÓXIMO": 3, "SIN BASE": 4, "AL DÍA": 5 };
     return base.sort((a, b) => (rank[a.estado] ?? 9) - (rank[b.estado] ?? 9) || a.interno.localeCompare(b.interno, "es", { numeric: true }));
   }, [listaEquipos, actividad7Dias, configMap]);
 
