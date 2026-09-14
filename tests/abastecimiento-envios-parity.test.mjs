@@ -8,14 +8,17 @@ import { abastecimientoInstantVitePlugin } from "../scripts/abastecimiento-insta
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const modulePath = path.resolve(__dirname, "../src/modules/abastecimiento/AbastecimientoModule.jsx");
 
-test("OPS conserva el mismo FIFO de Envíos sin solicitud que la app Supabase", () => {
+test("OPS calcula Envíos sin solicitud con FIFO y excluye solicitudes rechazadas", () => {
   const source = fs.readFileSync(modulePath, "utf8");
   const plugin = abastecimientoInstantVitePlugin();
   const transformed = plugin.transform(source, modulePath.replace(/\\/g, "/"));
   const code = transformed?.code || source;
 
+  assert.match(code, /solicitudesValidas=\(rows\|\|\[\]\)\.filter\(row=>!rejectedSolicitudes\?\.\[buildSolicitudKey\(row\)\]\)/);
   assert.match(code, /allocateRemitosToRequests\(base,remitos\)\.unmatched/);
   assert.doesNotMatch(code, /buildEnviosSinSolicitudRows\s*\(\s*\{/);
   assert.match(code, /fetchRaba03FromSupabase\(\)/);
+  assert.match(code, /fetchAbastecimientoSnapshot\(\)/);
   assert.match(code, /RABA03_VIEW_CACHE_KEY/);
+  assert.doesNotMatch(code, /action=remitos_cargados/);
 });
