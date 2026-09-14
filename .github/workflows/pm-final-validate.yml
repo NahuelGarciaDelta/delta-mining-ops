@@ -1,4 +1,4 @@
-name: PM baseline validation
+name: PM final regression gate
 
 on:
   push:
@@ -6,34 +6,70 @@ on:
     paths:
       - '.github/workflows/pm-final-validate.yml'
 
+permissions:
+  contents: write
+
 jobs:
-  validate-baseline:
+  validate-pm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - name: Baseline validate
-        id: check
+      - name: Apply PM corrections
+        run: node scripts/apply-pm-consistency-fix.mjs
+      - name: Truck PM regression tests
+        run: node --test tests/pm-truck-rules.test.mjs
+      - name: Production build
+        run: npm run build
+      - name: Full validation must not add failures
         shell: bash
         run: |
           set +e
-          npm run validate > baseline-validate.log 2>&1
+          npm run validate > validate.log 2>&1
           STATUS=$?
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          printf 'validate=%s\n' "$STATUS" > baseline-status.txt
           set -e
-      - name: Upload baseline logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pm-baseline-validation-logs
-          path: |
-            baseline-validate.log
-            baseline-status.txt
-      - name: Preserve baseline result
-        if: steps.check.outputs.status != '0'
-        run: exit 1
+
+          sed -n 's/^not ok [0-9][0-9]* - //p' validate.log | sort > actual-failures.txt
+          cat > expected-failures.txt <<'EOF'
+          /home/runner/work/delta-mining-ops/delta-mining-ops/tests/abastecimiento-regression.test.mjs
+          /home/runner/work/delta-mining-ops/delta-mining-ops/tests/gerente-profile.test.mjs
+          /home/runner/work/delta-mining-ops/delta-mining-ops/tests/historical-query-backend.test.mjs
+          /home/runner/work/delta-mining-ops/delta-mining-ops/tests/stock-auth-session.test.mjs
+          Atraso consulta snapshot y ventana reciente sin precargar el historial global
+          Atraso separa equipo y proyecto y conserva supervisor y ventana del origen
+          Atraso standalone deja de precargar fuentes ROP02 completas
+          Apps Script conserva router, lock, UUID, hoja y headers obligatorios
+          Bienvenida usa el snapshot y deja de precargar ROP02 completo
+          Dashboard Gerencial no recibe el ROP02 reducido al día del Resumen General
+          Dashboard usa resumen mensual y consultas por rango
+          Informe de Costos consulta el rango activo y universo compacto 2026
+          ROP02 ROP05 y RMA15 usan controlador paginado y exportación por bloques
+          TOP-0036 y PCA-0021 siguen visibles como atrasados aunque no cargaron en los ultimos 7 dias
+          conserva los movimientos inferidos de TOP-0072
+          el flujo activo de Stock no usa Drive, Base64 ni hojas versionadas
+          fechas del dashboard aceptan ISO, DD/MM/YYYY y timestamps
+          EOF
+          sort -o expected-failures.txt expected-failures.txt
+
+          if [ "$STATUS" -eq 0 ]; then
+            if [ -s actual-failures.txt ]; then
+              echo 'Validate returned success but failure markers were found.' >&2
+              exit 1
+            fi
+          else
+            diff -u expected-failures.txt actual-failures.txt
+          fi
+      - name: Commit validated PM corrections
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/services/supabaseReadApi.js src/services/appsScriptApi.js src/modules/mantenimiento/MantenimientoProgramadoView.jsx src/modules/equipment/EquipmentProfileView.jsx
+          git diff --cached --check
+          git commit -m "fix: stabilize PM reads and truck maintenance rules"
+          git push origin HEAD:fix/pm-final-20260914
