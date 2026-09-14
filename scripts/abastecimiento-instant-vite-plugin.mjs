@@ -8,7 +8,7 @@ export function abastecimientoInstantVitePlugin(){
 
       next=next.replace(
         'import { registerRefreshTask } from "../../services/refreshManager.js";',
-        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase } from "../../services/raba03ReadApi.js";'
+        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase } from "../../services/raba03ReadApi.js";\nimport { buildEnviosSinSolicitudRows } from "./enviosSinSolicitud.js";'
       );
 
       next=next.replace(
@@ -40,14 +40,18 @@ export function abastecimientoInstantVitePlugin(){
       const parallel=`const run=async()=>{\n      const [remitosResult]=await Promise.allSettled([\n        loadRemitosCompartidos({silent:true}),\n        loadEstadosSolicitudesCompartidos({silent:true})\n      ]);\n      if(cancelled)return;\n      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;\n      await loadRaba03({silent:rows.length>0,remitosOverride:sharedRemitos});\n    };`;
       next=next.replace(sequential,parallel);
 
-      // Envíos sin solicitud debe conservar exactamente el FIFO del módulo base,
-      // igual que delta-mining-web-supabase. No reemplazarlo por vínculos explícitos
-      // del RABA03 porque eso ocultaba envíos válidos en OPS.
-      if(!next.includes('allocateRemitosToRequests(base,remitos).unmatched')){
-        throw new Error('No se encontró el FIFO esperado de Envíos sin solicitud en AbastecimientoModule.jsx');
+      const unmatchedStart='  const enviosSinSolicitudRows=useMemo(()=>{';
+      const unmatchedEnd='\n  const exportarEnviosSinSolicitud=useCallback(()=>{';
+      const start=next.indexOf(unmatchedStart);
+      const end=start>=0?next.indexOf(unmatchedEnd,start):-1;
+      if(start<0||end<0){
+        throw new Error('No se encontró el bloque de Envíos sin solicitud en AbastecimientoModule.jsx');
       }
-      if(next.includes('buildEnviosSinSolicitudRows({')){
-        throw new Error('Envíos sin solicitud no debe ser reemplazado por la lógica de vínculos explícitos');
+      const unmatched=`  const enviosSinSolicitudRows=useMemo(()=>buildEnviosSinSolicitudRows({\n    raba03Rows:rawRaba03RowsRef.current,\n    remitos,\n    normCode,\n    toNumber,\n    normalizeCentroCosto,\n    parseChronoDateMs\n  }),[rows,remitos,normCode,toNumber,normalizeCentroCosto]);`;
+      next=next.slice(0,start)+unmatched+next.slice(end);
+
+      if(!next.includes('buildEnviosSinSolicitudRows({')||!next.includes('raba03Rows:rawRaba03RowsRef.current')){
+        throw new Error('No se pudo aplicar la lógica real de Envíos sin solicitud');
       }
       if(!next.includes('fetchRaba03FromSupabase')||!next.includes('RABA03_VIEW_CACHE_KEY')){
         throw new Error('No se pudo aplicar la optimización Supabase/cache de Abastecimiento');
