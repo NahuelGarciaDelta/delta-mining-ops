@@ -4,25 +4,24 @@ import fs from "node:fs";
 
 const moduleSource=fs.readFileSync(new URL("../src/modules/abastecimiento/AbastecimientoModule.jsx",import.meta.url),"utf8");
 const service=fs.readFileSync(new URL("../src/services/abastecimientoSupabase.js",import.meta.url),"utf8");
-const readApi=fs.readFileSync(new URL("../src/services/raba03ReadApi.js",import.meta.url),"utf8");
+const client=fs.readFileSync(new URL("../src/services/supabaseClient.js",import.meta.url),"utf8");
+const pkg=JSON.parse(fs.readFileSync(new URL("../package.json",import.meta.url),"utf8"));
 
-test("RABA03 usa lectura directa y no el snapshot grande",()=>{
-  assert.match(service,/fetchRaba03FromSupabase/);
-  assert.match(service,/export async function getAbastecimientoRaba03/);
+test("Abastecimiento usa el cliente oficial de Supabase",()=>{
+  assert.ok(pkg.dependencies?.["@supabase/supabase-js"]);
+  assert.match(client,/createClient/);
+  assert.match(service,/requireSupabase\(\)\.rpc\("abastecimiento_snapshot"/);
+  assert.doesNotMatch(service,/fetchRaba03FromSupabase|rest\/v1\/abastecimiento_raba03/);
+});
+
+test("RABA03 vuelve a usar el snapshot compartido igual que la app Supabase",()=>{
   const load=moduleSource.split("const loadRaba03=useCallback")[1]?.split("// Carga inicial stale-while-revalidate")[0]||"";
-  assert.match(load,/getAbastecimientoRaba03\(\)/);
-  assert.doesNotMatch(load,/getAbastecimientoSnapshot\(\)/);
+  assert.match(load,/getAbastecimientoSnapshot\(\)/);
+  assert.match(load,/json\.raba03/);
+  assert.doesNotMatch(load,/getAbastecimientoRaba03/);
 });
 
-test("carga inicial dispara RABA03, remitos y estados en paralelo",()=>{
-  const init=moduleSource.split("// Carga inicial stale-while-revalidate")[1]?.split("// Registro en el motor único")[0]||"";
-  assert.match(init,/Promise\.allSettled\(\[/);
-  assert.match(init,/loadRaba03\(\{silent:hasCachedRows\}\)/);
-  assert.match(init,/loadRemitosCompartidos\(\{silent:true\}\)/);
-  assert.match(init,/loadEstadosSolicitudesCompartidos\(\{silent:true\}\)/);
-});
-
-test("timeout de red deja margen de 30 segundos",()=>{
-  assert.match(readApi,/const TIMEOUT_MS=30000/);
-  assert.doesNotMatch(readApi,/dentro de 12 segundos/);
+test("snapshot se deduplica entre RABA03 remitos y estados",()=>{
+  assert.match(service,/if\(snapshotPromise&&!force\)return snapshotPromise/);
+  assert.match(service,/SNAPSHOT_TTL_MS=5000/);
 });

@@ -3,7 +3,7 @@ import ReactDOM from "react-dom";
 import { clearSharedStock, uploadStockExcel } from "../../services/stockService.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { readCachedSource, writeCachedSource } from "../../services/appCache.js";
-import { configureAbastecimientoBackend, getAbastecimientoSnapshot, getAbastecimientoRaba03, saveAbastecimientoRemito, deleteAbastecimientoRemito, setAbastecimientoEstado, appendAbastecimientoRaba03, updateAbastecimientoRaba03 } from "../../services/abastecimientoSupabase.js";
+import { configureAbastecimientoBackend, getAbastecimientoSnapshot, saveAbastecimientoRemito, deleteAbastecimientoRemito, setAbastecimientoEstado, appendAbastecimientoRaba03, updateAbastecimientoRaba03 } from "../../services/abastecimientoSupabase.js";
 import { useSharedStock } from "./stock/useSharedStock.js";
 import { stockValidationSummary, validateStockWorkbook } from "./stock/stockValidation.js";
 import { allocateAbastecimientoRemitos } from "./enviosSinSolicitud.js";
@@ -820,9 +820,9 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       setError(null);
     }
     try{
-      const json=await getAbastecimientoRaba03();
+      const json=await getAbastecimientoSnapshot();
       if(!json?.ok)throw new Error("No se pudo leer RABA03 desde Supabase");
-      const raw=Array.isArray(json.data)?json.data:[];
+      const raw=Array.isArray(json.raba03)?json.raba03:[];
       rawRaba03RowsRef.current=raw;
       const normalizedRows=mapRaba03Rows(raw);
       setRows(normalizedRows);
