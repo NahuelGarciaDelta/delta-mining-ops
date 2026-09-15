@@ -1,0 +1,138 @@
+from pathlib import Path
+import re, shutil
+
+ROOT=Path('.')
+REF=Path('/tmp/delta-supabase')
+
+for src,dst in [
+    (REF/'src/modules/abastecimiento/AbastecimientoModule.jsx',ROOT/'src/modules/abastecimiento/AbastecimientoModule.jsx'),
+    (REF/'src/modules/abastecimiento/enviosSinSolicitud.js',ROOT/'src/modules/abastecimiento/enviosSinSolicitud.js'),
+    (REF/'src/modules/abastecimiento/stock/useSharedStock.js',ROOT/'src/modules/abastecimiento/stock/useSharedStock.js'),
+]:
+    if not src.exists(): raise SystemExit(f'Falta referencia: {src}')
+    shutil.copy2(src,dst)
+
+module=ROOT/'src/modules/abastecimiento/AbastecimientoModule.jsx'
+s=module.read_text()
+old='import { getAbastecimientoSnapshot, saveAbastecimientoRemito, deleteAbastecimientoRemito, setAbastecimientoEstado, appendAbastecimientoRaba03, updateAbastecimientoRaba03 } from "../../services/abastecimientoSupabase.js";'
+new='import { configureAbastecimientoBackend, getAbastecimientoSnapshot, saveAbastecimientoRemito, deleteAbastecimientoRemito, setAbastecimientoEstado, appendAbastecimientoRaba03, updateAbastecimientoRaba03 } from "../../services/abastecimientoSupabase.js";'
+if old not in s: raise SystemExit('No se encontró import abastecimientoSupabase en referencia')
+s=s.replace(old,new,1)
+marker='  } = deps;\n  const [rows,setRows]=useState([]);'
+if marker not in s: raise SystemExit('No se encontró inicio del componente')
+s=s.replace(marker,'  } = deps;\n  configureAbastecimientoBackend(APPS_SCRIPT_URL);\n  const [rows,setRows]=useState([]);',1)
+old_fields='''      cantidadSolicitada:solicitada,\n      cantidadEnviada:enviada,\n      cantidadRestante:restante\n    };'''
+new_fields='''      cantidadSolicitada:solicitada,\n      cantidadEnviada:enviada,\n      cantidadRestante:restante,\n      fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"])),\n      numeroRemitoFuente:String(pick(r,["Nº Remito","N° Remito","Remito"])||"").trim()\n    };'''
+if old_fields not in s: raise SystemExit('No se encontró normalizeRow en referencia')
+s=s.replace(old_fields,new_fields,1)
+start=s.index('  const abastecimientoDashboardData=useMemo(()=>{')
+end=s.index('  const enviosSinSolicitudRows=useMemo(()=>{',start)
+dashboard='''  const abastecimientoDashboardData=useMemo(()=>{\n    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const filasActivas=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);\n    const pendientes=filasActivas.filter(r=>toNumber(r.cantidadEnviada)<=0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const parciales=filasActivas.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const cerradas=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).length;\n    const indicadoresCerrados=filasActivas\n      .filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)]))\n      .map(r=>{\n        const fechaSalida=String(r.fechaSalidaFuente||"").trim();\n        const indicador=fechaSalida?calcularIndicadorRABA03(r.fechaSolicitud,fechaSalida):"";\n        const indicadorNum=indicador===""?NaN:Number(indicador);\n        return {...r,numeroRemito:r.numeroRemitoFuente||"",fechaSalida,indicador,indicadorNum};\n      })\n      .filter(r=>Number.isFinite(r.indicadorNum)&&r.indicadorNum>=0);\n    const avg=indicadoresCerrados.length?indicadoresCerrados.reduce((a,r)=>a+r.indicadorNum,0)/indicadoresCerrados.length:0;\n    const max=indicadoresCerrados.length?Math.max(...indicadoresCerrados.map(r=>r.indicadorNum)):0;\n    const min=indicadoresCerrados.length?Math.min(...indicadoresCerrados.map(r=>r.indicadorNum)):0;\n    const porProyecto=Object.values(indicadoresCerrados.reduce((acc,r)=>{\n      const key=String(r.centroCosto||"SIN PROYECTO").trim()||"SIN PROYECTO";\n      if(!acc[key])acc[key]={name:key,total:0,count:0,promedio:0};\n      acc[key].total+=r.indicadorNum;acc[key].count+=1;acc[key].promedio=acc[key].total/acc[key].count;\n      return acc;\n    },{})).sort((a,b)=>b.promedio-a.promedio);\n    const porMes=Object.values(movimientos.reduce((acc,r)=>{\n      const d=parseRabaDateMs(r.fechaSalida);\n      const key=d!==null?new Date(d).toISOString().slice(0,7):"SIN FECHA";\n      if(!acc[key])acc[key]={mes:key,salidas:0,promedio:0,totalIndicador:0};\n      acc[key].salidas+=1;acc[key].totalIndicador+=r.indicadorNum;acc[key].promedio=acc[key].totalIndicador/acc[key].salidas;\n      return acc;\n    },{})).sort((a,b)=>String(a.mes).localeCompare(String(b.mes)));\n    const estados=[\n      {name:"Pendientes",value:pendientes,color:C.yellow},\n      {name:"Parciales",value:parciales,color:C.blue},\n      {name:"Cerradas",value:cerradas,color:C.green},\n    ];\n    const demora=[\n      {name:"0-3 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=0&&r.indicadorNum<=3).length,color:C.green},\n      {name:"4-7 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=4&&r.indicadorNum<=7).length,color:C.blue},\n      {name:"8-15 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=8&&r.indicadorNum<=15).length,color:C.yellow},\n      {name:">15 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>15).length,color:C.red},\n    ];\n    const masDemorados=[...indicadoresCerrados].sort((a,b)=>b.indicadorNum-a.indicadorNum).slice(0,8);\n    return {movimientos,indicadoresCerrados,avg,max,min,pendientes,parciales,cerradas,total:assignedRows.length,porProyecto,porMes,estados,demora,masDemorados};\n  },[raba03DashboardRows,assignedRows,toNumber,parseRabaDateMs,calcularIndicadorRABA03,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);\n\n'''
+s=s[:start]+dashboard+s[end:]
+old_card='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.movimientos.length)} sub="con remito asignado" color={C.green} small/>'
+new_card='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.cerradas+d.parciales)} sub="cerradas + parciales" color={C.green} small/>'
+if old_card not in s: raise SystemExit('No se encontró tarjeta Ítems con salida')
+s=s.replace(old_card,new_card,1)
+s=s.replace('Se sincronizan desde Google Sheets y se muestran a todos los usuarios.','Se sincronizan desde Supabase y se muestran a todos los usuarios.')
+s=s.replace('Los que Google Sheets confirmó antes del error sí quedaron registrados','Los que el backend confirmó antes del error sí quedaron registrados')
+module.write_text(s)
+
+(ROOT/'src/modules/abastecimiento/AbastecimientoRoute.jsx').write_text('''import React, { useState } from "react";\nimport { AbastecimientoModule } from "./AbastecimientoModule.jsx";\nimport DeleteSolicitudByNumber from "./DeleteSolicitudByNumber.jsx";\n\nexport default function AbastecimientoRoute(props) {\n  const [refreshKey,setRefreshKey]=useState(0);\n  const showDeleteSolicitud=!props.readOnly&&props.initialTab==="solicitudes";\n  return (<>\n    {showDeleteSolicitud&&<DeleteSolicitudByNumber deps={props.deps} onDeleted={()=>setRefreshKey(v=>v+1)}/>}\n    <AbastecimientoModule key={refreshKey} {...props}/>\n  </>);\n}\n''')
+
+vite=ROOT/'vite.config.js'
+v=vite.read_text()
+v=re.sub(r"^import \{ abastecimientoInstantVitePlugin \} from './scripts/abastecimiento-instant-vite-plugin\.mjs'\n",'',v,flags=re.M)
+v=v.replace('abastecimientoInstantVitePlugin(), ','').replace(', abastecimientoInstantVitePlugin()','')
+if 'abastecimientoInstantVitePlugin' in v: raise SystemExit('Quedó referencia al Vite plugin')
+vite.write_text(v)
+(ROOT/'scripts/abastecimiento-instant-vite-plugin.mjs').unlink(missing_ok=True)
+
+(ROOT/'src/services/abastecimientoSupabase.js').write_text(r'''import { getAuthenticatedUser } from "./authSession.js";
+import { fetchAbastecimientoSnapshot } from "./raba03ReadApi.js";
+
+const env=(typeof import.meta!=="undefined"&&import.meta.env)?import.meta.env:{};
+const SUPABASE_URL=String(env.VITE_SUPABASE_URL||"https://jwfocqaxlckuxoklwyxs.supabase.co").replace(/\/+$/,"");
+const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2").trim();
+let backendUrl="";
+let snapshotPromise=null,snapshotCache=null,snapshotAt=0;
+const SNAPSHOT_TTL_MS=5000;
+
+export function configureAbastecimientoBackend(url){backendUrl=String(url||"").trim();}
+export function invalidateAbastecimientoSnapshot(){snapshotCache=null;snapshotAt=0;}
+const actor=()=>{const u=getAuthenticatedUser();return{email:String(u?.email||sessionStorage.getItem("dm_user")||"").trim().toLowerCase(),token:String(u?.authToken||u?.token||sessionStorage.getItem("dm_auth_token")||"")};};
+async function postBackend(payload){
+  if(!backendUrl)throw new Error("Backend de Abastecimiento no configurado.");
+  const a=actor();
+  if(!a.email||!a.token)throw new Error("Tu sesión no tiene un token válido. Cerrá sesión e iniciá nuevamente.");
+  const res=await fetch(backendUrl,{method:"POST",cache:"no-store",redirect:"follow",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:new URLSearchParams({payload:JSON.stringify({...payload,actor:a})}).toString()});
+  const text=await res.text();let json;try{json=text?JSON.parse(text):{};}catch(_){throw new Error("El backend devolvió una respuesta no válida.");}
+  if(!res.ok||!json?.ok)throw new Error(json?.error?.message||`Error HTTP ${res.status}`);
+  invalidateAbastecimientoSnapshot();return json;
+}
+export async function getAbastecimientoSnapshot({force=false}={}){
+  const now=Date.now();if(!force&&snapshotCache&&now-snapshotAt<SNAPSHOT_TTL_MS)return snapshotCache;if(snapshotPromise&&!force)return snapshotPromise;
+  snapshotPromise=fetchAbastecimientoSnapshot().then(value=>{const data={ok:true,raba03:[],remitos:[],estados:[],...(value||{}),raba03Source:"supabase"};snapshotCache=data;snapshotAt=Date.now();return data;});
+  try{return await snapshotPromise;}finally{snapshotPromise=null;}
+}
+export async function getStockSnapshotFromSupabase(){
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/rpc/app_stock_snapshot`,{method:"POST",cache:"no-store",headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,Accept:"application/json","Content-Type":"application/json"},body:"{}"});
+  const text=await res.text();let json;try{json=text?JSON.parse(text):{};}catch(_){throw new Error("Supabase Stock devolvió una respuesta inválida");}
+  if(!res.ok)throw new Error(`Supabase Stock HTTP ${res.status}: ${text.slice(0,180)}`);return json||{};
+}
+export const saveAbastecimientoRemito=remito=>postBackend({action:"save_remito_cargado",remito:{...(remito||{}),usuarioCarga:sessionStorage.getItem("dm_user")||"APP"}});
+export const deleteAbastecimientoRemito=id=>postBackend({action:"delete_remito_cargado",idRemito:String(id||"")});
+export const setAbastecimientoEstado=payload=>postBackend(payload||{});
+export const appendAbastecimientoRaba03=rows=>postBackend({action:"add_raba03_rows_append_only",rows:Array.isArray(rows)?rows:[]});
+export function updateAbastecimientoRaba03(action,rows){const normalized=String(action||"").trim().toLowerCase();const backendAction=normalized==="cant_enviada"?"save_raba03_cant_enviada":normalized==="codigos"?"save_raba03_codigos":"";if(!backendAction)throw new Error(`Acción RABA03 no soportada: ${action}`);return postBackend({action:backendAction,rows:Array.isArray(rows)?rows:[]});}
+export const deleteAbastecimientoRaba03Solicitud=numeroSolicitud=>postBackend({action:"delete_raba03_solicitud_numero",numeroSolicitud:String(numeroSolicitud||"").trim()});
+''')
+
+stock=ROOT/'src/services/stockService.js'
+st=stock.read_text()
+imp='import { getStockSnapshotFromSupabase } from "./abastecimientoSupabase.js";\n'
+if imp not in st: st=imp+st
+ss=st.index('export function fetchStockStatus')
+se=st.index('export async function readCachedStockData',ss)
+rep='''export async function fetchStockStatus(url) {\n  try{const value=await getStockSnapshotFromSupabase();return{ok:true,meta:value?.meta||{active:false},source:"supabase"};}\n  catch(_){return getStock(url,"stock_excel_status");}\n}\nexport async function fetchStockData(url) {\n  try{const value=await getStockSnapshotFromSupabase();const response={ok:true,meta:value?.meta||{active:false},rows:Array.isArray(value?.rows)?value.rows:[],source:"supabase"};await writeCachedSource(STOCK_CACHE_KEY,{ok:true,data:response.rows,meta:response.meta}).catch(()=>{});return response;}\n  catch(_){const response=await getStock(url,"stock_excel_data");const rows=Array.isArray(response?.rows)?response.rows:[];await writeCachedSource(STOCK_CACHE_KEY,{ok:true,data:rows,meta:response?.meta||null}).catch(()=>{});return response;}\n}\n\n'''
+st=st[:ss]+rep+st[se:]
+stock.write_text(st)
+
+(ROOT/'src/modules/abastecimiento/DeleteSolicitudByNumber.jsx').write_text(r'''import React, { useState } from "react";
+import { configureAbastecimientoBackend, deleteAbastecimientoRaba03Solicitud } from "../../services/abastecimientoSupabase.js";
+export default function DeleteSolicitudByNumber({deps={},onDeleted}){
+  const{APPS_SCRIPT_URL,C={},appAlert,appConfirm}=deps;configureAbastecimientoBackend(APPS_SCRIPT_URL);const[busy,setBusy]=useState(false);
+  const alertUser=m=>typeof appAlert==="function"?appAlert(m):window.alert(m);const confirmUser=m=>typeof appConfirm==="function"?appConfirm(m):window.confirm(m);
+  const handleDelete=async()=>{if(busy)return;const numero=String(window.prompt("Ingresá el N° de solicitud (columna A) a eliminar. No ingreses el N° de pedido:","")||"").trim();if(!numero)return;if(!(await confirmUser(`¿Eliminar completamente la solicitud N° ${numero}?\n\nSe eliminarán todas sus filas. Esta acción no se puede deshacer.`)))return;setBusy(true);try{const json=await deleteAbastecimientoRaba03Solicitud(numero);const n=Number(json?.deletedRows||0);if(n<=0){await alertUser(`No se encontró ninguna fila con el N° de solicitud ${numero}.`);return;}await alertUser(`Solicitud N° ${numero} eliminada correctamente (${n} fila${n===1?"":"s"}).`);onDeleted?.();}catch(e){await alertUser(`No se pudo eliminar la solicitud. ${e?.message||e}`);}finally{setBusy(false);}};
+  return <div style={{display:"flex",justifyContent:"flex-end",margin:"0 0 8px 0"}}><button type="button" onClick={handleDelete} disabled={busy} style={{height:34,borderRadius:9,border:`1px solid ${C.red||"#ff3b3b"}88`,background:`${C.red||"#ff3b3b"}18`,color:C.red||"#ff3b3b",padding:"0 12px",fontSize:12,fontWeight:900,cursor:busy?"wait":"pointer",opacity:busy?.65:1}}>{busy?"Eliminando...":"Eliminar solicitud (N° solicitud)"}</button></div>;
+}
+''')
+
+(ROOT/'tests/abastecimiento-allocation-regression.test.mjs').write_text(r'''import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const source=fs.readFileSync(new URL('../src/modules/abastecimiento/AbastecimientoModule.jsx',import.meta.url),'utf8');
+test('Abastecimiento usa snapshot Supabase y allocator compartido',()=>{assert.match(source,/getAbastecimientoSnapshot/);assert.match(source,/allocateAbastecimientoRemitos/);assert.match(source,/appendAbastecimientoRaba03/);assert.match(source,/updateAbastecimientoRaba03/);});
+test('Ítems con salida conserva cerradas + parciales',()=>{assert.match(source,/label="Ítems con salida" value=\{fmtNum\(d\.cerradas\+d\.parciales\)\}/);assert.doesNotMatch(source,/label="Ítems con salida" value=\{fmtNum\(d\.movimientos\.length\)\}/);});
+test('indicadores usan un ítem cerrado único y Salidas por mes conserva remitos',()=>{assert.match(source,/const indicadoresCerrados=filasActivas/);assert.match(source,/const avg=indicadoresCerrados\.length/);assert.match(source,/value:indicadoresCerrados\.filter\(r=>r\.indicadorNum>15\)\.length/);assert.match(source,/const porProyecto=Object\.values\(indicadoresCerrados\.reduce/);assert.match(source,/const porMes=Object\.values\(movimientos\.reduce/);assert.match(source,/fechaSalidaFuente:formatDateLocal/);});
+test('dashboard no recibe filtro global por columnas',()=>assert.match(source,/renderAbastecimientoDashboard[\s\S]*data-dm-disable-global-column-filters="1"/));
+''')
+(ROOT/'tests/abastecimiento-envios-parity.test.mjs').write_text(r'''import test from 'node:test';
+import assert from 'node:assert/strict';
+import {allocateAbastecimientoRemitos} from '../src/modules/abastecimiento/enviosSinSolicitud.js';
+const norm=v=>String(v||'').trim().toUpperCase(),date=v=>new Date(v).getTime();
+test('FIFO no asigna un remito a una solicitud futura',()=>{const out=allocateAbastecimientoRemitos({requestRows:[{id:'r1',codigoArticulo:'10',centroCosto:'JM',fechaSolicitud:'2026-09-10',cantidadSolicitada:5}],sourceRemitos:[{id:'m1',proyecto:'JM',fecha:'2026-09-09',comprobante:'R1',items:[{codigo:'10',descripcion:'X',cantidad:5}]}],normalizeCode:norm,normalizeProject:norm,parseDateMs:date,toNumber:Number,formatDate:v=>v});assert.equal(out.rows[0].cantidadEnviada,0);assert.equal(out.unmatched.length,1);assert.equal(out.unmatched[0].cantidadEnviada,5);});
+''')
+(ROOT/'tests/abastecimiento-regression.test.mjs').write_text(r'''import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const moduleSource=fs.readFileSync(new URL('../src/modules/abastecimiento/AbastecimientoModule.jsx',import.meta.url),'utf8');
+const service=fs.readFileSync(new URL('../src/services/abastecimientoSupabase.js',import.meta.url),'utf8');
+const stock=fs.readFileSync(new URL('../src/services/stockService.js',import.meta.url),'utf8');
+const vite=fs.readFileSync(new URL('../vite.config.js',import.meta.url),'utf8');
+test('lecturas de Abastecimiento son Supabase-first',()=>{assert.match(service,/fetchAbastecimientoSnapshot/);assert.match(service,/rest\/v1\/rpc\/app_stock_snapshot/);assert.match(moduleSource,/getAbastecimientoSnapshot/);assert.match(stock,/getStockSnapshotFromSupabase/);});
+test('escrituras destructivas no exponen service role ni anon write',()=>{assert.doesNotMatch(service,/service_role|SUPABASE_SERVICE/);assert.match(service,/postBackend/);assert.match(service,/authToken|dm_auth_token/);});
+test('se eliminó el transform Vite temporal de Abastecimiento',()=>{assert.doesNotMatch(vite,/abastecimientoInstantVitePlugin/);assert.equal(fs.existsSync(new URL('../scripts/abastecimiento-instant-vite-plugin.mjs',import.meta.url)),false);});
+test('RABA03, remitos, estados e importación pasan por servicio unificado',()=>{for(const name of ['saveAbastecimientoRemito','deleteAbastecimientoRemito','setAbastecimientoEstado','appendAbastecimientoRaba03','updateAbastecimientoRaba03'])assert.match(moduleSource,new RegExp(name));});
+''')
+
+print('Migración de Abastecimiento preparada.')
