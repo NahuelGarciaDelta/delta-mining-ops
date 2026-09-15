@@ -215,7 +215,8 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       setProgramaciones(Array.isArray(json.programaciones) ? json.programaciones : JSON.parse(localStorage.getItem("dm_pm_programaciones") || "[]"));
       setRepuestos(Array.isArray(json.repuestos) ? json.repuestos : JSON.parse(localStorage.getItem("dm_pm_repuestos") || "[]"));
     } catch (err) {
-      appAlert?.(err.message);
+      if (!silent) appAlert?.(err.message);
+      else console.warn("No se pudo completar la recarga silenciosa de Mantenimiento Programado:", err);
     } finally {
       if (!silent) setLoading(false);
     }
