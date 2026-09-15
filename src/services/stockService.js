@@ -1,3 +1,4 @@
+import { getStockSnapshotFromSupabase } from "./abastecimientoSupabase.js";
 import { getAuthenticatedUser } from "./authSession.js";
 import { clearDatasetCache, readCachedSource, writeCachedSource } from "./appCache.js";
 
@@ -43,12 +44,13 @@ function getStock(url, action) {
   return fetch(requestUrl.toString(), { cache: "no-store", redirect: "follow" }).then(parseResponse);
 }
 
-export function fetchStockStatus(url) { return getStock(url, "stock_excel_status"); }
+export async function fetchStockStatus(url) {
+  try{const value=await getStockSnapshotFromSupabase();return{ok:true,meta:value?.meta||{active:false},source:"supabase"};}
+  catch(_){return getStock(url,"stock_excel_status");}
+}
 export async function fetchStockData(url) {
-  const response=await getStock(url, "stock_excel_data");
-  const rows=Array.isArray(response?.rows)?response.rows:[];
-  await writeCachedSource(STOCK_CACHE_KEY,{ok:true,data:rows,meta:response?.meta||null}).catch(()=>{});
-  return response;
+  try{const value=await getStockSnapshotFromSupabase();const response={ok:true,meta:value?.meta||{active:false},rows:Array.isArray(value?.rows)?value.rows:[],source:"supabase"};await writeCachedSource(STOCK_CACHE_KEY,{ok:true,data:response.rows,meta:response.meta}).catch(()=>{});return response;}
+  catch(_){const response=await getStock(url,"stock_excel_data");const rows=Array.isArray(response?.rows)?response.rows:[];await writeCachedSource(STOCK_CACHE_KEY,{ok:true,data:rows,meta:response?.meta||null}).catch(()=>{});return response;}
 }
 
 export async function readCachedStockData(){

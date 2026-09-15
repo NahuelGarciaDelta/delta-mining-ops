@@ -2,8 +2,11 @@ import React, { useState, useCallback, useMemo, useEffect, useRef, startTransiti
 import ReactDOM from "react-dom";
 import { clearSharedStock, uploadStockExcel } from "../../services/stockService.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
+import { readCachedSource, writeCachedSource } from "../../services/appCache.js";
+import { configureAbastecimientoBackend, getAbastecimientoSnapshot, saveAbastecimientoRemito, deleteAbastecimientoRemito, setAbastecimientoEstado, appendAbastecimientoRaba03, updateAbastecimientoRaba03 } from "../../services/abastecimientoSupabase.js";
 import { useSharedStock } from "./stock/useSharedStock.js";
 import { stockValidationSummary, validateStockWorkbook } from "./stock/stockValidation.js";
+import { allocateAbastecimientoRemitos } from "./enviosSinSolicitud.js";
 import {useProgressiveRows} from "../../hooks/useProgressiveRows.js";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
@@ -44,6 +47,21 @@ const parseChronoDateMs=(value)=>{
   const d=new Date(raw);
   return Number.isNaN(d.getTime())?0:d.getTime();
 };
+const RABA03_DATA_CACHE_KEY = "abastecimiento_raba03_rows_v1";
+const ABASTECIMIENTO_FETCH_TIMEOUT_MS = 15000;
+
+async function fetchAbastecimiento(url,options={}){
+  const controller=new AbortController();
+  const timer=window.setTimeout(()=>controller.abort(),ABASTECIMIENTO_FETCH_TIMEOUT_MS);
+  try{
+    return await fetch(url,{...options,signal:controller.signal});
+  }catch(error){
+    if(error?.name==="AbortError")throw new Error("La consulta de Abastecimiento superó 15 segundos. Se muestran los últimos datos guardados.");
+    throw error;
+  }finally{
+    window.clearTimeout(timer);
+  }
+}
 const STOCK_CONTROL_COLUMNS = [
   {key:"codigoArticulo", label:"Cód. artículo", width:112},
   {key:"descripcion", label:"Descripción", width:245},
@@ -60,6 +78,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     APPS_SCRIPT_URL, C, Card, DateIn, Icon, LoadingMotoniveladora, MultiSel, PeriodMonthYear,
     StatCard, TabBtn, appAlert, appConfirm, dmProjectMatches, fmtFecha, fmtNum, matchMulti, multiIsAll
   } = deps;
+  configureAbastecimientoBackend(APPS_SCRIPT_URL);
   const [rows,setRows]=useState([]);
   const [rejectedSolicitudes,setRejectedSolicitudes]=useState(()=>{
     try{return JSON.parse(window.localStorage.getItem(RABA03_REJECTED_STORAGE_KEY)||"{}");}
@@ -364,26 +383,21 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   },[normCode,fechaSolicitudISO]);
 
   const postEstadoSolicitud=useCallback(async(action,payload={})=>{
-    const res=await fetch(APPS_SCRIPT_URL,{
-      method:"POST",cache:"no-store",redirect:"follow",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:new URLSearchParams({payload:JSON.stringify({action,...payload})}).toString()
-    });
-    if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
-    const json=await res.json();
-    if(!json.ok)throw new Error(json?.error?.message||"No se pudo sincronizar el estado de la solicitud.");
-    return json;
+    if(action==="delete_estados_solicitudes_bulk"){
+      const claves=Array.isArray(payload.claves)?payload.claves:[];
+      await Promise.all(claves.map(clave=>setAbastecimientoEstado({action:"delete_estado_solicitud",clave})));
+      return {ok:true,deleted:claves.length};
+    }
+    return setAbastecimientoEstado({action,...payload});
   },[]);
 
   const loadEstadosSolicitudesCompartidos=useCallback(async({silent=true}={})=>{
     try{
-      const res=await fetch(`${APPS_SCRIPT_URL}?action=estados_solicitudes&force=1&_=${Date.now()}`,{cache:"no-store",redirect:"follow"});
-      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
-      const json=await res.json();
-      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los estados compartidos.");
+      const json=await getAbastecimientoSnapshot();
+      if(!json?.ok)throw new Error("No se pudieron leer los estados compartidos desde Supabase.");
       const closed={};
       const rejected={};
-      (json.data||[]).forEach(r=>{
+      (json.estados||[]).forEach(r=>{
         const storedKey=String(r.CLAVE_SOLICITUD||r.clave||"").trim();
         const estado=String(r.ESTADO||r.estado||"").trim().toUpperCase();
         const info={
@@ -427,12 +441,9 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
 
   const loadRemitosCompartidos=useCallback(async({silent=true}={})=>{
     try{
-      const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&force=1&_=${Date.now()}`;
-      const res=await fetch(url,{method:"GET",cache:"no-store",redirect:"follow"});
-      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
-      const json=await res.json();
-      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los remitos cargados.");
-      const shared=buildRemitosCompartidos(json.data||[]);
+      const json=await getAbastecimientoSnapshot();
+      if(!json?.ok)throw new Error("No se pudieron leer los remitos cargados desde Supabase.");
+      const shared=buildRemitosCompartidos(json.remitos||[]);
       // Sincronización realmente silenciosa: solo actualizar React si cambió el contenido.
       // Así el refresco automático no repinta Abastecimiento ni vuelve a cargar RABA03.
       const signature=JSON.stringify(shared);
@@ -482,21 +493,8 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   },[tab,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
 
   const saveRemitoCompartido=useCallback(async(remito)=>{
-    const payload={
-      ...remito,
-      usuarioCarga:sessionStorage.getItem("dm_user")||"APP"
-    };
-    const res=await fetch(APPS_SCRIPT_URL,{
-      method:"POST",
-      cache:"no-store",
-      redirect:"follow",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:new URLSearchParams({payload:JSON.stringify({action:"save_remito_cargado",remito:payload})}).toString()
-    });
-    if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
-    const json=await res.json();
-    if(!json.ok)throw new Error(json?.error?.message||"No se pudo guardar el remito en la hoja compartida.");
-    return json;
+    const payload={...remito,usuarioCarga:sessionStorage.getItem("dm_user")||"APP"};
+    return saveAbastecimientoRemito(payload);
   },[]);
 
   const filteredRemitos=useMemo(()=>{
@@ -504,7 +502,6 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     if(!q)return remitos;
     return (remitos||[]).filter(rem=>norm(rem.comprobante).includes(q));
   },[remitos,remitoSearch,norm]);
-  const progressiveRemitos=useProgressiveRows(filteredRemitos,{resetKey:`remitos-${remitoSearch}`,initialLimit:100,increment:100});
 
   const buildSentByCode=useCallback((sourceRemitos=[])=>{
     const map={};
@@ -578,11 +575,8 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     const centroCostoRaw=String(pick(r,["Centro de Costo","Centro de costo","Proyecto","CC"])||"").trim();
     const centroCostoNorm=normalizeCentroCosto(centroCostoRaw);
     const codeNorm=normCode(codigo);
-    // La fuente RABA03 conserva la imputación histórica oficial.
-    // No recalcular Cant. enviada con remitos viejos: eso hacía que un envío
-    // anterior absorbiera solicitudes cargadas posteriormente.
-    const enviada=toNumber(pick(r,["Cant. Enviada","Cantidad enviada","Cant enviada","Cant.Enviada"]));
-    const restante=Math.max(0,solicitada-enviada);
+    const enviada=0;
+    const restante=Math.max(0,solicitada);
     const pedidoRaw=pickExact(r,["N° de pedido","Nº de pedido","N de pedido","Numero de pedido","Número de pedido"]);
     const solicitudLegacy=pickExact(r,["N° de solicitud","Nº de solicitud","N de solicitud","Numero de solicitud","Número de solicitud","Solicitud"]);
     const fechaSolicitudRaw=pick(r,["Fecha de solicitud","Fecha solicitud","F. Sol."]);
@@ -602,81 +596,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       descripcion:String(pick(r,["Descripción de lo que se pidio","Descripción de lo que se pidió","Descripcion de lo que se pidio","Descripcion de lo que se pidió","Descripción","Descripcion"])||"").trim(),
       cantidadSolicitada:solicitada,
       cantidadEnviada:enviada,
-      cantidadRestante:restante
+      cantidadRestante:restante,
+      fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"])),
+      numeroRemitoFuente:String(pick(r,["Nº Remito","N° Remito","Remito"])||"").trim()
     };
   },[formatDateLocal,pick,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa,numeroSolicitudHistorica]);
-
-  const allocateRemitosToRequests=useCallback((requestRows=[],sourceRemitos=[])=>{
-    const rowsAllocated=(requestRows||[]).map(row=>({...row,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),_matchedRemitos:[]}));
-    const byKey=new Map();
-    rowsAllocated.forEach((row,index)=>{
-      const code=normCode(row.codigoArticulo);
-      const proyecto=normalizeCentroCosto(row.centroCosto);
-      const insumoKey=norm(row.descripcion);
-      if(!code||!proyecto||!insumoKey)return;
-      // Clave de asignación: código + proyecto + nombre normalizado del insumo.
-      // La fecha NO se usa para mezclar períodos: se valida abajo como límite temporal.
-      const key=[code,proyecto,insumoKey].join("__");
-      if(!byKey.has(key))byKey.set(key,[]);
-      byKey.get(key).push({row,index,fechaMs:parseChronoDateMs(row.fechaSolicitud)});
-    });
-    byKey.forEach(queue=>queue.sort((a,b)=>(a.fechaMs||0)-(b.fechaMs||0)||a.index-b.index));
-
-    const shipments=[];
-    (sourceRemitos||[]).forEach((remito,remitoIndex)=>{
-      const proyecto=normalizeCentroCosto(remito.proyecto||remito.observaciones||remito.destino||remito.centroCosto||remito.origen||"");
-      const fecha=remito.fecha||"";
-      const fechaMs=parseChronoDateMs(fecha);
-      (remito.items||[]).forEach((item,itemIndex)=>{
-        const code=normCode(item.codigo);
-        const insumoKey=norm(item.descripcion);
-        const cantidad=toNumber(item.cantidad);
-        if(!code||!insumoKey||cantidad<=0)return;
-        shipments.push({
-          id:`${remito.id||remito.comprobante||"remito"}-${itemIndex}-${code}`,
-          code,proyecto,insumoKey,fecha,fechaMs,cantidad,
-          numero:remito.comprobante||"",
-          lugar:remito.destino||remito.observaciones||remito.origen||"",
-          insumo:item.descripcion||"",
-          remitoIndex,itemIndex,
-        });
-      });
-    });
-    shipments.sort((a,b)=>(a.fechaMs||0)-(b.fechaMs||0)||a.remitoIndex-b.remitoIndex||a.itemIndex-b.itemIndex);
-
-    const unmatched=[];
-    shipments.forEach(shipment=>{
-      let restanteEnvio=shipment.cantidad;
-      const key=shipment.proyecto&&shipment.insumoKey?[shipment.code,shipment.proyecto,shipment.insumoKey].join("__"):"";
-      const queue=key?(byKey.get(key)||[]):[];
-      for(const req of queue){
-        if(restanteEnvio<=0)break;
-        // Regla contractual: un envío jamás puede descontarse de una solicitud creada después.
-        if(req.fechaMs&&shipment.fechaMs&&req.fechaMs>shipment.fechaMs)continue;
-        const row=rowsAllocated[req.index];
-        const pendiente=Math.max(0,toNumber(row.cantidadSolicitada)-toNumber(row.cantidadEnviada));
-        if(pendiente<=0)continue;
-        const aplicado=Math.min(pendiente,restanteEnvio);
-        if(aplicado<=0)continue;
-        row.cantidadEnviada=toNumber(row.cantidadEnviada)+aplicado;
-        row.cantidadRestante=Math.max(0,toNumber(row.cantidadSolicitada)-row.cantidadEnviada);
-        row._matchedRemitos.push({numero:shipment.numero,fecha:formatDateLocal(shipment.fecha),cantidad:aplicado,lugar:shipment.lugar,insumo:shipment.insumo});
-        restanteEnvio-=aplicado;
-      }
-      if(restanteEnvio>0){
-        unmatched.push({
-          id:shipment.id,
-          codigoArticulo:shipment.code,
-          descripcion:shipment.insumo,
-          proyecto:shipment.proyecto||"SIN PROYECTO",
-          cantidadEnviada:restanteEnvio,
-          fechaEnvio:shipment.fecha,
-          numeroRemito:shipment.numero,
-        });
-      }
-    });
-    return {rows:rowsAllocated,unmatched};
-  },[normCode,norm,toNumber,normalizeCentroCosto,formatDateLocal]);
 
   const buildSolicitudKey=useCallback((row)=>{
     return buildSolicitudStableKeyFromParts({
@@ -869,17 +793,26 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
   },[rows,selectedReopenKeys,closedSolicitudes,buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
-  const mapRaba03Rows=useCallback((raw=[],sourceRemitos=[])=>{
+  const mapRaba03Rows=useCallback((raw=[])=>{
     const base=raw.map((row,index)=>normalizeRow(row,index)).filter(r=>
       [r.empresa,r.fechaSolicitud,r.fechaRequerida,r.pedidoPor,r.centroCosto,r.codigoArticulo,r.descripcion,r.cantidadSolicitada]
         .some(v=>String(v||"").trim()) &&
       !String(r.empresa||"").toLowerCase().includes("aprobado") &&
       !String(r.empresa||"").toLowerCase().includes("empresa")
     );
-    // Cant. enviada/restante vienen de la fuente RABA03. Los remitos se usan
-    // para trazabilidad/dashboard, no para reescribir retroactivamente estados.
     return base;
   },[normalizeRow]);
+
+  const abastecimientoAllocation=useMemo(()=>allocateAbastecimientoRemitos({
+    requestRows:rows,
+    sourceRemitos:remitos,
+    normalizeCode:normCode,
+    normalizeProject:normalizeCentroCosto,
+    parseDateMs:parseChronoDateMs,
+    toNumber,
+    formatDate:formatDateLocal,
+    isRejected:row=>Boolean(rejectedSolicitudes?.[buildSolicitudKey(row)]),
+  }),[rows,remitos,normCode,normalizeCentroCosto,toNumber,formatDateLocal,rejectedSolicitudes,buildSolicitudKey]);
 
   const loadRaba03=useCallback(async({silent=false,remitosOverride=null}={})=>{
     if(!silent){
@@ -887,14 +820,13 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       setError(null);
     }
     try{
-      const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;
-      const res=await fetch(url,{cache:"no-store"});
-      const json=await res.json();
-      if(!json.ok)throw new Error(json?.error?.message||"No se pudo leer RABA03");
-      const raw=Array.isArray(json.data)?json.data:(Array.isArray(json?.sources?.raba03?.data)?json.sources.raba03.data:[]);
+      const json=await getAbastecimientoSnapshot();
+      if(!json?.ok)throw new Error("No se pudo leer RABA03 desde Supabase");
+      const raw=Array.isArray(json.raba03)?json.raba03:[];
       rawRaba03RowsRef.current=raw;
-      const sourceRemitos=Array.isArray(remitosOverride)?remitosOverride:remitos;
-      setRows(mapRaba03Rows(raw,sourceRemitos));
+      const normalizedRows=mapRaba03Rows(raw);
+      setRows(normalizedRows);
+      writeCachedSource(RABA03_DATA_CACHE_KEY,{ok:true,data:normalizedRows,meta:{updatedAt:new Date().toISOString(),rows:normalizedRows.length}}).catch(()=>{});
     }catch(err){
       if(!silent){
         setError(err.message||String(err));
@@ -905,29 +837,53 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }finally{
       if(!silent)setLoading(false);
     }
-  },[mapRaba03Rows,remitos]);
+  },[mapRaba03Rows]);
 
-  // Carga inicial coordinada: primero se esperan los remitos y estados reales;
-  // recién entonces se normaliza RABA03 con esas cantidades. Pasar los remitos
-  // como argumento evita depender de que React haya completado setRemitos.
+  // Carga inicial stale-while-revalidate: primero pinta la última copia local
+  // y luego sincroniza remitos/estados en paralelo. Nunca queda esperando una
+  // solicitud de red de forma indefinida.
   useEffect(()=>{
     if(raba03InitialLoadDoneRef.current)return;
     raba03InitialLoadDoneRef.current=true;
     let cancelled=false;
+    let completed=false;
     const run=async()=>{
-      let sharedRemitos=null;
-      try{sharedRemitos=await loadRemitosCompartidos({silent:true});}catch(_){}
-      try{await loadEstadosSolicitudesCompartidos({silent:true});}catch(_){}
+      let hasCachedRows=false;
+      try{
+        const cached=await readCachedSource(RABA03_DATA_CACHE_KEY);
+        const cachedPayload=cached?.data||cached?.value||null;
+        const cachedRows=cachedPayload?.ok&&Array.isArray(cachedPayload.data)?cachedPayload.data:[];
+        if(cachedRows.length&&!cancelled){
+          hasCachedRows=true;
+          setRows(cachedRows);
+          setLoading(false);
+        }
+      }catch(_){}
+
+      const [remitosResult]=await Promise.allSettled([
+        loadRemitosCompartidos({silent:true}),
+        loadEstadosSolicitudesCompartidos({silent:true})
+      ]);
       if(cancelled)return;
-      await loadRaba03({silent:false,remitosOverride:sharedRemitos});
+      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;
+      await loadRaba03({silent:hasCachedRows,remitosOverride:sharedRemitos});
+      if(cancelled)return;
+      completed=true;
+      setLoading(false);
     };
-    run();
+    run().catch(err=>{
+      if(!cancelled){
+        completed=true;
+        setError(err?.message||String(err));
+        setLoading(false);
+      }
+    });
     return()=>{
       cancelled=true;
-      // React.StrictMode ejecuta setup/cleanup/setup en desarrollo. Si el primer
-      // setup se cancela antes de loadRaba03, hay que habilitar el segundo setup;
-      // de lo contrario `loading` queda true indefinidamente.
-      raba03InitialLoadDoneRef.current=false;
+      // React.StrictMode monta/desmonta el efecto una vez en desarrollo.
+      // Si la primera ejecución fue cancelada antes de completar, permitir
+      // que el segundo montaje realice nuevamente la carga inicial.
+      if(!completed)raba03InitialLoadDoneRef.current=false;
     };
   },[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
 
@@ -1101,12 +1057,8 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
     try{
       setImportModal(prev=>({...prev,loading:true,error:""}));
-      const res=await fetch(APPS_SCRIPT_URL,{
-        method:"POST",
-        body:new URLSearchParams({payload:JSON.stringify({action:"add_raba03_rows_append_only",rows:rowsToSend})})
-      });
-      const json=await res.json();
-      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron cargar las solicitudes en RABA03.");
+      const json=await appendAbastecimientoRaba03(rowsToSend);
+      if(!json?.ok)throw new Error("No se pudieron cargar las solicitudes en RABA03 de Supabase.");
       const inserted=Number(json.insertedRows||0);
       const duplicates=Number(json.duplicateRows||0);
       let msg=`${inserted} filas nuevas agregadas`;
@@ -1123,7 +1075,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   },[importModal.rows,loadRaba03]);
 
   const guardarDatosRABA03=useCallback(async()=>{
-    const payloadRows=(rows||[])
+    const payloadRows=(abastecimientoAllocation.rows||[])
       .filter(r=>String(r.nSolicitud||"").trim())
       .map(r=>{
         const unique=Array.isArray(r._matchedRemitos)?r._matchedRemitos:[];
@@ -1145,12 +1097,8 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     try{
       setLoading(true);
       setError(null);
-      const res=await fetch(APPS_SCRIPT_URL,{
-        method:"POST",
-        body:new URLSearchParams({payload:JSON.stringify({action:"save_raba03_cant_enviada",rows:payloadRows})})
-      });
-      const json=await res.json();
-      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron guardar los datos en RABA03 base.");
+      const json=await updateAbastecimientoRaba03("cant_enviada",payloadRows);
+      if(!json?.ok)throw new Error("No se pudieron guardar los datos en RABA03 de Supabase.");
       setSuccessAlert({message:`${Number(json.updatedRows||0)} filas guardadas en RABA03 base`});
       await loadRaba03();
     }catch(err){
@@ -1160,7 +1108,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }finally{
       setLoading(false);
     }
-  },[rows,toNumber,loadRaba03]);
+  },[abastecimientoAllocation.rows,toNumber,loadRaba03]);
 
 
   const guardarCodigosRABA03=useCallback(async()=>{
@@ -1174,12 +1122,8 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     try{
       setLoading(true);
       setError(null);
-      const res=await fetch(APPS_SCRIPT_URL,{
-        method:"POST",
-        body:new URLSearchParams({payload:JSON.stringify({action:"save_raba03_codigos",rows:payloadRows})})
-      });
-      const json=await res.json();
-      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron guardar los códigos en RABA03 base.");
+      const json=await updateAbastecimientoRaba03("codigos",payloadRows);
+      if(!json?.ok)throw new Error("No se pudieron guardar los códigos en RABA03 de Supabase.");
       setCodigoEdits({});
       setSuccessAlert({message:`${Number(json.updatedRows||0)} códigos actualizados en RABA03 base`});
       await loadRaba03();
@@ -1192,26 +1136,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
   },[codigoEdits,loadRaba03]);
 
-  // Los estados operativos respetan Cant. enviada de RABA03 (misma fuente que la
-  // app Supabase). Sólo las rechazadas se fuerzan a 0. La asignación cronológica
-  // de remitos se conserva aparte para trazabilidad, sin alterar esos totales.
-  const stateAwareRows=useMemo(()=>{
-    const activas=(rows||[]).filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)]);
-    const trazabilidad=allocateRemitosToRequests(activas,remitos).rows;
-    const trazabilidadById=new Map(trazabilidad.map(row=>[row.id,row]));
-    return (rows||[]).map(row=>{
-      if(rejectedSolicitudes?.[buildSolicitudKey(row)]){
-        return {...row,cantidadEnviada:0,cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)),_matchedRemitos:[]};
-      }
-      return {...row,_matchedRemitos:trazabilidadById.get(row.id)?._matchedRemitos||[]};
-    });
-  },[rows,remitos,rejectedSolicitudes,buildSolicitudKey,allocateRemitosToRequests,toNumber]);
-
   // Base visible para el usuario conectado. Todos los indicadores, gráficos y
   // tablas de solicitudes se calculan exclusivamente sobre estas filas.
   const assignedRows=useMemo(()=>
-    (stateAwareRows||[]).filter(r=>dmProjectMatches(r.centroCosto,assignedProject)),
-  [stateAwareRows,assignedProject]);
+    (abastecimientoAllocation.rows||[]).filter(r=>dmProjectMatches(r.centroCosto,assignedProject)),
+  [abastecimientoAllocation.rows,assignedProject]);
   const projects=useMemo(()=>Array.from(new Set(assignedRows.map(r=>r.centroCosto).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows]);
   const companies=useMemo(()=>Array.from(new Set(assignedRows.map(r=>r.empresa).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows]);
   const supervisors=useMemo(()=>Array.from(new Set(assignedRows.map(r=>canonicalSupervisor(r.pedidoPor)).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"es")),[assignedRows,canonicalSupervisor]);
@@ -1270,7 +1199,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return String(av.v).localeCompare(String(bv.v),"es",{numeric:true,sensitivity:"base"})*dir;
     });
   },[filteredRows,sort]);
-  const progressiveMainRows=useProgressiveRows(sortedRows,{resetKey:tab,initialLimit:100,increment:100});
+  const progressiveMainRows=useProgressiveRows(sortedRows,{resetKey:tab});
 
   const stats=useMemo(()=>{
     const activos=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);
@@ -1328,11 +1257,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     });
     return out;
   },[sortedRows,calcularIndicadorRABA03]);
-  const progressiveRaba03Rows=useProgressiveRows(raba03DownloadRows,{resetKey:`raba03-${rabaFilterMode}-${rabaDate}-${rabaDateFrom}-${rabaDateTo}-${project}-${company}-${supervisor}-${query}`,initialLimit:100,increment:100});
 
   const raba03DashboardRows=useMemo(()=>{
     const out=[];
     (assignedRows||[]).forEach(row=>{
+      if(rejectedSolicitudes?.[buildSolicitudKey(row)])return;
       const unique=Array.isArray(row._matchedRemitos)?row._matchedRemitos:[];
       if(unique.length){
         unique.forEach(m=>out.push({
@@ -1350,28 +1279,37 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       }
     });
     return out;
-  },[assignedRows,calcularIndicadorRABA03]);
+  },[assignedRows,rejectedSolicitudes,buildSolicitudKey,calcularIndicadorRABA03]);
 
   const abastecimientoDashboardData=useMemo(()=>{
     const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));
-    const avg=movimientos.length?movimientos.reduce((a,r)=>a+r.indicadorNum,0)/movimientos.length:0;
-    const max=movimientos.length?Math.max(...movimientos.map(r=>r.indicadorNum)):0;
-    const min=movimientos.length?Math.min(...movimientos.map(r=>r.indicadorNum)):0;
     const filasActivas=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);
     const pendientes=filasActivas.filter(r=>toNumber(r.cantidadEnviada)<=0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;
     const parciales=filasActivas.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;
     const cerradas=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).length;
-    const porProyecto=Object.values(movimientos.reduce((acc,r)=>{
+    const indicadoresCerrados=filasActivas
+      .filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)]))
+      .map(r=>{
+        const fechaSalida=String(r.fechaSalidaFuente||"").trim();
+        const indicador=fechaSalida?calcularIndicadorRABA03(r.fechaSolicitud,fechaSalida):"";
+        const indicadorNum=indicador===""?NaN:Number(indicador);
+        return {...r,numeroRemito:r.numeroRemitoFuente||"",fechaSalida,indicador,indicadorNum};
+      })
+      .filter(r=>Number.isFinite(r.indicadorNum)&&r.indicadorNum>=0);
+    const avg=indicadoresCerrados.length?indicadoresCerrados.reduce((a,r)=>a+r.indicadorNum,0)/indicadoresCerrados.length:0;
+    const max=indicadoresCerrados.length?Math.max(...indicadoresCerrados.map(r=>r.indicadorNum)):0;
+    const min=indicadoresCerrados.length?Math.min(...indicadoresCerrados.map(r=>r.indicadorNum)):0;
+    const porProyecto=Object.values(indicadoresCerrados.reduce((acc,r)=>{
       const key=String(r.centroCosto||"SIN PROYECTO").trim()||"SIN PROYECTO";
       if(!acc[key])acc[key]={name:key,total:0,count:0,promedio:0};
-      acc[key].total+=r.indicadorNum; acc[key].count+=1; acc[key].promedio=acc[key].total/acc[key].count;
+      acc[key].total+=r.indicadorNum;acc[key].count+=1;acc[key].promedio=acc[key].total/acc[key].count;
       return acc;
     },{})).sort((a,b)=>b.promedio-a.promedio);
     const porMes=Object.values(movimientos.reduce((acc,r)=>{
       const d=parseRabaDateMs(r.fechaSalida);
       const key=d!==null?new Date(d).toISOString().slice(0,7):"SIN FECHA";
       if(!acc[key])acc[key]={mes:key,salidas:0,promedio:0,totalIndicador:0};
-      acc[key].salidas+=1; acc[key].totalIndicador+=r.indicadorNum; acc[key].promedio=acc[key].totalIndicador/acc[key].salidas;
+      acc[key].salidas+=1;acc[key].totalIndicador+=r.indicadorNum;acc[key].promedio=acc[key].totalIndicador/acc[key].salidas;
       return acc;
     },{})).sort((a,b)=>String(a.mes).localeCompare(String(b.mes)));
     const estados=[
@@ -1380,63 +1318,26 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       {name:"Cerradas",value:cerradas,color:C.green},
     ];
     const demora=[
-      {name:"0-3 días",value:movimientos.filter(r=>r.indicadorNum>=0&&r.indicadorNum<=3).length,color:C.green},
-      {name:"4-7 días",value:movimientos.filter(r=>r.indicadorNum>=4&&r.indicadorNum<=7).length,color:C.blue},
-      {name:"8-15 días",value:movimientos.filter(r=>r.indicadorNum>=8&&r.indicadorNum<=15).length,color:C.yellow},
-      {name:">15 días",value:movimientos.filter(r=>r.indicadorNum>15).length,color:C.red},
+      {name:"0-3 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=0&&r.indicadorNum<=3).length,color:C.green},
+      {name:"4-7 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=4&&r.indicadorNum<=7).length,color:C.blue},
+      {name:"8-15 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=8&&r.indicadorNum<=15).length,color:C.yellow},
+      {name:">15 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>15).length,color:C.red},
     ];
-    const masDemorados=[...movimientos].sort((a,b)=>b.indicadorNum-a.indicadorNum).slice(0,8);
-    return {movimientos,avg,max,min,pendientes,parciales,cerradas,total:assignedRows.length,porProyecto,porMes,estados,demora,masDemorados};
-  },[raba03DashboardRows,assignedRows,toNumber,parseRabaDateMs,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);
+    const masDemorados=[...indicadoresCerrados].sort((a,b)=>b.indicadorNum-a.indicadorNum).slice(0,8);
+    return {movimientos,indicadoresCerrados,avg,max,min,pendientes,parciales,cerradas,total:assignedRows.length,porProyecto,porMes,estados,demora,masDemorados};
+  },[raba03DashboardRows,assignedRows,toNumber,parseRabaDateMs,calcularIndicadorRABA03,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);
 
   const enviosSinSolicitudRows=useMemo(()=>{
-    // Auditoría histórica independiente de Pendientes: un envío sólo deja de ser
-    // "sin solicitud" si en la fecha del remito ya existía una solicitud válida
-    // del mismo código, proyecto y nombre normalizado del insumo. Una solicitud
-    // cargada después nunca absorbe retroactivamente ese envío.
-    const solicitudesHistoricas=(rows||[])
-      .filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)])
-      .map(r=>({
-        codigo:normCode(r.codigoArticulo),
-        proyecto:normalizeCentroCosto(r.centroCosto),
-        descripcion:norm(r.descripcion),
-        fechaMs:parseChronoDateMs(r.fechaSolicitud)
-      }))
-      .filter(r=>r.codigo&&r.descripcion);
-    const out=[];
-    (remitos||[]).forEach(rem=>{
-      const fecha=rem.fecha||"";
-      const fechaMs=parseChronoDateMs(fecha);
-      const proyecto=normalizeCentroCosto(rem.proyecto||rem.observaciones||rem.destino||rem.centroCosto||rem.origen||"");
-      (rem.items||[]).forEach((item,index)=>{
-        const codigoNormalizado=normCode(item.codigo);
-        const descripcionNormalizada=norm(item.descripcion);
-        const cantidad=toNumber(item.cantidad);
-        if(!codigoNormalizado||!descripcionNormalizada||cantidad<=0)return;
-        const teniaSolicitudAlEnviar=solicitudesHistoricas.some(sol=>
-          sol.codigo===codigoNormalizado&&
-          (!proyecto||!sol.proyecto||sol.proyecto===proyecto)&&
-          sol.descripcion===descripcionNormalizada&&
-          (!sol.fechaMs||!fechaMs||sol.fechaMs<=fechaMs)
-        );
-        if(teniaSolicitudAlEnviar)return;
-        out.push({
-          id:`${rem.id||rem.comprobante||"remito"}-${index}-${codigoNormalizado}`,
-          codigoArticulo:String(item.codigo||"").trim(),
-          descripcion:String(item.descripcion||"").trim(),
-          proyecto:proyecto||"SIN PROYECTO",
-          cantidadEnviada:cantidad,
-          fechaEnvio:fecha,
-          numeroRemito:rem.comprobante||""
-        });
-      });
-    });
-    return out.sort((a,b)=>{
-      const fa=parseChronoDateMs(a.fechaEnvio),fb=parseChronoDateMs(b.fechaEnvio);
-      if(fa!==fb)return fb-fa;
+    return (abastecimientoAllocation.unmatched||[])
+      .filter(r=>dmProjectMatches(r.proyecto,assignedProject))
+      .sort((a,b)=>{
+      const da=parseRabaDateMs(a.fechaEnvio)??0;
+      const db=parseRabaDateMs(b.fechaEnvio)??0;
+      if(db!==da)return db-da;
       return String(a.codigoArticulo||"").localeCompare(String(b.codigoArticulo||""),"es",{numeric:true,sensitivity:"base"});
     });
-  },[rows,remitos,normCode,norm,toNumber,normalizeCentroCosto,rejectedSolicitudes,buildSolicitudKey]);
+  },[abastecimientoAllocation.unmatched,assignedProject,parseRabaDateMs]);
+
   const exportarEnviosSinSolicitud=useCallback(()=>{
     if(!enviosSinSolicitudRows.length){
       appAlert("No hay envíos sin solicitud para exportar.");
@@ -1444,11 +1345,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
     const data=[
       ["Código de artículo","Descripción","Proyecto","Remito","Cant. enviada","Fecha de envío"],
-      ...enviosSinSolicitudRows.map(r=>[r.codigoArticulo,r.descripcion,r.proyecto||"SIN PROYECTO",r.numeroRemito||"",r.cantidadEnviada,formatDateLocal(r.fechaEnvio)])
+      ...enviosSinSolicitudRows.map(r=>[r.codigoArticulo,r.descripcion,r.proyecto||"",r.numeroRemito||"",r.cantidadEnviada,formatDateLocal(r.fechaEnvio)])
     ];
     const wb=XLSX.utils.book_new();
     const ws=XLSX.utils.aoa_to_sheet(data);
-    ws["!cols"]=[{wch:18},{wch:46},{wch:18},{wch:20},{wch:16},{wch:16}];
+    ws["!cols"]=[{wch:18},{wch:52},{wch:24},{wch:20},{wch:16},{wch:16}];
     XLSX.utils.book_append_sheet(wb,ws,"Envíos sin solicitud");
     XLSX.writeFile(wb,`Envios_sin_solicitud_${new Date().toISOString().slice(0,10)}.xlsx`);
   },[enviosSinSolicitudRows,formatDateLocal]);
@@ -1830,7 +1731,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }catch(err){
       const msg=err?.message||String(err);
       setError(msg);
-      appAlert("No se pudieron guardar todos los remitos. Los que Google Sheets confirmó antes del error sí quedaron registrados: "+msg);
+      appAlert("No se pudieron guardar todos los remitos. Los que el backend confirmó antes del error sí quedaron registrados: "+msg);
       await loadRemitosCompartidos({silent:true}).catch(()=>{});
     }finally{
       setLoading(false);
@@ -1841,15 +1742,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     if(!(await appConfirm("¿Eliminar este remito cargado?")))return;
     setRemitos(prev=>prev.filter(r=>r.id!==id));
     try{
-      const res=await fetch(APPS_SCRIPT_URL,{
-        method:"POST",
-        cache:"no-store",
-        redirect:"follow",
-        headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-        body:new URLSearchParams({payload:JSON.stringify({action:"delete_remito_cargado",idRemito:id})}).toString()
-      });
-      const json=await res.json();
-      if(!json.ok)throw new Error(json?.error?.message||"No se pudo eliminar el remito compartido.");
+      await deleteAbastecimientoRemito(id);
       await loadRemitosCompartidos({silent:false});
     }catch(err){
       console.warn("No se pudo eliminar el remito en la hoja compartida:",err);
@@ -2125,7 +2018,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       <div data-dm-disable-global-column-filters="1" style={{display:"grid",gap:14}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(150px,1fr))",gap:10}}>
           <StatCard icon="report" label="Promedio indicador" value={`${fmtNum(d.avg.toFixed(1))} días`} sub="fecha salida - fecha solicitud" color={C.red} small/>
-          <StatCard icon="check" label="Ítems con salida" value={fmtNum(d.movimientos.length)} sub="con remito asignado" color={C.green} small/>
+          <StatCard icon="check" label="Ítems con salida" value={fmtNum(d.cerradas+d.parciales)} sub="cerradas + parciales" color={C.green} small/>
           <StatCard icon="warn" label="Pendientes" value={fmtNum(d.pendientes)} sub="sin artículos enviados" color={C.yellow} small/>
           <StatCard icon="database" label="Total solicitudes" value={fmtNum(d.total)} sub="ítems cargados" color={C.blue} small/>
         </div>
@@ -2424,7 +2317,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         </tbody>
       </table>
       </div>
-      <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><span>Mostrando {fmtNum(progressiveMainRows.visibleCount)} de {fmtNum(progressiveMainRows.totalCount)} registros</span>{progressiveMainRows.hasMore&&<button type="button" onClick={progressiveMainRows.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 100 más</button>}</div>
+      <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><span>Mostrando {fmtNum(progressiveMainRows.visibleCount)} de {fmtNum(progressiveMainRows.totalCount)} registros</span>{progressiveMainRows.hasMore&&<button type="button" onClick={progressiveMainRows.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 250 más</button>}</div>
     </div>
     );
   };
@@ -2546,7 +2439,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
                 </tr>
               </thead>
               <tbody>
-                {progressiveRaba03Rows.totalCount?progressiveRaba03Rows.visibleRows.map((r,idx)=>(
+                {raba03DownloadRows.length?raba03DownloadRows.map((r,idx)=>(
                   <tr key={`raba03-preview-${idx}`}>
                     {columns.map(col=>(
                       <td key={col.key} style={{...tdStyle,textAlign:col.align||"left",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={String(r[col.key] instanceof Date?formatDateLocal(r[col.key]):(r[col.key]??""))}>
@@ -2560,7 +2453,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
               </tbody>
             </table>
           </div>
-          <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10,flexWrap:"wrap"}}><span>Mostrando {fmtNum(progressiveRaba03Rows.visibleCount)} de {fmtNum(progressiveRaba03Rows.totalCount)} registros · {fmtNum(raba03DownloadRows.length)} filas listas para descargar</span>{progressiveRaba03Rows.hasMore&&<button type="button" onClick={progressiveRaba03Rows.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 100 más</button>}</div>
+          <div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`}}>{fmtNum(raba03DownloadRows.length)} filas listas para descargar</div>
         </div>
       </div>
     );
@@ -2729,11 +2622,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         <div style={{padding:14,borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
           <div>
             <div style={{fontWeight:900,color:C.text}}>Remitos cargados</div>
-            <div style={{fontSize:11,color:C.textSub,fontWeight:700}}>Se sincronizan desde Google Sheets y se muestran a todos los usuarios.</div>
+            <div style={{fontSize:11,color:C.textSub,fontWeight:700}}>Se sincronizan desde Supabase y se muestran a todos los usuarios.</div>
           </div>
           <input value={remitoSearch} onChange={e=>setRemitoSearch(e.target.value)} placeholder="Buscar por N° de remito" style={{...inputStyle,minWidth:240}}/>
         </div>
-        {progressiveRemitos.totalCount?progressiveRemitos.visibleRows.map(rem=>(
+        {filteredRemitos.length?filteredRemitos.map(rem=>(
           <div key={rem.id} style={{padding:14,borderBottom:`1px solid ${C.border}22`,display:"grid",gap:8}}>
             <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}>
               <div style={{fontWeight:900,color:C.text}}>{rem.comprobante} · {formatDateLocal(rem.fecha)} <span style={{color:C.textSub,fontWeight:700}}>({rem.observaciones||"sin observaciones"})</span></div>
@@ -2779,26 +2672,25 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         )):(
           <div style={{padding:18,color:C.textSub,fontWeight:700}}>{remitos.length?"No hay remitos que coincidan con la búsqueda.":"Todavía no hay remitos cargados."}</div>
         )}
-        {progressiveRemitos.totalCount>0&&<div style={{padding:"10px 12px",fontSize:11,color:C.textSub,borderTop:`1px solid ${C.border}22`,display:"flex",alignItems:"center",justifyContent:"center",gap:10}}><span>Mostrando {fmtNum(progressiveRemitos.visibleCount)} de {fmtNum(progressiveRemitos.totalCount)} remitos</span>{progressiveRemitos.hasMore&&<button type="button" onClick={progressiveRemitos.showMore} style={{height:30,border:`1px solid ${C.blue}55`,background:C.blueDim,color:C.blue,borderRadius:8,padding:"0 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Mostrar 100 más</button>}</div>}
       </div>
     </div>
   );
 
   const renderEnviosSinSolicitud=()=>{
     const cols=[
-      {key:"codigoArticulo",label:"Código de artículo",width:"13%"},
-      {key:"descripcion",label:"Descripción",width:"34%"},
-      {key:"proyecto",label:"Proyecto",width:"15%"},
-      {key:"numeroRemito",label:"Remito",width:"15%"},
-      {key:"cantidadEnviada",label:"Cant. enviada",align:"right",width:"10%"},
-      {key:"fechaEnvio",label:"Fecha de envío",width:"12%"},
+      {key:"codigoArticulo",label:"Código de artículo",width:"14%"},
+      {key:"descripcion",label:"Descripción",width:"36%"},
+      {key:"proyecto",label:"Proyecto",width:"16%"},
+      {key:"numeroRemito",label:"Remito",width:"14%"},
+      {key:"cantidadEnviada",label:"Cant. enviada",align:"right",width:"9%"},
+      {key:"fechaEnvio",label:"Fecha de envío",width:"11%"},
     ];
     return (
       <Card>
         <div style={{padding:14,borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
           <div>
             <div style={{fontSize:15,fontWeight:900,color:C.text}}>Envíos sin solicitud</div>
-            <div style={{fontSize:11,color:C.textSub,fontWeight:700}}>Artículos cargados mediante remitos para los que no existía una solicitud RABA03 previa al momento del envío.</div>
+            <div style={{fontSize:11,color:C.textSub,fontWeight:700}}>Cantidades de remitos que no pudieron asignarse por FIFO a una solicitud anterior del mismo código y proyecto.</div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:9}}>
             <span style={badgeStyle(enviosSinSolicitudRows.length?"bad":"ok")}>{fmtNum(enviosSinSolicitudRows.length)} registros</span>
@@ -2818,12 +2710,12 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
                 <tr key={r.id}>
                   <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.codigoArticulo||""}>{r.codigoArticulo||"S/C"}</td>
                   <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.descripcion||""}>{r.descripcion||"—"}</td>
-                  <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:800}} title={r.proyecto||""}>{r.proyecto||"SIN PROYECTO"}</td>
+                  <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={r.proyecto||""}>{r.proyecto||"SIN PROYECTO"}</td>
                   <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:800}} title={r.numeroRemito||""}>{r.numeroRemito||"—"}</td>
                   <td style={{...tdStyle,paddingLeft:10,paddingRight:10,textAlign:"right",fontWeight:900,color:C.yellow,whiteSpace:"nowrap"}}>{fmtNum(r.cantidadEnviada)}</td>
                   <td style={{...tdStyle,paddingLeft:10,paddingRight:10,whiteSpace:"nowrap"}}>{formatDateLocal(r.fechaEnvio)||"—"}</td>
                 </tr>
-              )):(<tr><td colSpan={5} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>No se detectaron artículos enviados sin solicitud.</td></tr>)}
+              )):(<tr><td colSpan={6} style={{...tdStyle,textAlign:"center",padding:28,color:C.textSub}}>No se detectaron artículos enviados sin solicitud.</td></tr>)}
             </tbody>
           </table>
         </div>
