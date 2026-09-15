@@ -1,0 +1,40 @@
+name: temp-abastecimiento-reject-fast
+on:
+  push:
+    branches: [fix/abastecimiento-infinite-loading]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply fix
+        run: python scripts/temp-fix-abastecimiento-reject-fast.py
+      - name: Targeted tests
+        run: |
+          node --test tests/abastecimiento-reject-fast-regression.test.mjs
+          node --test tests/abastecimiento-loading-regression.test.mjs
+          node --test tests/abastecimiento-allocation-regression.test.mjs
+      - name: Validate imports
+        run: node scripts/validate-local-imports.mjs
+      - name: Security audit
+        run: npm run lint:security
+      - name: Build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
+      - name: Commit validated fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/modules/abastecimiento/AbastecimientoModule.jsx tests/abastecimiento-reject-fast-regression.test.mjs
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix: make Abastecimiento rejection fast and reliable'
+            git push
+          fi
