@@ -45,8 +45,22 @@ export function abastecimientoInstantVitePlugin(){
       const parallel=`const run=async()=>{\n      const [remitosResult]=await Promise.allSettled([\n        loadRemitosCompartidos({silent:true}),\n        loadEstadosSolicitudesCompartidos({silent:true})\n      ]);\n      if(cancelled)return;\n      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;\n      await loadRaba03({silent:rows.length>0,remitosOverride:sharedRemitos});\n    };`;
       next=next.replace(sequential,parallel);
 
+      const dashboardRowsBefore=`          cantidadRemito:m.cantidad||0,\n          indicador:calcularIndicadorRABA03(row.fechaSolicitud,m.fecha)\n        }));\n      }\n    });\n    return out;\n  },[assignedRows,calcularIndicadorRABA03]);`;
+      const dashboardRowsAfter=`          cantidadRemito:m.cantidad||0,\n          indicador:calcularIndicadorRABA03(row.fechaSolicitud,m.fecha),\n          cerrada:!rejectedSolicitudes?.[buildSolicitudKey(row)]&&toNumber(row.cantidadSolicitada)>0&&(toNumber(row.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(row)])\n        }));\n      }\n    });\n    return out;\n  },[assignedRows,calcularIndicadorRABA03,toNumber,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);`;
+      if(!next.includes(dashboardRowsBefore)){
+        throw new Error('No se encontró el bloque de filas del dashboard de Abastecimiento');
+      }
+      next=next.replace(dashboardRowsBefore,dashboardRowsAfter);
+
+      const dashboardAvgBefore=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const avg=movimientos.length?movimientos.reduce((a,r)=>a+r.indicadorNum,0)/movimientos.length:0;`;
+      const dashboardAvgAfter=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const movimientosCerrados=movimientos.filter(r=>r.cerrada);\n    const avg=movimientosCerrados.length?movimientosCerrados.reduce((a,r)=>a+r.indicadorNum,0)/movimientosCerrados.length:0;`;
+      if(!next.includes(dashboardAvgBefore)){
+        throw new Error('No se encontró el cálculo del promedio indicador de Abastecimiento');
+      }
+      next=next.replace(dashboardAvgBefore,dashboardAvgAfter);
+
       const itemsConSalidaBefore='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.movimientos.length)} sub="con remito asignado" color={C.green} small/>';
-      const itemsConSalidaAfter='<StatCard icon="check" label="Ítems con salida" value={fmtNum(raba03DashboardRows.length)} sub="con remito asignado" color={C.green} small/>';
+      const itemsConSalidaAfter='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.cerradas+d.parciales)} sub="cerradas + parciales" color={C.green} small/>';
       if(!next.includes(itemsConSalidaBefore)){
         throw new Error('No se encontró la tarjeta Ítems con salida del dashboard de Abastecimiento');
       }
@@ -75,10 +89,16 @@ export function abastecimientoInstantVitePlugin(){
         throw new Error('Abastecimiento no debe volver a leer remitos pesados desde Apps Script');
       }
       if(next.includes('label="Ítems con salida" value={fmtNum(d.movimientos.length)}')){
-        throw new Error('Ítems con salida no debe depender de que el indicador sea calculable');
+        throw new Error('Ítems con salida no debe depender de movimientos/indicadores calculables');
       }
-      if(!next.includes('label="Ítems con salida" value={fmtNum(raba03DashboardRows.length)}')){
-        throw new Error('Ítems con salida debe contar todas las salidas con remito asignado');
+      if(next.includes('label="Ítems con salida" value={fmtNum(raba03DashboardRows.length)}')){
+        throw new Error('Ítems con salida no debe contar líneas de remito; debe contar solicitudes cerradas + parciales');
+      }
+      if(!next.includes('label="Ítems con salida" value={fmtNum(d.cerradas+d.parciales)}')){
+        throw new Error('Ítems con salida debe ser cerradas + parciales');
+      }
+      if(!next.includes('const movimientosCerrados=movimientos.filter(r=>r.cerrada);')||!next.includes('const avg=movimientosCerrados.length?')){
+        throw new Error('Promedio indicador debe calcularse sólo con solicitudes cerradas');
       }
 
       if(next===code)return null;
