@@ -1,0 +1,26 @@
+name: temp-validate-column-filter-ui
+
+on:
+  push:
+    branches:
+      - fix/abastecimiento-column-filter-ui
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Column filter tests
+        run: node --test tests/global-column-filters.test.mjs
+      - name: Abastecimiento regression tests
+        run: node --test tests/abastecimiento-allocation-regression.test.mjs
+      - name: Build
+        run: npm run build
