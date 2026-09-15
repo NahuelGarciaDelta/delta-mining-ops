@@ -6,10 +6,6 @@ export function abastecimientoInstantVitePlugin(){
       if(!id.endsWith('/src/modules/abastecimiento/AbastecimientoModule.jsx'))return null;
       let next=code;
 
-      next=next.replace(
-        'import { registerRefreshTask } from "../../services/refreshManager.js";',
-        'import { registerRefreshTask } from "../../services/refreshManager.js";\nimport { fetchRaba03FromSupabase, fetchAbastecimientoSnapshot } from "../../services/raba03ReadApi.js";'
-      );
 
       next=next.replace(
         'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";',
@@ -26,15 +22,8 @@ export function abastecimientoInstantVitePlugin(){
         'const [loading,setLoading]=useState(()=>!["remito","stock","stockDashboard"].includes(initialTab)&&rows.length===0);'
       );
 
-      next=next.replace(
-        'const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;\n      const res=await fetch(url,{cache:"no-store"});\n      const json=await res.json();',
-        'const json=await fetchRaba03FromSupabase();'
-      );
 
-      next=next.replace(
-        '      const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&force=1&_=${Date.now()}`;\n      const res=await fetch(url,{method:"GET",cache:"no-store",redirect:"follow"});\n      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);\n      const json=await res.json();\n      if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los remitos cargados.");\n      const shared=buildRemitosCompartidos(json.data||[]);',
-        '      const json=await fetchAbastecimientoSnapshot();\n      if(!json?.ok)throw new Error("No se pudieron leer los remitos cargados desde Supabase.");\n      const shared=buildRemitosCompartidos(json.remitos||[]);'
-      );
+
 
       next=next.replace(
         'setRows(mapRaba03Rows(raw,sourceRemitos));',
@@ -96,11 +85,14 @@ export function abastecimientoInstantVitePlugin(){
         throw new Error('Envíos sin solicitud no debe volver al FIFO retroactivo');
       }
 
-      if(!next.includes('fetchRaba03FromSupabase')||!next.includes('fetchAbastecimientoSnapshot')||!next.includes('RABA03_VIEW_CACHE_KEY')){
-        throw new Error('No se pudo aplicar la optimización Supabase/cache de Abastecimiento');
+      if(!next.includes('RABA03_VIEW_CACHE_KEY')){
+        throw new Error('No se pudo aplicar la caché local de Abastecimiento');
       }
-      if(next.includes('action=remitos_cargados')){
-        throw new Error('Abastecimiento no debe volver a leer remitos pesados desde Apps Script');
+      if(!next.includes('action=raba03')||!next.includes('action=remitos_cargados')||!next.includes('action=estados_solicitudes')){
+        throw new Error('Abastecimiento debe conservar todas sus lecturas por Apps Script');
+      }
+      if(next.includes('fetchRaba03FromSupabase')||next.includes('fetchAbastecimientoSnapshot')){
+        throw new Error('Abastecimiento no debe reinyectar lecturas Supabase');
       }
       if(!next.includes('fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"]))')){
         throw new Error('Indicador debe conservar la Fecha de salida oficial de RABA03');
