@@ -1,0 +1,41 @@
+name: temp-validate-abastecimiento-appsscript
+
+on:
+  push:
+    branches:
+      - rollback/abastecimiento-appsscript
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Verify Apps Script transport
+        run: |
+          test -f scripts/abastecimiento-instant-vite-plugin.mjs
+          test ! -f src/services/abastecimientoSupabase.js
+          test ! -f src/services/supabaseClient.js
+          ! grep -q '"@supabase/supabase-js"' package.json
+          grep -q 'action=raba03' src/modules/abastecimiento/AbastecimientoModule.jsx
+          grep -q 'action=remitos_cargados' src/modules/abastecimiento/AbastecimientoModule.jsx
+          grep -q 'action=estados_solicitudes' src/modules/abastecimiento/AbastecimientoModule.jsx
+          grep -q 'save_remito_cargado' src/modules/abastecimiento/AbastecimientoModule.jsx
+          grep -q 'save_raba03_cant_enviada' src/modules/abastecimiento/AbastecimientoModule.jsx
+          grep -q 'save_raba03_codigos' src/modules/abastecimiento/AbastecimientoModule.jsx
+      - name: Validate imports
+        run: node scripts/validate-local-imports.mjs
+      - name: Security audit
+        run: npm run lint:security
+      - name: Abastecimiento regression tests
+        run: node --test tests/abastecimiento-allocation-regression.test.mjs tests/abastecimiento-envios-parity.test.mjs tests/abastecimiento-regression.test.mjs tests/enviosSinSolicitud.test.mjs tests/global-column-filters.test.mjs
+      - name: Production build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
