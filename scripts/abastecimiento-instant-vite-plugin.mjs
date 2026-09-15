@@ -45,8 +45,36 @@ export function abastecimientoInstantVitePlugin(){
       const parallel=`const run=async()=>{\n      const [remitosResult]=await Promise.allSettled([\n        loadRemitosCompartidos({silent:true}),\n        loadEstadosSolicitudesCompartidos({silent:true})\n      ]);\n      if(cancelled)return;\n      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;\n      await loadRaba03({silent:rows.length>0,remitosOverride:sharedRemitos});\n    };`;
       next=next.replace(sequential,parallel);
 
+      const dashboardStatusBefore='          cantidadSolicitada:row.cantidadSolicitada||0,\n          numeroRemito:m.numero||"",';
+      const dashboardStatusAfter='          cantidadSolicitada:row.cantidadSolicitada||0,\n          cerrada:toNumber(row.cantidadSolicitada)>0&&(toNumber(row.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(row)]),\n          numeroRemito:m.numero||"",';
+      if(!next.includes(dashboardStatusBefore)){
+        throw new Error('No se encontró el bloque de estado del dashboard de Abastecimiento');
+      }
+      next=next.replace(dashboardStatusBefore,dashboardStatusAfter);
+
+      const dashboardDepsBefore='    return out;\n  },[assignedRows,calcularIndicadorRABA03]);';
+      const dashboardDepsAfter='    return out;\n  },[assignedRows,calcularIndicadorRABA03,toNumber,closedSolicitudes,buildSolicitudKey]);';
+      if(!next.includes(dashboardDepsBefore)){
+        throw new Error('No se encontraron las dependencias del dashboard de Abastecimiento');
+      }
+      next=next.replace(dashboardDepsBefore,dashboardDepsAfter);
+
+      const indicatorBefore='    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const avg=movimientos.length?movimientos.reduce((a,r)=>a+r.indicadorNum,0)/movimientos.length:0;\n    const max=movimientos.length?Math.max(...movimientos.map(r=>r.indicadorNum)):0;\n    const min=movimientos.length?Math.min(...movimientos.map(r=>r.indicadorNum)):0;';
+      const indicatorAfter='    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const movimientosCerrados=movimientos.filter(r=>r.cerrada);\n    const avg=movimientosCerrados.length?movimientosCerrados.reduce((a,r)=>a+r.indicadorNum,0)/movimientosCerrados.length:0;\n    const max=movimientosCerrados.length?Math.max(...movimientosCerrados.map(r=>r.indicadorNum)):0;\n    const min=movimientosCerrados.length?Math.min(...movimientosCerrados.map(r=>r.indicadorNum)):0;';
+      if(!next.includes(indicatorBefore)){
+        throw new Error('No se encontró el cálculo del indicador del dashboard de Abastecimiento');
+      }
+      next=next.replace(indicatorBefore,indicatorAfter);
+
+      next=next.replace('const porProyecto=Object.values(movimientos.reduce((acc,r)=>{','const porProyecto=Object.values(movimientosCerrados.reduce((acc,r)=>{');
+      next=next.replace('{name:"0-3 días",value:movimientos.filter(r=>r.indicadorNum>=0&&r.indicadorNum<=3).length,color:C.green},','{name:"0-3 días",value:movimientosCerrados.filter(r=>r.indicadorNum>=0&&r.indicadorNum<=3).length,color:C.green},');
+      next=next.replace('{name:"4-7 días",value:movimientos.filter(r=>r.indicadorNum>=4&&r.indicadorNum<=7).length,color:C.blue},','{name:"4-7 días",value:movimientosCerrados.filter(r=>r.indicadorNum>=4&&r.indicadorNum<=7).length,color:C.blue},');
+      next=next.replace('{name:"8-15 días",value:movimientos.filter(r=>r.indicadorNum>=8&&r.indicadorNum<=15).length,color:C.yellow},','{name:"8-15 días",value:movimientosCerrados.filter(r=>r.indicadorNum>=8&&r.indicadorNum<=15).length,color:C.yellow},');
+      next=next.replace('{name:">15 días",value:movimientos.filter(r=>r.indicadorNum>15).length,color:C.red},','{name:">15 días",value:movimientosCerrados.filter(r=>r.indicadorNum>15).length,color:C.red},');
+      next=next.replace('const masDemorados=[...movimientos].sort((a,b)=>b.indicadorNum-a.indicadorNum).slice(0,8);','const masDemorados=[...movimientosCerrados].sort((a,b)=>b.indicadorNum-a.indicadorNum).slice(0,8);');
+
       const itemsConSalidaBefore='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.movimientos.length)} sub="con remito asignado" color={C.green} small/>';
-      const itemsConSalidaAfter='<StatCard icon="check" label="Ítems con salida" value={fmtNum(raba03DashboardRows.length)} sub="con remito asignado" color={C.green} small/>';
+      const itemsConSalidaAfter='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.cerradas+d.parciales)} sub="cerradas + parciales" color={C.green} small/>';
       if(!next.includes(itemsConSalidaBefore)){
         throw new Error('No se encontró la tarjeta Ítems con salida del dashboard de Abastecimiento');
       }
@@ -77,8 +105,11 @@ export function abastecimientoInstantVitePlugin(){
       if(next.includes('label="Ítems con salida" value={fmtNum(d.movimientos.length)}')){
         throw new Error('Ítems con salida no debe depender de que el indicador sea calculable');
       }
-      if(!next.includes('label="Ítems con salida" value={fmtNum(raba03DashboardRows.length)}')){
-        throw new Error('Ítems con salida debe contar todas las salidas con remito asignado');
+      if(!next.includes('label="Ítems con salida" value={fmtNum(d.cerradas+d.parciales)}')){
+        throw new Error('Ítems con salida debe ser cerradas + parciales');
+      }
+      if(!next.includes('const movimientosCerrados=movimientos.filter(r=>r.cerrada);')){
+        throw new Error('El indicador promedio debe usar únicamente solicitudes cerradas');
       }
 
       if(next===code)return null;
