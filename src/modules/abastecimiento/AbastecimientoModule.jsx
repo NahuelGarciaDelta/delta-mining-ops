@@ -1256,7 +1256,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       setImportModal(prev=>({...prev,open:false,loading:false,message:"",error:""}));
       setSuccessAlert({message:msg});
       setTab("solicitudes");
-      await loadRaba03();
+      loadRaba03({silent:true}).catch(err=>console.warn("La carga se guardó, pero falló la resincronización de RABA03:",err));
     }catch(err){
       const msg=err?.message||String(err);
       setImportModal(prev=>({...prev,loading:false,error:"Error cargando solicitudes: "+msg}));
@@ -1296,7 +1296,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron guardar los datos en RABA03 base.");
       setSuccessAlert({message:`${Number(json.updatedRows||0)} filas guardadas en RABA03 base`});
-      await loadRaba03();
+      loadRaba03({silent:true}).catch(err=>console.warn("Los datos se guardaron, pero falló la resincronización de RABA03:",err));
     }catch(err){
       const msg=err?.message||String(err);
       setError(msg);
@@ -1324,9 +1324,14 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       });
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron guardar los códigos en RABA03 base.");
+      const codigoByPedido=new Map(payloadRows.map(r=>[String(r.nSolicitud||"").trim(),r.codigoArticulo]));
+      setRows(prev=>(prev||[]).map(row=>{
+        const codigo=codigoByPedido.get(String(row.nSolicitud||"").trim());
+        return codigo===undefined?row:{...row,codigoArticulo:codigo};
+      }));
       setCodigoEdits({});
       setSuccessAlert({message:`${Number(json.updatedRows||0)} códigos actualizados en RABA03 base`});
-      await loadRaba03();
+      loadRaba03({silent:true}).catch(err=>console.warn("Los códigos se guardaron, pero falló la resincronización de RABA03:",err));
     }catch(err){
       const msg=err?.message||String(err);
       setError(msg);
@@ -1958,28 +1963,48 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
 
     const affectedPairs=collectRemitoPairKeys(remitosAEnviar);
+    const guardados=[];
     try{
       setActionLoading("Guardando remito y actualizando Google Sheets...");
       setError(null);
-      let guardados=0;
       for(const nuevo of remitosAEnviar){
         await saveRemitoCompartido(nuevo);
-        guardados++;
+        guardados.push({...nuevo,shared:true});
       }
-      const confirmedRemitos=await loadRemitosCompartidos({silent:false});
-      await persistRaba03AllocationForPairs(confirmedRemitos,affectedPairs);
-      setSuccessAlert({message:`${guardados} ${guardados===1?"remito guardado":"remitos guardados"} y RABA03 actualizado para todos los usuarios`});
+
+      // El POST de cada remito ya retorna después de escribir Google Sheets.
+      // Reflejar esos remitos localmente sin una segunda lectura completa.
+      const seen=new Set();
+      const nextRemitos=[...(remitosRef.current||[]),...guardados].filter(rem=>{
+        const key=String(rem.id||rem.comprobante||"").trim();
+        if(!key)return true;
+        if(seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
+      remitosRef.current=nextRemitos;
+      setRemitos(nextRemitos);
+      try{window.localStorage.setItem(RABA08_STORAGE_KEY,JSON.stringify(nextRemitos));}catch(_){}
+
+      // Esta segunda escritura sí es parte de la operación: actualizar cantidades RABA03.
+      await persistRaba03AllocationForPairs(nextRemitos,affectedPairs);
+
+      setSuccessAlert({message:`${guardados.length} ${guardados.length===1?"remito guardado":"remitos guardados"} y RABA03 actualizado para todos los usuarios`});
       setRemitosPendientes([]);
       limpiarRemitoForm();
       setRemitoSearch("");
+
+      // Sólo verificación/corrección eventual; nunca bloquea ni convierte un guardado confirmado en error.
+      loadRemitosCompartidos({silent:true}).catch(err=>console.warn("Los remitos se guardaron, pero falló la verificación en segundo plano:",err));
     }catch(err){
       const msg=err?.message||String(err);
       setError(msg);
-      appAlert("No se pudieron guardar/sincronizar todos los remitos. Se verificará lo confirmado por Google Sheets: "+msg);
-      try{
-        const confirmedRemitos=await loadRemitosCompartidos({silent:true});
-        await persistRaba03AllocationForPairs(confirmedRemitos,affectedPairs);
-      }catch(_){}
+      if(guardados.length){
+        appAlert(`Se guardaron ${guardados.length} remito(s) en Google Sheets, pero no se pudo completar toda la sincronización de RABA03: ${msg}`);
+        loadRemitosCompartidos({silent:true}).catch(()=>{});
+      }else{
+        appAlert("No se pudo guardar el remito: "+msg);
+      }
     }finally{
       setActionLoading("");
     }
@@ -1987,9 +2012,10 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
 
   const deleteRemito=async(id)=>{
     if(!(await appConfirm("¿Eliminar este remito cargado?")))return;
-    const targetRemito=(remitos||[]).find(r=>r.id===id)||null;
+    const targetRemito=(remitosRef.current||[]).find(r=>r.id===id)||null;
     const affectedPairs=collectRemitoPairKeys(targetRemito?[targetRemito]:[]);
     setActionLoading("Eliminando remito y actualizando Google Sheets...");
+    let deletedConfirmed=false;
     try{
       const res=await fetch(APPS_SCRIPT_URL,{
         method:"POST",
@@ -2001,15 +2027,28 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudo eliminar el remito compartido.");
-      const confirmedRemitos=await loadRemitosCompartidos({silent:false});
-      if((confirmedRemitos||[]).some(r=>r.id===id))throw new Error("Google Sheets todavía informa el remito como existente.");
-      await persistRaba03AllocationForPairs(confirmedRemitos,affectedPairs);
+      deletedConfirmed=true;
+
+      // Google ya confirmó la eliminación: quitarlo inmediatamente de la UI/cache.
+      const nextRemitos=(remitosRef.current||[]).filter(r=>r.id!==id);
+      remitosRef.current=nextRemitos;
+      setRemitos(nextRemitos);
+      try{window.localStorage.setItem(RABA08_STORAGE_KEY,JSON.stringify(nextRemitos));}catch(_){}
+
+      // Recalcular sólo las parejas código+proyecto afectadas.
+      await persistRaba03AllocationForPairs(nextRemitos,affectedPairs);
       setSuccessAlert({message:"Remito eliminado y RABA03 recalculado correctamente."});
+
+      loadRemitosCompartidos({silent:true}).catch(err=>console.warn("El remito se eliminó, pero falló la verificación en segundo plano:",err));
     }catch(err){
       const msg=err?.message||String(err);
-      console.warn("No se pudo eliminar el remito en la hoja compartida:",err);
-      appAlert("No se pudo confirmar la eliminación del remito: "+msg);
-      await loadRemitosCompartidos({silent:true}).catch(()=>{});
+      console.warn("No se pudo completar la operación de eliminación:",err);
+      if(deletedConfirmed){
+        appAlert("El remito fue eliminado de Google Sheets, pero no se pudo completar el recálculo de RABA03: "+msg);
+        loadRemitosCompartidos({silent:true}).catch(()=>{});
+      }else{
+        appAlert("No se pudo eliminar el remito: "+msg);
+      }
     }finally{
       setActionLoading("");
     }

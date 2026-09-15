@@ -53,7 +53,7 @@ export default function TallerCentralMovements({listaEquipos=[],rop02All=[]}){
     try{
       const res=await saveEquipmentMovement({interno,internoNormalizado:interno,proyectoOrigen:meta.proyectoOrigen||"TALLER CENTRAL",proyectoDestino:meta.proyectoDestino,tipoMovimiento:"OTRO",motivo:`TALLER_${tab}`,observacion:encodeMeta(meta),usuario:meta.usuario,fechaUltimoRop02:selected?.ultimaCarga||new Date().toISOString().slice(0,10)});
       const id=res?.movement?.id;if(id)await cancelEquipmentMovement(id,meta.usuario);
-      await reload();setMsg("Movimiento guardado correctamente.");reset();
+      reload().catch(err=>console.warn("El movimiento se guardó, pero falló la recarga en segundo plano:",err));setMsg("Movimiento guardado correctamente.");reset();
     }catch(e){setMsg(e?.message||"No se pudo guardar el movimiento.");}finally{setSaving(false);}
   };
 

@@ -407,7 +407,7 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista}
         useRowNumber:false,
       },cleanRow);
       setEditMsg({type:"success",text:`Equipo actualizado en la fila ${res.rowNumber||"encontrada por Código Drusila"}.`});
-      if(onReloadLista)await onReloadLista();
+      if(onReloadLista)Promise.resolve().then(()=>onReloadLista()).catch(err=>console.warn("La escritura se confirmó, pero falló la recarga de Lista Maestra:",err));
     }catch(err){
       setEditMsg({type:"error",text:err.message});
     }finally{
@@ -435,7 +435,7 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista}
       const res=await postAddListaEquipo(cleanRow);
       setAddMsg({type:"success",text:`Equipo guardado en la fila ${res.rowNumber||"nueva"}.`});
       setNewEquipo({});
-      if(onReloadLista)await onReloadLista();
+      if(onReloadLista)Promise.resolve().then(()=>onReloadLista()).catch(err=>console.warn("La escritura se confirmó, pero falló la recarga de Lista Maestra:",err));
     }catch(err){
       setAddMsg({type:"error",text:err.message});
     }finally{
@@ -494,7 +494,7 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista}
       const skipped=res.skippedRows??0;
       const failed=res.failedRows??0;
       setSyncMsg({type:failed?"error":"success",text:failed?`Se actualizaron ${updated}, fallaron ${failed} y se omitieron ${skipped}. Revisá permisos o códigos no encontrados.`:`${updated} equipos actualizados en Excel${skipped?` (${skipped} omitidos)`:""}.`});
-      if(onReloadLista)await onReloadLista();
+      if(onReloadLista)Promise.resolve().then(()=>onReloadLista()).catch(err=>console.warn("La escritura se confirmó, pero falló la recarga de Lista Maestra:",err));
     }catch(err){
       setSyncMsg({type:"error",text:err.message||"No se pudo actualizar la Lista Maestra."});
     }finally{

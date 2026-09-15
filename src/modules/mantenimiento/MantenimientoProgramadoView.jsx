@@ -630,7 +630,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     setSaving(true);
     try {
       await post({ action: "save_pm_config", config: { ...edit, intervalo: num(edit.intervalo), alertaDesde: num(edit.alertaDesde), atrasadoDesde: num(edit.atrasadoDesde), horometroUltimoPM: num(edit.horometroUltimoPM), horometroActualManual: 0 } });
-      await load();
+      load({ silent: true }).catch(err=>console.warn("La escritura PM se confirmó, pero falló la recarga en segundo plano:",err));
       setEdit(null);
       appAlert?.("Configuración guardada.");
     } catch (err) { appAlert?.(err.message); } finally { setSaving(false); }
@@ -647,7 +647,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     try {
       const eq = equipos.find(x => x.interno === realizado.interno);
       await post({ action: "registrar_pm_realizado", registro: { ...realizado, equipo: eq?.equipo || "", proyecto: eq?.proyecto || "", horometro: num(realizado.horometro) } });
-      await load();
+      load({ silent: true }).catch(err=>console.warn("La escritura PM se confirmó, pero falló la recarga en segundo plano:",err));
       setRealizado({ interno: "", fecha: today(), horometro: "", tipoPM: "PM 250", tecnico: "", ot: "", observaciones: "" });
       changeTab("panel");
       appAlert?.("PM registrado. El próximo ciclo comienza desde ese horómetro.");
