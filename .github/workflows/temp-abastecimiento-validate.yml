@@ -16,6 +16,16 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+      - name: Install
+        run: npm ci
+      - name: Test salida 938
+        run: node --test --test-name-pattern="Ítems con salida" tests/abastecimiento-allocation-regression.test.mjs
+      - name: Test promedio cerradas
+        run: node --test --test-name-pattern="Promedio indicador" tests/abastecimiento-allocation-regression.test.mjs
+      - name: Test Abastecimiento file
+        run: node --test tests/abastecimiento-allocation-regression.test.mjs
+      - name: Test full suite
+        run: npm test
+      - name: Build
+        if: always()
+        run: npm run build
