@@ -67,6 +67,8 @@ test('Promedio indicador usa una sola fila por ítem cerrado con fecha válida',
   assert.ok(result?.code);
   assert.match(result.code,/const indicadoresCerrados=filasActivas\.filter/);
   assert.match(result.code,/fechaSalida\?calcularIndicadorRABA03\(r\.fechaSolicitud,fechaSalida\):""/);
+  assert.match(result.code,/const indicadorNum=indicador===""\?NaN:Number\(indicador\);/);
+  assert.match(result.code,/numeroRemito:r\.numeroRemitoFuente\|\|"",fechaSalida,indicador,indicadorNum/);
   assert.match(result.code,/const avg=indicadoresCerrados\.length\?indicadoresCerrados\.reduce\(\(a,r\)=>a\+r\.indicadorNum,0\)\/indicadoresCerrados\.length:0;/);
   assert.doesNotMatch(result.code,/const avg=movimientos\.length\?movimientos\.reduce/);
   assert.doesNotMatch(result.code,/const movimientosCerrados=/);
