@@ -7,6 +7,7 @@ import { intelligentRefreshVitePlugin } from './scripts/intelligent-refresh-vite
 import { abastecimientoLineEndingsVitePlugin } from './scripts/abastecimiento-line-endings-vite-plugin.mjs'
 import { abastecimientoInstantVitePlugin } from './scripts/abastecimiento-instant-vite-plugin.mjs'
 import { rop02TruckPickupSplitVitePlugin } from './scripts/rop02-truck-pickup-split-vite-plugin.mjs'
+import { rop02UnifyTrucksVitePlugin } from './scripts/rop02-unify-trucks-vite-plugin.mjs'
 import { vehicleKmMaintenanceVitePlugin } from './scripts/vehicle-km-maintenance-vite-plugin.mjs'
 import { pmVehicleScopeVitePlugin } from './scripts/pm-vehicle-scope-vite-plugin.mjs'
 import { pmVehicleDisplayVitePlugin } from './scripts/pm-vehicle-display-vite-plugin.mjs'
@@ -19,7 +20,7 @@ import { rop02Rop05PositiveHoursVitePlugin } from './scripts/rop02-rop05-positiv
 import { rop02StateClassificationVitePlugin } from './scripts/rop02-state-classification-vite-plugin.mjs'
 
 export default defineConfig({
-  plugins: [abastecimientoLineEndingsVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), abastecimientoInstantVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), progressiveRowsVitePlugin(), react()],
+  plugins: [abastecimientoLineEndingsVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), abastecimientoInstantVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
     host: '0.0.0.0'
   },
