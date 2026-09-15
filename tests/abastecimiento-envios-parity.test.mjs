@@ -8,17 +8,18 @@ import { abastecimientoInstantVitePlugin } from "../scripts/abastecimiento-insta
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const modulePath = path.resolve(__dirname, "../src/modules/abastecimiento/AbastecimientoModule.jsx");
 
-test("OPS calcula Envíos sin solicitud con FIFO y excluye solicitudes rechazadas", () => {
+test("OPS mantiene Envíos sin solicitud por código + proyecto + fecha sobre Apps Script", () => {
   const source = fs.readFileSync(modulePath, "utf8");
   const plugin = abastecimientoInstantVitePlugin();
   const transformed = plugin.transform(source, modulePath.replace(/\\/g, "/"));
   const code = transformed?.code || source;
 
-  assert.match(code, /solicitudesValidas=\(rows\|\|\[\]\)\.filter\(row=>!rejectedSolicitudes\?\.\[buildSolicitudKey\(row\)\]\)/);
-  assert.match(code, /allocateRemitosToRequests\(base,remitos\)\.unmatched/);
-  assert.doesNotMatch(code, /buildEnviosSinSolicitudRows\s*\(\s*\{/);
-  assert.match(code, /fetchRaba03FromSupabase\(\)/);
-  assert.match(code, /fetchAbastecimientoSnapshot\(\)/);
+  assert.match(code, /action=raba03/);
+  assert.match(code, /action=remitos_cargados/);
+  assert.match(code, /sol\.fechaMs<=fechaMs/);
+  assert.match(code, /\(!proyecto\|\|!sol\.proyecto\|\|sol\.proyecto===proyecto\)/);
+  assert.doesNotMatch(code, /sol\.descripcion===descripcionNormalizada/);
+  assert.doesNotMatch(code, /fetchRaba03FromSupabase/);
+  assert.doesNotMatch(code, /fetchAbastecimientoSnapshot/);
   assert.match(code, /RABA03_VIEW_CACHE_KEY/);
-  assert.doesNotMatch(code, /action=remitos_cargados/);
 });

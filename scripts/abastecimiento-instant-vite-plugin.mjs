@@ -9,7 +9,7 @@ export function abastecimientoInstantVitePlugin(){
 
       next=next.replace(
         'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";',
-        'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";\nconst RABA03_VIEW_CACHE_KEY = "dm_raba03_view_rows_v3";'
+        'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";\nconst RABA03_VIEW_CACHE_KEY = "dm_raba03_view_rows_v4";'
       );
 
       next=next.replace(
@@ -42,7 +42,7 @@ export function abastecimientoInstantVitePlugin(){
       next=next.replace(sequential,parallel);
 
       const dashboardMetricHeadBefore=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const avg=movimientos.length?movimientos.reduce((a,r)=>a+r.indicadorNum,0)/movimientos.length:0;\n    const max=movimientos.length?Math.max(...movimientos.map(r=>r.indicadorNum)):0;\n    const min=movimientos.length?Math.min(...movimientos.map(r=>r.indicadorNum)):0;\n    const filasActivas=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);\n    const pendientes=filasActivas.filter(r=>toNumber(r.cantidadEnviada)<=0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const parciales=filasActivas.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const cerradas=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).length;`;
-      const dashboardMetricHeadAfter=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const filasActivas=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);\n    const pendientes=filasActivas.filter(r=>toNumber(r.cantidadEnviada)<=0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const parciales=filasActivas.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const cerradas=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).length;\n    const indicadoresCerrados=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).map(r=>{\n      const fechaSalida=String(r.fechaSalidaFuente||"").trim();\n      const indicador=fechaSalida?calcularIndicadorRABA03(r.fechaSolicitud,fechaSalida):"";\n      const indicadorNum=indicador===""?NaN:Number(indicador);\n      return {...r,numeroRemito:r.numeroRemitoFuente||"",fechaSalida,indicador,indicadorNum};\n    }).filter(r=>Number.isFinite(r.indicadorNum)&&r.indicadorNum>=0);\n    const avg=indicadoresCerrados.length?indicadoresCerrados.reduce((a,r)=>a+r.indicadorNum,0)/indicadoresCerrados.length:0;\n    const max=indicadoresCerrados.length?Math.max(...indicadoresCerrados.map(r=>r.indicadorNum)):0;\n    const min=indicadoresCerrados.length?Math.min(...indicadoresCerrados.map(r=>r.indicadorNum)):0;`;
+      const dashboardMetricHeadAfter=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const filasActivas=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);\n    const pendientes=filasActivas.filter(r=>toNumber(r.cantidadEnviada)<=0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const parciales=filasActivas.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const cerradas=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).length;\n    const indicadoresCerrados=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).map(r=>{\n      const matched=Array.isArray(r._matchedRemitos)?r._matchedRemitos:[];\n      const ordered=[...matched].sort((a,b)=>(parseRabaDateMs(a.fecha)||0)-(parseRabaDateMs(b.fecha)||0));\n      const last=ordered.length?ordered[ordered.length-1]:null;\n      const fechaSalida=String(last?.fecha||"").trim();\n      const numerosRemito=[...new Set(ordered.map(m=>String(m.numero||"").trim()).filter(Boolean))];\n      const indicador=fechaSalida?calcularIndicadorRABA03(r.fechaSolicitud,fechaSalida):"";\n      const indicadorNum=indicador===""?NaN:Number(indicador);\n      return {...r,numeroRemito:numerosRemito.join(" / "),fechaSalida,indicador,indicadorNum};\n    }).filter(r=>Number.isFinite(r.indicadorNum)&&r.indicadorNum>=0);\n    const avg=indicadoresCerrados.length?indicadoresCerrados.reduce((a,r)=>a+r.indicadorNum,0)/indicadoresCerrados.length:0;\n    const max=indicadoresCerrados.length?Math.max(...indicadoresCerrados.map(r=>r.indicadorNum)):0;\n    const min=indicadoresCerrados.length?Math.min(...indicadoresCerrados.map(r=>r.indicadorNum)):0;`;
       if(!next.includes(dashboardMetricHeadBefore)){
         throw new Error('No se encontró el bloque principal del indicador de Abastecimiento');
       }
@@ -78,8 +78,8 @@ export function abastecimientoInstantVitePlugin(){
       }
       // No reemplazar la auditoría histórica por un FIFO de cantidades. El source
       // ya contiene la regla código+proyecto+descripción+fecha sin retroactividad.
-      if(!next.includes('sol.descripcion===descripcionNormalizada')||!next.includes('sol.fechaMs<=fechaMs')){
-        throw new Error('Envíos sin solicitud perdió su clave histórica o la barrera temporal');
+      if(next.includes('sol.descripcion===descripcionNormalizada')||!next.includes('sol.fechaMs<=fechaMs')||!next.includes('(!proyecto||!sol.proyecto||sol.proyecto===proyecto)')){
+        throw new Error('Envíos sin solicitud debe conservar código + proyecto + barrera temporal, sin exigir descripción exacta');
       }
       if(next.includes('allocateRemitosToRequests(base,remitos).unmatched')){
         throw new Error('Envíos sin solicitud no debe volver al FIFO retroactivo');
@@ -109,8 +109,8 @@ export function abastecimientoInstantVitePlugin(){
       if(!next.includes('const indicadoresCerrados=filasActivas.filter(')||!next.includes('const avg=indicadoresCerrados.length?')){
         throw new Error('Promedio indicador debe calcularse una vez por ítem cerrado');
       }
-      if(!next.includes('numeroRemito:r.numeroRemitoFuente||"",fechaSalida,indicador,indicadorNum')){
-        throw new Error('Más demorados debe conservar remito, fecha e indicador del ítem');
+      if(!next.includes('numeroRemito:numerosRemito.join(" / "),fechaSalida,indicador,indicadorNum')){
+        throw new Error('Más demorados debe conservar remitos vinculados, fecha final e indicador del ítem');
       }
       if(next.includes('value:movimientos.filter(r=>r.indicadorNum>15).length')){
         throw new Error('Distribución de demoras no debe contar movimientos/remitos');

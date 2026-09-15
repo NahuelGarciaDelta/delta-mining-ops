@@ -20,14 +20,14 @@ test('rechazadas se muestran con enviada cero sin recalcular estados activos',()
 test('envíos sin solicitud conservan clave histórica y nunca usan pedidos futuros',()=>{
   assert.match(source,/codigo:normCode\(r\.codigoArticulo\)/);
   assert.match(source,/proyecto:normalizeCentroCosto\(r\.centroCosto\)/);
-  assert.match(source,/descripcion:norm\(r\.descripcion\)/);
-  assert.match(source,/sol\.descripcion===descripcionNormalizada/);
+  assert.match(source,/proyecto:normalizeCentroCosto\(r\.centroCosto\)/);
+  assert.doesNotMatch(source,/sol\.descripcion===descripcionNormalizada/);
   assert.match(source,/sol\.fechaMs<=fechaMs/);
   assert.doesNotMatch(source,/15\s*\*\s*24\s*\*\s*60/);
 });
 
 test('vite no reemplaza Envíos sin solicitud por FIFO retroactivo',()=>{
-  assert.match(plugin,/Envíos sin solicitud perdió su clave histórica/);
+  assert.match(plugin,/Envíos sin solicitud debe conservar código \+ proyecto \+ barrera temporal/);
   assert.match(plugin,/allocateRemitosToRequests\(base,remitos\)\.unmatched/);
   assert.match(plugin,/next\.includes\('allocateRemitosToRequests\(base,remitos\)\.unmatched'\)/);
 });
@@ -56,7 +56,7 @@ test('indicador conserva Fecha de salida oficial de RABA03',()=>{
   assert.ok(result?.code);
   assert.match(result.code,/fechaSalidaFuente:formatDateLocal\(pick\(r,\["Fecha de salida","Fecha salida"\]\)\)/);
   assert.match(result.code,/numeroRemitoFuente:String\(pick\(r,\["Nº Remito","N° Remito","Remito"\]\)\|\|""\)\.trim\(\)/);
-  assert.match(result.code,/dm_raba03_view_rows_v3/);
+  assert.match(result.code,/dm_raba03_view_rows_v4/);
 });
 
 test('Promedio indicador usa una sola fila por ítem cerrado con fecha válida',()=>{
@@ -68,7 +68,7 @@ test('Promedio indicador usa una sola fila por ítem cerrado con fecha válida',
   assert.match(result.code,/const indicadoresCerrados=filasActivas\.filter/);
   assert.match(result.code,/fechaSalida\?calcularIndicadorRABA03\(r\.fechaSolicitud,fechaSalida\):""/);
   assert.match(result.code,/const indicadorNum=indicador===""\?NaN:Number\(indicador\);/);
-  assert.match(result.code,/numeroRemito:r\.numeroRemitoFuente\|\|"",fechaSalida,indicador,indicadorNum/);
+  assert.match(result.code,/numeroRemito:numerosRemito\.join\(" \/ "\),fechaSalida,indicador,indicadorNum/);
   assert.match(result.code,/const avg=indicadoresCerrados\.length\?indicadoresCerrados\.reduce\(\(a,r\)=>a\+r\.indicadorNum,0\)\/indicadoresCerrados\.length:0;/);
   assert.doesNotMatch(result.code,/const avg=movimientos\.length\?movimientos\.reduce/);
   assert.doesNotMatch(result.code,/const movimientosCerrados=/);

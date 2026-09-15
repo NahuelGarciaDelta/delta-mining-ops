@@ -67,7 +67,9 @@ export default async function handler(req, res) {
   // respuesta vieja del CacheService del Apps Script sobreviva a una edición,
   // alta o baja hecha directamente sobre la hoja.
   if (req.method === "GET" && String(query.action || "").trim().toLowerCase() === "raba03") {
-    query.force = "1";
+    // Siempre traer la tabla completa, pero NO forzar una lectura física de Sheets
+    // en cada navegación. El Apps Script invalida su CacheService después de cada
+    // escritura; los callers pueden enviar force=1 sólo cuando necesiten un hard refresh.
     query.limit = "all";
   }
   appendQuery(target, query);
@@ -84,7 +86,7 @@ export default async function handler(req, res) {
     const controller = new AbortController();
     // Un único intento largo, pero siempre por debajo del timeout del cliente ROP02.
     // Si expira NO se lanza otro intento de 27 s que prolongue artificialmente la espera.
-    const timer = setTimeout(() => controller.abort(), 40000);
+    const timer = setTimeout(() => controller.abort(), 55000);
 
     try {
       const upstream = await fetch(target.toString(), buildOptions(req, controller.signal));
@@ -119,7 +121,7 @@ export default async function handler(req, res) {
     ok: false,
     error: {
       message: timedOut
-        ? "Apps Script no respondió dentro de 40 segundos"
+        ? "Apps Script no respondió dentro de 55 segundos"
         : String(lastError?.message || lastError || "No se pudo contactar Apps Script"),
     },
   });

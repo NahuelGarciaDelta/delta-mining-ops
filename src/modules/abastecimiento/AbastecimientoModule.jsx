@@ -613,10 +613,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       const code=normCode(row.codigoArticulo);
       const proyecto=normalizeCentroCosto(row.centroCosto);
       const insumoKey=norm(row.descripcion);
-      if(!code||!proyecto||!insumoKey)return;
-      // Clave de asignación: código + proyecto + nombre normalizado del insumo.
-      // La fecha NO se usa para mezclar períodos: se valida abajo como límite temporal.
-      const key=[code,proyecto,insumoKey].join("__");
+      if(!code||!proyecto)return;
+      // Clave operativa: código + proyecto. La descripción del remito suele ser más
+      // detallada que la de la solicitud (ej. 1527ALT), por lo que no debe bloquear
+      // un match válido. La barrera temporal se valida abajo y el consumo es FIFO.
+      const key=[code,proyecto].join("__");
       if(!byKey.has(key))byKey.set(key,[]);
       byKey.get(key).push({row,index,fechaMs:parseChronoDateMs(row.fechaSolicitud)});
     });
@@ -631,7 +632,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         const code=normCode(item.codigo);
         const insumoKey=norm(item.descripcion);
         const cantidad=toNumber(item.cantidad);
-        if(!code||!insumoKey||cantidad<=0)return;
+        if(!code||cantidad<=0)return;
         shipments.push({
           id:`${remito.id||remito.comprobante||"remito"}-${itemIndex}-${code}`,
           code,proyecto,insumoKey,fecha,fechaMs,cantidad,
@@ -647,7 +648,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     const unmatched=[];
     shipments.forEach(shipment=>{
       let restanteEnvio=shipment.cantidad;
-      const key=shipment.proyecto&&shipment.insumoKey?[shipment.code,shipment.proyecto,shipment.insumoKey].join("__"):"";
+      const key=shipment.proyecto?[shipment.code,shipment.proyecto].join("__"):"";
       const queue=key?(byKey.get(key)||[]):[];
       for(const req of queue){
         if(restanteEnvio<=0)break;
@@ -688,6 +689,77 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
 
   const existingSolicitudKeys=useMemo(()=>new Set(rows.map(buildSolicitudKey)),[rows,buildSolicitudKey]);
 
+  const remitoPairKey=useCallback((codigo,proyecto)=>{
+    const code=normCode(codigo);
+    const projectKey=normalizeCentroCosto(proyecto);
+    return code&&projectKey?`${code}__${projectKey}`:"";
+  },[normCode,normalizeCentroCosto]);
+
+  const collectRemitoPairKeys=useCallback((sourceRemitos=[])=>{
+    const pairs=new Set();
+    (sourceRemitos||[]).forEach(remito=>{
+      const proyecto=normalizeCentroCosto(remito.proyecto||remito.observaciones||remito.destino||remito.centroCosto||remito.origen||"");
+      (remito.items||[]).forEach(item=>{
+        const key=remitoPairKey(item.codigo,proyecto);
+        if(key)pairs.add(key);
+      });
+    });
+    return pairs;
+  },[normalizeCentroCosto,remitoPairKey]);
+
+  const persistRaba03AllocationForPairs=useCallback(async(sourceRemitos,pairKeys)=>{
+    const targetPairs=pairKeys instanceof Set?pairKeys:new Set(pairKeys||[]);
+    if(!targetPairs.size)return {updatedRows:0,payloadRows:[]};
+
+    const activas=(rows||[]).filter(row=>!rejectedSolicitudes?.[buildSolicitudKey(row)]);
+    const allocated=allocateRemitosToRequests(activas,sourceRemitos).rows;
+    const payloadRows=allocated
+      .filter(row=>targetPairs.has(remitoPairKey(row.codigoArticulo,row.centroCosto)))
+      .filter(row=>String(row.nSolicitud||"").trim())
+      .map(row=>{
+        const matched=Array.isArray(row._matchedRemitos)?row._matchedRemitos:[];
+        const ordered=[...matched].sort((a,b)=>parseChronoDateMs(a.fecha)-parseChronoDateMs(b.fecha));
+        const numeros=[...new Set(ordered.map(m=>String(m.numero||"").trim()).filter(Boolean))];
+        const last=ordered.length?ordered[ordered.length-1]:null;
+        return {
+          nSolicitud:row.nSolicitud,
+          cantidadEnviada:toNumber(row.cantidadEnviada),
+          numeroRemito:numeros.join(" / "),
+          fechaSalida:String(last?.fecha||"").trim(),
+          cantidad:ordered.reduce((acc,m)=>acc+toNumber(m.cantidad),0)
+        };
+      });
+
+    if(!payloadRows.length)return {updatedRows:0,payloadRows:[]};
+    const res=await fetch(APPS_SCRIPT_URL,{
+      method:"POST",
+      cache:"no-store",
+      redirect:"follow",
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+      body:new URLSearchParams({payload:JSON.stringify({action:"save_raba03_cant_enviada",rows:payloadRows})})
+    });
+    if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
+    const json=await res.json();
+    if(!json.ok)throw new Error(json?.error?.message||"No se pudo sincronizar RABA03 con los remitos.");
+
+    // El POST ya terminó después de escribir Google Sheets. Reflejar la misma
+    // confirmación localmente sin obligar a otra lectura física de toda RABA03.
+    const byPedido=new Map(payloadRows.map(r=>[String(r.nSolicitud||"").trim(),r]));
+    setRows(prev=>(prev||[]).map(row=>{
+      const patch=byPedido.get(String(row.nSolicitud||"").trim());
+      if(!patch)return row;
+      const enviada=toNumber(patch.cantidadEnviada);
+      return {
+        ...row,
+        cantidadEnviada:enviada,
+        cantidadRestante:Math.max(0,toNumber(row.cantidadSolicitada)-enviada),
+        numeroRemitoFuente:patch.numeroRemito||"",
+        fechaSalidaFuente:patch.fechaSalida||""
+      };
+    }));
+    return {...json,payloadRows};
+  },[rows,rejectedSolicitudes,buildSolicitudKey,allocateRemitosToRequests,remitoPairKey,toNumber]);
+
   const openRejectSolicitud=useCallback((row)=>{
     setRejectModal({open:true,row,observacion:""});
   },[]);
@@ -701,6 +773,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return;
     }
     const key=buildSolicitudKey(row);
+    setActionLoading("Guardando rechazo en Google Sheets...");
     try{
       await postEstadoSolicitud("save_estado_solicitud",{estado:{
         clave:key,estado:"RECHAZADA",observacion,
@@ -710,6 +783,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       await loadEstadosSolicitudesCompartidos({silent:true});
       setRejectModal({open:false,row:null,observacion:""});
     }catch(err){appAlert("No se pudo guardar el rechazo para todos: "+(err?.message||err));}
+    finally{setActionLoading("");}
   },[rejectModal,buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const closeSolicitudManual=useCallback(async(row)=>{
@@ -800,10 +874,12 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   const restoreRejectedSolicitud=useCallback(async(row)=>{
     if(!row)return;
     const key=buildSolicitudKey(row);
+    setActionLoading("Restaurando solicitud en Google Sheets...");
     try{
       await postEstadoSolicitud("delete_estado_solicitud",{clave:key});
       await loadEstadosSolicitudesCompartidos({silent:true});
     }catch(err){appAlert("No se pudo restaurar la solicitud para todos: "+(err?.message||err));}
+    finally{setActionLoading("");}
   },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const reopenManualClosedSolicitud=useCallback(async(row)=>{
@@ -1100,6 +1176,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return;
     }
     try{
+      setActionLoading("Cargando solicitudes en Google Sheets...");
       setImportModal(prev=>({...prev,loading:true,error:""}));
       const res=await fetch(APPS_SCRIPT_URL,{
         method:"POST",
@@ -1119,6 +1196,8 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       const msg=err?.message||String(err);
       setImportModal(prev=>({...prev,loading:false,error:"Error cargando solicitudes: "+msg}));
       setError(msg);
+    }finally{
+      setActionLoading("");
     }
   },[importModal.rows,loadRaba03]);
 
@@ -1143,7 +1222,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return;
     }
     try{
-      setLoading(true);
+      setActionLoading("Guardando cambios en Google Sheets...");
       setError(null);
       const res=await fetch(APPS_SCRIPT_URL,{
         method:"POST",
@@ -1158,7 +1237,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       setError(msg);
       appAlert("Error guardando datos: "+msg);
     }finally{
-      setLoading(false);
+      setActionLoading("");
     }
   },[rows,toNumber,loadRaba03]);
 
@@ -1172,7 +1251,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return;
     }
     try{
-      setLoading(true);
+      setActionLoading("Guardando códigos en Google Sheets...");
       setError(null);
       const res=await fetch(APPS_SCRIPT_URL,{
         method:"POST",
@@ -1188,7 +1267,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       setError(msg);
       appAlert("Error guardando códigos: "+msg);
     }finally{
-      setLoading(false);
+      setActionLoading("");
     }
   },[codigoEdits,loadRaba03]);
 
@@ -1402,7 +1481,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         descripcion:norm(r.descripcion),
         fechaMs:parseChronoDateMs(r.fechaSolicitud)
       }))
-      .filter(r=>r.codigo&&r.descripcion);
+      .filter(r=>r.codigo&&r.proyecto);
     const out=[];
     (remitos||[]).forEach(rem=>{
       const fecha=rem.fecha||"";
@@ -1412,11 +1491,10 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         const codigoNormalizado=normCode(item.codigo);
         const descripcionNormalizada=norm(item.descripcion);
         const cantidad=toNumber(item.cantidad);
-        if(!codigoNormalizado||!descripcionNormalizada||cantidad<=0)return;
+        if(!codigoNormalizado||cantidad<=0)return;
         const teniaSolicitudAlEnviar=solicitudesHistoricas.some(sol=>
           sol.codigo===codigoNormalizado&&
           (!proyecto||!sol.proyecto||sol.proyecto===proyecto)&&
-          sol.descripcion===descripcionNormalizada&&
           (!sol.fechaMs||!fechaMs||sol.fechaMs<=fechaMs)
         );
         if(teniaSolicitudAlEnviar)return;
@@ -1814,32 +1892,39 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return;
     }
 
+    const affectedPairs=collectRemitoPairKeys(remitosAEnviar);
     try{
-      setLoading(true);
+      setActionLoading("Guardando remito y actualizando Google Sheets...");
       setError(null);
       let guardados=0;
       for(const nuevo of remitosAEnviar){
         await saveRemitoCompartido(nuevo);
         guardados++;
       }
-      await loadRemitosCompartidos({silent:false});
-      setSuccessAlert({message:`${guardados} ${guardados===1?"remito guardado":"remitos guardados"} y sincronizados para todos los usuarios`});
+      const confirmedRemitos=await loadRemitosCompartidos({silent:false});
+      await persistRaba03AllocationForPairs(confirmedRemitos,affectedPairs);
+      setSuccessAlert({message:`${guardados} ${guardados===1?"remito guardado":"remitos guardados"} y RABA03 actualizado para todos los usuarios`});
       setRemitosPendientes([]);
       limpiarRemitoForm();
       setRemitoSearch("");
     }catch(err){
       const msg=err?.message||String(err);
       setError(msg);
-      appAlert("No se pudieron guardar todos los remitos. Los que Google Sheets confirmó antes del error sí quedaron registrados: "+msg);
-      await loadRemitosCompartidos({silent:true}).catch(()=>{});
+      appAlert("No se pudieron guardar/sincronizar todos los remitos. Se verificará lo confirmado por Google Sheets: "+msg);
+      try{
+        const confirmedRemitos=await loadRemitosCompartidos({silent:true});
+        await persistRaba03AllocationForPairs(confirmedRemitos,affectedPairs);
+      }catch(_){}
     }finally{
-      setLoading(false);
+      setActionLoading("");
     }
   };
 
   const deleteRemito=async(id)=>{
     if(!(await appConfirm("¿Eliminar este remito cargado?")))return;
-    setRemitos(prev=>prev.filter(r=>r.id!==id));
+    const targetRemito=(remitos||[]).find(r=>r.id===id)||null;
+    const affectedPairs=collectRemitoPairKeys(targetRemito?[targetRemito]:[]);
+    setActionLoading("Eliminando remito y actualizando Google Sheets...");
     try{
       const res=await fetch(APPS_SCRIPT_URL,{
         method:"POST",
@@ -1848,11 +1933,20 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
         body:new URLSearchParams({payload:JSON.stringify({action:"delete_remito_cargado",idRemito:id})}).toString()
       });
+      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudo eliminar el remito compartido.");
-      await loadRemitosCompartidos({silent:false});
+      const confirmedRemitos=await loadRemitosCompartidos({silent:false});
+      if((confirmedRemitos||[]).some(r=>r.id===id))throw new Error("Google Sheets todavía informa el remito como existente.");
+      await persistRaba03AllocationForPairs(confirmedRemitos,affectedPairs);
+      setSuccessAlert({message:"Remito eliminado y RABA03 recalculado correctamente."});
     }catch(err){
+      const msg=err?.message||String(err);
       console.warn("No se pudo eliminar el remito en la hoja compartida:",err);
+      appAlert("No se pudo confirmar la eliminación del remito: "+msg);
+      await loadRemitosCompartidos({silent:true}).catch(()=>{});
+    }finally{
+      setActionLoading("");
     }
   };
 
