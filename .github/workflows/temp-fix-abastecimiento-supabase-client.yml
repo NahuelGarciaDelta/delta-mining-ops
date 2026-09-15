@@ -22,7 +22,7 @@ jobs:
           node-version: 20
           cache: npm
       - name: Install Supabase client
-        run: npm install @supabase/supabase-js@^2.112.3 --save
+        run: npm install @supabase/supabase-js@2.112.3 --save-exact
       - name: Copy reference client
         run: |
           git clone --depth 1 https://github.com/NahuelGarciaDelta/delta-mining-web-supabase.git /tmp/delta-supabase
