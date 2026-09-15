@@ -1,0 +1,46 @@
+name: temp-fix-abastecimiento-supabase-client
+
+on:
+  push:
+    branches:
+      - fix/abastecimiento-raba03-timeout
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: "startsWith(github.event.head_commit.message, 'ci: prepare Supabase client parity fix')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install Supabase client
+        run: npm install @supabase/supabase-js@^2.112.3 --save
+      - name: Copy reference client
+        run: |
+          git clone --depth 1 https://github.com/NahuelGarciaDelta/delta-mining-web-supabase.git /tmp/delta-supabase
+          cp /tmp/delta-supabase/src/services/supabaseClient.js src/services/supabaseClient.js
+      - name: Apply parity fix
+        run: python scripts/temp-fix-abastecimiento-supabase-client.py
+      - name: Validate imports
+        run: node scripts/validate-local-imports.mjs
+      - name: Abastecimiento regressions
+        run: node --test tests/abastecimiento-timeout-regression.test.mjs tests/abastecimiento-allocation-regression.test.mjs tests/abastecimiento-envios-parity.test.mjs tests/abastecimiento-regression.test.mjs tests/enviosSinSolicitud.test.mjs tests/global-column-filters.test.mjs
+      - name: Production build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json src/services/supabaseClient.js src/services/abastecimientoSupabase.js src/modules/abastecimiento/AbastecimientoModule.jsx tests/abastecimiento-timeout-regression.test.mjs
+          git commit -m "fix: use Supabase client RPC for Abastecimiento reads"
+          git push
