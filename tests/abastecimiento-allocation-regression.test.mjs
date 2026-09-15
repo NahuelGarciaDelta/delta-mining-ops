@@ -48,14 +48,39 @@ test('Ítems con salida es cerradas + parciales y 927 + 11 = 938',()=>{
   assert.equal(927+11,938);
 });
 
-test('Promedio indicador usa únicamente solicitudes cerradas',()=>{
+test('indicador conserva Fecha de salida oficial de RABA03',()=>{
   const result=abastecimientoInstantVitePlugin().transform(
     source,
     '/repo/src/modules/abastecimiento/AbastecimientoModule.jsx'
   );
   assert.ok(result?.code);
-  assert.match(result.code,/cerrada:!rejectedSolicitudes\?\.\[buildSolicitudKey\(row\)\]&&toNumber\(row\.cantidadSolicitada\)>0&&\(toNumber\(row\.cantidadRestante\)<=0\|\|closedSolicitudes\?\.\[buildSolicitudKey\(row\)\]\)/);
-  assert.match(result.code,/const movimientosCerrados=movimientos\.filter\(r=>r\.cerrada\);/);
-  assert.match(result.code,/const avg=movimientosCerrados\.length\?movimientosCerrados\.reduce\(\(a,r\)=>a\+r\.indicadorNum,0\)\/movimientosCerrados\.length:0;/);
+  assert.match(result.code,/fechaSalidaFuente:formatDateLocal\(pick\(r,\["Fecha de salida","Fecha salida"\]\)\)/);
+  assert.match(result.code,/numeroRemitoFuente:String\(pick\(r,\["Nº Remito","N° Remito","Remito"\]\)\|\|""\)\.trim\(\)/);
+  assert.match(result.code,/dm_raba03_view_rows_v3/);
+});
+
+test('Promedio indicador usa una sola fila por ítem cerrado con fecha válida',()=>{
+  const result=abastecimientoInstantVitePlugin().transform(
+    source,
+    '/repo/src/modules/abastecimiento/AbastecimientoModule.jsx'
+  );
+  assert.ok(result?.code);
+  assert.match(result.code,/const indicadoresCerrados=filasActivas\.filter/);
+  assert.match(result.code,/fechaSalida\?calcularIndicadorRABA03\(r\.fechaSolicitud,fechaSalida\):""/);
+  assert.match(result.code,/const avg=indicadoresCerrados\.length\?indicadoresCerrados\.reduce\(\(a,r\)=>a\+r\.indicadorNum,0\)\/indicadoresCerrados\.length:0;/);
   assert.doesNotMatch(result.code,/const avg=movimientos\.length\?movimientos\.reduce/);
+  assert.doesNotMatch(result.code,/const movimientosCerrados=/);
+});
+
+test('Distribución de demoras cuenta ítems cerrados, no remitos',()=>{
+  const result=abastecimientoInstantVitePlugin().transform(
+    source,
+    '/repo/src/modules/abastecimiento/AbastecimientoModule.jsx'
+  );
+  assert.ok(result?.code);
+  assert.match(result.code,/value:indicadoresCerrados\.filter\(r=>r\.indicadorNum>15\)\.length/);
+  assert.doesNotMatch(result.code,/value:movimientos\.filter\(r=>r\.indicadorNum>15\)\.length/);
+  assert.match(result.code,/const porProyecto=Object\.values\(indicadoresCerrados\.reduce/);
+  assert.match(result.code,/const porMes=Object\.values\(movimientos\.reduce/);
+  assert.match(result.code,/const masDemorados=\[\.\.\.indicadoresCerrados\]/);
 });
