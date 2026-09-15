@@ -59,8 +59,8 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const proxy=fs.readFileSync('./api/apps-script.js','utf8');
-          const m=proxy.match(/const TARGET = '([^']+)'/);
-          if(!m) throw new Error('No pude obtener TARGET de Apps Script');
+          const m=proxy.match(/const APPS_SCRIPT_TARGET = ["']([^"']+)["']/);
+          if(!m) throw new Error('No pude obtener APPS_SCRIPT_TARGET');
           const target=m[1];
           async function read(action,extra={}){
             const u=new URL(target); u.searchParams.set('action',action); u.searchParams.set('force','1'); u.searchParams.set('_',Date.now().toString());
