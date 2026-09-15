@@ -17,7 +17,6 @@
     "format:check": "prettier --check \"src/**/*.{js,jsx}\" \"tests/**/*.mjs\" \"scripts/**/*.mjs\""
   },
   "dependencies": {
-    "@supabase/supabase-js": "2.112.3",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "recharts": "2.12.7",
@@ -25,8 +24,8 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "4.3.4",
+    "vite": "5.4.14",
     "eslint": "9.17.0",
-    "prettier": "3.4.2",
-    "vite": "5.4.14"
+    "prettier": "3.4.2"
   }
 }

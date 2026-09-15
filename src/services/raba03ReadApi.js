@@ -2,7 +2,7 @@ const env=(typeof import.meta!=="undefined"&&import.meta.env)?import.meta.env:{}
 const SUPABASE_URL=String(env.VITE_SUPABASE_URL||"https://jwfocqaxlckuxoklwyxs.supabase.co").replace(/\/+$/,"");
 const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2").trim();
 const PAGE_SIZE=1000;
-const TIMEOUT_MS=30000;
+const TIMEOUT_MS=12000;
 
 function headers(extra={}){return {apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,Accept:"application/json",...extra};}
 
@@ -18,7 +18,7 @@ async function page(offset){
     try{data=text?JSON.parse(text):[];}catch(_){throw new Error("Supabase RABA03 devolvió una respuesta inválida");}
     return Array.isArray(data)?data:[];
   }catch(error){
-    if(error?.name==="AbortError")throw new Error(`RABA03 no respondió dentro de ${Math.round(TIMEOUT_MS/1000)} segundos`);
+    if(error?.name==="AbortError")throw new Error("RABA03 no respondió dentro de 12 segundos");
     throw error;
   }finally{if(timer)clearTimeout(timer);}
 }
@@ -55,7 +55,7 @@ export async function fetchAbastecimientoSnapshot(){
     try{data=text?JSON.parse(text):{};}catch(_){throw new Error("Supabase Abastecimiento devolvió una respuesta inválida");}
     return {...(data||{}),ok:true,source:"supabase"};
   }catch(error){
-    if(error?.name==="AbortError")throw new Error(`Abastecimiento no respondió dentro de ${Math.round(TIMEOUT_MS/1000)} segundos`);
+    if(error?.name==="AbortError")throw new Error("Abastecimiento no respondió dentro de 12 segundos");
     throw error;
   }finally{if(timer)clearTimeout(timer);}
 }
