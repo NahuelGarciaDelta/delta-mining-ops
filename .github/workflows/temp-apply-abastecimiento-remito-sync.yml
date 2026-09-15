@@ -19,6 +19,18 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Align patch with current URLSearchParams source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/temp-fix-abastecimiento-remito-sync.py')
+          s=p.read_text()
+          for action in ('save_raba03_cant_enviada','save_raba03_codigos'):
+              old=f'JSON.stringify({{action:"{action}",rows:payloadRows}})}}).toString()'
+              new=f'JSON.stringify({{action:"{action}",rows:payloadRows}})}})'
+              s=s.replace(old,new)
+          p.write_text(s)
+          PY
       - name: Apply fix
         run: python scripts/temp-fix-abastecimiento-remito-sync.py
       - name: Validate imports
