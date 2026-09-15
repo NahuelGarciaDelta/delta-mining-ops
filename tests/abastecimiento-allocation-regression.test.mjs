@@ -36,12 +36,26 @@ test('Dashboard de Abastecimiento excluye decorador global de filtros por column
   assert.match(source,/renderAbastecimientoDashboard[\s\S]*data-dm-disable-global-column-filters="1"/);
 });
 
-test('Dashboard cuenta todos los ítems con salida aunque no tengan indicador calculable',()=>{
+test('Ítems con salida es cerradas + parciales y 927 + 11 = 938',()=>{
   const result=abastecimientoInstantVitePlugin().transform(
     source,
     '/repo/src/modules/abastecimiento/AbastecimientoModule.jsx'
   );
   assert.ok(result?.code);
-  assert.match(result.code,/label="Ítems con salida" value=\{fmtNum\(raba03DashboardRows\.length\)\}/);
+  assert.match(result.code,/label="Ítems con salida" value=\{fmtNum\(d\.cerradas\+d\.parciales\)\}/);
+  assert.doesNotMatch(result.code,/label="Ítems con salida" value=\{fmtNum\(raba03DashboardRows\.length\)\}/);
   assert.doesNotMatch(result.code,/label="Ítems con salida" value=\{fmtNum\(d\.movimientos\.length\)\}/);
+  assert.equal(927+11,938);
+});
+
+test('Promedio indicador usa únicamente solicitudes cerradas',()=>{
+  const result=abastecimientoInstantVitePlugin().transform(
+    source,
+    '/repo/src/modules/abastecimiento/AbastecimientoModule.jsx'
+  );
+  assert.ok(result?.code);
+  assert.match(result.code,/cerrada:!rejectedSolicitudes\?\.\[buildSolicitudKey\(row\)\]&&toNumber\(row\.cantidadSolicitada\)>0&&\(toNumber\(row\.cantidadRestante\)<=0\|\|closedSolicitudes\?\.\[buildSolicitudKey\(row\)\]\)/);
+  assert.match(result.code,/const movimientosCerrados=movimientos\.filter\(r=>r\.cerrada\);/);
+  assert.match(result.code,/const avg=movimientosCerrados\.length\?movimientosCerrados\.reduce\(\(a,r\)=>a\+r\.indicadorNum,0\)\/movimientosCerrados\.length:0;/);
+  assert.doesNotMatch(result.code,/const avg=movimientos\.length\?movimientos\.reduce/);
 });
