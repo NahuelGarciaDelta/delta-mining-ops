@@ -34,6 +34,18 @@ const RABA03_EXTRA_COLUMNS = [
 const RABA08_STORAGE_KEY = "dm_raba08_remitos_v1";
 const RABA03_REJECTED_STORAGE_KEY = "dm_raba03_solicitudes_rechazadas_v1";
 const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";
+const fetchWithTimeout=async(url,options={},timeoutMs=20000,label="Solicitud")=>{
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    return await fetch(url,{...options,signal:controller.signal});
+  }catch(err){
+    if(err?.name==="AbortError")throw new Error(`${label} no respondió dentro de ${Math.round(timeoutMs/1000)} segundos`);
+    throw err;
+  }finally{
+    clearTimeout(timer);
+  }
+};
 const parseChronoDateMs=(value)=>{
   const raw=String(value||"").trim();
   if(!raw)return 0;
@@ -93,6 +105,8 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     try{return JSON.parse(window.localStorage.getItem(RABA08_STORAGE_KEY)||"[]");}
     catch(_){return [];} 
   });
+  const remitosRef=useRef(remitos);
+  useEffect(()=>{remitosRef.current=remitos;},[remitos]);
   const [remitoForm,setRemitoForm]=useState({
     comprobante:"",
     fecha:new Date().toISOString().slice(0,10),
@@ -377,7 +391,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
 
   const loadEstadosSolicitudesCompartidos=useCallback(async({silent=true}={})=>{
     try{
-      const res=await fetch(`${APPS_SCRIPT_URL}?action=estados_solicitudes&force=1&_=${Date.now()}`,{cache:"no-store",redirect:"follow"});
+      const res=await fetchWithTimeout(`${APPS_SCRIPT_URL}?action=estados_solicitudes&force=1&_=${Date.now()}`,{cache:"no-store",redirect:"follow"},15000,"Estados de solicitudes");
       if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los estados compartidos.");
@@ -428,7 +442,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
   const loadRemitosCompartidos=useCallback(async({silent=true}={})=>{
     try{
       const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&force=1&_=${Date.now()}`;
-      const res=await fetch(url,{method:"GET",cache:"no-store",redirect:"follow"});
+      const res=await fetchWithTimeout(url,{method:"GET",cache:"no-store",redirect:"follow"},15000,"Remitos");
       if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los remitos cargados.");
@@ -964,12 +978,12 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
     try{
       const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;
-      const res=await fetch(url,{cache:"no-store"});
+      const res=await fetchWithTimeout(url,{cache:"no-store"},20000,"RABA03");
       const json=await res.json();
       if(!json.ok)throw new Error(json?.error?.message||"No se pudo leer RABA03");
       const raw=Array.isArray(json.data)?json.data:(Array.isArray(json?.sources?.raba03?.data)?json.sources.raba03.data:[]);
       rawRaba03RowsRef.current=raw;
-      const sourceRemitos=Array.isArray(remitosOverride)?remitosOverride:remitos;
+      const sourceRemitos=Array.isArray(remitosOverride)?remitosOverride:remitosRef.current;
       setRows(mapRaba03Rows(raw,sourceRemitos));
     }catch(err){
       if(!silent){
@@ -981,7 +995,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }finally{
       if(!silent)setLoading(false);
     }
-  },[mapRaba03Rows,remitos]);
+  },[mapRaba03Rows]);
 
   // Carga inicial coordinada: primero se esperan los remitos y estados reales;
   // recién entonces se normaliza RABA03 con esas cantidades. Pasar los remitos
@@ -991,11 +1005,27 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     raba03InitialLoadDoneRef.current=true;
     let cancelled=false;
     const run=async()=>{
-      let sharedRemitos=null;
-      try{sharedRemitos=await loadRemitosCompartidos({silent:true});}catch(_){}
-      try{await loadEstadosSolicitudesCompartidos({silent:true});}catch(_){}
+      const remitosTask=loadRemitosCompartidos({silent:true}).catch(err=>{
+        console.warn("No se pudieron actualizar remitos al iniciar Abastecimiento:",err);
+        return null;
+      });
+      const estadosTask=loadEstadosSolicitudesCompartidos({silent:true}).catch(err=>{
+        console.warn("No se pudieron actualizar estados al iniciar Abastecimiento:",err);
+        return null;
+      });
+
+      // RABA03 es la vista principal: cargarla ya, sin esperar llamadas auxiliares.
+      try{await loadRaba03({silent:false});}catch(_){}
       if(cancelled)return;
-      await loadRaba03({silent:false,remitosOverride:sharedRemitos});
+
+      const [sharedRemitos]=await Promise.all([remitosTask,estadosTask]);
+      if(cancelled)return;
+      if(Array.isArray(sharedRemitos)){
+        // Reconciliar trazabilidad/dashboard en segundo plano, sin volver a bloquear la UI.
+        await loadRaba03({silent:true,remitosOverride:sharedRemitos}).catch(err=>{
+          console.warn("No se pudo reconciliar RABA03 con remitos:",err);
+        });
+      }
     };
     run();
     return()=>{
