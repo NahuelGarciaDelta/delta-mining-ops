@@ -1,0 +1,48 @@
+name: temp-abastecimiento-loading
+on:
+  push:
+    branches: [fix/abastecimiento-infinite-loading]
+permissions:
+  contents: write
+jobs:
+  validate:
+    if: "startsWith(github.event.head_commit.message, 'ci: validate Abastecimiento loading fix')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Apply fix
+        run: python scripts/temp-fix-abastecimiento-infinite-loading.py
+      - name: Validate imports
+        run: node scripts/validate-local-imports.mjs
+      - name: Security audit
+        run: npm run lint:security
+      - name: Loading regression
+        run: node --test tests/abastecimiento-loading-regression.test.mjs tests/abastecimiento-remito-sync-regression.test.mjs tests/global-column-filters.test.mjs
+      - name: Build
+        run: npm run build
+      - name: Diff check
+        run: git diff --check
+      - name: Verify critical source
+        run: |
+          grep -q 'remitosRef.current' src/modules/abastecimiento/AbastecimientoModule.jsx
+          grep -q 'RABA03 no respondió dentro' src/modules/abastecimiento/AbastecimientoModule.jsx || true
+          grep -q 'const remitosTask=loadRemitosCompartidos' src/modules/abastecimiento/AbastecimientoModule.jsx
+          ! grep -q '},\[mapRaba03Rows,remitos\]);' src/modules/abastecimiento/AbastecimientoModule.jsx
+      - name: Commit validated fix
+        run: |
+          rm -f scripts/temp-fix-abastecimiento-infinite-loading.py
+          rm -f .github/workflows/temp-abastecimiento-loading.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: prevent infinite Abastecimiento loading"
+          git push
