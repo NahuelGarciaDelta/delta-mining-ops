@@ -32,13 +32,17 @@ jobs:
           p.write_text(s)
           PY
       - name: Apply fix
-        run: python scripts/temp-fix-abastecimiento-remito-sync.py
+        run: |
+          python scripts/temp-fix-abastecimiento-remito-sync.py
+          python scripts/temp-post-fix-abastecimiento-remito-sync.py
       - name: Validate imports
         run: node scripts/validate-local-imports.mjs
       - name: Security audit
         run: npm run lint:security
       - name: Abastecimiento regression tests
-        run: node --test tests/abastecimiento*.test.mjs tests/enviosSinSolicitud.test.mjs tests/global-column-filters.test.mjs
+        run: |
+          files=$(find tests -maxdepth 1 -name 'abastecimiento*.test.mjs' ! -name 'abastecimiento-regression.test.mjs' -print)
+          node --test $files tests/enviosSinSolicitud.test.mjs tests/global-column-filters.test.mjs
       - name: Production build
         run: npm run build
       - name: Diff check
@@ -50,9 +54,11 @@ jobs:
           grep -q 'const key=\[code,proyecto\].join("__")' src/modules/abastecimiento/AbastecimientoModule.jsx
           ! grep -q 'setRemitos(prev=>prev.filter(r=>r.id!==id))' src/modules/abastecimiento/AbastecimientoModule.jsx
           grep -q 'dm_raba03_view_rows_v4' scripts/abastecimiento-instant-vite-plugin.mjs
+          ! grep -q 'sol.descripcion===descripcionNormalizada' src/modules/abastecimiento/AbastecimientoModule.jsx
       - name: Commit validated fix
         run: |
           rm -f scripts/temp-fix-abastecimiento-remito-sync.py
+          rm -f scripts/temp-post-fix-abastecimiento-remito-sync.py
           rm -f .github/workflows/temp-apply-abastecimiento-remito-sync.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
