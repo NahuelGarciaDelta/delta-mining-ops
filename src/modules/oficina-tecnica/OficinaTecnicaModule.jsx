@@ -10,6 +10,7 @@ import {cancelEquipmentMovement,saveEquipmentMovement,useEquipmentMovements} fro
 import {cancelErrorAcceptance,errorAcceptanceKey,saveErrorAcceptance,useErrorAcceptances} from "../../services/errorAcceptances.js";
 import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/index.jsx";
+import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -3463,6 +3464,7 @@ function calcularErroresControlEquipo(rows){
   });
   const erroresPartes=[];
   const erroresHoro=[];
+  const erroresDuplicados=detectRop02DuplicateLoads(rows);
   const parseParte=p=>{const m=String(p||"").match(/(\d+)/g);return m?Number(m[m.length-1]):null;};
   Object.entries(byMaqProyecto).forEach(([groupKey,items])=>{
     const maq=groupKey.split("|||")[0];
@@ -3590,7 +3592,7 @@ function calcularErroresControlEquipo(rows){
   });
   erroresPartes.sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||String(a.maquina||"").localeCompare(String(b.maquina||"")));
   erroresHoro.sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||String(a.maquina||"").localeCompare(String(b.maquina||"")));
-  return{erroresPartes,erroresHoro};
+  return{erroresPartes,erroresHoro,erroresDuplicados};
 }
 
 // ─── ControlDeErrores ───────────────────────────────────────────────────────
@@ -3638,6 +3640,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   const todosErrores=useMemo(()=>[
     ...control.erroresPartes.map(error=>({...error,_tipo:"Numeración"})),
     ...control.erroresHoro.map(error=>({...error,_tipo:"Horómetro"})),
+    ...control.erroresDuplicados.map(error=>({...error,_tipo:"Carga duplicada"})),
   ].sort((a,b)=>(a.fecha||"").localeCompare(b.fecha||"")||String(a.maquina||"").localeCompare(String(b.maquina||""))),[control]);
   const {data:erroresAceptados,byKey:aceptadosPorClave,error:errorAceptadosError,reload:recargarErroresAceptados,remember:recordarAceptacion,restore:retirarAceptacionLocal}=useErrorAcceptances(proyectosAutorizados,["controlErrores","controlROP02"]);
   const [modalError,setModalError]=useState(null);
@@ -3649,11 +3652,14 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     ?control.erroresPartes.map(error=>({...error,_tipo:"Numeración"}))
     :tipo==="horometros"
       ?control.erroresHoro.map(error=>({...error,_tipo:"Horómetro"}))
-      :todosErrores;
+      :tipo==="duplicadas"
+        ?control.erroresDuplicados.map(error=>({...error,_tipo:"Carga duplicada"}))
+        :todosErrores;
   const erroresPendientes=useMemo(()=>erroresTabla.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey(error))),[erroresTabla,aceptadosPorClave]);
   const todosPendientes=useMemo(()=>todosErrores.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey(error))),[todosErrores,aceptadosPorClave]);
   const pendientesNumeracion=useMemo(()=>control.erroresPartes.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey({...error,_tipo:"Numeración"}))).length,[control.erroresPartes,aceptadosPorClave]);
   const pendientesHorometro=useMemo(()=>control.erroresHoro.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey({...error,_tipo:"Horómetro"}))).length,[control.erroresHoro,aceptadosPorClave]);
+  const pendientesDuplicados=useMemo(()=>control.erroresDuplicados.filter(error=>!aceptadosPorClave.has(errorAcceptanceKey({...error,_tipo:"Carga duplicada"}))).length,[control.erroresDuplicados,aceptadosPorClave]);
   const erroresAceptadosTabla=useMemo(()=>erroresAceptados.filter(error=>{
     if(!matchMulti(error.proyecto,proyecto,"todos"))return false;
     if(!matchMulti(error.maquina,maquina,"todas"))return false;
@@ -3661,6 +3667,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     if(error.fecha<rangoDesde||error.fecha>rangoHasta)return false;
     if(tipo==="numeracion"&&error.tipo!=="Numeración")return false;
     if(tipo==="horometros"&&error.tipo!=="Horómetro")return false;
+    if(tipo==="duplicadas"&&error.tipo!=="Carga duplicada")return false;
     return true;
   }).sort((a,b)=>String(b.fechaAceptacion||"").localeCompare(String(a.fechaAceptacion||""))),[erroresAceptados,proyecto,maquina,tipoMaquina,rangoDesde,rangoHasta,tipo]);
   const porProyecto=useMemo(()=>{
@@ -3677,7 +3684,10 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   const reset=()=>setExtState({tipoMaquina:"todas",proyecto:"todos",maquina:"todas",año:String(hoy.getFullYear()),mesIdx:hoy.getMonth(),tipo:"todos",fechaDesde:"",fechaHasta:""});
   const descargar=()=>{
     const cols=["Tipo","Proyecto","Máquina","Fecha con error","Turno","Supervisor","Parte informado","Valor informado","Valor esperado/anterior","Diferencia","Fecha anterior","Turno anterior","Parte anterior","Detalle"];
-    const data=[cols,...erroresPendientes.map(error=>[error._tipo,error.proyecto,error.maquina,error.fecha,error.turno,error.supervisor,error.numeroIncorrecto||error.parte||"",error.numeroIncorrecto||error.hiActual||"",error.numeroCorrecto||error.hfAnterior||"",error.diff,error.fechaAnterior||"",error.turnoAnterior||"",error.parteAnterior||"",error.detalle||""])];
+    const data=[cols,...erroresPendientes.map(error=>{
+      const duplicada=error._tipo==="Carga duplicada";
+      return [error._tipo,error.proyecto,error.maquina,error.fecha,error.turno,error.supervisor,error.numeroIncorrecto||error.parte||"",duplicada?`${error.cargasDetectadas||error.numeroIncorrecto} cargas (${error.turnosDetectados||error.turno||"—"})`:error.numeroIncorrecto||error.hiActual||"",duplicada?"TD + TN (máx. 2)":error.numeroCorrecto||error.hfAnterior||"",duplicada&&Number(error.diff)===0?"Turno repetido":error.diff,error.fechaAnterior||"",error.turnoAnterior||"",error.parteAnterior||"",error.detalle||""];
+    })];
     const workbook=XLSX.utils.book_new();
     const worksheet=XLSX.utils.aoa_to_sheet(data);
     worksheet["!cols"]=cols.map(header=>({wch:Math.max(header.length+2,14)}));
@@ -3746,7 +3756,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
           <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{set("tipoMaquina",value);set("maquina","todas");}} options={dmTipoMaquinaOptions()}/>
           <MultiSel label="Proyecto" value={proyecto} onChange={value=>{set("proyecto",value);set("maquina","todas");}} options={[{value:"todos",label:"Todos"},...proyectos.map(value=>({value,label:value}))]}/>
           <MultiSel label="Máquina" value={maquina} onChange={value=>set("maquina",value)} options={[{value:"todas",label:"Todas"},...maquinas.map(value=>({value,label:value}))]}/>
-          <Sel label="Tipo de error" value={tipo} onChange={value=>set("tipo",value)} options={[{value:"todos",label:"Todos"},{value:"numeracion",label:"Numeración"},{value:"horometros",label:"Horómetros"}]}/>
+          <Sel label="Tipo de error" value={tipo} onChange={value=>set("tipo",value)} options={[{value:"todos",label:"Todos"},{value:"numeracion",label:"Numeración"},{value:"horometros",label:"Horómetros"},{value:"duplicadas",label:"Cargas duplicadas"}]}/>
           <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:"1px solid "+C.border,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{fmtFecha(rangoDesde)} → {fmtFecha(rangoHasta)}</strong></div>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:"1px solid "+C.red+"44",background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
             <Icon name="close" size={11} color={C.red}/>Limpiar filtros
@@ -3759,6 +3769,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
         <StatCard icon="warn" label="Errores pendientes" value={fmtNum(todosPendientes.length)} sub={String(filtered.length)+" registros controlados"} color={todosPendientes.length?C.red:C.green} small/>
         <StatCard icon="parts" label="Numeración pendiente" value={fmtNum(pendientesNumeracion)} sub="Partes diarios no consecutivos" color={pendientesNumeracion?C.yellow:C.green} small/>
         <StatCard icon="hours" label="Horómetros pendientes" value={fmtNum(pendientesHorometro)} sub="Cortes entre días registrados" color={pendientesHorometro?C.red:C.green} small/>
+        <StatCard icon="warn" label="Cargas duplicadas" value={fmtNum(pendientesDuplicados)} sub="Máximo TD + TN por equipo/día" color={pendientesDuplicados?C.red:C.green} small/>
         <StatCard icon="check" label="Errores aceptados" value={fmtNum(erroresAceptadosTabla.length)} sub="Con justificación registrada" color={C.green} small/>
         <StatCard icon="equip" label="Equipos afectados" value={fmtNum(new Set(todosPendientes.map(error=>error.maquina)).size)} sub={String(maquinas.length)+" equipos en filtro"} color={C.purple} small/>
       </div>
@@ -3775,6 +3786,11 @@ function ControlDeErrores({rop02All,extState,setExtState}){
                 <thead><tr style={{background:C.surface}}>{["Tipo","Proyecto","Máquina","Fecha","Turno","Supervisor","Dato informado","Dato esperado","Diferencia","Referencia anterior","Detalle","Acción"].map(header=><th key={header} style={th}>{header}</th>)}</tr></thead>
                 <tbody>{erroresPendientes.map((error,index)=>{
                   const esParte=error._tipo==="Numeración";
+                  const esDuplicada=error._tipo==="Carga duplicada";
+                  const datoInformado=esParte?"#"+error.numeroIncorrecto:esDuplicada?`${error.cargasDetectadas||error.numeroIncorrecto} cargas (${error.turnosDetectados||error.turno||"—"})`:fmtNum(error.hiActual);
+                  const datoEsperado=esParte?"#"+error.numeroCorrecto:esDuplicada?"TD + TN (máx. 2)":fmtNum(error.hfAnterior);
+                  const diferencia=esDuplicada?(Number(error.diff)>0?`+${error.diff} carga${Number(error.diff)===1?"":"s"}`:"Turno repetido"):(error.diff>0?"+"+fmtNum(error.diff):fmtNum(error.diff));
+                  const referencia=esDuplicada?`Partes: ${error.partesDetectados||error.parteAnterior||"—"}`:`${fmtFecha(error.fechaAnterior)} · ${error.turnoAnterior||"—"} · #${error.parteAnterior||"—"}`;
                   return <tr key={errorAcceptanceKey(error)} style={{background:index%2===0?C.red+"0a":"transparent"}}>
                     <td style={td}><Badge color={esParte?C.yellow:C.red}>{error._tipo}</Badge></td>
                     <td style={td}>{error.proyecto}</td>
@@ -3782,10 +3798,10 @@ function ControlDeErrores({rop02All,extState,setExtState}){
                     <td style={{...td,fontWeight:800}}>{fmtFecha(error.fecha)}</td>
                     <td style={td}><Badge color={error.turno==="TD"?C.blue:C.purple}>{error.turno}</Badge></td>
                     <td style={td}>{error.supervisor}</td>
-                    <td style={{...td,color:C.red,fontWeight:900}}>{esParte?"#"+error.numeroIncorrecto:fmtNum(error.hiActual)}</td>
-                    <td style={{...td,color:C.yellow,fontWeight:900}}>{esParte?"#"+error.numeroCorrecto:fmtNum(error.hfAnterior)}</td>
-                    <td style={td}><Badge color={error.diff>0?C.yellow:C.red}>{error.diff>0?"+"+fmtNum(error.diff):fmtNum(error.diff)}</Badge></td>
-                    <td style={td}>{fmtFecha(error.fechaAnterior)} · {error.turnoAnterior||"—"} · #{error.parteAnterior||"—"}</td>
+                    <td style={{...td,color:C.red,fontWeight:900}}>{datoInformado}</td>
+                    <td style={{...td,color:C.yellow,fontWeight:900}}>{datoEsperado}</td>
+                    <td style={td}><Badge color={esDuplicada?C.red:error.diff>0?C.yellow:C.red}>{diferencia}</Badge></td>
+                    <td style={td}>{referencia}</td>
                     <td style={{...td,minWidth:240,color:C.textSub}}>{error.detalle||"—"}</td>
                     <td style={{...td,textAlign:"right",whiteSpace:"nowrap"}}><button onClick={()=>abrirAceptacion(error)} style={{border:"1px solid "+C.green+"66",background:C.greenDim,color:C.green,borderRadius:7,padding:"6px 10px",fontSize:11,fontWeight:900,cursor:"pointer"}}>Aceptar</button></td>
                   </tr>;
