@@ -787,17 +787,41 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       return;
     }
     const key=buildSolicitudKey(row);
+    const info={
+      observacion,
+      nSolicitud:row.nSolicitud||"",
+      codigoArticulo:row.codigoArticulo||"",
+      descripcion:row.descripcion||"",
+      fecha:row.fechaSolicitud||"",
+      usuario:sessionStorage.getItem("dm_user")||"APP"
+    };
     setActionLoading("Guardando rechazo en Google Sheets...");
     try{
+      // Esta es la única espera necesaria para confirmar que Google Sheets escribió.
       await postEstadoSolicitud("save_estado_solicitud",{estado:{
         clave:key,estado:"RECHAZADA",observacion,
-        nSolicitud:row.nSolicitud||"",codigoArticulo:row.codigoArticulo||"",
-        descripcion:row.descripcion||"",fechaSolicitud:row.fechaSolicitud||"",usuario:sessionStorage.getItem("dm_user")||"APP"
+        nSolicitud:info.nSolicitud,codigoArticulo:info.codigoArticulo,
+        descripcion:info.descripcion,fechaSolicitud:row.fechaSolicitud||"",usuario:info.usuario
       }});
-      await loadEstadosSolicitudesCompartidos({silent:true});
+
+      // Reflejar de inmediato el estado confirmado sin esperar una segunda lectura completa.
+      setRejectedSolicitudes(prev=>{
+        const next={...(prev||{}),[key]:info};
+        try{window.localStorage.setItem(RABA03_REJECTED_STORAGE_KEY,JSON.stringify(next));}catch(_){}
+        return next;
+      });
       setRejectModal({open:false,row:null,observacion:""});
-    }catch(err){appAlert("No se pudo guardar el rechazo para todos: "+(err?.message||err));}
-    finally{setActionLoading("");}
+
+      // La resincronización global es sólo verificación y jamás debe convertir
+      // un rechazo ya guardado en un falso error para el usuario.
+      loadEstadosSolicitudesCompartidos({silent:true}).catch(err=>{
+        console.warn("El rechazo se guardó, pero falló la verificación en segundo plano:",err);
+      });
+    }catch(err){
+      appAlert("No se pudo guardar el rechazo: "+(err?.message||err));
+    }finally{
+      setActionLoading("");
+    }
   },[rejectModal,buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const closeSolicitudManual=useCallback(async(row)=>{
@@ -891,9 +915,20 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     setActionLoading("Restaurando solicitud en Google Sheets...");
     try{
       await postEstadoSolicitud("delete_estado_solicitud",{clave:key});
-      await loadEstadosSolicitudesCompartidos({silent:true});
-    }catch(err){appAlert("No se pudo restaurar la solicitud para todos: "+(err?.message||err));}
-    finally{setActionLoading("");}
+      setRejectedSolicitudes(prev=>{
+        const next={...(prev||{})};
+        delete next[key];
+        try{window.localStorage.setItem(RABA03_REJECTED_STORAGE_KEY,JSON.stringify(next));}catch(_){}
+        return next;
+      });
+      loadEstadosSolicitudesCompartidos({silent:true}).catch(err=>{
+        console.warn("La restauración se guardó, pero falló la verificación en segundo plano:",err);
+      });
+    }catch(err){
+      appAlert("No se pudo restaurar la solicitud: "+(err?.message||err));
+    }finally{
+      setActionLoading("");
+    }
   },[buildSolicitudKey,postEstadoSolicitud,loadEstadosSolicitudesCompartidos]);
 
   const reopenManualClosedSolicitud=useCallback(async(row)=>{
