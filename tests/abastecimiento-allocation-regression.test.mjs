@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { abastecimientoInstantVitePlugin } from '../scripts/abastecimiento-instant-vite-plugin.mjs';
 
 const source=fs.readFileSync(new URL('../src/modules/abastecimiento/AbastecimientoModule.jsx',import.meta.url),'utf8');
 const plugin=fs.readFileSync(new URL('../scripts/abastecimiento-instant-vite-plugin.mjs',import.meta.url),'utf8');
@@ -33,4 +34,14 @@ test('vite no reemplaza Envíos sin solicitud por FIFO retroactivo',()=>{
 
 test('Dashboard de Abastecimiento excluye decorador global de filtros por columna',()=>{
   assert.match(source,/renderAbastecimientoDashboard[\s\S]*data-dm-disable-global-column-filters="1"/);
+});
+
+test('Dashboard cuenta todos los ítems con salida aunque no tengan indicador calculable',()=>{
+  const result=abastecimientoInstantVitePlugin().transform(
+    source,
+    '/repo/src/modules/abastecimiento/AbastecimientoModule.jsx'
+  );
+  assert.ok(result?.code);
+  assert.match(result.code,/label="Ítems con salida" value=\{fmtNum\(raba03DashboardRows\.length\)\}/);
+  assert.doesNotMatch(result.code,/label="Ítems con salida" value=\{fmtNum\(d\.movimientos\.length\)\}/);
 });
