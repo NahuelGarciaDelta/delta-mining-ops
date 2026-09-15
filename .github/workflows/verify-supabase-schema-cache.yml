@@ -1,0 +1,34 @@
+name: verify-supabase-schema-cache
+
+on:
+  push:
+    branches:
+      - verify/supabase-schema-cache-20260915
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Call Abastecimiento RPC through supabase-js
+        run: |
+          node --input-type=module <<'NODE'
+          import { requireSupabase } from './src/services/supabaseClient.js';
+          const started=Date.now();
+          const {data,error}=await requireSupabase().rpc('abastecimiento_snapshot',{});
+          if(error){
+            console.error('RPC_ERROR', error);
+            process.exit(1);
+          }
+          const raba03=Array.isArray(data?.raba03)?data.raba03.length:-1;
+          const remitos=Array.isArray(data?.remitos)?data.remitos.length:-1;
+          const estados=Array.isArray(data?.estados)?data.estados.length:-1;
+          console.log(JSON.stringify({elapsed_ms:Date.now()-started,raba03,remitos,estados}));
+          if(raba03!==1314) process.exit(2);
+          NODE
