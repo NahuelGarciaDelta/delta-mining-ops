@@ -13,7 +13,7 @@ export function abastecimientoInstantVitePlugin(){
 
       next=next.replace(
         'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";',
-        'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";\nconst RABA03_VIEW_CACHE_KEY = "dm_raba03_view_rows_v2";'
+        'const RABA03_CLOSED_STORAGE_KEY = "dm_raba03_solicitudes_cerradas_manual_v1";\nconst RABA03_VIEW_CACHE_KEY = "dm_raba03_view_rows_v3";'
       );
 
       next=next.replace(
@@ -41,23 +41,37 @@ export function abastecimientoInstantVitePlugin(){
         'const mappedRows=mapRaba03Rows(raw,sourceRemitos);\n      setRows(mappedRows);\n      try{window.localStorage.setItem(RABA03_VIEW_CACHE_KEY,JSON.stringify(mappedRows));}catch(_){}'
       );
 
+      const sourceTraceBefore=`      cantidadSolicitada:solicitada,\n      cantidadEnviada:enviada,\n      cantidadRestante:restante\n    };\n  },[formatDateLocal,pick,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa,numeroSolicitudHistorica]);`;
+      const sourceTraceAfter=`      cantidadSolicitada:solicitada,\n      cantidadEnviada:enviada,\n      cantidadRestante:restante,\n      fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"])),\n      numeroRemitoFuente:String(pick(r,["Nº Remito","N° Remito","Remito"])||"").trim()\n    };\n  },[formatDateLocal,pick,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa,numeroSolicitudHistorica]);`;
+      if(!next.includes(sourceTraceBefore)){
+        throw new Error('No se encontró el bloque fuente de Fecha de salida en RABA03');
+      }
+      next=next.replace(sourceTraceBefore,sourceTraceAfter);
+
       const sequential=`const run=async()=>{\n      let sharedRemitos=null;\n      try{sharedRemitos=await loadRemitosCompartidos({silent:true});}catch(_){}\n      try{await loadEstadosSolicitudesCompartidos({silent:true});}catch(_){}\n      if(cancelled)return;\n      await loadRaba03({silent:false,remitosOverride:sharedRemitos});\n    };`;
       const parallel=`const run=async()=>{\n      const [remitosResult]=await Promise.allSettled([\n        loadRemitosCompartidos({silent:true}),\n        loadEstadosSolicitudesCompartidos({silent:true})\n      ]);\n      if(cancelled)return;\n      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;\n      await loadRaba03({silent:rows.length>0,remitosOverride:sharedRemitos});\n    };`;
       next=next.replace(sequential,parallel);
 
-      const dashboardRowsBefore=`          cantidadRemito:m.cantidad||0,\n          indicador:calcularIndicadorRABA03(row.fechaSolicitud,m.fecha)\n        }));\n      }\n    });\n    return out;\n  },[assignedRows,calcularIndicadorRABA03]);`;
-      const dashboardRowsAfter=`          cantidadRemito:m.cantidad||0,\n          indicador:calcularIndicadorRABA03(row.fechaSolicitud,m.fecha),\n          cerrada:!rejectedSolicitudes?.[buildSolicitudKey(row)]&&toNumber(row.cantidadSolicitada)>0&&(toNumber(row.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(row)])\n        }));\n      }\n    });\n    return out;\n  },[assignedRows,calcularIndicadorRABA03,toNumber,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);`;
-      if(!next.includes(dashboardRowsBefore)){
-        throw new Error('No se encontró el bloque de filas del dashboard de Abastecimiento');
+      const dashboardMetricHeadBefore=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const avg=movimientos.length?movimientos.reduce((a,r)=>a+r.indicadorNum,0)/movimientos.length:0;\n    const max=movimientos.length?Math.max(...movimientos.map(r=>r.indicadorNum)):0;\n    const min=movimientos.length?Math.min(...movimientos.map(r=>r.indicadorNum)):0;\n    const filasActivas=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);\n    const pendientes=filasActivas.filter(r=>toNumber(r.cantidadEnviada)<=0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const parciales=filasActivas.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const cerradas=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).length;`;
+      const dashboardMetricHeadAfter=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const filasActivas=assignedRows.filter(r=>!rejectedSolicitudes?.[buildSolicitudKey(r)]);\n    const pendientes=filasActivas.filter(r=>toNumber(r.cantidadEnviada)<=0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const parciales=filasActivas.filter(r=>toNumber(r.cantidadEnviada)>0&&toNumber(r.cantidadRestante)>0&&!closedSolicitudes?.[buildSolicitudKey(r)]).length;\n    const cerradas=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).length;\n    const indicadoresCerrados=filasActivas.filter(r=>toNumber(r.cantidadSolicitada)>0&&(toNumber(r.cantidadRestante)<=0||closedSolicitudes?.[buildSolicitudKey(r)])).map(r=>{\n      const fechaSalida=String(r.fechaSalidaFuente||"").trim();\n      const indicador=fechaSalida?calcularIndicadorRABA03(r.fechaSolicitud,fechaSalida):"";\n      return {...r,fechaSalida,indicadorNum:indicador===""?NaN:Number(indicador)};\n    }).filter(r=>Number.isFinite(r.indicadorNum)&&r.indicadorNum>=0);\n    const avg=indicadoresCerrados.length?indicadoresCerrados.reduce((a,r)=>a+r.indicadorNum,0)/indicadoresCerrados.length:0;\n    const max=indicadoresCerrados.length?Math.max(...indicadoresCerrados.map(r=>r.indicadorNum)):0;\n    const min=indicadoresCerrados.length?Math.min(...indicadoresCerrados.map(r=>r.indicadorNum)):0;`;
+      if(!next.includes(dashboardMetricHeadBefore)){
+        throw new Error('No se encontró el bloque principal del indicador de Abastecimiento');
       }
-      next=next.replace(dashboardRowsBefore,dashboardRowsAfter);
+      next=next.replace(dashboardMetricHeadBefore,dashboardMetricHeadAfter);
 
-      const dashboardAvgBefore=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const avg=movimientos.length?movimientos.reduce((a,r)=>a+r.indicadorNum,0)/movimientos.length:0;`;
-      const dashboardAvgAfter=`    const movimientos=(raba03DashboardRows||[]).map(r=>({...r,indicadorNum:Number(r.indicador)})).filter(r=>Number.isFinite(r.indicadorNum));\n    const movimientosCerrados=movimientos.filter(r=>r.cerrada);\n    const avg=movimientosCerrados.length?movimientosCerrados.reduce((a,r)=>a+r.indicadorNum,0)/movimientosCerrados.length:0;`;
-      if(!next.includes(dashboardAvgBefore)){
-        throw new Error('No se encontró el cálculo del promedio indicador de Abastecimiento');
+      const porProyectoBefore='    const porProyecto=Object.values(movimientos.reduce((acc,r)=>{';
+      const porProyectoAfter='    const porProyecto=Object.values(indicadoresCerrados.reduce((acc,r)=>{';
+      if(!next.includes(porProyectoBefore)){
+        throw new Error('No se encontró el promedio por proyecto de Abastecimiento');
       }
-      next=next.replace(dashboardAvgBefore,dashboardAvgAfter);
+      next=next.replace(porProyectoBefore,porProyectoAfter);
+
+      const demoraBefore=`    const demora=[\n      {name:"0-3 días",value:movimientos.filter(r=>r.indicadorNum>=0&&r.indicadorNum<=3).length,color:C.green},\n      {name:"4-7 días",value:movimientos.filter(r=>r.indicadorNum>=4&&r.indicadorNum<=7).length,color:C.blue},\n      {name:"8-15 días",value:movimientos.filter(r=>r.indicadorNum>=8&&r.indicadorNum<=15).length,color:C.yellow},\n      {name:">15 días",value:movimientos.filter(r=>r.indicadorNum>15).length,color:C.red},\n    ];\n    const masDemorados=[...movimientos].sort((a,b)=>b.indicadorNum-a.indicadorNum).slice(0,8);\n    return {movimientos,avg,max,min,pendientes,parciales,cerradas,total:assignedRows.length,porProyecto,porMes,estados,demora,masDemorados};\n  },[raba03DashboardRows,assignedRows,toNumber,parseRabaDateMs,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);`;
+      const demoraAfter=`    const demora=[\n      {name:"0-3 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=0&&r.indicadorNum<=3).length,color:C.green},\n      {name:"4-7 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=4&&r.indicadorNum<=7).length,color:C.blue},\n      {name:"8-15 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>=8&&r.indicadorNum<=15).length,color:C.yellow},\n      {name:">15 días",value:indicadoresCerrados.filter(r=>r.indicadorNum>15).length,color:C.red},\n    ];\n    const masDemorados=[...indicadoresCerrados].sort((a,b)=>b.indicadorNum-a.indicadorNum).slice(0,8);\n    return {movimientos,indicadoresCerrados,avg,max,min,pendientes,parciales,cerradas,total:assignedRows.length,porProyecto,porMes,estados,demora,masDemorados};\n  },[raba03DashboardRows,assignedRows,toNumber,parseRabaDateMs,calcularIndicadorRABA03,buildSolicitudKey,rejectedSolicitudes,closedSolicitudes]);`;
+      if(!next.includes(demoraBefore)){
+        throw new Error('No se encontró la distribución de demoras de Abastecimiento');
+      }
+      next=next.replace(demoraBefore,demoraAfter);
 
       const itemsConSalidaBefore='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.movimientos.length)} sub="con remito asignado" color={C.green} small/>';
       const itemsConSalidaAfter='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.cerradas+d.parciales)} sub="cerradas + parciales" color={C.green} small/>';
@@ -88,6 +102,9 @@ export function abastecimientoInstantVitePlugin(){
       if(next.includes('action=remitos_cargados')){
         throw new Error('Abastecimiento no debe volver a leer remitos pesados desde Apps Script');
       }
+      if(!next.includes('fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"]))')){
+        throw new Error('Indicador debe conservar la Fecha de salida oficial de RABA03');
+      }
       if(next.includes('label="Ítems con salida" value={fmtNum(d.movimientos.length)}')){
         throw new Error('Ítems con salida no debe depender de movimientos/indicadores calculables');
       }
@@ -97,8 +114,14 @@ export function abastecimientoInstantVitePlugin(){
       if(!next.includes('label="Ítems con salida" value={fmtNum(d.cerradas+d.parciales)}')){
         throw new Error('Ítems con salida debe ser cerradas + parciales');
       }
-      if(!next.includes('const movimientosCerrados=movimientos.filter(r=>r.cerrada);')||!next.includes('const avg=movimientosCerrados.length?')){
-        throw new Error('Promedio indicador debe calcularse sólo con solicitudes cerradas');
+      if(!next.includes('const indicadoresCerrados=filasActivas.filter(')||!next.includes('const avg=indicadoresCerrados.length?')){
+        throw new Error('Promedio indicador debe calcularse una vez por ítem cerrado');
+      }
+      if(next.includes('value:movimientos.filter(r=>r.indicadorNum>15).length')){
+        throw new Error('Distribución de demoras no debe contar movimientos/remitos');
+      }
+      if(!next.includes('value:indicadoresCerrados.filter(r=>r.indicadorNum>15).length')){
+        throw new Error('Distribución de demoras debe contar ítems cerrados únicos');
       }
 
       if(next===code)return null;
