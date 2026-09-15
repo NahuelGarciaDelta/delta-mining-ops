@@ -1,4 +1,5 @@
 name: temp-apply-abastecimiento-remito-sync
+# final retry after aligning legacy guard assertions
 on:
   push:
     branches: [fix/abastecimiento-remito-sync-loading]
