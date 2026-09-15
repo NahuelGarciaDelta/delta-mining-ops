@@ -45,6 +45,13 @@ export function abastecimientoInstantVitePlugin(){
       const parallel=`const run=async()=>{\n      const [remitosResult]=await Promise.allSettled([\n        loadRemitosCompartidos({silent:true}),\n        loadEstadosSolicitudesCompartidos({silent:true})\n      ]);\n      if(cancelled)return;\n      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;\n      await loadRaba03({silent:rows.length>0,remitosOverride:sharedRemitos});\n    };`;
       next=next.replace(sequential,parallel);
 
+      const itemsConSalidaBefore='<StatCard icon="check" label="Ítems con salida" value={fmtNum(d.movimientos.length)} sub="con remito asignado" color={C.green} small/>';
+      const itemsConSalidaAfter='<StatCard icon="check" label="Ítems con salida" value={fmtNum(raba03DashboardRows.length)} sub="con remito asignado" color={C.green} small/>';
+      if(!next.includes(itemsConSalidaBefore)){
+        throw new Error('No se encontró la tarjeta Ítems con salida del dashboard de Abastecimiento');
+      }
+      next=next.replace(itemsConSalidaBefore,itemsConSalidaAfter);
+
       const unmatchedStart='  const enviosSinSolicitudRows=useMemo(()=>{';
       const unmatchedEnd='\n  const exportarEnviosSinSolicitud=useCallback(()=>{';
       const start=next.indexOf(unmatchedStart);
@@ -66,6 +73,12 @@ export function abastecimientoInstantVitePlugin(){
       }
       if(next.includes('action=remitos_cargados')){
         throw new Error('Abastecimiento no debe volver a leer remitos pesados desde Apps Script');
+      }
+      if(next.includes('label="Ítems con salida" value={fmtNum(d.movimientos.length)}')){
+        throw new Error('Ítems con salida no debe depender de que el indicador sea calculable');
+      }
+      if(!next.includes('label="Ítems con salida" value={fmtNum(raba03DashboardRows.length)}')){
+        throw new Error('Ítems con salida debe contar todas las salidas con remito asignado');
       }
 
       if(next===code)return null;
