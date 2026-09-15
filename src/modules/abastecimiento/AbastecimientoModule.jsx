@@ -3,7 +3,7 @@ import ReactDOM from "react-dom";
 import { clearSharedStock, uploadStockExcel } from "../../services/stockService.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { readCachedSource, writeCachedSource } from "../../services/appCache.js";
-import { configureAbastecimientoBackend, getAbastecimientoSnapshot, saveAbastecimientoRemito, deleteAbastecimientoRemito, setAbastecimientoEstado, appendAbastecimientoRaba03, updateAbastecimientoRaba03 } from "../../services/abastecimientoSupabase.js";
+import { configureAbastecimientoBackend, getAbastecimientoSnapshot, getAbastecimientoRaba03, saveAbastecimientoRemito, deleteAbastecimientoRemito, setAbastecimientoEstado, appendAbastecimientoRaba03, updateAbastecimientoRaba03 } from "../../services/abastecimientoSupabase.js";
 import { useSharedStock } from "./stock/useSharedStock.js";
 import { stockValidationSummary, validateStockWorkbook } from "./stock/stockValidation.js";
 import { allocateAbastecimientoRemitos } from "./enviosSinSolicitud.js";
@@ -814,15 +814,15 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     isRejected:row=>Boolean(rejectedSolicitudes?.[buildSolicitudKey(row)]),
   }),[rows,remitos,normCode,normalizeCentroCosto,toNumber,formatDateLocal,rejectedSolicitudes,buildSolicitudKey]);
 
-  const loadRaba03=useCallback(async({silent=false,remitosOverride=null}={})=>{
+  const loadRaba03=useCallback(async({silent=false}={})=>{
     if(!silent){
       setLoading(true);
       setError(null);
     }
     try{
-      const json=await getAbastecimientoSnapshot();
+      const json=await getAbastecimientoRaba03();
       if(!json?.ok)throw new Error("No se pudo leer RABA03 desde Supabase");
-      const raw=Array.isArray(json.raba03)?json.raba03:[];
+      const raw=Array.isArray(json.data)?json.data:[];
       rawRaba03RowsRef.current=raw;
       const normalizedRows=mapRaba03Rows(raw);
       setRows(normalizedRows);
@@ -839,9 +839,9 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     }
   },[mapRaba03Rows]);
 
-  // Carga inicial stale-while-revalidate: primero pinta la última copia local
-  // y luego sincroniza remitos/estados en paralelo. Nunca queda esperando una
-  // solicitud de red de forma indefinida.
+  // Carga inicial stale-while-revalidate: pinta primero la última copia local y
+  // actualiza RABA03, remitos y estados EN PARALELO. Una demora del snapshot
+  // grande de remitos/estados nunca vuelve a bloquear la tabla RABA03.
   useEffect(()=>{
     if(raba03InitialLoadDoneRef.current)return;
     raba03InitialLoadDoneRef.current=true;
@@ -860,13 +860,11 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
         }
       }catch(_){}
 
-      const [remitosResult]=await Promise.allSettled([
+      await Promise.allSettled([
+        loadRaba03({silent:hasCachedRows}),
         loadRemitosCompartidos({silent:true}),
         loadEstadosSolicitudesCompartidos({silent:true})
       ]);
-      if(cancelled)return;
-      const sharedRemitos=remitosResult.status==="fulfilled"?remitosResult.value:null;
-      await loadRaba03({silent:hasCachedRows,remitosOverride:sharedRemitos});
       if(cancelled)return;
       completed=true;
       setLoading(false);
@@ -880,19 +878,15 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
     });
     return()=>{
       cancelled=true;
-      // React.StrictMode monta/desmonta el efecto una vez en desarrollo.
-      // Si la primera ejecución fue cancelada antes de completar, permitir
-      // que el segundo montaje realice nuevamente la carga inicial.
       if(!completed)raba03InitialLoadDoneRef.current=false;
     };
   },[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
 
   // Registro en el motor único de actualización de la aplicación.
   useEffect(()=>registerRefreshTask("abastecimiento",async()=>{
-    let sharedRemitos=null;
-    try{sharedRemitos=await loadRemitosCompartidos({silent:true});}catch(_){}
     await Promise.allSettled([
-      loadRaba03({silent:true,remitosOverride:sharedRemitos}),
+      loadRaba03({silent:true}),
+      loadRemitosCompartidos({silent:true}),
       loadEstadosSolicitudesCompartidos({silent:true})
     ]);
   },{views:["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"],priority:20}),[loadRaba03,loadRemitosCompartidos,loadEstadosSolicitudesCompartidos]);
