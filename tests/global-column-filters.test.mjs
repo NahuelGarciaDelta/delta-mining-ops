@@ -18,3 +18,12 @@ test("no duplica la barra en tablas que ya tienen filtros nativos",()=>{
   assert.match(service,/previousElementSibling/);
   assert.match(service,/normalized\(button\.textContent\)==="filtros por columna"/);
 });
+
+test("dashboards excluidos purgan barras y filtros globales residuales",()=>{
+  assert.match(service,/function cleanupDisabledRegions\(\)/);
+  assert.match(service,/data-dm-disable-global-column-filters/);
+  assert.match(service,/root\.querySelectorAll\(`\.\$\{TOOLBAR_CLASS\}`\)/);
+  assert.match(service,/state\.filters=\[\]/);
+  assert.match(service,/row\.classList\.remove\(HIDDEN_ROW_CLASS\)/);
+  assert.match(service,/cleanupDisabledRegions\(\);/);
+});
