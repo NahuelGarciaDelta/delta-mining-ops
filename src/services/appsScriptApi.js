@@ -3,7 +3,18 @@ import {SUPABASE_TYPED_SOURCES,fetchSupabaseDatasetQuery,fetchSupabaseHealth,fet
 const ROP02_BUNDLE_SOURCES=Object.freeze(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"]);
 let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
 let syncVersionsMemo_={value:null,at:0,promise:null};
+const typedSourceInflight_=new Map();
 const SYNC_VERSIONS_MEMO_MS=15000;
+
+function fetchTypedSupabaseSource_(source){
+  const sourceKey=String(source||"");
+  if(typedSourceInflight_.has(sourceKey))return typedSourceInflight_.get(sourceKey);
+  const task=Promise.resolve()
+    .then(()=>fetchSupabaseSource(sourceKey))
+    .finally(()=>{if(typedSourceInflight_.get(sourceKey)===task)typedSourceInflight_.delete(sourceKey);});
+  typedSourceInflight_.set(sourceKey,task);
+  return task;
+}
 
 export function expandCompactSource(src){
   if(!src||!src.compact||!Array.isArray(src.headers)||!Array.isArray(src.rows))return src;
@@ -40,7 +51,7 @@ export async function runWithConcurrency_(items,limit,worker){
 // escrituras. Los datasets pesados ya no pasan por este camino.
 export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,params:extraParams={}}={}){
   if(String(action||"")==="mantenimiento_programado")return fetchSupabasePmSnapshot();
-  if(SUPABASE_TYPED_SOURCES.has(String(action||"")))return fetchSupabaseSource(String(action||""));
+  if(SUPABASE_TYPED_SOURCES.has(String(action||"")))return fetchTypedSupabaseSource_(String(action||""));
 
   const requestParams={...(extraParams||{})};
   if(force)requestParams.force="1";
@@ -75,7 +86,7 @@ export async function fetchRop02Bundle(_url,{force=false}={}){
   const key=force?"force":"normal",now=Date.now();
   if(!force&&rop02BundleMemo_.key===key&&rop02BundleMemo_.value&&now-rop02BundleMemo_.at<30000)return rop02BundleMemo_.value;
   if(rop02BundleMemo_.key===key&&rop02BundleMemo_.promise)return rop02BundleMemo_.promise;
-  const task=Promise.all(ROP02_BUNDLE_SOURCES.map(source=>fetchSupabaseSource(source))).then(values=>{
+  const task=Promise.all(ROP02_BUNDLE_SOURCES.map(source=>fetchTypedSupabaseSource_(source))).then(values=>{
     const sources={};values.forEach((value,index)=>{sources[ROP02_BUNDLE_SOURCES[index]]=value;});
     const bundle={ok:true,source:"supabase",bundleId:`supabase-${Date.now()}`,sources};
     rop02BundleMemo_={key,value:bundle,at:Date.now(),promise:null};return bundle;
@@ -87,7 +98,7 @@ export async function fetchHealth(_url){return fetchSupabaseHealth();}
 
 export async function fetchSource(_url,source,_options={}){
   const sourceKey=String(source||"");
-  if(SUPABASE_TYPED_SOURCES.has(sourceKey))return fetchSupabaseSource(sourceKey);
+  if(SUPABASE_TYPED_SOURCES.has(sourceKey))return fetchTypedSupabaseSource_(sourceKey);
   return fetchAction(_url,sourceKey,_options);
 }
 
