@@ -8,6 +8,13 @@ function replaceRequired(code,from,to,label){
   return code.replace(from,to);
 }
 
+function replaceAnyRequired(code,variants,to,label){
+  for(const from of variants){
+    if(code.includes(from))return code.replace(from,to);
+  }
+  throw new Error(`[rop02-control-reference] No se encontró ${label}`);
+}
+
 function replaceAllRequired(code,from,to,label,min=1){
   const count=code.split(from).length-1;
   if(count<min)throw new Error(`[rop02-control-reference] Se esperaban al menos ${min} coincidencias de ${label} y se encontraron ${count}`);
@@ -44,18 +51,25 @@ export function patchRop02ControlReferenceAndVehicles(code){
     "la clasificación TD/TN del detalle por equipo",
   );
 
-  // Sólo se amplía el universo de Control ROP02. Productividad, disponibilidad
-  // y otros módulos conservan sus exclusiones actuales.
-  next=replaceRequired(
+  // El plugin de separación Camiones/Camionetas corre antes y convierte varios
+  // universos a isRop02HourlyEquipment(). Aceptamos ambos estados del source para
+  // que este parche sea componible y sólo amplíe Control ROP02 con camionetas.
+  next=replaceAnyRequired(
     next,
-    'function ControlDeErrores({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);',
-    'function ControlDeErrores({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(rop02ControlRowEligible),[rop02All]);',
+    [
+      'function ControlDeErrores({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);',
+      'function ControlDeErrores({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>isRop02HourlyEquipment(r)),[rop02All]);',
+    ],
+    'function ControlDeErrores({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>(typeof isRop02HourlyEquipment==="function"&&isRop02HourlyEquipment(r))||rop02ControlRowEligible(r)),[rop02All]);',
     "el universo del Control de errores",
   );
-  next=replaceRequired(
+  next=replaceAnyRequired(
     next,
-    'function ControlPorEquipo({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);',
-    'function ControlPorEquipo({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(rop02ControlRowEligible),[rop02All]);',
+    [
+      'function ControlPorEquipo({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);',
+      'function ControlPorEquipo({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>isRop02HourlyEquipment(r)),[rop02All]);',
+    ],
+    'function ControlPorEquipo({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>(typeof isRop02HourlyEquipment==="function"&&isRop02HourlyEquipment(r))||rop02ControlRowEligible(r)),[rop02All]);',
     "el universo del Control por Equipo",
   );
 
