@@ -1,0 +1,41 @@
+name: temp-global-idempotency
+
+on:
+  push:
+    branches:
+      - feat/split-trucks-pickups-rop02
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Idempotency tests
+        run: node --test tests/mutation-guard.test.mjs
+      - name: Build LF
+        run: npm run build
+      - name: Convert all source files to CRLF
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          exts={'.js','.jsx','.ts','.tsx'}
+          for p in Path('src').rglob('*'):
+              if not p.is_file() or p.suffix.lower() not in exts:
+                  continue
+              raw=p.read_bytes().replace(b'\r\n',b'\n').replace(b'\r',b'\n')
+              p.write_bytes(raw.replace(b'\n',b'\r\n'))
+          PY
+      - name: Build CRLF Windows
+        run: npm run build
+      - run: git checkout -- src
+      - name: Validate imports
+        run: node scripts/validate-local-imports.mjs
+      - name: Security audit
+        run: npm run lint:security
+      - name: Diff check
+        run: git diff --check
