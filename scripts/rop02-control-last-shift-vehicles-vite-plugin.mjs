@@ -80,16 +80,14 @@ export function patchRop02ControlReferenceAndVehicles(code){
     "el universo del Control por Equipo",
   );
 
-  // CAA-0002 estaba excluido explícitamente por código en ambos controles. En este
-  // control debe participar como cualquier otro camión, aunque siga excluido de
-  // productividad general.
-  next=replaceAllRequired(
-    next,
-    LEGACY_CAA_EXCLUSION,
-    '  const rop02ControlRows=rop02Prod;',
-    "la exclusión legacy de CAA-0002",
-    2,
-  );
+  // CAA-0002 estaba excluido explícitamente por código en el source base. Si el
+  // plugin de separación de camiones ya corrió, ese bloque puede haber desaparecido;
+  // en ese caso no hay nada que reemplazar aquí.
+  const legacyCaaCount=next.split(LEGACY_CAA_EXCLUSION).length-1;
+  if(legacyCaaCount){
+    if(legacyCaaCount<2)throw new Error(`[rop02-control-reference] Se esperaban 2 exclusiones legacy de CAA-0002 y se encontró ${legacyCaaCount}`);
+    next=next.split(LEGACY_CAA_EXCLUSION).join('  const rop02ControlRows=rop02Prod;');
+  }
 
   next=replaceRequired(
     next,
