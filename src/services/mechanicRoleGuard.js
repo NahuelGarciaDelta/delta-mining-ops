@@ -15,12 +15,12 @@ const ALLOWED_TITLES = new Set([
   "MANTENIMIENTO PROGRAMADO - PROGRAMACION",
   "MANTENIMIENTO PROGRAMADO - PANEL DE FLOTA",
 ]);
+let wasMechanic=false;
 
 function isMechanic() {
   try { return norm(window.sessionStorage.getItem("dm_role")) === ROLE; }
   catch (_) { return false; }
 }
-
 function setHidden(element, hidden) {
   if (!element) return;
   if (hidden) {
@@ -37,7 +37,6 @@ function setHidden(element, hidden) {
     delete element.dataset.dmMechanicPreviousDisplay;
   }
 }
-
 function hideReadOnlyNotices() {
   const root = document.querySelector(".dm-app-content");
   if (!root) return;
@@ -52,11 +51,9 @@ function hideReadOnlyNotices() {
     element.style.setProperty("display", "none", "important");
   });
 }
-
 function restore() {
   document.querySelectorAll(`[${MARK}]`).forEach((element) => setHidden(element, false));
 }
-
 function restrictWelcome() {
   const quick = document.querySelector(".dm-home-quick");
   if (quick) [...quick.children].forEach(card => setHidden(card, !norm(card.textContent).startsWith("MANTENIMIENTO")));
@@ -66,7 +63,6 @@ function restrictWelcome() {
     if (["INICIO", "DASHBOARD", "AGENDA", "CLIMA", "MI PERFIL"].includes(label)) setHidden(button, !HOME_ALLOWED.has(label));
   });
 }
-
 function restrictAppSidebar() {
   const nav = document.querySelector(".dm-app-sidebar nav");
   if (!nav) return;
@@ -82,7 +78,6 @@ function restrictAppSidebar() {
     });
   });
 }
-
 function clickSidebarButton(label) {
   const wanted = norm(label);
   const button = [...document.querySelectorAll(".dm-app-sidebar nav button")]
@@ -91,7 +86,6 @@ function clickSidebarButton(label) {
   button.click();
   return true;
 }
-
 function enforceCurrentView() {
   const sidebar = document.querySelector(".dm-app-sidebar");
   if (!sidebar) return;
@@ -107,15 +101,19 @@ function enforceCurrentView() {
   if (clickSidebarButton("Planificador")) return;
   clickSidebarButton("Bienvenida");
 }
-
 function applyGuard() {
+  const mechanic=isMechanic();
+  if (!mechanic) {
+    if(wasMechanic)restore();
+    wasMechanic=false;
+    return;
+  }
+  wasMechanic=true;
   hideReadOnlyNotices();
-  if (!isMechanic()) { restore(); return; }
   restrictWelcome();
   restrictAppSidebar();
   enforceCurrentView();
 }
-
 export function installMechanicRoleGuard() {
   if (typeof window === "undefined" || window.__dmMechanicRoleGuardInstalled) return;
   window.__dmMechanicRoleGuardInstalled = true;
@@ -125,10 +123,13 @@ export function installMechanicRoleGuard() {
     scheduled = true;
     window.requestAnimationFrame(() => { scheduled = false; applyGuard(); });
   };
-  const observer = new MutationObserver(schedule);
+  const observer=new MutationObserver(mutations=>{
+    if(!isMechanic())return;
+    if(mutations.some(m=>m.type==="childList"))schedule();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("storage", schedule);
   window.addEventListener("dm-user-session-changed", schedule);
-  document.addEventListener("click", schedule, true);
+  document.addEventListener("click",()=>{if(isMechanic())schedule();},true);
   schedule();
 }
