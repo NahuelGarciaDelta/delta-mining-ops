@@ -9,8 +9,8 @@ export function mutationIdempotencyVitePlugin(){
       let next=code;
 
       if(file.endsWith("/src/main.jsx")){
-        const importAnchor='import {prewarmSavedDataSources} from "./services/appCache.js";';
-        if(!next.includes(importAnchor))throw new Error("[delta-global-mutation-idempotency] No se encontró el import de appCache en main.jsx");
+        const importAnchor='import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";';
+        if(!next.includes(importAnchor))throw new Error("[delta-global-mutation-idempotency] No se encontró el import estable de arranque en main.jsx");
         next=next.replace(importAnchor,`${importAnchor}\nimport {installMutationGuard} from "./services/mutationGuard.js";`);
 
         const installAnchor='if(typeof window!=="undefined"){\n  applyAppearance(readLastAppearance(),C);';
