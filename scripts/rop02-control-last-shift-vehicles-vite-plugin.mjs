@@ -2,6 +2,10 @@ const normalizeId=id=>String(id||"").replace(/\\/g,"/").split("?")[0];
 
 const IMPORT_ANCHOR='import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";';
 const IMPORT_LINE='import { rop02ControlTurnoKey, rop02ControlTurnoOrder, rop02ControlRowEligible, rop02ControlTipoOptions, rop02ControlTipoMatches } from "./rop02ControlRules.js";';
+const LEGACY_CAA_EXCLUSION=String.raw`  const rop02ControlRows=useMemo(()=>rop02Prod.filter(r=>{
+    const m=String(r.maquina||"").trim();
+    return !/^CAA[-_\s]*0002(?:[-_\s]*JM)?$/i.test(m) && normalizeMachineCode(m)!=="CAA-0002";
+  }),[rop02Prod]);`;
 
 function replaceRequired(code,from,to,label){
   if(!code.includes(from))throw new Error(`[rop02-control-reference] No se encontró ${label}`);
@@ -22,7 +26,10 @@ function replaceAllRequired(code,from,to,label,min=1){
 }
 
 export function patchRop02ControlReferenceAndVehicles(code){
-  let next=String(code||"");
+  // Los tests locales pueden leer el archivo con CRLF en Windows. El pipeline de
+  // Vite ya normaliza saltos de línea, pero este parche también debe ser estable
+  // cuando se invoca de forma aislada.
+  let next=String(code||"").replace(/\r\n/g,"\n");
 
   if(!next.includes(IMPORT_LINE)){
     next=replaceRequired(next,IMPORT_ANCHOR,`${IMPORT_ANCHOR}\n${IMPORT_LINE}`,"el ancla de importación del Control ROP02");
@@ -53,7 +60,7 @@ export function patchRop02ControlReferenceAndVehicles(code){
 
   // El plugin de separación Camiones/Camionetas corre antes y convierte varios
   // universos a isRop02HourlyEquipment(). Aceptamos ambos estados del source para
-  // que este parche sea componible y sólo amplíe Control ROP02 con camionetas.
+  // que este parche sea componible y amplíe sólo Control ROP02 con vehículos.
   next=replaceAnyRequired(
     next,
     [
@@ -71,6 +78,17 @@ export function patchRop02ControlReferenceAndVehicles(code){
     ],
     'function ControlPorEquipo({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>(typeof isRop02HourlyEquipment==="function"&&isRop02HourlyEquipment(r))||rop02ControlRowEligible(r)),[rop02All]);',
     "el universo del Control por Equipo",
+  );
+
+  // CAA-0002 estaba excluido explícitamente por código en ambos controles. En este
+  // control debe participar como cualquier otro camión, aunque siga excluido de
+  // productividad general.
+  next=replaceAllRequired(
+    next,
+    LEGACY_CAA_EXCLUSION,
+    '  const rop02ControlRows=rop02Prod;',
+    "la exclusión legacy de CAA-0002",
+    2,
   );
 
   next=replaceRequired(
