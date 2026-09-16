@@ -8,6 +8,7 @@ const STYLE_ID="dm-global-column-filters-style";
 
 const tableState=new WeakMap();
 const toolbarOwner=new WeakMap();
+const filterFrameByTable=new WeakMap();
 
 function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
 function normalized(value){return clean(value).toLocaleLowerCase("es-AR").normalize("NFD").replace(/[\u0300-\u036f]/g,"");}
@@ -66,15 +67,28 @@ function getState(table){
 }
 function hasActiveFilters(table){return (getState(table).filters||[]).some(value=>String(value||"").trim());}
 function applyFilters(table){
-  const state=getState(table),filters=(state.filters||[]).map(normalized),hasFilters=filters.some(Boolean);
+  if(!table?.isConnected)return;
+  const state=getState(table);
+  const active=(state.filters||[]).map((value,index)=>[index,normalized(value)]).filter(([,query])=>query);
+  const hasFilters=active.length>0;
   for(const tbody of [...table.tBodies]){
     for(const row of [...tbody.rows]){
       if(!hasFilters){row.classList.remove(HIDDEN_ROW_CLASS);continue;}
-      const cells=[...row.cells];
-      const matches=filters.every((query,index)=>!query||normalized(cells[index]?.innerText||cells[index]?.textContent).includes(query));
+      const cells=row.cells;
+      const matches=active.every(([index,query])=>normalized(cells[index]?.innerText||cells[index]?.textContent).includes(query));
       row.classList.toggle(HIDDEN_ROW_CLASS,!matches);
     }
   }
+}
+function scheduleApplyFilters(table){
+  if(!(table instanceof HTMLTableElement))return;
+  const previous=filterFrameByTable.get(table);
+  if(previous)cancelAnimationFrame(previous);
+  const frame=requestAnimationFrame(()=>{
+    filterFrameByTable.delete(table);
+    applyFilters(table);
+  });
+  filterFrameByTable.set(table,frame);
 }
 function ensureFilterRow(table){
   const state=getState(table);if(!state.open||state.row?.isConnected)return;
@@ -83,21 +97,22 @@ function ensureFilterRow(table){
   labels.forEach((label,index)=>{
     const th=document.createElement("th"),input=document.createElement("input");
     input.type="text";input.placeholder="Filtrar...";input.title=`Filtrar ${label}`;input.setAttribute("aria-label",`Filtrar ${label}`);input.value=state.filters[index]||"";
-    input.addEventListener("input",()=>{state.filters[index]=input.value;applyFilters(table);});
+    input.addEventListener("input",()=>{state.filters[index]=input.value;scheduleApplyFilters(table);});
     input.addEventListener("click",event=>event.stopPropagation());
     th.appendChild(input);row.appendChild(th);
   });
   table.tHead.appendChild(row);state.row=row;
-  if(hasActiveFilters(table))applyFilters(table);
+  if(hasActiveFilters(table))scheduleApplyFilters(table);
 }
 function setOpen(table,open){
   const state=getState(table);state.open=!!open;state.button?.setAttribute("data-active",state.open?"1":"0");
   if(state.open){ensureFilterRow(table);return;}
   if(state.row?.isConnected)state.row.remove();state.row=null;
-  if(hasActiveFilters(table))applyFilters(table);
+  if(hasActiveFilters(table))scheduleApplyFilters(table);
 }
 function cleanupTableUi(table,{clearFilters=false}={}){
   if(!(table instanceof HTMLTableElement))return;
+  const pendingFrame=filterFrameByTable.get(table);if(pendingFrame){cancelAnimationFrame(pendingFrame);filterFrameByTable.delete(table);}
   const state=tableState.get(table);
   if(state){
     if(state.toolbar?.isConnected)state.toolbar.remove();
@@ -127,21 +142,19 @@ function eligible(table){
 function decorateTable(table){
   if(!eligible(table)){cleanupTableUi(table);return;}
   table.setAttribute(READY_ATTR,"1");ensureToolbar(table);ensureFilterRow(table);
-  if(hasActiveFilters(table))applyFilters(table);
+  if(hasActiveFilters(table))scheduleApplyFilters(table);
 }
 function processNode(node){
   if(!(node instanceof Element))return;
   const ownerTable=node.closest?.("table");
   if(ownerTable?.closest?.(".dm-app-content")){
     if(ownerTable.getAttribute(READY_ATTR)!=="1")decorateTable(ownerTable);
-    else if(hasActiveFilters(ownerTable))applyFilters(ownerTable);
+    else if(hasActiveFilters(ownerTable))scheduleApplyFilters(ownerTable);
   }
   if(node.matches?.(".dm-app-content table"))decorateTable(node);
   node.querySelectorAll?.(".dm-app-content table, table").forEach(table=>{if(table.closest?.(".dm-app-content"))decorateTable(table);});
 }
-function fullScan(){
-  document.querySelectorAll(".dm-app-content table").forEach(decorateTable);
-}
+function fullScan(){document.querySelectorAll(".dm-app-content table").forEach(decorateTable);}
 
 export function installGlobalTableColumnFilters(){
   if(typeof window==="undefined"||window.__dmGlobalTableColumnFiltersInstalled)return;
