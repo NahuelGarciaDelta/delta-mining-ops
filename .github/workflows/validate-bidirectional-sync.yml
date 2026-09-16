@@ -28,5 +28,32 @@ jobs:
         run: npm run check
       - name: Security audit
         run: npm run lint:security
-      - name: Tests
-        run: npm test
+      - name: Test ROP02 control reference vehicles
+        if: always()
+        run: node --test tests/rop02-control-reference-vehicles.test.mjs
+      - name: Test ROP02 all trucks same
+        if: always()
+        run: node --test tests/rop02-all-trucks-same.test.mjs
+      - name: Test ROP02 trucks pickups split
+        if: always()
+        run: node --test tests/rop02-trucks-pickups-split.test.mjs
+      - name: Test PM Vite pipeline
+        if: always()
+        run: node --test tests/pm-vite-pipeline-regression.test.mjs
+      - name: Test stock auth session
+        if: always()
+        run: node --test tests/stock-auth-session.test.mjs
+      - name: Test stock validation
+        if: always()
+        run: node --test tests/stock-validation.test.mjs
+      - name: Test remaining suite
+        if: always()
+        shell: bash
+        run: |
+          set -e
+          for f in tests/*.test.mjs; do
+            case "$f" in
+              tests/rop02-control-reference-vehicles.test.mjs|tests/rop02-all-trucks-same.test.mjs|tests/rop02-trucks-pickups-split.test.mjs|tests/pm-vite-pipeline-regression.test.mjs|tests/stock-auth-session.test.mjs|tests/stock-validation.test.mjs) continue ;;
+            esac
+            node --test "$f"
+          done
