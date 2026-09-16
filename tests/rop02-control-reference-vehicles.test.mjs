@@ -41,11 +41,12 @@ test("camionetas y camiones excluidos de productividad siguen siendo elegibles e
   assert.equal(rop02ControlVehicleKind("AH045UV"),"CAMIONETA");
   assert.equal(rop02ControlVehicleKind("CAV-0078"),"CAMION");
   assert.equal(rop02ControlVehicleKind("CAR-0101"),"CAMION");
+  assert.equal(rop02ControlVehicleKind("CAA-0002"),"CAMION");
   assert.equal(rop02ControlVehicleKind("AG816QB"),"CAMION");
 
   assert.equal(rop02ControlRowEligible({_excluded:true,maquina:"CTA-0848"}),true);
   assert.equal(rop02ControlRowEligible({_excluded:true,maquina:"CAV-0078"}),true);
-  assert.equal(rop02ControlRowEligible({_excluded:true,maquina:"CAA-0002"}),false);
+  assert.equal(rop02ControlRowEligible({_excluded:true,maquina:"CAA-0002"}),true);
   assert.equal(rop02ControlRowEligible({_excluded:true,maquina:"GENERADOR"}),false);
   assert.equal(rop02ControlRowEligible({_excluded:false,maquina:"PCA-0117"}),true);
 });
@@ -59,6 +60,7 @@ test("el filtro Tipo de Máquina ofrece Camionetas y Camiones sólo en este cont
   const baseMatcher=(maquina,seleccion)=>seleccion==="PCA"&&String(maquina).startsWith("PCA");
   assert.equal(rop02ControlTipoMatches("CTA-0848","CAMIONETA",baseMatcher),true);
   assert.equal(rop02ControlTipoMatches("CAV-0078","CAMION",baseMatcher),true);
+  assert.equal(rop02ControlTipoMatches("CAA-0002","CAMION",baseMatcher),true);
   assert.equal(rop02ControlTipoMatches("PCA-0117","PCA",baseMatcher),true);
   assert.equal(rop02ControlTipoMatches("PCA-0117","CAMION",baseMatcher),false);
 });
