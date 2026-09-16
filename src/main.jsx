@@ -9,9 +9,34 @@ import {installGlobalTableColumnFilters} from "./services/globalTableColumnFilte
 import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
+import {prewarmSavedDataSources} from "./services/appCache.js";
 
 // Una sola política para toda la aplicación: cache inmediato + revalidación cada 5 minutos.
 installLegacyRefreshIntervalPolicy();
+
+const idle=(callback,timeout=1800)=>{
+  if(typeof window==="undefined")return;
+  if(typeof window.requestIdleCallback==="function")return window.requestIdleCallback(callback,{timeout});
+  return window.setTimeout(callback,650);
+};
+
+const canPrefetch=()=>{
+  if(typeof navigator==="undefined")return true;
+  const connection=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+  if(connection?.saveData)return false;
+  return !/2g/i.test(String(connection?.effectiveType||""));
+};
+
+function preloadFrequentModules(){
+  if(!canPrefetch())return;
+  idle(()=>{
+    Promise.allSettled([
+      import("./modules/oficina-tecnica/OficinaTecnicaModule.jsx"),
+      import("./modules/abastecimiento/AbastecimientoModule.jsx"),
+      import("./modules/mantenimiento/MantenimientoModule.jsx")
+    ]).catch(()=>{});
+  });
+}
 
 // La apariencia elegida por el último usuario se aplica ANTES de montar React.
 if(typeof window!=="undefined"){
@@ -26,11 +51,25 @@ if(typeof window!=="undefined"){
   installWelcomeRefreshButton();
 }
 
-createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+async function mountApp(){
+  // En sesiones ya autenticadas damos una ventana muy corta a IndexedDB para
+  // precargar los datasets persistidos. Si tarda más, React monta igual y la
+  // hidratación normal continúa en segundo plano.
+  if(typeof window!=="undefined"&&sessionStorage.getItem("dm_auth")==="1"){
+    await Promise.race([
+      prewarmSavedDataSources().catch(()=>null),
+      new Promise(resolve=>window.setTimeout(resolve,220))
+    ]);
+  }
+
+  createRoot(document.getElementById("root")).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+  preloadFrequentModules();
+}
+mountApp();
 
 // Solo dispara la política de actualización. Ya NO vuelve a descargar por la fuerza
 // ROP02 + ROP05 + RMA15 completos cada 5 minutos: esa precarga competía con la vista
@@ -78,7 +117,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load",async()=>{
     try{
       swRegistration=await navigator.serviceWorker.register(
-        "/sw.js?v=20260914-global-column-filters-v26",
+        "/sw.js?v=20260915-local-first-perf-v27",
         {updateViaCache:"none"}
       );
       await swRegistration.update();
