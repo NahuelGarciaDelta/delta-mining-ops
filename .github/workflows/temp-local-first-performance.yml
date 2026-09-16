@@ -1,0 +1,48 @@
+name: temp-local-first-performance
+
+on:
+  push:
+    branches: [perf/instant-local-first-20260916]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Local-first targeted tests
+        run: node --test tests/local-first-performance.test.mjs tests/rop02-truck-history.test.mjs tests/rop02-all-trucks-same.test.mjs tests/rop02-trucks-pickups-split.test.mjs tests/rop02-duplicate-loads.test.mjs
+      - name: Production build
+        run: npm run build
+      - name: Verify vendor splitting
+        run: |
+          test -n "$(find dist/assets -maxdepth 1 -type f -name 'react-vendor-*.js' -print -quit)"
+          test -n "$(find dist/assets -maxdepth 1 -type f -name 'charts-vendor-*.js' -print -quit)"
+          test -n "$(find dist/assets -maxdepth 1 -type f -name 'xlsx-vendor-*.js' -print -quit)"
+          ls -lh dist/assets | tail -n +1
+      - name: Convert all src sources to Windows CRLF
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          exts={'.js','.jsx','.ts','.tsx'}
+          for p in Path('src').rglob('*'):
+              if not p.is_file() or p.suffix.lower() not in exts:
+                  continue
+              raw=p.read_bytes().replace(b'\r\n',b'\n').replace(b'\r',b'\n')
+              p.write_bytes(raw.replace(b'\n',b'\r\n'))
+          PY
+      - name: Windows CRLF production build
+        run: npm run build
+      - name: Restore sources
+        run: git checkout -- src
+      - name: Validate local imports
+        run: node scripts/validate-local-imports.mjs
+      - name: Security audit
+        run: npm run lint:security
+      - name: Diff check
+        run: git diff --check
