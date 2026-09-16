@@ -69,7 +69,7 @@ test("el parche del build reemplaza la clasificación antigua y amplía sólo Co
 
   assert.ok(patched.includes('const turnoKey=rop02ControlTurnoKey(r.turno);'));
   assert.ok(patched.includes('const turnoOrden=r=>rop02ControlTurnoOrder(r?.turno);'));
-  assert.ok(patched.includes('const rop02Prod=useMemo(()=>rop02All.filter(rop02ControlRowEligible),[rop02All]);'));
+  assert.ok(patched.includes('rop02All.filter(r=>(typeof isRop02HourlyEquipment==="function"&&isRop02HourlyEquipment(r))||rop02ControlRowEligible(r))'));
   assert.ok(patched.includes('options={rop02ControlTipoOptions(dmTipoMaquinaOptions())}'));
   assert.ok(patched.includes('rop02ControlTipoMatches(row.maquina,tipoMaquina,dmMatchTipoMaquinaSeleccion)'));
 });
