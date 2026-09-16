@@ -37,14 +37,17 @@ function idbRequest_(request){return new Promise((resolve,reject)=>{request.onsu
 function idbTransactionDone_(tx){return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error("Transacción IndexedDB cancelada"));});}
 function readCacheManifest_(){try{return JSON.parse(window.localStorage.getItem(APP_CACHE_MANIFEST_KEY)||"{}");}catch(_){return{};}}
 function writeCacheManifest_(manifest){try{window.localStorage.setItem(APP_CACHE_MANIFEST_KEY,JSON.stringify(manifest||{}));}catch(_){} }
-function updateCacheManifest_(key,record){
+function updateCacheManifestBatch_(records){
+  if(!records?.length)return;
   const manifest=readCacheManifest_();
-  manifest[key]={
-    updatedAt:record?.updatedAt||new Date().toISOString(),
-    count:record?.count||0,
-    version:Number(record?.version||record?.data?.meta?.serverVersion||APP_CACHE_VERSION),
-    stamp:String(record?.data?.meta?.serverStamp||record?.value?.meta?.serverStamp||"")
-  };
+  records.forEach(record=>{
+    manifest[record.key]={
+      updatedAt:record?.updatedAt||new Date().toISOString(),
+      count:record?.count||0,
+      version:Number(record?.version||record?.data?.meta?.serverVersion||APP_CACHE_VERSION),
+      stamp:String(record?.data?.meta?.serverStamp||record?.value?.meta?.serverStamp||"")
+    };
+  });
   writeCacheManifest_(manifest);
 }
 function normalizeRecord_(record){
@@ -94,7 +97,10 @@ async function writeCachedSources(sources){
   if(!entries.length)return;
   const updatedAt=new Date().toISOString();
   const records=entries.map(([key,data])=>({key,data,updatedAt,count:Array.isArray(data?.data)?data.data.length:0,version:Number(data?.meta?.serverVersion||APP_CACHE_VERSION)}));
-  records.forEach(rec=>{memoryCache_.set(rec.key,normalizeRecord_(rec));updateCacheManifest_(rec.key,rec);try{window.localStorage.removeItem(APP_LOCAL_CACHE_PREFIX+rec.key);}catch(_){}});
+  records.forEach(rec=>{memoryCache_.set(rec.key,normalizeRecord_(rec));try{window.localStorage.removeItem(APP_LOCAL_CACHE_PREFIX+rec.key);}catch(_){}});
+  // El manifiesto es pequeño pero localStorage es síncrono: escribirlo una sola vez
+  // evita bloquear el hilo principal N veces cuando llegan varias fuentes juntas.
+  updateCacheManifestBatch_(records);
   try{
     const db=await openAppCacheDB();
     const tx=db.transaction(APP_IDB_STORE,"readwrite");
