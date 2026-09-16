@@ -7,14 +7,19 @@ const pick=(row,names)=>{for(const n of names){const nk=norm(n);for(const [k,v] 
 const STATIC=[
   ["Dashboard gerencial","dashboard","dashboard","Resumen gerencial y KPIs"],["Ficha única del equipo","equipmentProfile","truck","Legajo digital de cada equipo"],["ROP02 Equipos","rop02","truck","Partes diarios y estados"],["ROP05 Productividad","rop05","barChart","Producción y rendimientos"],["Mantenimiento programado","pmDashboard","maintenance","PM y alertas"],["Informe de Costos","costosMant","money","Costos de mantenimiento"],["Solicitudes Abastecimiento","abastecimiento","box","RABA03 y solicitudes"],["Pendientes Abastecimiento","abastecimientoPendientes","hours","Solicitudes pendientes"],["Remitos","abastecimientoRemito","fileBarChart","Remitos y entregas"],["Control de stock","abastecimientoStock","parts","Stock y artículos"],["Lista Maestra de Equipos","listaEquipos","list","Catálogo de equipos"]
 ];
+const STATIC_INDEX=STATIC.map(([title,view,icon,sub])=>({kind:"view",title,sub,view,icon,search:norm(`${title} ${sub}`)}));
 
 export default function GlobalSearch({listaEquipos=[],rawSources={},onNavigate}){
   const [open,setOpen]=useState(false),[q,setQ]=useState("");
   const inputRef=useRef(null);
   useEffect(()=>{const h=e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();setOpen(true);}if(e.key==="Escape")setOpen(false);};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h);},[]);
   useEffect(()=>{if(open)setTimeout(()=>inputRef.current?.focus(),20);else setQ("");},[open]);
+
+  // No recorrer miles de filas cada vez que una fuente se actualiza si el buscador
+  // está cerrado. El índice pesado se crea sólo al abrir Ctrl/Cmd+K.
   const index=useMemo(()=>{
-    const out=STATIC.map(([title,view,icon,sub])=>({kind:"view",title,sub,view,icon,search:norm(`${title} ${sub}`)}));
+    if(!open)return STATIC_INDEX;
+    const out=[...STATIC_INDEX];
     const seen=new Set();
     for(const row of listaEquipos||[]){
       const vals=Object.values(row||{}).map(v=>String(v??"").trim()).filter(Boolean);
@@ -38,7 +43,7 @@ export default function GlobalSearch({listaEquipos=[],rawSources={},onNavigate})
       }
     }
     return out;
-  },[listaEquipos,rawSources]);
+  },[open,listaEquipos,rawSources]);
   const results=useMemo(()=>{const nq=norm(q);if(!nq)return index.slice(0,12);const terms=nq.split(" ").filter(Boolean);return index.map(x=>({x,score:terms.reduce((s,t)=>s+(x.search.startsWith(t)?8:x.search.includes(t)?3:0),0)})).filter(y=>y.score>0).sort((a,b)=>b.score-a.score).slice(0,18).map(y=>y.x);},[index,q]);
   const activate=item=>{setOpen(false);if(item.code){window.dispatchEvent(new CustomEvent("dm-open-equipment-profile",{detail:{code:item.code}}));return;}onNavigate?.(item.view);};
   return <>
