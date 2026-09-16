@@ -3,7 +3,7 @@ const SUPABASE_URL=String(env.VITE_SUPABASE_URL||"https://jwfocqaxlckuxoklwyxs.s
 const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2").trim();
 const PAGE_SIZE=1000;
 const PAGE_CONCURRENCY=4;
-const REQUEST_TIMEOUT_MS=12000;
+const REQUEST_TIMEOUT_MS=45000;
 const ADAPT_CHUNK_SIZE=1200;
 
 export const SUPABASE_TYPED_SOURCES=new Set([
