@@ -18,7 +18,7 @@ export function rop02ControlTurnoOrder(value){
 
 export function rop02ControlVehicleKind(value){
   const code=compactText(value).replace(/JM$/,"");
-  if(!code||code==="CAA0002")return "";
+  if(!code)return "";
 
   // Algunos camiones cisterna están identificados por dominio y no por interno CAR/CAC/CAV.
   if(TRUCK_PLATES.has(code))return "CAMION";
