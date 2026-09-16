@@ -4,6 +4,7 @@ const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDd
 const PAGE_SIZE=1000;
 const PAGE_CONCURRENCY=4;
 const REQUEST_TIMEOUT_MS=12000;
+const ADAPT_CHUNK_SIZE=1200;
 
 export const SUPABASE_TYPED_SOURCES=new Set([
   "rop02_fs","rop02_jm","rop02_filosur","rop02_zorro",
@@ -71,6 +72,23 @@ async function fetchAll(table,params={}){
     const page=await fetchPage(table,params,offset);return Array.isArray(page.data)?page.data:[];
   });
   return [firstRows,...pages].flat();
+}
+
+function yieldMainThread_(){
+  if(typeof globalThis.scheduler?.yield==="function")return globalThis.scheduler.yield();
+  return new Promise(resolve=>setTimeout(resolve,0));
+}
+
+async function adaptRowsInChunks_(rows,adapt){
+  const list=Array.isArray(rows)?rows:[];
+  if(list.length<=ADAPT_CHUNK_SIZE)return list.map(adapt);
+  const out=new Array(list.length);
+  for(let start=0;start<list.length;start+=ADAPT_CHUNK_SIZE){
+    const end=Math.min(start+ADAPT_CHUNK_SIZE,list.length);
+    for(let i=start;i<end;i++)out[i]=adapt(list[i]);
+    if(end<list.length)await yieldMainThread_();
+  }
+  return out;
 }
 
 function rop02SourceFromKey(value){
@@ -150,7 +168,7 @@ export async function fetchSupabaseSource(source){
   const config=sourceConfig(String(source||""));
   if(!config)throw new Error(`Fuente ${source} no disponible en Supabase`);
   const raw=await fetchAll(config.table,config.params);
-  const data=raw.map(config.adapt);
+  const data=await adaptRowsInChunks_(raw,config.adapt);
   const latest=raw.reduce((max,row)=>Math.max(max,new Date(row?.synced_at||0).getTime()||0),0);
   return {ok:true,source:"supabase",data,meta:{source:String(source||""),rows:data.length,returnedRows:data.length,hasMore:false,serverVersion:latest||Date.now(),serverTime:new Date(latest||Date.now()).toISOString()}};
 }
@@ -224,6 +242,6 @@ export async function fetchSupabaseDatasetQuery(params={}){
     const match=String(page.response.headers.get("content-range")||"").match(/\/(\d+)$/);total=match?Number(match[1]):raw.length;
     const next=offset+raw.length;hasMore=next<total;nextOffset=hasMore?next:null;
   }
-  const data=raw.map(config.adapt);
+  const data=await adaptRowsInChunks_(raw,config.adapt);
   return {ok:true,source:"supabase",data,rows:data.length,total,hasMore,nextOffset,offset:Number(params.offset||0),limit:params.limit||250};
 }
