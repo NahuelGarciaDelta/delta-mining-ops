@@ -1,0 +1,49 @@
+name: temp-performance-phase2
+
+on:
+  push:
+    branches:
+      - feat/split-trucks-pickups-rop02
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Functional regressions
+        run: node --test tests/rop02-truck-history.test.mjs tests/rop02-all-trucks-same.test.mjs tests/rop02-trucks-pickups-split.test.mjs tests/rop02-duplicate-loads.test.mjs
+      - name: Verify performance-only markers
+        run: |
+          node - <<'NODE'
+          const fs=require('fs');
+          const cache=fs.readFileSync('src/services/appCache.js','utf8');
+          const filters=fs.readFileSync('src/services/globalTableColumnFilters.js','utf8');
+          const sort=fs.readFileSync('src/hooks/useGlobalThreeStateTableSort.js','utf8');
+          if(!cache.includes('updateCacheManifestBatch_')) throw new Error('cache batch missing');
+          if(!filters.includes('scheduleApplyFilters')) throw new Error('deferred legacy filters missing');
+          if(!sort.includes('const decorated=groups.map')) throw new Error('precomputed sort values missing');
+          console.log('Performance-only markers OK');
+          NODE
+      - name: Build
+        run: npm run build
+      - name: Build with Windows CRLF sources
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          exts={'.js','.jsx','.ts','.tsx'}
+          for p in Path('src').rglob('*'):
+              if not p.is_file() or p.suffix.lower() not in exts:
+                  continue
+              raw=p.read_bytes().replace(b'\r\n',b'\n').replace(b'\r',b'\n')
+              p.write_bytes(raw.replace(b'\n',b'\r\n'))
+          PY
+          npm run build
+      - run: git checkout -- src
+      - run: node scripts/validate-local-imports.mjs
+      - run: npm run lint:security
+      - run: git diff --check
