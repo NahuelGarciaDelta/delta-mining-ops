@@ -9,6 +9,10 @@ import {installGlobalTableColumnFilters} from "./services/globalTableColumnFilte
 import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
+import {installSupabaseMutationBridge} from "./services/supabaseMutationBridge.js";
+
+// Todas las escrituras de la app pasan primero por Supabase y quedan en outbox para Sheets.
+installSupabaseMutationBridge();
 
 // Una sola política para toda la aplicación: cache inmediato + revalidación cada 5 minutos.
 installLegacyRefreshIntervalPolicy();
