@@ -35,7 +35,6 @@ export default defineConfig({
           if (/\/node_modules\/(react|react-dom|scheduler)\//.test(file)) return 'react-vendor'
           if (file.includes('/node_modules/recharts/') || file.includes('/node_modules/d3-')) return 'charts-vendor'
           if (file.includes('/node_modules/xlsx/')) return 'xlsx-vendor'
-          return 'vendor'
         }
       }
     }
