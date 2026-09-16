@@ -87,18 +87,28 @@ export function useGlobalThreeStateTableSort(){
       Array.from(table.tBodies).forEach(tbody=>{
         const groups=getGroups(tbody);
         groups.forEach((group,index)=>{const anchor=group[0];if(!originalOrder.has(anchor))originalOrder.set(anchor,index);});
-        const ordered=[...groups];
-        if(dir==="original")ordered.sort((a,b)=>(originalOrder.get(a[0])??0)-(originalOrder.get(b[0])??0));
-        else ordered.sort((a,b)=>{
-          const av=normalizeValue(a[0].cells?.[colIndex]?.innerText||"");
-          const bv=normalizeValue(b[0].cells?.[colIndex]?.innerText||"");
-          if(av.kind==="empty"&&bv.kind!=="empty")return 1;
-          if(bv.kind==="empty"&&av.kind!=="empty")return -1;
-          let cmp=0;
-          if(av.kind==="number"&&bv.kind==="number")cmp=av.value-bv.value;
-          else cmp=String(av.value).localeCompare(String(bv.value),"es-AR",{numeric:true,sensitivity:"base"});
-          return dir==="asc"?cmp:-cmp;
-        });
+        let ordered;
+        if(dir==="original"){
+          ordered=[...groups].sort((a,b)=>(originalOrder.get(a[0])??0)-(originalOrder.get(b[0])??0));
+        }else{
+          // Normalizar una sola vez por fila. Antes se repetía dentro de cada
+          // comparación del sort (O(n log n)), provocando pausas en tablas grandes.
+          const decorated=groups.map((group,index)=>({
+            group,index,
+            value:normalizeValue(group[0].cells?.[colIndex]?.innerText||"")
+          }));
+          decorated.sort((a,b)=>{
+            const av=a.value,bv=b.value;
+            if(av.kind==="empty"&&bv.kind!=="empty")return 1;
+            if(bv.kind==="empty"&&av.kind!=="empty")return -1;
+            let cmp=0;
+            if(av.kind==="number"&&bv.kind==="number")cmp=av.value-bv.value;
+            else cmp=String(av.value).localeCompare(String(bv.value),"es-AR",{numeric:true,sensitivity:"base"});
+            if(cmp===0)return a.index-b.index;
+            return dir==="asc"?cmp:-cmp;
+          });
+          ordered=decorated.map(item=>item.group);
+        }
         ordered.forEach(group=>group.forEach(row=>tbody.appendChild(row)));
       });
     };
