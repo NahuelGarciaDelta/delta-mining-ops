@@ -1,0 +1,21 @@
+name: Validate bidirectional sync
+
+on:
+  push:
+    branches:
+      - fix/bidirectional-sync-20260916
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run validate
