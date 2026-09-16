@@ -9,7 +9,6 @@ import {installGlobalTableColumnFilters} from "./services/globalTableColumnFilte
 import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
-import {prewarmSavedDataSources} from "./services/appCache.js";
 
 // Una sola política para toda la aplicación: cache inmediato + revalidación cada 5 minutos.
 installLegacyRefreshIntervalPolicy();
@@ -51,17 +50,9 @@ if(typeof window!=="undefined"){
   installWelcomeRefreshButton();
 }
 
-async function mountApp(){
-  // En sesiones ya autenticadas damos una ventana muy corta a IndexedDB para
-  // precargar los datasets persistidos. Si tarda más, React monta igual y la
-  // hidratación normal continúa en segundo plano.
-  if(typeof window!=="undefined"&&sessionStorage.getItem("dm_auth")==="1"){
-    await Promise.race([
-      prewarmSavedDataSources().catch(()=>null),
-      new Promise(resolve=>window.setTimeout(resolve,220))
-    ]);
-  }
-
+function mountApp(){
+  // No se precalientan datasets antes del primer render. La hidratación normal de App
+  // lee el conjunto solicitado por vista y evita arrancar con un ROP02 parcial.
   createRoot(document.getElementById("root")).render(
     <React.StrictMode>
       <App />
@@ -117,7 +108,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load",async()=>{
     try{
       swRegistration=await navigator.serviceWorker.register(
-        "/sw.js?v=20260915-local-first-perf-v27",
+        "/sw.js?v=20260916-rop02-complete-v28",
         {updateViaCache:"none"}
       );
       await swRegistration.update();
