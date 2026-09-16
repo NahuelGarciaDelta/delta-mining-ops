@@ -53,6 +53,15 @@ function normalizeRecord_(record){
   if(!data)return null;
   return {...record,data,value:data,version:Number(record.version||data?.meta?.serverVersion||0)};
 }
+function savedSourcesFromMemory_(){
+  const sources={};
+  for(const [key,record] of memoryCache_){
+    if(!key||String(key).startsWith("query:"))continue;
+    const data=record?.data??record?.value;
+    if(data?.ok&&Array.isArray(data.data))sources[key]=data;
+  }
+  return sources;
+}
 
 // ROP02 se sincroniza por fuente independiente. No exigir bundleId común aquí:
 // esa validación pertenecía al antiguo bundle atómico y hacía que IndexedDB
@@ -94,10 +103,21 @@ async function writeCachedSources(sources){
     await idbTransactionDone_(tx);
   }catch(_){/* La copia de sesión sigue disponible aunque IndexedDB falle. */}
 }
+
+// Precalienta en memoria los datasets persistidos antes del primer render autenticado.
+// App.jsx puede así iniciar con datos utilizables sin esperar el primer viaje a red.
+export async function prewarmSavedDataSources(){
+  const manifest=readCacheManifest_();
+  const keys=Object.keys(manifest||{}).filter(key=>key&&!String(key).startsWith("query:"));
+  if(!keys.length)return{sources:0};
+  await readCachedSourceRecords(keys);
+  return{sources:Object.keys(savedSourcesFromMemory_()).length};
+}
+
 export function readSavedDataSources(){
   const manifest=readCacheManifest_();
   const times=Object.values(manifest||{}).map(r=>new Date(r?.updatedAt||0).getTime()).filter(Number.isFinite);
-  return{sources:{},updatedAt:times.length?new Date(Math.max(...times)).toISOString():null};
+  return{sources:savedSourcesFromMemory_(),updatedAt:times.length?new Date(Math.max(...times)).toISOString():null};
 }
 export function saveDataSourcesToStorage(sources){writeCachedSources(sources).catch(()=>{});}
 export function getCachedSourceTimestamp(record){return record?.updatedAt||record?.data?.meta?.updatedAt||record?.data?.updatedAt||null;}
