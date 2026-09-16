@@ -80,9 +80,12 @@ export function installWelcomeRefreshButton(){
     queued=true;
     window.requestAnimationFrame(()=>{queued=false;ensureButton();});
   };
-  const observer=new MutationObserver(schedule);
-  observer.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:["class","style"]});
+  const observer=new MutationObserver(mutations=>{
+    if(mutations.some(mutation=>mutation.type==="childList"))schedule();
+  });
+  observer.observe(document.documentElement,{childList:true,subtree:true});
   window.addEventListener("popstate",schedule);
   window.addEventListener("hashchange",schedule);
+  window.addEventListener("dm-user-session-changed",schedule);
   schedule();
 }
