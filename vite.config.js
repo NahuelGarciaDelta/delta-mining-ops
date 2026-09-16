@@ -10,6 +10,7 @@ import { mutationIdempotencyVitePlugin } from './scripts/mutation-idempotency-vi
 import { rop02TruckPickupSplitVitePlugin } from './scripts/rop02-truck-pickup-split-vite-plugin.mjs'
 import { rop02UnifyTrucksVitePlugin } from './scripts/rop02-unify-trucks-vite-plugin.mjs'
 import { rop02TruckHistoryVitePlugin } from './scripts/rop02-truck-history-vite-plugin.mjs'
+import { rop02ControlLastShiftVehiclesVitePlugin } from './scripts/rop02-control-last-shift-vehicles-vite-plugin.mjs'
 import { vehicleKmMaintenanceVitePlugin } from './scripts/vehicle-km-maintenance-vite-plugin.mjs'
 import { pmVehicleScopeVitePlugin } from './scripts/pm-vehicle-scope-vite-plugin.mjs'
 import { pmVehicleDisplayVitePlugin } from './scripts/pm-vehicle-display-vite-plugin.mjs'
@@ -22,7 +23,7 @@ import { rop02Rop05PositiveHoursVitePlugin } from './scripts/rop02-rop05-positiv
 import { rop02StateClassificationVitePlugin } from './scripts/rop02-state-classification-vite-plugin.mjs'
 
 export default defineConfig({
-  plugins: [abastecimientoLineEndingsVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02TruckHistoryVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), abastecimientoInstantVitePlugin(), mutationIdempotencyVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), progressiveRowsVitePlugin(), react()],
+  plugins: [abastecimientoLineEndingsVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02TruckHistoryVitePlugin(), rop02ControlLastShiftVehiclesVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), abastecimientoInstantVitePlugin(), mutationIdempotencyVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
     host: '0.0.0.0'
   },
