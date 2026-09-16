@@ -4,6 +4,8 @@ const compactText=value=>String(value??"")
   .toUpperCase()
   .replace(/[^A-Z0-9]/g,"");
 
+const TRUCK_PLATES=new Set(["AG611LL","AG661LL","AG816QB","AG818QB"]);
+
 export function rop02ControlTurnoKey(value){
   const key=compactText(value);
   if(key==="TN"||key.includes("NOCHE")||key.includes("NOCTURN"))return "TN";
@@ -17,6 +19,9 @@ export function rop02ControlTurnoOrder(value){
 export function rop02ControlVehicleKind(value){
   const code=compactText(value).replace(/JM$/,"");
   if(!code||code==="CAA0002")return "";
+
+  // Algunos camiones cisterna están identificados por dominio y no por interno CAR/CAC/CAV.
+  if(TRUCK_PLATES.has(code))return "CAMION";
 
   // Camionetas identificadas por interno CTA o dominio argentino.
   if(/^CTA/.test(code)||/^(AG|AH|AI)[0-9A-Z]{4,}$/.test(code))return "CAMIONETA";
