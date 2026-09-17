@@ -1,0 +1,46 @@
+name: Test diagnostic
+
+on:
+  push:
+    branches:
+      - validation/rop02-final-20260916
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      file: ${{ steps.find.outputs.file }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - id: find
+        name: Find first failing test
+        shell: bash
+        run: |
+          failing="NONE"
+          for file in tests/*.test.mjs; do
+            if ! node --test "$file" >/tmp/test-output.txt 2>&1; then
+              failing="$file"
+              break
+            fi
+          done
+          echo "file=$failing" >> "$GITHUB_OUTPUT"
+          echo "First failing test: $failing"
+  diagnose:
+    needs: discover
+    if: needs.discover.outputs.file != 'NONE'
+    name: failing - ${{ needs.discover.outputs.file }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node --test "${{ needs.discover.outputs.file }}"
