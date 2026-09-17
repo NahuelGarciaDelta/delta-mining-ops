@@ -9,8 +9,9 @@ let nativeSetInterval=null;
 
 // Compatibilidad con módulos legacy: cualquier intervalo histórico de 5 minutos
 // queda alineado con la política global de 5 minutos, sin modificar otros timers.
+// Las escrituras se enrutan por el bridge Supabase-first instalado en main.jsx.
 export function installLegacyRefreshIntervalPolicy(){
-  if(intervalPolicyInstalled||typeof window==="undefined")return;
+  if(typeof window==="undefined"||intervalPolicyInstalled)return;
   intervalPolicyInstalled=true;
   nativeSetInterval=window.setInterval.bind(window);
   window.setInterval=(handler,delay,...args)=>{

@@ -3,7 +3,8 @@
   "git": {
     "deploymentEnabled": {
       "feat/split-trucks-pickups-rop02": false,
-      "perf/instant-local-first-20260916": false
+      "perf/instant-local-first-20260916": false,
+      "fix/bidirectional-sync-20260916": false
     }
   },
   "headers": [
