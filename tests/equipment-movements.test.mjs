@@ -40,7 +40,7 @@ test("movimientos del mismo equipo permanecen independientes por proyecto origen
 });
 
 test("Apps Script conserva router, lock, UUID, hoja y headers obligatorios",()=>{
-  const source=fs.readFileSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt",import.meta.url),"utf8");
+  const source=fs.readFileSync(new URL("../AppsScript_Delta_Mining_OPS_ROP02_OK.txt",import.meta.url),"utf8");
   for(const action of ["get_equipment_movements","get_active_equipment_movements","save_equipment_movement","cancel_equipment_movement"])assert.match(source,new RegExp(action));
   assert.match(source,/SpreadsheetApp\.openById\(MOVIMIENTOS_EQUIPOS_DB_ID_\)/);
   assert.match(source,/1eEgggHdcH0YhGnmlogN63nQgStNl2xoV0bkfF_DTPYU/);
