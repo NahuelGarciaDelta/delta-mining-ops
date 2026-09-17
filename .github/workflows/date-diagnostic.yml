@@ -1,0 +1,23 @@
+name: Date diagnostic
+on:
+  push:
+    branches:
+      - validation/rop02-production-20260916
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: vals
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE' >/tmp/vals.txt
+          import { dashboardDateKey } from './src/modules/home/dashboardSnapshotPolicy.js';
+          console.log([dashboardDateKey('2026-07-31'),dashboardDateKey('31/07/2026'),dashboardDateKey('2026-07-31T18:30:00-03:00')].join('__'));
+          NODE
+          echo "v=$(cat /tmp/vals.txt)" >> "$GITHUB_OUTPUT"
+    name: values-${{ steps.vals.outputs.v }}
