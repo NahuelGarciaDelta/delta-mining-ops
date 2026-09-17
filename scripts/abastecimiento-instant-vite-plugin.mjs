@@ -30,6 +30,28 @@ export function abastecimientoInstantVitePlugin(){
         'const mappedRows=mapRaba03Rows(raw,sourceRemitos);\n      setRows(mappedRows);\n      try{window.localStorage.setItem(RABA03_VIEW_CACHE_KEY,JSON.stringify(mappedRows));}catch(_){}'
       );
 
+      // Apps Script puede tener arranques fríos de más de 20 s. RABA03 dispone de
+      // caché local, por lo que una respuesta lenta no debe vaciar la vista ni
+      // mostrar un error rojo si ya existen datos válidos en el navegador.
+      next=next.replace(
+        'const res=await fetchWithTimeout(url,{cache:"no-store"},20000,"RABA03");',
+        'const res=await fetchWithTimeout(url,{cache:"no-store"},45000,"RABA03");'
+      );
+
+      const raba03CatchBefore=`    }catch(err){\n      if(!silent){\n        setError(err.message||String(err));\n        setRows([]);\n      }else{\n        console.warn("No se pudo actualizar RABA03 silenciosamente:",err);\n      }\n    }finally{`;
+      const raba03CatchAfter=`    }catch(err){\n      let cachedRows=[];\n      try{cachedRows=JSON.parse(window.localStorage.getItem(RABA03_VIEW_CACHE_KEY)||"[]");}catch(_){}\n      const hasCachedRaba03=Array.isArray(cachedRows)&&cachedRows.length>0;\n      if(!silent&&!hasCachedRaba03){\n        setError(err.message||String(err));\n        setRows([]);\n      }else{\n        if(hasCachedRaba03){\n          setError(null);\n          setRows(prev=>Array.isArray(prev)&&prev.length?prev:cachedRows);\n        }\n        console.warn("No se pudo actualizar RABA03; se conservan los datos disponibles:",err);\n      }\n    }finally{`;
+      if(!next.includes(raba03CatchBefore)){
+        throw new Error('No se encontró el manejo de error de RABA03 para proteger la caché');
+      }
+      next=next.replace(raba03CatchBefore,raba03CatchAfter);
+
+      // La versión estable actual carga RABA03 antes que las llamadas auxiliares.
+      // Si ya existe caché, esa actualización debe ser silenciosa y no bloquear UI.
+      const initialRaba03Before='      try{await loadRaba03({silent:false});}catch(_){}';
+      if(next.includes(initialRaba03Before)){
+        next=next.replace(initialRaba03Before,'      try{await loadRaba03({silent:rows.length>0});}catch(_){}');
+      }
+
       const sourceTraceBefore=`      cantidadSolicitada:solicitada,\n      cantidadEnviada:enviada,\n      cantidadRestante:restante\n    };\n  },[formatDateLocal,pick,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa,numeroSolicitudHistorica]);`;
       const sourceTraceAfter=`      cantidadSolicitada:solicitada,\n      cantidadEnviada:enviada,\n      cantidadRestante:restante,\n      fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"])),\n      numeroRemitoFuente:String(pick(r,["Nº Remito","N° Remito","Remito"])||"").trim()\n    };\n  },[formatDateLocal,pick,normCode,toNumber,normalizeCentroCosto,normalizeEmpresa,numeroSolicitudHistorica]);`;
       if(!next.includes(sourceTraceBefore)){
@@ -93,6 +115,9 @@ export function abastecimientoInstantVitePlugin(){
       }
       if(next.includes('fetchRaba03FromSupabase')||next.includes('fetchAbastecimientoSnapshot')){
         throw new Error('Abastecimiento no debe reinyectar lecturas Supabase');
+      }
+      if(!next.includes('45000,"RABA03"')||!next.includes('hasCachedRaba03')){
+        throw new Error('RABA03 debe tolerar backend lento y conservar caché válida');
       }
       if(!next.includes('fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"]))')){
         throw new Error('Indicador debe conservar la Fecha de salida oficial de RABA03');
