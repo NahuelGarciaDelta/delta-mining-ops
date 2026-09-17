@@ -1,0 +1,27 @@
+name: ROP02 final validation
+
+on:
+  push:
+    branches:
+      - validation/rop02-production-20260916
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: build
+        run: npm run build
+      - name: validate
+        run: npm run validate
+      - name: ROP02 tests
+        run: |
+          files=$(find tests -maxdepth 1 -type f -iname '*rop02*.test.mjs' -print)
+          node --test $files
