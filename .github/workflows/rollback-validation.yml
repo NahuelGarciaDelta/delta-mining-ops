@@ -18,5 +18,13 @@ jobs:
         run: npm ci
       - name: npm run build
         run: npm run build
-      - name: npm run validate
-        run: npm run validate
+      - name: validate imports
+        run: node scripts/validate-local-imports.mjs
+      - name: validate worker syntax
+        run: node --check src/workers/informeCostos.worker.js
+      - name: validate engine syntax
+        run: node --check src/modules/informe-costos/engine/InformeCostosEngine.js
+      - name: security audit
+        run: npm run lint:security
+      - name: tests
+        run: npm test
