@@ -85,10 +85,6 @@ export default function ViewBienvenidaProjectFilter(props){
   React.useEffect(()=>()=>{if(typeof window!=="undefined"){window.__dmHomeSummaryExternalFilter=false;window.__dmHomeSummaryProject="TODOS";}},[]);
 
   React.useEffect(()=>{
-    // El host del Resumen General se desmonta al entrar al Dashboard interno y
-    // React crea un nodo nuevo al volver. Mantener un portal al nodo anterior
-    // deja los filtros renderizados fuera del DOM visible. Observamos los cambios
-    // del layout y reenganchamos el portal cada vez que reaparece el resumen.
     const syncPortalHost=()=>{
       const host=document.querySelector(".dm-home-summary > div:first-child");
       setPortalHost(current=>current===host?current:(host||null));
@@ -109,9 +105,6 @@ export default function ViewBienvenidaProjectFilter(props){
   },[open]);
 
   React.useEffect(()=>{
-    // El filtro de día/proyecto pertenece exclusivamente al Resumen General.
-    // Cuando ViewBienvenida muestra su Dashboard interno, éste recibe el histórico
-    // completo ya hidratado por App/Supabase y nunca dispara un snapshot adicional.
     const syncDashboardHost=()=>{
       const host=document.querySelector(".dm-home-dashboard-shell");
       setDashboardHost(current=>current===host?current:(host||null));
@@ -126,23 +119,14 @@ export default function ViewBienvenidaProjectFilter(props){
     const filterRows=rows=>Array.isArray(rows)?(allSelected?rows:rows.filter(row=>selectedSet.has(projectFromRow(row)))):rows;
     const filteredRma=filterRows(props.rma15);
     const dailySummaryRop02=effectiveDay?projectFilteredRop02.filter(row=>dateFromRop02Row(row)===effectiveDay):projectFilteredRop02;
-
-    if(dashboardVisible){
-      return {
-        ...props,
-        rop02All:Array.isArray(props.rop02All)?props.rop02All:[],
-        rop05:Array.isArray(props.rop05)?props.rop05:[],
-        rma15:Array.isArray(props.rma15)?props.rma15:[],
-        summaryDayFiltered:false,
-      };
-    }
+    const rop02ForCurrentHomeView=dashboardVisible?projectFilteredRop02:dailySummaryRop02;
 
     return {
       ...props,
-      rop02All:dailySummaryRop02,
+      rop02All:rop02ForCurrentHomeView,
       rop05:filterRows(props.rop05),
       rma15:Array.isArray(filteredRma)&&filteredRma.length?filteredRma:[EMPTY_RMA_SENTINEL],
-      summaryDayFiltered:Boolean(effectiveDay),
+      summaryDayFiltered:!dashboardVisible&&Boolean(effectiveDay),
     };
   },[props,allSelected,selectedSet,projectFilteredRop02,effectiveDay,dashboardVisible]);
 
