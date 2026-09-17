@@ -10,6 +10,40 @@ import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
 
+// Si una pestaña quedó abierta durante un deploy puede intentar cargar un chunk
+// con hash viejo. Vite emite vite:preloadError antes de que React muestre el
+// error de import dinámico. Recuperamos una sola vez recargando la versión actual.
+const CHUNK_RECOVERY_KEY="dm_chunk_recovery_at";
+const CHUNK_RECOVERY_WINDOW_MS=90000;
+const CHUNK_ERROR_RE=/failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|loading chunk .* failed|unable to preload css/i;
+
+function chunkErrorText(value){
+  if(!value)return"";
+  if(typeof value==="string")return value;
+  return String(value?.message||value?.reason?.message||value?.reason||value?.payload?.message||value?.payload||value||"");
+}
+
+function recoverChunkLoad(value,event){
+  const message=chunkErrorText(value);
+  if(!CHUNK_ERROR_RE.test(message))return false;
+  const now=Date.now();
+  let last=0;
+  try{last=Number(sessionStorage.getItem(CHUNK_RECOVERY_KEY)||0)||0;}catch(_){}
+  if(now-last<CHUNK_RECOVERY_WINDOW_MS)return false;
+  try{sessionStorage.setItem(CHUNK_RECOVERY_KEY,String(now));}catch(_){}
+  event?.preventDefault?.();
+  const url=new URL(window.location.href);
+  url.searchParams.set("_dm_chunk",String(now));
+  window.location.replace(url.toString());
+  return true;
+}
+
+if(typeof window!=="undefined"){
+  window.addEventListener("vite:preloadError",event=>recoverChunkLoad(event?.payload||event,event));
+  window.addEventListener("unhandledrejection",event=>recoverChunkLoad(event?.reason||event,event));
+  window.addEventListener("error",event=>recoverChunkLoad(event?.error||event?.message||event,event),true);
+}
+
 // Una sola política para toda la aplicación: cache inmediato + revalidación cada 5 minutos.
 installLegacyRefreshIntervalPolicy();
 
@@ -21,20 +55,38 @@ const idle=(callback,timeout=1800)=>{
 
 const canPrefetch=()=>{
   if(typeof navigator==="undefined")return true;
+  if(navigator.onLine===false)return false;
   const connection=navigator.connection||navigator.mozConnection||navigator.webkitConnection;
   if(connection?.saveData)return false;
-  return !/2g/i.test(String(connection?.effectiveType||""));
+  if(/(^|-)2g/i.test(String(connection?.effectiveType||"")))return false;
+  const downlink=Number(connection?.downlink);
+  if(Number.isFinite(downlink)&&downlink>0&&downlink<1.5)return false;
+  const rtt=Number(connection?.rtt);
+  if(Number.isFinite(rtt)&&rtt>450)return false;
+  return true;
 };
+
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 function preloadFrequentModules(){
   if(!canPrefetch())return;
-  idle(()=>{
-    Promise.allSettled([
-      import("./modules/oficina-tecnica/OficinaTecnicaModule.jsx"),
-      import("./modules/abastecimiento/AbastecimientoModule.jsx"),
-      import("./modules/mantenimiento/MantenimientoModule.jsx")
-    ]).catch(()=>{});
-  });
+  idle(async()=>{
+    const loaders=[
+      ()=>import("./modules/oficina-tecnica/OficinaTecnicaModule.jsx"),
+      ()=>import("./modules/abastecimiento/AbastecimientoModule.jsx"),
+      ()=>import("./modules/mantenimiento/MantenimientoModule.jsx")
+    ];
+    // En conexiones débiles no se descargan tres chunks pesados a la vez.
+    // Se precargan de a uno y se abandona si la red deja de ser apta.
+    for(const load of loaders){
+      if(document.hidden||!canPrefetch())break;
+      try{await load();}catch(error){
+        recoverChunkLoad(error);
+        break;
+      }
+      await wait(500);
+    }
+  },2600);
 }
 
 // La apariencia elegida por el último usuario se aplica ANTES de montar React.
@@ -108,7 +160,7 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load",async()=>{
     try{
       swRegistration=await navigator.serviceWorker.register(
-        "/sw.js?v=20260916-rop02-complete-v28",
+        "/sw.js?v=20260917-chunk-recovery-v29",
         {updateViaCache:"none"}
       );
       await swRegistration.update();
