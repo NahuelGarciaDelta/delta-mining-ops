@@ -22,10 +22,10 @@ const isValidInterno=code=>{const c=String(code||"").trim();return c&&c!=="-"&&/
 const isNoOperativoValue=value=>["no","fuera de servicio","false","0"].includes(norm(value));
 const EMPTY_SUMMARY_DETAILS={
   equiposViales:{count:0,items:[]},camiones:{count:0,items:[]},camionetas:{count:0,items:[]},
-  equiposFS:{count:0,items:[]},disponibilidad:{percentage:null,available:0,unavailable:0,count:0,items:[]},
+  equiposOD:{count:0,items:[]},equiposFS:{count:0,items:[]},disponibilidad:{percentage:null,available:0,unavailable:0,count:0,items:[]},
   otAbiertas:{count:0,items:[]},stockCritico:{count:0,items:[]},
 };
-const EMPTY_SUMMARY={viales:null,camiones:null,camionetas:null,equiposFS:null,disponibilidad:null,otAbiertas:null,stockCritico:null,details:EMPTY_SUMMARY_DETAILS};
+const EMPTY_SUMMARY={viales:null,camiones:null,camionetas:null,equiposOD:null,equiposFS:null,disponibilidad:null,otAbiertas:null,stockCritico:null,details:EMPTY_SUMMARY_DETAILS};
 let bienvenidaSummaryCache=null;
 let bienvenidaStockCache=null;
 
@@ -169,13 +169,13 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       }
     const nextData={
       fechaResumen:maxRopDateISO,viales:operativos.viales.length,camiones:operativos.camiones.length,camionetas:operativos.camionetas.length,
-      equiposFS:availability.fsItems?.length??0,disponibilidad:availability.disponibilidad,availability,
+      equiposOD:availability.items?.filter(item=>item.estado==="OD").length??0,equiposFS:availability.fsItems?.length??0,disponibilidad:availability.disponibilidad,availability,
       otAbiertas:otAbiertasItems?.length??0,stockCritico,
       details:{
         equiposViales:{count:operativos.viales.length,items:operativos.viales},
         camiones:{count:operativos.camiones.length,items:operativos.camiones},
         camionetas:{count:operativos.camionetas.length,items:operativos.camionetas},
-        equiposFS:{count:availability.fsItems?.length??0,items:availability.fsItems??[]},
+        equiposOD:{count:availability.items?.filter(item=>item.estado==="OD").length??0,items:(availability.items??[]).filter(item=>item.estado==="OD")},\n        equiposFS:{count:availability.fsItems?.length??0,items:availability.fsItems??[]},
         disponibilidad:{percentage:availability.disponibilidad,available:availability.disponibles,unavailable:availability.noDisponibles,count:availability.items?.length??0,items:availability.items??[]},
         otAbiertas:{count:otAbiertasItems?.length??0,items:otAbiertasItems??[]},
         stockCritico:{count:stockCriticoItems?.length??0,items:stockCriticoItems??[]},
@@ -313,10 +313,10 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
                 <SummaryRow active={activeSummaryKey==="equiposViales"} onClick={()=>setActiveSummaryKey(k=>k==="equiposViales"?null:"equiposViales")} icon="truck" color="#e7edf2" label="Equipos viales operativos" value={summaryLoading.flota?"Cargando…":stats.viales}/>
                 <SummaryRow active={activeSummaryKey==="camiones"} onClick={()=>setActiveSummaryKey(k=>k==="camiones"?null:"camiones")} icon="truck" color="#60a5fa" label="Camiones operativos" value={summaryLoading.flota?"Cargando…":stats.camiones}/>
                 <SummaryRow active={activeSummaryKey==="camionetas"} onClick={()=>setActiveSummaryKey(k=>k==="camionetas"?null:"camionetas")} icon="car" color="#22d3ee" label="Camionetas operativas" value={summaryLoading.flota?"Cargando…":stats.camionetas}/>
-                <SummaryRow active={activeSummaryKey==="equiposFS"} onClick={()=>setActiveSummaryKey(k=>k==="equiposFS"?null:"equiposFS")} icon="warn" color="#ef4444" label="Equipos FS" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposFS}/>
+                <SummaryRow active={activeSummaryKey==="equiposOD"} onClick={()=>setActiveSummaryKey(k=>k==="equiposOD"?null:"equiposOD")} icon="hours" color="#f59e0b" label="Equipos OD" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposOD}/>\n                <SummaryRow active={activeSummaryKey==="equiposFS"} onClick={()=>setActiveSummaryKey(k=>k==="equiposFS"?null:"equiposFS")} icon="warn" color="#ef4444" label="Equipos FS" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposFS}/>
                 <SummaryRow active={activeSummaryKey==="disponibilidad"} onClick={()=>setActiveSummaryKey(k=>k==="disponibilidad"?null:"disponibilidad")} icon="hours" color="#22d3ee" label="Disponibilidad" value={summaryLoading.disponibilidad?"Cargando…":stats.disponibilidad==null?"—":`${stats.disponibilidad}%`} title="Calculada exclusivamente con los registros ROP02 del día seleccionado. Trabajo u OD = disponible; FS = no disponible. Se excluyen equipos justificados como 'Bajó a San Juan'."/>
                 <SummaryRow active={activeSummaryKey==="otAbiertas"} onClick={()=>setActiveSummaryKey(k=>k==="otAbiertas"?null:"otAbiertas")} icon="wrench" color="#e7edf2" label="OT abiertas" value={summaryLoading.ot?"Cargando…":stats.otAbiertas}/>
-                <SummaryRow active={activeSummaryKey==="stockCritico"} onClick={()=>setActiveSummaryKey(k=>k==="stockCritico"?null:"stockCritico")} icon="package" color="#f5a000" label="Stock crítico" value={summaryLoading.stock?"Cargando…":stats.stockCritico}/>
+
               </div>
               {activeSummaryKey&&<SummaryPopover summaryKey={activeSummaryKey} details={stats.details?.[activeSummaryKey]}/>}
             </div>
@@ -349,7 +349,7 @@ function prettyLugar(v){
   return String(v||"—");
 }
 function SummaryPopover({summaryKey,details={}}){
-  const titles={equiposViales:"Equipos viales operativos",camiones:"Camiones operativos",camionetas:"Camionetas operativas",equiposFS:"Equipos fuera de servicio",disponibilidad:"Detalle de disponibilidad",otAbiertas:"OT abiertas",stockCritico:"Stock crítico"};
+  const titles={equiposViales:"Equipos viales operativos",camiones:"Camiones operativos",camionetas:"Camionetas operativas",equiposOD:"Equipos OD",equiposFS:"Equipos fuera de servicio",disponibilidad:"Detalle de disponibilidad",otAbiertas:"OT abiertas",stockCritico:"Stock crítico"};
   const items=Array.isArray(details.items)?details.items:[];
   const isAvailability=summaryKey==="disponibilidad";
   const isStock=summaryKey==="stockCritico";
