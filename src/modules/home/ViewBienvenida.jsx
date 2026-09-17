@@ -175,7 +175,8 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         equiposViales:{count:operativos.viales.length,items:operativos.viales},
         camiones:{count:operativos.camiones.length,items:operativos.camiones},
         camionetas:{count:operativos.camionetas.length,items:operativos.camionetas},
-        equiposOD:{count:availability.items?.filter(item=>item.estado==="OD").length??0,items:(availability.items??[]).filter(item=>item.estado==="OD")},\n        equiposFS:{count:availability.fsItems?.length??0,items:availability.fsItems??[]},
+        equiposOD:{count:availability.items?.filter(item=>item.estado==="OD").length??0,items:(availability.items??[]).filter(item=>item.estado==="OD")},
+        equiposFS:{count:availability.fsItems?.length??0,items:availability.fsItems??[]},
         disponibilidad:{percentage:availability.disponibilidad,available:availability.disponibles,unavailable:availability.noDisponibles,count:availability.items?.length??0,items:availability.items??[]},
         otAbiertas:{count:otAbiertasItems?.length??0,items:otAbiertasItems??[]},
         stockCritico:{count:stockCriticoItems?.length??0,items:stockCriticoItems??[]},
@@ -313,7 +314,8 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
                 <SummaryRow active={activeSummaryKey==="equiposViales"} onClick={()=>setActiveSummaryKey(k=>k==="equiposViales"?null:"equiposViales")} icon="truck" color="#e7edf2" label="Equipos viales operativos" value={summaryLoading.flota?"Cargando…":stats.viales}/>
                 <SummaryRow active={activeSummaryKey==="camiones"} onClick={()=>setActiveSummaryKey(k=>k==="camiones"?null:"camiones")} icon="truck" color="#60a5fa" label="Camiones operativos" value={summaryLoading.flota?"Cargando…":stats.camiones}/>
                 <SummaryRow active={activeSummaryKey==="camionetas"} onClick={()=>setActiveSummaryKey(k=>k==="camionetas"?null:"camionetas")} icon="car" color="#22d3ee" label="Camionetas operativas" value={summaryLoading.flota?"Cargando…":stats.camionetas}/>
-                <SummaryRow active={activeSummaryKey==="equiposOD"} onClick={()=>setActiveSummaryKey(k=>k==="equiposOD"?null:"equiposOD")} icon="hours" color="#f59e0b" label="Equipos OD" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposOD}/>\n                <SummaryRow active={activeSummaryKey==="equiposFS"} onClick={()=>setActiveSummaryKey(k=>k==="equiposFS"?null:"equiposFS")} icon="warn" color="#ef4444" label="Equipos FS" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposFS}/>
+                <SummaryRow active={activeSummaryKey==="equiposOD"} onClick={()=>setActiveSummaryKey(k=>k==="equiposOD"?null:"equiposOD")} icon="hours" color="#f59e0b" label="Equipos OD" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposOD}/>
+                <SummaryRow active={activeSummaryKey==="equiposFS"} onClick={()=>setActiveSummaryKey(k=>k==="equiposFS"?null:"equiposFS")} icon="warn" color="#ef4444" label="Equipos FS" value={summaryLoading.disponibilidad?"Cargando…":stats.equiposFS}/>
                 <SummaryRow active={activeSummaryKey==="disponibilidad"} onClick={()=>setActiveSummaryKey(k=>k==="disponibilidad"?null:"disponibilidad")} icon="hours" color="#22d3ee" label="Disponibilidad" value={summaryLoading.disponibilidad?"Cargando…":stats.disponibilidad==null?"—":`${stats.disponibilidad}%`} title="Calculada exclusivamente con los registros ROP02 del día seleccionado. Trabajo u OD = disponible; FS = no disponible. Se excluyen equipos justificados como 'Bajó a San Juan'."/>
                 <SummaryRow active={activeSummaryKey==="otAbiertas"} onClick={()=>setActiveSummaryKey(k=>k==="otAbiertas"?null:"otAbiertas")} icon="wrench" color="#e7edf2" label="OT abiertas" value={summaryLoading.ot?"Cargando…":stats.otAbiertas}/>
 
