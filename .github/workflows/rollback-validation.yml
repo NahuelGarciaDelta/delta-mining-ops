@@ -1,0 +1,22 @@
+name: rollback-validation
+
+on:
+  push:
+    branches:
+      - validation/rollback-4e13409-20260916
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: npm run build
+        run: npm run build
+      - name: npm run validate
+        run: npm run validate
