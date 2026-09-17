@@ -21,6 +21,21 @@ const persistCache_=async(version=0)=>{
   cache={...cache,version:Number(version||cache.version||0)};
   return writeCachedSource(CACHE_KEY,{ok:true,data:cache.data,meta:{serverVersion:cache.version}}).catch(()=>{});
 };
+const hydrateEquipmentMovementsFromLocalCache_=async()=>{
+  if(cache.loaded)return cache;
+  const record=await readCachedSource(CACHE_KEY).catch(()=>null);
+  if(record?.data?.ok&&Array.isArray(record.data.data)){
+    cache={
+      data:record.data.data,
+      loaded:true,
+      loading:cache.loading,
+      error:"",
+      version:Number(record.data?.meta?.serverVersion||record.version||0),
+    };
+    emit();
+  }
+  return cache;
+};
 
 const toIsoDate_=value=>{
   const raw=String(value||"").trim();
@@ -119,17 +134,31 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
     }catch(_){return[];}
   },[wantsTaller]);
 
-  useEffect(()=>{listeners.add(setSnapshot);loadEquipmentMovements().catch(()=>{});return()=>listeners.delete(setSnapshot)},[]);
+  useEffect(()=>{
+    listeners.add(setSnapshot);
+    if(!wantsTallerAtraso)loadEquipmentMovements().catch(()=>{});
+    return()=>listeners.delete(setSnapshot);
+  },[wantsTallerAtraso]);
   useEffect(()=>registerRefreshTask("equipment-movements",()=>loadEquipmentMovements({revalidate:true}),{views,priority:15}),[viewsKey]);
   useEffect(()=>{if(wantsTaller&&!wantsTallerAtraso)loadTaller();},[wantsTaller,wantsTallerAtraso,loadTaller]);
   useEffect(()=>{
     if(!wantsTallerAtraso){setAtrasoInitialSyncReady(true);return;}
     let active=true;
     setAtrasoInitialSyncReady(false);
-    Promise.allSettled([
-      loadEquipmentMovements({revalidate:true}),
-      loadTaller(),
-    ]).finally(()=>{if(active)setAtrasoInitialSyncReady(true);});
+    (async()=>{
+      const localSnapshot=await hydrateEquipmentMovementsFromLocalCache_();
+      const hasLocalAcceptanceData=Boolean(localSnapshot.loaded)||tallerRows.length>0;
+      if(active&&hasLocalAcceptanceData)setAtrasoInitialSyncReady(true);
+
+      const remoteSync=Promise.allSettled([
+        loadEquipmentMovements({revalidate:true}),
+        loadTaller(),
+      ]);
+      if(!hasLocalAcceptanceData){
+        await remoteSync;
+        if(active)setAtrasoInitialSyncReady(true);
+      }
+    })().catch(()=>{if(active)setAtrasoInitialSyncReady(true);});
     return()=>{active=false;};
   },[wantsTallerAtraso,loadTaller]);
   useEffect(()=>wantsTaller?registerRefreshTask("taller-movements-shared",loadTaller,{views,priority:16}):()=>{},[wantsTaller,viewsKey,loadTaller]);
