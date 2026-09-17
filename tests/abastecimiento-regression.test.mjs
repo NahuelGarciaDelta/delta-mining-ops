@@ -11,9 +11,10 @@ test("Abastecimiento importa y registra registerRefreshTask en el scope del mód
   assert.match(moduleSource, /registerRefreshTask\(["']abastecimiento["']/);
 });
 
-test("Abastecimiento espera remitos reales antes de calcular RABA03 al abrir", () => {
-  assert.match(moduleSource, /sharedRemitos=await loadRemitosCompartidos\(\{silent:true\}\)/);
-  assert.match(moduleSource, /loadRaba03\(\{silent:false,remitosOverride:sharedRemitos\}\)/);
+test("Abastecimiento carga RABA03 de inmediato y reconcilia con remitos reales al abrir", () => {
+  assert.match(moduleSource, /await loadRaba03\(\{silent:false\}\)/);
+  assert.match(moduleSource, /const \[sharedRemitos\]=await Promise\.all\(\[remitosTask,estadosTask\]\)/);
+  assert.match(moduleSource, /loadRaba03\(\{silent:true,remitosOverride:sharedRemitos\}\)/);
   assert.match(moduleSource, /const sentMap=Array\.isArray\(remitosOverride\)\?buildSentByCode\(remitosOverride\):sentByCodeRef\.current/);
 });
 
