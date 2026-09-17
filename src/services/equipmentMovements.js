@@ -108,6 +108,7 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
   const wantsTallerAtraso=useMemo(()=>Array.isArray(views)&&views.some(view=>String(view||"").toLowerCase().includes("atraso")),[viewsKey]);
   const wantsTallerProfile=useMemo(()=>Array.isArray(views)&&views.some(view=>String(view||"").toLowerCase().includes("equipmentprofile")),[viewsKey]);
   const wantsTaller= wantsTallerAtraso||wantsTallerProfile;
+  const[atrasoInitialSyncReady,setAtrasoInitialSyncReady]=useState(()=>!wantsTallerAtraso);
   const loadTaller=useCallback(async()=>{
     if(!wantsTaller)return[];
     try{
@@ -120,7 +121,17 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
 
   useEffect(()=>{listeners.add(setSnapshot);loadEquipmentMovements().catch(()=>{});return()=>listeners.delete(setSnapshot)},[]);
   useEffect(()=>registerRefreshTask("equipment-movements",()=>loadEquipmentMovements({revalidate:true}),{views,priority:15}),[viewsKey]);
-  useEffect(()=>{if(wantsTaller)loadTaller();},[wantsTaller,loadTaller]);
+  useEffect(()=>{if(wantsTaller&&!wantsTallerAtraso)loadTaller();},[wantsTaller,wantsTallerAtraso,loadTaller]);
+  useEffect(()=>{
+    if(!wantsTallerAtraso){setAtrasoInitialSyncReady(true);return;}
+    let active=true;
+    setAtrasoInitialSyncReady(false);
+    Promise.allSettled([
+      loadEquipmentMovements({revalidate:true}),
+      loadTaller(),
+    ]).finally(()=>{if(active)setAtrasoInitialSyncReady(true);});
+    return()=>{active=false;};
+  },[wantsTallerAtraso,loadTaller]);
   useEffect(()=>wantsTaller?registerRefreshTask("taller-movements-shared",loadTaller,{views,priority:16}):()=>{},[wantsTaller,viewsKey,loadTaller]);
 
   const rop02Index=useMemo(()=>{
@@ -207,7 +218,7 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
   // no aparece primero como atrasado mientras llega la revalidación de red.
   // Una vez que el cache local está leído, la vista abre normalmente y la
   // actualización remota continúa en segundo plano.
-  const effectiveLoading=wantsTallerAtraso?!snapshot.loaded:(Boolean(snapshot.loading)||!snapshot.loaded);
-  const effectiveError=wantsTallerAtraso&&snapshot.loaded?"":snapshot.error;
+  const effectiveLoading=wantsTallerAtraso?!atrasoInitialSyncReady:(Boolean(snapshot.loading)||!snapshot.loaded);
+  const effectiveError=wantsTallerAtraso&&atrasoInitialSyncReady?"":snapshot.error;
   return{...snapshot,error:effectiveError,loading:effectiveLoading,movements:profileMovements,activeMovementByEquipment,admitidos,reload:useCallback(()=>loadEquipmentMovements({force:true}),[])};
 }
