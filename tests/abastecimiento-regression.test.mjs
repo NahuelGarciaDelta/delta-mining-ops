@@ -11,10 +11,13 @@ test("Abastecimiento importa y registra registerRefreshTask en el scope del mód
   assert.match(moduleSource, /registerRefreshTask\(["']abastecimiento["']/);
 });
 
-test("Abastecimiento espera remitos reales antes de calcular RABA03 al abrir", () => {
-  assert.match(moduleSource, /sharedRemitos=await loadRemitosCompartidos\(\{silent:true\}\)/);
-  assert.match(moduleSource, /loadRaba03\(\{silent:false,remitosOverride:sharedRemitos\}\)/);
-  assert.match(moduleSource, /const sentMap=Array\.isArray\(remitosOverride\)\?buildSentByCode\(remitosOverride\):sentByCodeRef\.current/);
+test("Abastecimiento abre RABA03 sin bloquear por remitos y reconcilia en segundo plano", () => {
+  // RABA03 es la fuente de verdad para cantidades/estados. La vista principal debe
+  // abrir inmediatamente y los remitos compartidos sólo reconciliar trazabilidad después.
+  assert.match(moduleSource, /try\{await loadRaba03\(\{silent:false\}\);\}catch\(_\)\{\}/);
+  assert.match(moduleSource, /const \[sharedRemitos\]=await Promise\.all\(\[remitosTask,estadosTask\]\)/);
+  assert.match(moduleSource, /await loadRaba03\(\{silent:true,remitosOverride:sharedRemitos\}\)/);
+  assert.match(moduleSource, /Cant\. enviada\/restante vienen de la fuente RABA03/);
 });
 
 test("App conserva todas las rutas de Abastecimiento y su Error Boundary", () => {
