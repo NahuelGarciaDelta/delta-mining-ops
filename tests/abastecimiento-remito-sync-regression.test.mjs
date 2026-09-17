@@ -25,20 +25,30 @@ test('eliminar remito espera confirmación de Google Sheets y no elimina optimí
   assert.ok(start>=0&&end>start);
   const block=source.slice(start,end);
   assert.match(block,/setActionLoading\("Eliminando remito y actualizando Google Sheets\.\.\."\)/);
-  assert.match(block,/await loadRemitosCompartidos\(\{silent:false\}\)/);
-  assert.match(block,/some\(r=>r\.id===id\)/);
-  assert.match(block,/await persistRaba03AllocationForPairs\(confirmedRemitos,affectedPairs\)/);
+  assert.match(block,/const json=await res\.json\(\)/);
+  assert.match(block,/if\(!json\.ok\)throw new Error/);
+  assert.match(block,/deletedConfirmed=true/);
+  assert.match(block,/const nextRemitos=\(remitosRef\.current\|\|\[\]\)\.filter\(r=>r\.id!==id\)/);
+  assert.match(block,/setRemitos\(nextRemitos\)/);
+  assert.match(block,/await persistRaba03AllocationForPairs\(nextRemitos,affectedPairs\)/);
+  assert.match(block,/loadRemitosCompartidos\(\{silent:true\}\)\.catch/);
+  assert.ok(block.indexOf('deletedConfirmed=true')<block.indexOf('setRemitos(nextRemitos)'),'la UI sólo puede quitar el remito después de la confirmación del POST');
   assert.doesNotMatch(block,/setRemitos\(prev=>prev\.filter/);
   assert.match(block,/finally\{\s*setActionLoading\(""\)/);
 });
 
-test('guardar remito sincroniza RABA03 antes de quitar Cargando',()=>{
+test('guardar remito confirma cada POST y sincroniza RABA03 antes de quitar Cargando',()=>{
   const start=source.indexOf('const registerRemito=async()=>{');
   const end=source.indexOf('\n  const deleteRemito=',start);
   const block=source.slice(start,end);
   assert.match(block,/setActionLoading\("Guardando remito y actualizando Google Sheets\.\.\."\)/);
-  assert.match(block,/const confirmedRemitos=await loadRemitosCompartidos/);
-  assert.match(block,/await persistRaba03AllocationForPairs\(confirmedRemitos,affectedPairs\)/);
+  assert.match(block,/await saveRemitoCompartido\(nuevo\)/);
+  assert.match(block,/guardados\.push\(\{\.\.\.nuevo,shared:true\}\)/);
+  assert.match(block,/const nextRemitos=\[\.\.\.\(remitosRef\.current\|\|\[\]\),\.\.\.guardados\]\.filter/);
+  assert.match(block,/await persistRaba03AllocationForPairs\(nextRemitos,affectedPairs\)/);
+  assert.match(block,/loadRemitosCompartidos\(\{silent:true\}\)\.catch/);
+  assert.ok(block.indexOf('await saveRemitoCompartido(nuevo)')<block.indexOf('setRemitos(nextRemitos)'),'la UI sólo refleja remitos después de que el POST fue confirmado');
+  assert.ok(block.indexOf('await persistRaba03AllocationForPairs(nextRemitos,affectedPairs)')<block.indexOf('finally{'),'RABA03 debe quedar sincronizado antes de liberar Cargando');
   assert.match(block,/finally\{\s*setActionLoading\(""\)/);
 });
 
