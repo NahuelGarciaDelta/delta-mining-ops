@@ -15,7 +15,8 @@ test("Abastecimiento carga RABA03 de inmediato y reconcilia con remitos reales a
   assert.match(moduleSource, /await loadRaba03\(\{silent:false\}\)/);
   assert.match(moduleSource, /const \[sharedRemitos\]=await Promise\.all\(\[remitosTask,estadosTask\]\)/);
   assert.match(moduleSource, /loadRaba03\(\{silent:true,remitosOverride:sharedRemitos\}\)/);
-  assert.match(moduleSource, /const sentMap=Array\.isArray\(remitosOverride\)\?buildSentByCode\(remitosOverride\):sentByCodeRef\.current/);
+  assert.match(moduleSource, /const sourceRemitos=Array\.isArray\(remitosOverride\)\?remitosOverride:remitosRef\.current/);
+  assert.match(moduleSource, /setRows\(mapRaba03Rows\(raw,sourceRemitos\)\)/);
 });
 
 test("App conserva todas las rutas de Abastecimiento y su Error Boundary", () => {
