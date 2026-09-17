@@ -19,26 +19,33 @@ test('1527ALT puede vincular por código + proyecto aunque cambie la descripció
   assert.notEqual(request.descripcion,remito.descripcion);
 });
 
-test('eliminar remito espera confirmación de Google Sheets y no elimina optimísticamente',()=>{
+test('eliminar remito espera confirmación de Google Sheets antes de quitarlo de UI',()=>{
   const start=source.indexOf('const deleteRemito=async(id)=>{');
   const end=source.indexOf('\n  const badgeStyle=',start);
   assert.ok(start>=0&&end>start);
   const block=source.slice(start,end);
   assert.match(block,/setActionLoading\("Eliminando remito y actualizando Google Sheets\.\.\."\)/);
-  assert.match(block,/await loadRemitosCompartidos\(\{silent:false\}\)/);
-  assert.match(block,/some\(r=>r\.id===id\)/);
-  assert.match(block,/await persistRaba03AllocationForPairs\(confirmedRemitos,affectedPairs\)/);
-  assert.doesNotMatch(block,/setRemitos\(prev=>prev\.filter/);
+  assert.match(block,/const json=await res\.json\(\)/);
+  assert.match(block,/if\(!json\.ok\)throw/);
+  assert.match(block,/deletedConfirmed=true/);
+  assert.match(block,/const nextRemitos=\(remitosRef\.current\|\|\[\]\)\.filter\(r=>r\.id!==id\)/);
+  assert.match(block,/setRemitos\(nextRemitos\)/);
+  assert.ok(block.indexOf('deletedConfirmed=true') < block.indexOf('setRemitos(nextRemitos)'));
+  assert.match(block,/await persistRaba03AllocationForPairs\(nextRemitos,affectedPairs\)/);
+  assert.match(block,/loadRemitosCompartidos\(\{silent:true\}\)/);
   assert.match(block,/finally\{\s*setActionLoading\(""\)/);
 });
 
-test('guardar remito sincroniza RABA03 antes de quitar Cargando',()=>{
+test('guardar remito confirma Google Sheets y sincroniza RABA03 antes de quitar Cargando',()=>{
   const start=source.indexOf('const registerRemito=async()=>{');
   const end=source.indexOf('\n  const deleteRemito=',start);
+  assert.ok(start>=0&&end>start);
   const block=source.slice(start,end);
   assert.match(block,/setActionLoading\("Guardando remito y actualizando Google Sheets\.\.\."\)/);
-  assert.match(block,/const confirmedRemitos=await loadRemitosCompartidos/);
-  assert.match(block,/await persistRaba03AllocationForPairs\(confirmedRemitos,affectedPairs\)/);
+  assert.match(block,/const json=await res\.json\(\)/);
+  assert.match(block,/if\(!json\.ok\)throw/);
+  assert.match(block,/setRemitos\(nextRemitos\)/);
+  assert.match(block,/await persistRaba03AllocationForPairs\(nextRemitos,affectedPairs\)/);
   assert.match(block,/finally\{\s*setActionLoading\(""\)/);
 });
 
