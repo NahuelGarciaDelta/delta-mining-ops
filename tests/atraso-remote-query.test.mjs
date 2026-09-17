@@ -12,7 +12,7 @@ test("Atraso combina snapshot con una ventana ROP02 de 45 dias",()=>{
   assert.match(source,/const atrasoSource=remoteRop02\|\|rop02All/);
 });
 
-test("Atraso standalone deja de precargar fuentes ROP02 completas",()=>{
-  assert.match(viewSources,/atrasoROP02:\[\]/);
-  assert.match(source,/if\(view==="atrasoROP02"\)return <ViewAtrasoROP02/);
+test("Atraso conserva las fuentes ROP02 de la versión restaurada y usa su vista remota",()=>{
+  assert.match(viewSources,/atrasoROP02:\["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"\]/);
+  assert.match(source,/if\(view==="atrasoROP02"\)return <ViewAtrasoROP02 rop02All=\{rop02ControlAll\} onLegacyFallback=\{onLoadAll\}\/>/);
 });
