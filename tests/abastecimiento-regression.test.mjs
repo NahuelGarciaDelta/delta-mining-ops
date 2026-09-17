@@ -4,7 +4,7 @@ import fs from "node:fs";
 
 const moduleSource = fs.readFileSync(new URL("../src/modules/abastecimiento/AbastecimientoModule.jsx", import.meta.url), "utf8");
 const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const backend = fs.readFileSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt", import.meta.url), "utf8");
+const backend = fs.readFileSync(new URL("../AppsScript_Delta_Mining_OPS_ROP02_OK.txt", import.meta.url), "utf8");
 
 test("Abastecimiento importa y registra registerRefreshTask en el scope del módulo", () => {
   assert.match(moduleSource, /import\s*\{\s*registerRefreshTask\s*\}\s*from\s*["']\.\.\/\.\.\/services\/refreshManager\.js["']/);
