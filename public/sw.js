@@ -1,4 +1,4 @@
-const CACHE_NAME = "delta-mining-ops-v26-global-column-filters-20260914";
+const CACHE_NAME = "delta-mining-ops-v29-chunk-recovery-20260917";
 const APP_SHELL = [
   "/",
   "/index.html",
