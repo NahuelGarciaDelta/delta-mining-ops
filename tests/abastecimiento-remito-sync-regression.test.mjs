@@ -42,8 +42,8 @@ test('guardar remito confirma Google Sheets y sincroniza RABA03 antes de quitar 
   assert.ok(start>=0&&end>start);
   const block=source.slice(start,end);
   assert.match(block,/setActionLoading\("Guardando remito y actualizando Google Sheets\.\.\."\)/);
-  assert.match(block,/const json=await res\.json\(\)/);
-  assert.match(block,/if\(!json\.ok\)throw/);
+  assert.match(block,/await saveRemitoCompartido\(nuevo\)/);
+  assert.match(block,/guardados\.push\(\{\.\.\.nuevo,shared:true\}\)/);
   assert.match(block,/setRemitos\(nextRemitos\)/);
   assert.match(block,/await persistRaba03AllocationForPairs\(nextRemitos,affectedPairs\)/);
   assert.match(block,/finally\{\s*setActionLoading\(""\)/);
