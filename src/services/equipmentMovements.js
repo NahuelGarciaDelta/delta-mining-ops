@@ -202,11 +202,12 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
     return[...unique.values()];
   },[wantsTallerProfile,tallerCanonical,snapshot.data]);
 
-  // En Atraso ROP02 los equipos se muestran inmediatamente con la información
-  // disponible de ROP02. La consulta de movimientos/justificaciones se enriquece
-  // en segundo plano y nunca bloquea ni vacía la lista de equipos atrasados.
-  const atrasoHasRop02=wantsTallerAtraso&&Array.isArray(rop02Rows)&&rop02Rows.length>0;
-  const effectiveLoading=atrasoHasRop02?false:(Boolean(snapshot.loading)||!snapshot.loaded);
-  const effectiveError=atrasoHasRop02?"":snapshot.error;
+  // En Atraso ROP02 esperamos únicamente a hidratar el cache local de
+  // movimientos/justificaciones antes de clasificar. Así un equipo ya aceptado
+  // no aparece primero como atrasado mientras llega la revalidación de red.
+  // Una vez que el cache local está leído, la vista abre normalmente y la
+  // actualización remota continúa en segundo plano.
+  const effectiveLoading=wantsTallerAtraso?!snapshot.loaded:(Boolean(snapshot.loading)||!snapshot.loaded);
+  const effectiveError=wantsTallerAtraso&&snapshot.loaded?"":snapshot.error;
   return{...snapshot,error:effectiveError,loading:effectiveLoading,movements:profileMovements,activeMovementByEquipment,admitidos,reload:useCallback(()=>loadEquipmentMovements({force:true}),[])};
 }
