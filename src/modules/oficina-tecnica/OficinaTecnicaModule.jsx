@@ -4423,18 +4423,30 @@ function ViewAtrasoROP02({rop02All,onLegacyFallback}){
       const rawLatest=Array.isArray(latest.data)?latest.data:[];
       const reference=String(latest.referenceDate||rawLatest.reduce((max,row)=>String(row.ULTIMA_FECHA||row.ultimaCarga||"")>max?String(row.ULTIMA_FECHA||row.ultimaCarga):max,""));
       if(!reference)throw new Error("Snapshot ROP02 sin fecha de referencia");
+      const syntheticLatest=rawLatest.map(row=>({
+        fecha:String(row.ULTIMA_FECHA||row.ultimaCarga||"").slice(0,10),maquina:String(row.INTERNO||row.equipo||row.maquina||""),
+        proyecto:String(row.PROYECTO||row.proyecto||""),supervisor:String(row.SUPERVISOR||row.supervisor||""),
+        horas:Number(row.HORAS??row.horas??0),estado:String(row.ULTIMO_ESTADO||row.ultimoEstado||""),tipo_trabajo:String(row.ULTIMO_ESTADO||row.ultimoEstado||""),
+        _snapshot:true,_excluded:false
+      })).filter(row=>row.fecha&&row.maquina);
+
+      // Aplicar de inmediato la última fecha conocida de cada equipo/proyecto.
+      // Así una justificación vieja queda invalidada en cuanto existe una carga ROP02 posterior,
+      // sin esperar a descargar los 45 días completos del historial.
+      if(active){
+        const current=Array.isArray(rop02All)?rop02All:[];
+        const currentKeys=new Set(current.map(row=>`${equipmentProjectKey(canonicalEquivalentMachineCode(row.maquina),row.proyecto)}|${String(row.fecha||"").slice(0,10)}`));
+        const staged=[...current,...syntheticLatest.filter(row=>!currentKeys.has(`${equipmentProjectKey(canonicalEquivalentMachineCode(row.maquina),row.proyecto)}|${row.fecha}`))];
+        setRemoteRop02(staged);
+      }
+
       const start=new Date(`${reference}T12:00:00`);start.setDate(start.getDate()-45);
       const desde=`${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,"0")}-${String(start.getDate()).padStart(2,"0")}`;
       const recent=await getRop02({desde,hasta:reference,limit:"all",sortBy:"fecha",sortDirection:"asc"});
       const normalizedRecent=normalizeROP02(recent.data||[]);
-      const recentKeys=new Set(normalizedRecent.map(row=>equipmentProjectKey(canonicalEquivalentMachineCode(row.maquina),row.proyecto)));
-      const synthetic=rawLatest.map(row=>({
-        fecha:String(row.ULTIMA_FECHA||row.ultimaCarga||""),maquina:String(row.INTERNO||row.equipo||row.maquina||""),
-        proyecto:String(row.PROYECTO||row.proyecto||""),supervisor:String(row.SUPERVISOR||row.supervisor||""),
-        horas:Number(row.HORAS??row.horas??0),estado:String(row.ULTIMO_ESTADO||row.ultimoEstado||""),tipo_trabajo:String(row.ULTIMO_ESTADO||row.ultimoEstado||""),
-        _snapshot:true,_excluded:false
-      })).filter(row=>row.fecha&&row.maquina&&!recentKeys.has(equipmentProjectKey(canonicalEquivalentMachineCode(row.maquina),row.proyecto)));
-      if(active)setRemoteRop02([...normalizedRecent,...synthetic]);
+      const recentKeys=new Set(normalizedRecent.map(row=>`${equipmentProjectKey(canonicalEquivalentMachineCode(row.maquina),row.proyecto)}|${String(row.fecha||"").slice(0,10)}`));
+      const syntheticMissing=syntheticLatest.filter(row=>!recentKeys.has(`${equipmentProjectKey(canonicalEquivalentMachineCode(row.maquina),row.proyecto)}|${row.fecha}`));
+      if(active)setRemoteRop02([...normalizedRecent,...syntheticMissing]);
     };
     run().catch(()=>{if(active){setRemoteRop02(null);legacyFallbackRef.current?.();}});
     return()=>{active=false;};
