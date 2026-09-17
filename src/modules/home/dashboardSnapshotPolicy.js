@@ -25,7 +25,7 @@ export function dashboardDateKey(value){
   if(!raw)return"";
   let m=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if(m)return`${m[1]}-${String(m[2]).padStart(2,"0")}-${String(m[3]).padStart(2,"0")}`;
-  m=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})/);
+  m=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4}|\d{2})/);
   if(m){
     let year=Number(m[3]);
     if(year<100)year+=2000;
