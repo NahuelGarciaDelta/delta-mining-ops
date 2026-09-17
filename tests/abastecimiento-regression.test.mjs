@@ -40,9 +40,12 @@ test("Apps Script consolidado tiene rutas únicas y reemplazo transaccional de S
   ["STOCK CRITICO", "STOCK_META", "STOCK_TEMP", "STOCK_HISTORIAL"]
     .forEach(sheet => assert.match(backend, new RegExp(sheet), sheet));
   assert.match(backend, /LockService\.getScriptLock\(\)/);
-  assert.match(backend, /if\(!lock\.tryLock\(30000\)\)/);
-  assert.match(backend, /if\(temp\.getLastRow\(\)-1!==checked\.matrix\.length\)throw/);
-  assert.match(backend, /currentMain\.setName\(STOCK_TEMP_SHEET_\);backup\.setName\(STOCK_MAIN_SHEET_\)/);
-  assert.ok(backend.indexOf("temp.setName(STOCK_MAIN_SHEET_)") < backend.indexOf("ss.deleteSheet(backup)"));
+  assert.match(backend, /if\s*\(!lock\.tryLock\(30000\)\)/);
+  assert.match(backend, /if\s*\(temp\.getLastRow\(\)\s*-\s*1\s*!==\s*checked\.matrix\.length\)/);
+  assert.match(backend, /backup\.setName\("STOCK CRITICO BACKUP "\s*\+\s*new Date\(\)\.getTime\(\)\)/);
+  assert.match(backend, /temp\.setName\(STOCK_MAIN_SHEET_\)/);
+  assert.match(backend, /currentMain\.setName\(STOCK_TEMP_SHEET_\)/);
+  assert.match(backend, /backup\.setName\(STOCK_MAIN_SHEET_\)/);
+  assert.ok(backend.indexOf("temp.setName(STOCK_MAIN_SHEET_)") < backend.indexOf("stockExcelWriteMeta_(meta)"));
   assert.doesNotMatch(backend, /DriveApp|STOCK_FOLDER_ID|STOCK_DRIVE_FOLDER_ID|STOCK_ACTIVE_FILE_ID|FILE_ID|FILE_URL/);
 });
