@@ -18,6 +18,7 @@ import { vehicleKmMaintenanceVitePlugin } from './scripts/vehicle-km-maintenance
 import { pmVehicleScopeVitePlugin } from './scripts/pm-vehicle-scope-vite-plugin.mjs'
 import { pmVehicleDisplayVitePlugin } from './scripts/pm-vehicle-display-vite-plugin.mjs'
 import { equipmentProfileCodeHistoryVitePlugin } from './scripts/equipment-profile-code-history-vite-plugin.mjs'
+import { equipmentProfilePlaceholderCodeFixVitePlugin } from './scripts/equipment-profile-placeholder-code-fix-vite-plugin.mjs'
 import { equipmentProfileAliasProjectMultiselectVitePlugin } from './scripts/equipment-profile-alias-project-multiselect-vite-plugin.mjs'
 import { equipmentProfileDeduplicateLastRop02VitePlugin } from './scripts/equipment-profile-deduplicate-last-rop02-vite-plugin.mjs'
 import { equipmentProfileLocationVehicleLabelVitePlugin } from './scripts/equipment-profile-location-vehicle-label-vite-plugin.mjs'
@@ -28,7 +29,7 @@ import { rop02StateClassificationVitePlugin } from './scripts/rop02-state-classi
 import { rop02ControlVehicleFiltersVitePlugin } from './scripts/rop02-control-vehicle-filters-vite-plugin.mjs'
 
 export default defineConfig({
-  plugins: [supabaseSameOriginProxyVitePlugin(), abastecimientoLineEndingsVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02DailyControlRegressionVitePlugin(), administrativoDailyHiControlVitePlugin(), rop02TruckHistoryVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), equipmentLiveDataFixesVitePlugin(), abastecimientoInstantVitePlugin(), mutationIdempotencyVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), equipmentProfilePmUnitsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), rop02ControlVehicleFiltersVitePlugin(), progressiveRowsVitePlugin(), react()],
+  plugins: [supabaseSameOriginProxyVitePlugin(), abastecimientoLineEndingsVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02DailyControlRegressionVitePlugin(), administrativoDailyHiControlVitePlugin(), rop02TruckHistoryVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), equipmentLiveDataFixesVitePlugin(), abastecimientoInstantVitePlugin(), mutationIdempotencyVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfilePlaceholderCodeFixVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), equipmentProfilePmUnitsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), rop02ControlVehicleFiltersVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
     host: '0.0.0.0'
   },
