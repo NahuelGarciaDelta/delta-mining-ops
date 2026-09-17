@@ -22,6 +22,23 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Dev server smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run dev -- --host 127.0.0.1 --port 4173 >/tmp/delta-vite-dev.log 2>&1 &
+          pid=$!
+          cleanup() { kill "$pid" 2>/dev/null || true; }
+          trap cleanup EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/tmp/delta-vite-index.html; then
+              test -s /tmp/delta-vite-index.html
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/delta-vite-dev.log
+          exit 1
       - name: Validate local imports
         run: node scripts/validate-local-imports.mjs
       - name: Syntax checks
