@@ -1,16 +1,26 @@
-import { C } from "../components/ui/index.jsx";
 import { applyAppearance, readLocalAppearance } from "./userAppearance.js";
 
 export const AUTHENTICATED_USER_KEY = "dm_authenticated_user";
 
+let appearanceColors = null;
+
 function applyCurrentUserAppearance_(email=""){
-  try{applyAppearance(readLocalAppearance(email||sessionStorage.getItem("dm_user")||""),C);}catch(_){}
+  try{applyAppearance(readLocalAppearance(email||sessionStorage.getItem("dm_user")||""),appearanceColors);}catch(_){}
 }
 
 if(typeof window!=="undefined"){
+  // Mantener authSession importable desde Node/tests sin arrastrar el entrypoint JSX
+  // de UI. En navegador cargamos la paleta de forma diferida y reaplicamos la
+  // apariencia cuando queda disponible.
+  import("../components/ui/index.jsx")
+    .then(module=>{
+      appearanceColors=module?.C||null;
+      applyCurrentUserAppearance_();
+    })
+    .catch(()=>{});
   applyCurrentUserAppearance_();
   window.addEventListener("dm-appearance-saved",event=>{
-    try{applyAppearance(event?.detail||readLocalAppearance(sessionStorage.getItem("dm_user")||""),C);}catch(_){}
+    try{applyAppearance(event?.detail||readLocalAppearance(sessionStorage.getItem("dm_user")||""),appearanceColors);}catch(_){}
   });
 }
 
