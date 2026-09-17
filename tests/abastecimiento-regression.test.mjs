@@ -46,6 +46,6 @@ test("Apps Script consolidado tiene rutas únicas y reemplazo transaccional de S
   assert.match(backend, /temp\.setName\(STOCK_MAIN_SHEET_\)/);
   assert.match(backend, /currentMain\.setName\(STOCK_TEMP_SHEET_\)/);
   assert.match(backend, /backup\.setName\(STOCK_MAIN_SHEET_\)/);
-  assert.ok(backend.indexOf("temp.setName(STOCK_MAIN_SHEET_)") < backend.indexOf("stockExcelWriteMeta_(meta)"));
+  assert.match(backend, /temp\.setName\(STOCK_MAIN_SHEET_\);[\s\S]{0,1600}stockExcelWriteMeta_\(meta\)/);
   assert.doesNotMatch(backend, /DriveApp|STOCK_FOLDER_ID|STOCK_DRIVE_FOLDER_ID|STOCK_ACTIVE_FILE_ID|FILE_ID|FILE_URL/);
 });
