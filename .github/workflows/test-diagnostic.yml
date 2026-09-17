@@ -28,15 +28,14 @@ jobs:
           for file in tests/*.test.mjs; do
             if ! node --test "$file" >/tmp/test-output.txt 2>&1; then
               failing="$file"
-              detail=$(grep -m1 -E 'AssertionError|SyntaxError|ReferenceError|TypeError|ERR_[A-Z_]+|error:' /tmp/test-output.txt | sed 's/^[#[:space:]]*//' | tr -cd '[:alnum:] _.,:;()\/-' | cut -c1-140)
-              [ -n "$detail" ] || detail=$(grep -m1 '^not ok ' /tmp/test-output.txt | sed 's/^not ok [0-9]* - //' | tr -cd '[:alnum:] _.,:;()\/-' | cut -c1-140)
+              detail=$(grep '^not ok ' /tmp/test-output.txt | grep -v '/home/' | head -1 | sed 's/^not ok [0-9]* - //' | tr -cd '[:alnum:] _.,:;()\/-' | cut -c1-160)
+              [ -n "$detail" ] || detail=$(grep -m1 -E 'AssertionError|SyntaxError|ReferenceError|TypeError|ERR_[A-Z_]+' /tmp/test-output.txt | sed 's/^[#[:space:]]*//' | tr -cd '[:alnum:] _.,:;()\/-' | cut -c1-160)
               [ -n "$detail" ] || detail="test failed"
               break
             fi
           done
           echo "file=$failing" >> "$GITHUB_OUTPUT"
           echo "detail=$detail" >> "$GITHUB_OUTPUT"
-          echo "First failing test: $failing - $detail"
   diagnose:
     needs: discover
     if: needs.discover.outputs.file != 'NONE'
