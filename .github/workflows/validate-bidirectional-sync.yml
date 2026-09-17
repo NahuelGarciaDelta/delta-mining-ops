@@ -1,9 +1,9 @@
-name: Validate bidirectional sync
+name: Validate main
 
 on:
   push:
     branches:
-      - fix/bidirectional-sync-20260916
+      - main
   workflow_dispatch:
 
 jobs:
@@ -46,6 +46,21 @@ jobs:
       - name: Test stock validation
         if: always()
         run: node --test tests/stock-validation.test.mjs
+      - name: Test historical screen migration
+        if: always()
+        run: node --test tests/historical-screen-migration.test.mjs
+      - name: Test home availability
+        if: always()
+        run: node --test tests/home-availability.test.mjs
+      - name: Test home dashboard history
+        if: always()
+        run: node --test tests/home-dashboard-history.test.mjs
+      - name: Test instant startup
+        if: always()
+        run: node --test tests/instant-startup-regression.test.mjs
+      - name: Test RABA03 sheet authority
+        if: always()
+        run: node --test tests/raba03-sheet-authority.test.mjs
       - name: Test remaining suite
         if: always()
         shell: bash
@@ -53,7 +68,7 @@ jobs:
           set -e
           for f in tests/*.test.mjs; do
             case "$f" in
-              tests/rop02-control-reference-vehicles.test.mjs|tests/rop02-all-trucks-same.test.mjs|tests/rop02-trucks-pickups-split.test.mjs|tests/pm-vite-pipeline-regression.test.mjs|tests/stock-auth-session.test.mjs|tests/stock-validation.test.mjs) continue ;;
+              tests/rop02-control-reference-vehicles.test.mjs|tests/rop02-all-trucks-same.test.mjs|tests/rop02-trucks-pickups-split.test.mjs|tests/pm-vite-pipeline-regression.test.mjs|tests/stock-auth-session.test.mjs|tests/stock-validation.test.mjs|tests/historical-screen-migration.test.mjs|tests/home-availability.test.mjs|tests/home-dashboard-history.test.mjs|tests/instant-startup-regression.test.mjs|tests/raba03-sheet-authority.test.mjs) continue ;;
             esac
             node --test "$f"
           done
