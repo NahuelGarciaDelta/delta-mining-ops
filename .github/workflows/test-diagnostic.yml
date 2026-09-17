@@ -1,0 +1,51 @@
+name: Test diagnostic
+
+on:
+  push:
+    branches:
+      - validation/rop02-production-20260916
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      file: ${{ steps.find.outputs.file }}
+      detail: ${{ steps.find.outputs.detail }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - id: find
+        name: Find first failing test
+        shell: bash
+        run: |
+          failing="NONE"
+          detail="NONE"
+          for file in tests/*.test.mjs; do
+            if ! node --test "$file" >/tmp/test-output.txt 2>&1; then
+              failing="$file"
+              detail=$(grep -m1 '^not ok ' /tmp/test-output.txt | sed 's/^not ok [0-9]* - //' | tr -cd '[:alnum:] _.,:;()\/-' | cut -c1-160)
+              [ -n "$detail" ] || detail=$(grep -m1 -E 'AssertionError|SyntaxError|ReferenceError|TypeError|ERR_[A-Z_]+' /tmp/test-output.txt | sed 's/^[#[:space:]]*//' | tr -cd '[:alnum:] _.,:;()\/-' | cut -c1-160)
+              [ -n "$detail" ] || detail="test failed"
+              break
+            fi
+          done
+          echo "file=$failing" >> "$GITHUB_OUTPUT"
+          echo "detail=$detail" >> "$GITHUB_OUTPUT"
+  diagnose:
+    needs: discover
+    if: needs.discover.outputs.file != 'NONE'
+    name: failing - ${{ needs.discover.outputs.file }} - ${{ needs.discover.outputs.detail }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node --test "${{ needs.discover.outputs.file }}"
