@@ -8,13 +8,13 @@ export function atrasoIchcFixesVitePlugin(){
         s=s.replace('if(Array.isArray(rows)&&ignoredCodes?.size){','if(false&&Array.isArray(rows)&&ignoredCodes?.size){');
       }
       if(id.endsWith('/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')){
-        const atrasoSourceFilter='const rop02Prod=useMemo(()=>atrasoSource.filter(r=>!r._excluded && normalizeMachineCode(r.maquina)!=="CAA-0002" && r.fecha),[atrasoSource]);';
+        const atrasoSourceFilter='const rop02Prod=useMemo(()=>atrasoSource.filter(r=>isRop02HourlyEquipment(r)&&r.fecha),[atrasoSource]);';
         if(!s.includes(atrasoSourceFilter)){
-          throw new Error('[delta-atraso-ichc-fixes] No se encontro el filtro base de ViewAtrasoROP02. Se cancela el build para evitar desplegar Atraso sin camiones/camionetas.');
+          throw new Error('[delta-atraso-ichc-fixes] No se encontro el filtro transformado de ViewAtrasoROP02. Se cancela el build para evitar desplegar Atraso sin camiones/camionetas.');
         }
         s=s.replace(
           atrasoSourceFilter,
-          `const isAtrasoTruckOrPickup=row=>{\n    const tipo=String(row?.equipo||row?._tipo||row?.tipoEquipo||row?.["Tipo de Máquina"]||row?.["Tipo de Maquina"]||"").normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toUpperCase();\n    const raw=String(row?.maquina||row?._internoRaw||"").trim().toUpperCase().replace(/\\s*\\(.*?\\)/g,"").replace(/[-_\\s]+JM$/i,"");\n    const compact=raw.replace(/[^A-Z0-9]/g,"");\n    const tipoVehiculo=tipo.includes("CAMIONETA")||tipo.includes("CAMION");\n    const prefijoVehiculo=/^(CTA|CAA|CAC|CAR|CAV|CAT|CDC)/.test(compact);\n    const patenteVehiculo=/^[A-Z]{2}[0-9]{3}[A-Z]{2}$/.test(compact)||/^[A-Z]{3}[0-9]{3}(?:[A-Z]{2})?$/.test(compact);\n    return tipoVehiculo||prefijoVehiculo||patenteVehiculo;\n  };\n  const rop02Prod=useMemo(()=>atrasoSource.filter(r=>Boolean(r?.fecha)&&(!r._excluded||isAtrasoTruckOrPickup(r))),[atrasoSource]);`
+          `const isAtrasoTruckOrPickup=row=>{\n    const tipo=String(row?.equipo||row?._tipo||row?.tipoEquipo||row?.["Tipo de Máquina"]||row?.["Tipo de Maquina"]||"").normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toUpperCase();\n    const raw=String(row?.maquina||row?._internoRaw||"").trim().toUpperCase().replace(/\\s*\\(.*?\\)/g,"").replace(/[-_\\s]+JM$/i,"");\n    const compact=raw.replace(/[^A-Z0-9]/g,"");\n    const tipoVehiculo=tipo.includes("CAMIONETA")||tipo.includes("CAMION");\n    const prefijoVehiculo=/^(CTA|CAA|CAC|CAR|CAV|CAT|CDC)/.test(compact);\n    const patenteVehiculo=/^[A-Z]{2}[0-9]{3}[A-Z]{2}$/.test(compact)||/^[A-Z]{3}[0-9]{3}(?:[A-Z]{2})?$/.test(compact);\n    return tipoVehiculo||prefijoVehiculo||patenteVehiculo;\n  };\n  const rop02Prod=useMemo(()=>atrasoSource.filter(r=>Boolean(r?.fecha)&&(isRop02HourlyEquipment(r)||isAtrasoTruckOrPickup(r))),[atrasoSource]);`
         );
         s=s.replace(
           'const atrasadosAceptados=atrasosFiltrados.filter(r=>r.admitido);\n  const saltosSinCausa=saltosFiltrados.filter(r=>!r.admitido).length;',
