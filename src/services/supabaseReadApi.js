@@ -186,6 +186,16 @@ export async function fetchSupabasePmSnapshot(){
   return data||{ok:false,error:{message:"Supabase no devolvió Mantenimiento Programado."}};
 }
 
+export async function fetchSupabaseRop02LatestByEquipmentProject(){
+  const {data}=await request("/rest/v1/rpc/rop02_latest_by_equipment_project",{method:"POST",body:{},timeoutMs:12000});
+  const rows=Array.isArray(data)?data:[];
+  const referenceDate=rows.reduce((max,row)=>{
+    const value=String(row?.ULTIMA_FECHA||row?.ultimaCarga||"").slice(0,10);
+    return value>max?value:max;
+  },"");
+  return {ok:true,source:"supabase",data:rows,rows:rows.length,total:rows.length,referenceDate};
+}
+
 export async function fetchSupabaseHealth(){
   const started=performance.now();await request("/rest/v1/rop02?select=id&limit=1",{timeoutMs:5000});
   return {ok:true,source:"supabase",latencyMs:Math.round(performance.now()-started),serverTime:new Date().toISOString()};
