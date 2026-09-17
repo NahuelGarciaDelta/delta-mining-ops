@@ -28,12 +28,14 @@ test("rechaza números inválidos, depósitos desconocidos y mínimo mayor al m�
   assert.match(result.report.rejections[0].reasons.join(" "),/Stock mínimo mayor/);
 });
 
-test("el flujo activo de Stock no usa Drive, Base64 ni hojas versionadas",()=>{
-  const backend=fs.readFileSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt",import.meta.url),"utf8");
+test("el flujo activo de Stock no usa Base64 y envía filas estructuradas",()=>{
+  // El backend Apps Script es externo y ya no vive como un TXT dentro del repo.
+  // Esta regresión valida el contrato que sí controla el frontend actual.
   const service=fs.readFileSync(new URL("../src/services/stockService.js",import.meta.url),"utf8");
-  assert.doesNotMatch(backend,/DriveApp|STOCK_DATA_V|STOCK_DRIVE_FOLDER_ID|STOCK_ACTIVE_FILE_ID/);
   assert.doesNotMatch(service,/FileReader|fileToBase64|base64/i);
-  assert.match(backend,/STOCK_TEMP_SHEET_="STOCK_TEMP"/);
-  assert.match(backend,/lock\.tryLock\(30000\)/);
-  assert.ok(backend.indexOf("temp.getRange(2")<backend.indexOf("temp.setName(STOCK_MAIN_SHEET_)"));
+  assert.match(service,/stock_excel_upload/);
+  assert.match(service,/stock_excel_replace/);
+  assert.match(service,/stock_excel_clear/);
+  assert.match(service,/rows,/);
+  assert.match(service,/new URLSearchParams/);
 });
