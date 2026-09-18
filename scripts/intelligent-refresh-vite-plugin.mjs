@@ -24,11 +24,12 @@ export function intelligentRefreshVitePlugin(){
         'if(sources.length)await loadSources(sources,{force:reason==="manual",background});'
       );
 
-      // Las fuentes independientes se consultan en paralelo, pero se publican en un
-      // solo batch. Esto evita 4-9 renders seguidos con normalización de miles de filas.
+      // En arranque en frío se publica cada fuente apenas llega para que la pantalla
+      // empiece a mostrar información. Cuando ya hay cache visible, se actualiza todo
+      // en un solo batch para evitar 4-9 normalizaciones pesadas consecutivas.
       next=next.replace(
         'const results=await runWithConcurrency_(toCheck,2,key=>fetchOneSource(key,{force,cacheRecords}));',
-        'const results=await runWithConcurrency_(toCheck,3,key=>fetchOneSource(key,{force,cacheRecords}));'
+        `const results=await runWithConcurrency_(toCheck,3,async key=>{\n        const item=await fetchOneSource(key,{force,cacheRecords});\n        if(!hasVisible&&!item.skipped){\n          const value=item.value;\n          rawSourcesRef.current={...rawSourcesRef.current,[key]:value};\n          loadedSourcesRef.current={...loadedSourcesRef.current,[key]:true};\n          startTransition(()=>{\n            setRawSources(prev=>({...prev,[key]:value}));\n            setLoadedSources(prev=>({...prev,[key]:true}));\n          });\n          setLastUpdate(new Date());\n          return {...item,skipped:true,_publishedColdStart:true};\n        }\n        return item;\n      });`
       );
 
       // El proxy ya resuelve un HTTP transitorio. Reintentar nuevamente desde React
