@@ -68,8 +68,9 @@ export async function getAllTallerMovements(){
 
 export async function getTallerMovements(type){
   const expected=normalizeType(type);
-  if(!["SUBIDA","BAJA","MOVILIZACION","CAMBIO_EQUIPO"].includes(expected))throw new Error(`Tipo de movimiento no soportado: ${type}`);
   const rows=await getAllTallerMovements();
+  if(!expected)return rows;
+  if(!["SUBIDA","BAJA","MOVILIZACION","CAMBIO_EQUIPO"].includes(expected))throw new Error(`Tipo de movimiento no soportado: ${type}`);
   return rows.filter(row=>row.TIPO===expected);
 }
 
