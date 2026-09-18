@@ -1,0 +1,24 @@
+name: Validate performance lab
+
+on:
+  push:
+    branches:
+      - perf/instant-local-first-20260916
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Cache freshness regression
+        run: node --test tests/cache-freshness-regression.test.mjs
+      - run: npm run build
+      - name: Full validation
+        run: npm run validate
