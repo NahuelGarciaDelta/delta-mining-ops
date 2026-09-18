@@ -4,7 +4,7 @@ const SUPABASE_KEY=String(process.env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZ
 export const config={maxDuration:30};
 
 const ALLOWED_TABLES=new Set(["rop02_frontend","rop02","rop05","rma15_frontend","lista_equipos","insumos"]);
-const ALLOWED_RPCS=new Set(["delta_source_versions","app_pm_snapshot"]);
+const ALLOWED_RPCS=new Set(["delta_source_versions","app_pm_snapshot","app_taller_movements_read"]);
 
 function allowedTarget(raw){
   const value=String(raw||"").trim();
