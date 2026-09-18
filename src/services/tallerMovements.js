@@ -2,7 +2,8 @@ import {APPS_SCRIPT_URL} from "../config/app.js";
 import {fetchAction} from "./appsScriptApi.js";
 import {postToAppsScript} from "./writeActions.js";
 
-const CACHE_PREFIX="dm_taller_movements_v5_";
+const DIRECT_APPS_SCRIPT_URL="https://script.google.com/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec";
+const CACHE_PREFIX="dm_taller_movements_v6_";
 const normalizeType=value=>String(value||"").trim().toUpperCase().replace(/\s+/g,"_");
 const normalizeRows=res=>Array.isArray(res?.data)?res.data:[];
 const text=value=>String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -21,7 +22,6 @@ function classifyMovement(row){
   if(combined.includes("SE BAJA")||combined.includes("TALLER_BAJA")||explicit==="BAJA")return "BAJA";
   if(combined.includes("SE MOVILIZA")||combined.includes("MOVILIZACION")||combined.includes("TALLER_MOVILIZACION"))return "MOVILIZACION";
   if(combined.includes("SUBIDA DE EQUIPO")||combined.includes("TALLER_SUBIDA")||explicit==="SUBIDA")return "SUBIDA";
-
   if(VALID_TYPES.includes(explicit))return explicit;
   if(destino==="SAN JUAN")return "BAJA";
   return "";
@@ -46,8 +46,22 @@ function saveCache(type,rows){
   try{localStorage.setItem(cacheKey(type),JSON.stringify(rows));}catch(_){}
 }
 
+async function fetchFreshTallerMovements(){
+  try{
+    return await fetchAction(APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false,retries:1,timeoutMs:30000});
+  }catch(proxyError){
+    try{
+      return await fetchAction(DIRECT_APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false,retries:1,timeoutMs:30000});
+    }catch(directError){
+      const proxyMessage=String(proxyError?.message||proxyError||"Error desconocido");
+      const directMessage=String(directError?.message||directError||"Error desconocido");
+      throw new Error(`No se pudo actualizar Movimientos de equipos. Proxy: ${proxyMessage}. Apps Script directo: ${directMessage}.`);
+    }
+  }
+}
+
 export async function getAllTallerMovements(){
-  const res=await fetchAction(APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false});
+  const res=await fetchFreshTallerMovements();
   const rows=normalizeRows(res).map(normalizeMovement).filter(row=>row.TIPO);
   VALID_TYPES.forEach(type=>saveCache(type,rows.filter(row=>row.TIPO===type)));
   return rows;
@@ -56,11 +70,6 @@ export async function getAllTallerMovements(){
 export async function getTallerMovements(type){
   const expected=normalizeType(type);
   const rows=await getAllTallerMovements();
-
-  // Compatibilidad con la vista base de Taller, que históricamente llama a esta
-  // función sin parámetro y aplica su propio filtro por tipo después de recibir
-  // el historial completo. Esto evita que la carga fresca falle y deje visible
-  // únicamente el cache local viejo.
   if(!expected)return rows;
   if(!VALID_TYPES.includes(expected))throw new Error(`Tipo de movimiento no soportado: ${type}`);
   return rows.filter(row=>row.TIPO===expected);
