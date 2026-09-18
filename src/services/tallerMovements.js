@@ -46,16 +46,45 @@ function saveCache(type,rows){
   try{localStorage.setItem(cacheKey(type),JSON.stringify(rows));}catch(_){}
 }
 
+async function fetchSupabaseTallerMovements(){
+  const target=encodeURIComponent("/rest/v1/rpc/app_taller_movements_read");
+  const controller=typeof AbortController!=="undefined"?new AbortController():null;
+  const timer=controller?setTimeout(()=>controller.abort(),15000):null;
+  try{
+    const response=await fetch(`/api/supabase-read?target=${target}`,{
+      method:"POST",
+      cache:"no-store",
+      signal:controller?.signal,
+      headers:{Accept:"application/json","Content-Type":"application/json"},
+      body:"{}",
+    });
+    const raw=await response.text();
+    if(!response.ok)throw new Error(`Supabase HTTP ${response.status}: ${raw.slice(0,220)}`);
+    let payload;
+    try{payload=JSON.parse(raw);}catch(_){throw new Error("Supabase devolvió una respuesta no válida");}
+    if(!payload?.ok||!Array.isArray(payload?.data))throw new Error("Supabase no devolvió el historial de Taller");
+    return payload;
+  }catch(error){
+    if(error?.name==="AbortError")throw new Error("Supabase no respondió dentro de 15 segundos");
+    throw error;
+  }finally{if(timer)clearTimeout(timer);}
+}
+
 async function fetchFreshTallerMovements(){
   try{
-    return await fetchAction(APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false,retries:1,timeoutMs:30000});
-  }catch(proxyError){
+    return await fetchSupabaseTallerMovements();
+  }catch(supabaseError){
     try{
-      return await fetchAction(DIRECT_APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false,retries:1,timeoutMs:30000});
-    }catch(directError){
-      const proxyMessage=String(proxyError?.message||proxyError||"Error desconocido");
-      const directMessage=String(directError?.message||directError||"Error desconocido");
-      throw new Error(`No se pudo actualizar Movimientos de equipos. Proxy: ${proxyMessage}. Apps Script directo: ${directMessage}.`);
+      return await fetchAction(APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false,retries:1,timeoutMs:30000});
+    }catch(proxyError){
+      try{
+        return await fetchAction(DIRECT_APPS_SCRIPT_URL,"get_taller_movements",{force:true,compact:false,retries:1,timeoutMs:30000});
+      }catch(directError){
+        const supabaseMessage=String(supabaseError?.message||supabaseError||"Error desconocido");
+        const proxyMessage=String(proxyError?.message||proxyError||"Error desconocido");
+        const directMessage=String(directError?.message||directError||"Error desconocido");
+        throw new Error(`No se pudo actualizar Movimientos de equipos. Supabase: ${supabaseMessage}. Proxy Apps Script: ${proxyMessage}. Apps Script directo: ${directMessage}.`);
+      }
     }
   }
 }
