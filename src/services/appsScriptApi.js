@@ -6,6 +6,21 @@ let syncVersionsMemo_={value:null,at:0,promise:null};
 const typedSourceInflight_=new Map();
 const SYNC_VERSIONS_MEMO_MS=15000;
 
+function sourceReplicaMaxAgeMs_(source){
+  const key=String(source||"");
+  if(key.startsWith("rop02_"))return 90*1000;
+  if(key==="rop05"||key.startsWith("rma15_"))return 5*60*1000;
+  if(key==="lista_equipos"||key==="insumos")return 30*60*1000;
+  return 10*60*1000;
+}
+
+function sourceReplicaAgeMs_(response){
+  const raw=response?.meta?.serverTime||response?.meta?.updatedAt||response?.updatedAt||"";
+  const time=new Date(raw||0).getTime();
+  if(!Number.isFinite(time)||time<=0)return Number.POSITIVE_INFINITY;
+  return Math.max(0,Date.now()-time);
+}
+
 function fetchTypedSupabaseSource_(source){
   const sourceKey=String(source||"");
   if(typedSourceInflight_.has(sourceKey))return typedSourceInflight_.get(sourceKey);
@@ -47,12 +62,7 @@ export async function runWithConcurrency_(items,limit,worker){
   await Promise.all(runners);return results;
 }
 
-// Apps Script queda reservado para acciones que todavía no fueron migradas y para
-// escrituras. Los datasets pesados ya no pasan por este camino.
-export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,params:extraParams={}}={}){
-  if(String(action||"")==="mantenimiento_programado")return fetchSupabasePmSnapshot();
-  if(SUPABASE_TYPED_SOURCES.has(String(action||"")))return fetchTypedSupabaseSource_(String(action||""));
-
+async function fetchAppsScriptActionDirect_(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,params:extraParams={}}={}){
   const requestParams={...(extraParams||{})};
   if(force)requestParams.force="1";
   if(since&&!force)requestParams.since=since;
@@ -80,6 +90,15 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
   throw lastErr;
 }
 
+// Apps Script queda reservado para acciones no migradas, escrituras y como respaldo
+// de frescura cuando la réplica de Supabase quedó atrasada.
+export async function fetchAction(url,action,options={}){
+  const actionKey=String(action||"");
+  if(actionKey==="mantenimiento_programado")return fetchSupabasePmSnapshot();
+  if(SUPABASE_TYPED_SOURCES.has(actionKey))return fetchSource(url,actionKey,options);
+  return fetchAppsScriptActionDirect_(url,actionKey,options);
+}
+
 // Compatibilidad para consumidores antiguos: el bundle se arma directamente desde
 // Supabase. No vuelve a abrir las cuatro Google Sheets ni depende de Apps Script.
 export async function fetchRop02Bundle(_url,{force=false}={}){
@@ -98,12 +117,50 @@ export async function fetchHealth(_url){return fetchSupabaseHealth();}
 
 export async function fetchSource(_url,source,_options={}){
   const sourceKey=String(source||"");
-  if(SUPABASE_TYPED_SOURCES.has(sourceKey))return fetchTypedSupabaseSource_(sourceKey);
-  return fetchAction(_url,sourceKey,_options);
+  if(!SUPABASE_TYPED_SOURCES.has(sourceKey))return fetchAppsScriptActionDirect_(_url,sourceKey,_options);
+
+  // Camino rápido: Supabase responde primero. Si la réplica está razonablemente fresca,
+  // no se toca Sheets. Esto mantiene la navegación rápida y reduce ejecuciones de Apps Script.
+  const replica=await fetchTypedSupabaseSource_(sourceKey);
+  const replicaAge=sourceReplicaAgeMs_(replica);
+  const staleReplica=replicaAge>sourceReplicaMaxAgeMs_(sourceKey);
+
+  // En el primer arranque sin cache devolvemos la réplica enseguida aunque esté vieja,
+  // para no bloquear la interfaz. Cuando ya existe una copia local (since) o el usuario
+  // pulsa Actualizar (force), sí intentamos traer la fuente viva desde Google Sheets.
+  const canRefreshLive=Boolean(_options?.force||_options?.since);
+  if(!staleReplica||!canRefreshLive){
+    return {...replica,meta:{...(replica?.meta||{}),staleReplica,replicaAgeMs:Number.isFinite(replicaAge)?Math.round(replicaAge):null}};
+  }
+
+  try{
+    const live=await fetchAppsScriptActionDirect_(_url,sourceKey,{..._options,retries:0});
+    return {
+      ...live,
+      source:live?.source||"apps-script-live",
+      meta:{
+        ...(live?.meta||{}),
+        staleReplica:false,
+        freshnessSource:"google-sheets",
+        replicaAgeMs:Number.isFinite(replicaAge)?Math.round(replicaAge):null,
+        replicaServerTime:replica?.meta?.serverTime||null,
+      }
+    };
+  }catch(error){
+    console.warn(`[freshness] ${sourceKey}: Supabase está atrasado y Sheets no respondió; se conserva la réplica.`,error);
+    return {
+      ...replica,
+      meta:{
+        ...(replica?.meta||{}),
+        staleReplica:true,
+        liveRefreshFailed:true,
+        replicaAgeMs:Number.isFinite(replicaAge)?Math.round(replicaAge):null,
+      }
+    };
+  }
 }
 
-// El heartbeat también sale de Supabase. Así una simple comprobación de vigencia
-// nunca dispara una ejecución de Apps Script ni abre una planilla.
+// El heartbeat sigue saliendo de Supabase; es liviano y no abre una planilla.
 export async function fetchSyncVersions(_url){
   const now=Date.now();
   if(syncVersionsMemo_.value&&now-syncVersionsMemo_.at<SYNC_VERSIONS_MEMO_MS)return syncVersionsMemo_.value;
