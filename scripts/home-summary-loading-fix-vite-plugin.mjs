@@ -6,7 +6,17 @@ function replaceOnce(source,from,to,label){
 }
 
 export function patchHomeSummaryLoading(source){
-  let code=source;
+  // Vite recibe CRLF en checkouts de Windows y LF en Linux/CI. Normalizamos antes
+  // de aplicar el parche para que la transformación sea idéntica en ambos entornos.
+  let code=String(source??"").replace(/\r\n?/g,"\n");
+
+  // HMR puede volver a transformar el mismo módulo. Si ya está parcheado, no
+  // intentamos aplicar por segunda vez los reemplazos exactos.
+  if(
+    code.includes('const [openOtReady,setOpenOtReady]=useState(false);')&&
+    code.includes('disponibilidad:rop.length===0,')&&
+    code.includes('ot:!openOtReady,')
+  )return code;
 
   code=replaceOnce(
     code,
