@@ -24,6 +24,12 @@ export function intelligentRefreshVitePlugin(){
         'if(sources.length)await loadSources(sources,{force:reason==="manual",background});'
       );
 
+      // Si el servidor confirmó la misma versión que ya tenemos, sólo actualizamos el
+      // timestamp de revisión: no reescribimos IndexedDB ni hacemos rerender/normalización.
+      const versionNeedle=`const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;\n      const value=mergeIncrementalSource(previous,fetched);`;
+      const versionReplacement=`const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;\n      const previousVersion=Number(previous?.meta?.serverVersion||previous?.meta?.version||0);\n      const fetchedVersion=Number(fetched?.meta?.serverVersion||fetched?.meta?.version||0);\n      if(previous&&previousVersion>0&&fetchedVersion>0&&previousVersion===fetchedVersion){\n        lastCheckedBySourceRef.current[key]=Date.now();\n        return {key,value:previous,skipped:true,unchanged:true};\n      }\n      const value=mergeIncrementalSource(previous,fetched);`;
+      next=next.replace(versionNeedle,versionReplacement);
+
       // En arranque en frío se publica cada fuente apenas llega para que la pantalla
       // empiece a mostrar información. Cuando ya hay cache visible, se actualiza todo
       // en un solo batch para evitar 4-9 normalizaciones pesadas consecutivas.
