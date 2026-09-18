@@ -1,11 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { supabaseSameOriginProxyVitePlugin } from '../scripts/supabase-same-origin-proxy-vite-plugin.mjs';
+import { supabasePmReadFixVitePlugin } from '../scripts/supabase-pm-read-fix-vite-plugin.mjs';
 
 const TARGET_ID='C:\\repo\\src\\services\\supabaseReadApi.js';
 
 test('same-origin proxy no transforma lecturas Supabase durante npm run dev',()=>{
   const plugin=supabaseSameOriginProxyVitePlugin();
+  plugin.configResolved({command:'serve'});
+  const code='export const untouched=true;';
+  const result=plugin.transform(code,TARGET_ID);
+  assert.equal(result,null);
+});
+
+test('PM read fix no transforma supabaseReadApi durante npm run dev',()=>{
+  const plugin=supabasePmReadFixVitePlugin();
   plugin.configResolved({command:'serve'});
   const code='export const untouched=true;';
   const result=plugin.transform(code,TARGET_ID);
@@ -27,4 +36,17 @@ test('same-origin proxy transforma el transporte en build sin depender del espac
   assert.ok(result?.code.includes('/api/supabase-read?target='));
   assert.ok(result.code.includes('X-Delta-Supabase-Prefer'));
   assert.ok(!result.code.includes('fetch( `${SUPABASE_URL}${path}`'));
+});
+
+test('PM read fix transforma POST a GET en build aunque cambie el espaciado',()=>{
+  const plugin=supabasePmReadFixVitePlugin();
+  plugin.configResolved({command:'build'});
+  const code=`export async function fetchSupabasePmSnapshot() {
+    const { data } = await request('/rest/v1/rpc/app_pm_snapshot', {
+      method: 'POST', body: {}, timeoutMs: 12000
+    });
+    return data || { ok:false, error:{ message:'Supabase no devolvió Mantenimiento Programado.' } };
+  }`;
+  const result=plugin.transform(code,TARGET_ID);
+  assert.ok(result?.code.includes('app_pm_snapshot",{method:"GET"'));
 });
