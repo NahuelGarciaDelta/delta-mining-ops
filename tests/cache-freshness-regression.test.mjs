@@ -12,7 +12,9 @@ test("el parche de App usa TTL por fuente, refresco manual real y no congela fal
   assert.match(transformed,/key==="rop05"\|\|String\(key\|\|""\)\.startsWith\("rma15_"\)\)return 2\*60\*1000/);
   assert.match(transformed,/key==="lista_equipos"\|\|key==="insumos"\)return 10\*60\*1000/);
   assert.match(transformed,/force:reason==="manual"/);
-  assert.match(transformed,/runWithConcurrency_\(toCheck,3,key=>fetchOneSource/);
+  assert.match(transformed,/runWithConcurrency_\(toCheck,3,async key=>/);
+  assert.match(transformed,/if\(!hasVisible&&!item\.skipped\)/);
+  assert.match(transformed,/_publishedColdStart:true/);
   assert.match(transformed,/AUTO_REFRESH_MS=AUTO_REFRESH_TICK_MS/);
 
   const softFailureBlock=transformed.match(/if\(hasSavedData\)\{[\s\S]*?\}else\{/i)?.[0]||"";
