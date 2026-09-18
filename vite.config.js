@@ -31,10 +31,21 @@ import { rop02StateClassificationVitePlugin } from './scripts/rop02-state-classi
 import { rop02ControlVehicleFiltersVitePlugin } from './scripts/rop02-control-vehicle-filters-vite-plugin.mjs'
 import { homeSummaryLoadingFixVitePlugin } from './scripts/home-summary-loading-fix-vite-plugin.mjs'
 
+const APPS_SCRIPT_DEV_PATH='/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec'
+
 export default defineConfig({
   plugins: [homeSummaryLoadingFixVitePlugin(), supabaseSameOriginProxyVitePlugin(), supabasePmReadFixVitePlugin(), abastecimientoLineEndingsVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02DailyControlRegressionVitePlugin(), administrativoDailyHiControlVitePlugin(), rop02TruckHistoryVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), equipmentLiveDataFixesVitePlugin(), abastecimientoInstantVitePlugin(), mutationIdempotencyVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfilePlaceholderCodeFixVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileLiveRop02FinalVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), equipmentProfilePmUnitsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), rop02ControlVehicleFiltersVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
-    host: '0.0.0.0'
+    host: '0.0.0.0',
+    proxy: {
+      '/api/apps-script': {
+        target: 'https://script.google.com',
+        changeOrigin: true,
+        secure: true,
+        followRedirects: true,
+        rewrite: path => path.replace(/^\/api\/apps-script/, APPS_SCRIPT_DEV_PATH)
+      }
+    }
   },
   build: {
     chunkSizeWarningLimit: 900,
