@@ -1,0 +1,57 @@
+name: Phase 0 Login Diagnostic
+
+on:
+  push:
+    branches:
+      - phase0-performance-measurement
+    paths:
+      - ".github/workflows/phase0-login-diagnostic.yml"
+      - "scripts/phase0-login-diagnostic.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase0-login-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose-login:
+    name: Diagnose authenticated login safely
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
+      DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+      DM_PERF_BASE_URL: https://delta-mining-ops.vercel.app
+    steps:
+      - name: Checkout measurement branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install Playwright runner without changing repository lockfile
+        run: npm install --no-save --package-lock=false playwright@1.49.1
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run safe login diagnostic
+        run: node scripts/phase0-login-diagnostic.mjs
+
+      - name: Upload safe diagnostic artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-login-diagnostic
+          path: artifacts/phase0/login-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 7
