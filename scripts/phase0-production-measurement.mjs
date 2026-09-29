@@ -312,9 +312,17 @@ async function runNormal(browser){
 
 async function runSlow(browser){
   if(!RUN_SLOW)return{skipped:true,reason:"DM_PERF_RUN_SLOW=0"};
-  const {context,page}=await createContext(browser,{slow:true});
-  const started=Date.now();
+  const {context,page}=await createContext(browser);
   await login(page);
+  const cdp=await context.newCDPSession(page);
+  await cdp.send("Network.enable");
+  await cdp.send("Network.setCacheDisabled",{cacheDisabled:true});
+  await cdp.send("Network.emulateNetworkConditions",{
+    offline:false,latency:450,downloadThroughput:187500,uploadThroughput:75000,connectionType:"cellular3g",
+  });
+  const started=Date.now();
+  await page.reload({waitUntil:"domcontentloaded",timeout:90000});
+  await page.locator(".dm-app-shell").waitFor({state:"visible",timeout:90000});
   const quiet=await waitForQuiet(page,{quietMs:6000,maxMs:240000,minMs:5000});
   const snap=await snapshot(page);
   const result={
