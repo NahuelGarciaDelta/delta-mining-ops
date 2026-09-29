@@ -1,5 +1,6 @@
 import { getAuthenticatedUser } from "./authSession.js";
 import { clearDatasetCache, readCachedSource, writeCachedSource } from "./appCache.js";
+import { appsScriptRequestKey, shareAppsScriptRequest } from "./appsScriptRequestCoordinator.js";
 
 const STOCK_CACHE_KEY="stock_excel_data";
 
@@ -39,8 +40,8 @@ async function postStock(url, payload) {
 function getStock(url, action) {
   const requestUrl = new URL(String(url || "").trim());
   requestUrl.searchParams.set("action", action);
-  requestUrl.searchParams.set("_", String(Date.now()));
-  return fetch(requestUrl.toString(), { cache: "no-store", redirect: "follow" }).then(parseResponse);
+  const key=appsScriptRequestKey(url,action,{},{});
+  return shareAppsScriptRequest(key,()=>fetch(requestUrl.toString(), { cache: "no-store", redirect: "follow" }).then(parseResponse));
 }
 
 export function fetchStockStatus(url) { return getStock(url, "stock_excel_status"); }
