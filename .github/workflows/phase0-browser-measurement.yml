@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/phase0-browser-measurement.yml"
       - "scripts/phase0-browser-measurement.mjs"
+      - "scripts/phase0-production-measurement.mjs"
       - "scripts/phase0-bundle-metrics.mjs"
       - "src/services/performanceDiagnostics.js"
       - "src/services/refreshManager.js"
@@ -16,7 +17,6 @@ on:
 
 permissions:
   contents: read
-  deployments: read
 
 concurrency:
   group: phase0-performance-measurements-${{ github.ref }}
@@ -60,13 +60,14 @@ jobs:
   browser-metrics:
     name: Browser cold warm and slow measurements
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
       DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+      DM_PERF_BASE_URL: https://deltaminingops.vercel.app
       DM_PERF_RUN_SLOW: "1"
     steps:
-      - name: Checkout instrumented branch
+      - name: Checkout measurement branch
         uses: actions/checkout@v4
 
       - name: Check measurement credentials
@@ -81,48 +82,20 @@ jobs:
             echo "No se ejecutará navegación autenticada hasta configurar DM_PERF_EMAIL y DM_PERF_PASSWORD."
           fi
 
-      - name: Resolve successful Vercel preview for this commit
+      - name: Verify production app is reachable
         if: steps.credentials.outputs.available == 'true'
-        id: preview
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/phase0
-          echo "Buscando deployment Vercel asociado a $GITHUB_SHA..."
-          for attempt in $(seq 1 60); do
-            deployments="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/deployments?sha=${GITHUB_SHA}&per_page=20" 2>/dev/null || echo '[]')"
-            ids="$(printf '%s' "$deployments" | jq -r '.[].id' 2>/dev/null || true)"
-            for id in $ids; do
-              statuses="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/deployments/${id}/statuses?per_page=20" 2>/dev/null || echo '[]')"
-              candidate="$(printf '%s' "$statuses" | jq -r '[.[] | select(.state == "success" and (.environment_url // "") != "")][0].environment_url // empty' 2>/dev/null || true)"
-              if [ -n "$candidate" ]; then
-                candidate="${candidate%/}"
-                echo "base_url=$candidate" >> "$GITHUB_OUTPUT"
-                host="$(node -e 'try{console.log(new URL(process.argv[1]).host)}catch{console.log("invalid")}' "$candidate")"
-                echo "Preview resuelto: $host"
-                printf '%s\n' "$host" > artifacts/phase0/preview-host.txt
-                exit 0
-              fi
-            done
-            echo "Deployment todavía no disponible (intento $attempt/60)."
-            sleep 5
-          done
-          echo "No se pudo resolver un deployment exitoso con environment_url para este commit." | tee artifacts/phase0/preview-resolution-error.txt
-          exit 1
-
-      - name: Verify preview is reachable
-        if: steps.credentials.outputs.available == 'true'
-        env:
-          DM_PERF_BASE_URL: ${{ steps.preview.outputs.base_url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          code="$(curl -L -sS -o /tmp/phase0-preview.html -w '%{http_code}' "${DM_PERF_BASE_URL}/?dmPerf=1")"
-          echo "Preview HTTP $code"
+          code="$(curl -L -sS -o /tmp/phase0-production.html -w '%{http_code}' "${DM_PERF_BASE_URL}/")"
+          echo "Producción HTTP $code"
           if [ "$code" -lt 200 ] || [ "$code" -ge 400 ]; then
-            echo "El preview no es accesible desde GitHub Actions (HTTP $code)." | tee artifacts/phase0/preview-access-error.txt
+            echo "La aplicación de producción no es accesible desde GitHub Actions (HTTP $code)." | tee artifacts/phase0/production-access-error.txt
+            exit 1
+          fi
+          if ! grep -qi "DELTA MINING\|Correo electrónico\|root" /tmp/phase0-production.html; then
+            echo "La respuesta no parece corresponder a la aplicación esperada." | tee artifacts/phase0/production-access-error.txt
             exit 1
           fi
 
@@ -145,11 +118,9 @@ jobs:
         if: steps.credentials.outputs.available == 'true'
         run: npx playwright install --with-deps chromium
 
-      - name: Run authenticated performance battery against Vercel preview
+      - name: Run authenticated production performance battery
         if: steps.credentials.outputs.available == 'true'
-        env:
-          DM_PERF_BASE_URL: ${{ steps.preview.outputs.base_url }}
-        run: node scripts/phase0-browser-measurement.mjs
+        run: node scripts/phase0-production-measurement.mjs
 
       - name: Record why browser battery was skipped
         if: steps.credentials.outputs.available != 'true'
