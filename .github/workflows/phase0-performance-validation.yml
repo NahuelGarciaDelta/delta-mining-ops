@@ -30,8 +30,45 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate
-        run: npm run validate
+      - name: Validate local imports
+        id: imports
+        continue-on-error: true
+        run: node scripts/validate-local-imports.mjs
+
+      - name: Syntax checks
+        id: syntax
+        continue-on-error: true
+        run: npm run check
+
+      - name: Security audit
+        id: security
+        continue-on-error: true
+        run: npm run lint:security
+
+      - name: Tests
+        id: tests
+        continue-on-error: true
+        run: npm test
 
       - name: Build
+        id: build
+        continue-on-error: true
         run: npm run build
+
+      - name: Enforce validation result
+        if: always()
+        env:
+          IMPORTS: ${{ steps.imports.outcome }}
+          SYNTAX: ${{ steps.syntax.outcome }}
+          SECURITY: ${{ steps.security.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        run: |
+          echo "imports=$IMPORTS"
+          echo "syntax=$SYNTAX"
+          echo "security=$SECURITY"
+          echo "tests=$TESTS"
+          echo "build=$BUILD"
+          if [ "$IMPORTS" != "success" ] || [ "$SYNTAX" != "success" ] || [ "$SECURITY" != "success" ] || [ "$TESTS" != "success" ] || [ "$BUILD" != "success" ]; then
+            exit 1
+          fi
