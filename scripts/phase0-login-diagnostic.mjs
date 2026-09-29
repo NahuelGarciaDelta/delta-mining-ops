@@ -111,6 +111,7 @@ try{
     await loginButton.click({timeout:15000});
     result.clicked=true;
 
+    await page.waitForTimeout(250);
     const deadline=Date.now()+60000;
     while(Date.now()<deadline){
       if(await page.locator(".dm-app-shell").isVisible().catch(()=>false)){
@@ -122,11 +123,18 @@ try{
       const buttonText=await page.locator(".dm-login-screen button").first().innerText().catch(()=>"");
       if(/VALIDANDO/i.test(buttonText))result.validatingObserved=true;
 
-      const screenText=String(await page.locator(".dm-login-screen").innerText().catch(()=>"")).replace(/\s+/g," ");
-      const found=knownErrors.find(message=>screenText.includes(message));
+      let found=null;
+      for(const message of knownErrors){
+        const exact=page.getByText(message,{exact:true});
+        if(await exact.first().isVisible().catch(()=>false)){
+          found=message;
+          break;
+        }
+      }
       if(found){
         result.genericError=found;
         result.diagnosticStatus="LOGIN_REJECTED_OR_SERVICE_ERROR";
+        await page.waitForTimeout(250);
         break;
       }
       await page.waitForTimeout(200);
