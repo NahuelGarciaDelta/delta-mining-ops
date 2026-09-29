@@ -1,0 +1,153 @@
+name: Phase 0 Performance Measurements
+
+on:
+  push:
+    branches:
+      - phase0-performance-measurement
+    paths:
+      - ".github/workflows/phase0-browser-measurement.yml"
+      - "scripts/phase0-browser-measurement.mjs"
+      - "scripts/phase0-bundle-metrics.mjs"
+      - "src/services/performanceDiagnostics.js"
+      - "src/services/refreshManager.js"
+      - "scripts/phase0-performance-diagnostics-vite-plugin.mjs"
+      - "vite.config.js"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase0-performance-measurements-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle-metrics:
+    name: Bundle metrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout instrumented branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build instrumented app
+        env:
+          VITE_DM_PERF_DIAGNOSTICS: "1"
+        run: npm run build
+
+      - name: Measure bundle and gzip sizes
+        run: node scripts/phase0-bundle-metrics.mjs
+
+      - name: Upload bundle metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-bundle-metrics
+          path: |
+            artifacts/phase0/bundle-metrics.json
+            artifacts/phase0/bundle-metrics.csv
+          retention-days: 14
+
+  browser-metrics:
+    name: Browser cold warm and slow measurements
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
+      DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+      DM_PERF_BASE_URL: http://127.0.0.1:4173
+      DM_PERF_RUN_SLOW: "1"
+      VITE_DM_PERF_DIAGNOSTICS: "1"
+    steps:
+      - name: Checkout instrumented branch
+        uses: actions/checkout@v4
+
+      - name: Check measurement credentials
+        id: credentials
+        shell: bash
+        run: |
+          if [ -n "$DM_PERF_EMAIL" ] && [ -n "$DM_PERF_PASSWORD" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub Secrets de medición disponibles."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No se ejecutará navegación autenticada hasta configurar DM_PERF_EMAIL y DM_PERF_PASSWORD."
+          fi
+
+      - name: Setup Node
+        if: steps.credentials.outputs.available == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install app dependencies
+        if: steps.credentials.outputs.available == 'true'
+        run: npm ci
+
+      - name: Install Playwright runner without changing repository lockfile
+        if: steps.credentials.outputs.available == 'true'
+        run: npm install --no-save --package-lock=false playwright@1.49.1
+
+      - name: Install Chromium
+        if: steps.credentials.outputs.available == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Build instrumented app
+        if: steps.credentials.outputs.available == 'true'
+        run: npm run build
+
+      - name: Start local preview
+        if: steps.credentials.outputs.available == 'true'
+        shell: bash
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/delta-phase0-preview.log 2>&1 &
+          echo $! > /tmp/delta-phase0-preview.pid
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/delta-phase0-preview.log
+          exit 1
+
+      - name: Run authenticated performance battery
+        if: steps.credentials.outputs.available == 'true'
+        run: node scripts/phase0-browser-measurement.mjs
+
+      - name: Record why browser battery was skipped
+        if: steps.credentials.outputs.available != 'true'
+        shell: bash
+        run: |
+          mkdir -p artifacts/phase0
+          cat > artifacts/phase0/browser-measurement-skipped.txt <<'EOF'
+          La batería autenticada de Fase 0 no se ejecutó porque el repositorio todavía no tiene disponibles los GitHub Actions Secrets DM_PERF_EMAIL y DM_PERF_PASSWORD.
+          No se requieren ni deben guardarse credenciales dentro del código o de los artifacts.
+          EOF
+
+      - name: Include preview log when available
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts/phase0
+          if [ -f /tmp/delta-phase0-preview.log ]; then
+            cp /tmp/delta-phase0-preview.log artifacts/phase0/preview.log
+          fi
+
+      - name: Upload browser metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-browser-metrics
+          path: artifacts/phase0/
+          if-no-files-found: warn
+          retention-days: 14
