@@ -158,19 +158,23 @@ async function waitForQuiet(page,{quietMs=3500,maxMs=120000,minMs=1500}={}){
 }
 
 async function login(page){
-  await page.goto(BASE_URL,{waitUntil:"domcontentloaded",timeout:90000});
-  const emailInput=page.getByPlaceholder("Correo electrónico");
-  await emailInput.waitFor({state:"visible",timeout:45000});
-  await emailInput.fill(EMAIL,{timeout:30000});
-  await page.getByPlaceholder("Contraseña").fill(PASSWORD,{timeout:30000});
-  await page.getByRole("button",{name:/^INGRESAR$/i}).click({timeout:30000});
-  try{
-    await page.locator(".dm-app-shell").waitFor({state:"visible",timeout:90000});
-  }catch(error){
-    const ui=await page.locator(".dm-login-screen").innerText().catch(()=>"");
-    const safe=String(ui||"").replace(/\s+/g," ").slice(0,260);
-    throw new Error(`Login no completado. UI visible: ${safe||"sin detalle"}`);
+  let safe="sin detalle";
+  for(let attempt=1;attempt<=2;attempt+=1){
+    await page.goto(BASE_URL,{waitUntil:"domcontentloaded",timeout:90000});
+    const emailInput=page.getByPlaceholder("Correo electrónico");
+    await emailInput.waitFor({state:"visible",timeout:45000});
+    await emailInput.fill(EMAIL,{timeout:30000});
+    await page.getByPlaceholder("Contraseña").fill(PASSWORD,{timeout:30000});
+    await page.getByRole("button",{name:/^INGRESAR$/i}).click({timeout:30000});
+    try{
+      await page.locator(".dm-app-shell").waitFor({state:"visible",timeout:90000});
+      return;
+    }catch(_){
+      const ui=await page.locator(".dm-login-screen").innerText().catch(()=>"");
+      safe=String(ui||"").replace(/\s+/g," ").slice(0,260)||safe;
+    }
   }
+  throw new Error(`Login no completado tras 2 intentos. UI visible: ${safe}`);
 }
 
 async function clickVisible(page,label,{exact=true,timeout=15000}={}){
