@@ -82,7 +82,7 @@ jobs:
             echo "No se ejecutará navegación autenticada hasta configurar DM_PERF_EMAIL y DM_PERF_PASSWORD."
           fi
 
-      - name: Resolve current main production deployment
+      - name: Resolve reachable production URL
         if: steps.credentials.outputs.available == 'true'
         id: production
         env:
@@ -91,43 +91,41 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/phase0
-          deployments="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/deployments?ref=main&per_page=50")"
-          ids="$(printf '%s' "$deployments" | jq -r '.[] | select((.environment // "") | ascii_downcase == "production") | .id')"
-          if [ -z "$ids" ]; then
-            ids="$(printf '%s' "$deployments" | jq -r '.[].id')"
-          fi
+          candidates=""
+
+          deployments="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/deployments?ref=main&per_page=50" 2>/dev/null || echo '[]')"
+          ids="$(printf '%s' "$deployments" | jq -r '.[].id' 2>/dev/null || true)"
           for id in $ids; do
-            statuses="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/deployments/${id}/statuses?per_page=20")"
-            candidate="$(printf '%s' "$statuses" | jq -r '[.[] | select(.state == "success" and (.environment_url // "") != "")][0].environment_url // empty')"
-            if [ -n "$candidate" ]; then
-              candidate="${candidate%/}"
-              echo "base_url=$candidate" >> "$GITHUB_OUTPUT"
-              host="$(node -e 'try{console.log(new URL(process.argv[1]).host)}catch{console.log("invalid")}' "$candidate")"
-              echo "Producción resuelta: $host"
-              printf '%s\n' "$host" > artifacts/phase0/production-host.txt
-              exit 0
+            statuses="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/deployments/${id}/statuses?per_page=20" 2>/dev/null || echo '[]')"
+            urls="$(printf '%s' "$statuses" | jq -r '.[] | select(.state == "success") | .environment_url // empty' 2>/dev/null || true)"
+            if [ -n "$urls" ]; then
+              candidates="$candidates"$'\n'"$urls"
             fi
           done
-          echo "No se encontró un deployment exitoso de main con environment_url." | tee artifacts/phase0/production-resolution-error.txt
-          exit 1
 
-      - name: Verify production app is reachable
-        if: steps.credentials.outputs.available == 'true'
-        env:
-          DM_PERF_BASE_URL: ${{ steps.production.outputs.base_url }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          code="$(curl -L -sS -o /tmp/phase0-production.html -w '%{http_code}' "${DM_PERF_BASE_URL}/")"
-          echo "Producción HTTP $code"
-          if [ "$code" -lt 200 ] || [ "$code" -ge 400 ]; then
-            echo "La aplicación de producción no es accesible desde GitHub Actions (HTTP $code)." | tee artifacts/phase0/production-access-error.txt
+          candidates="$candidates"$'\n'https://delta-mining-ops.vercel.app$'\n'https://deltaminingops.vercel.app
+          selected=""
+          while IFS= read -r candidate; do
+            [ -z "$candidate" ] && continue
+            candidate="${candidate%/}"
+            code="$(curl -L -sS --max-time 20 -o /tmp/phase0-candidate.html -w '%{http_code}' "${candidate}/" || echo 000)"
+            host="$(node -e 'try{console.log(new URL(process.argv[1]).host)}catch{console.log("invalid")}' "$candidate")"
+            echo "Candidato $host -> HTTP $code"
+            if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 400 ] 2>/dev/null && grep -qi "root\|DELTA MINING\|Correo electrónico" /tmp/phase0-candidate.html; then
+              selected="$candidate"
+              break
+            fi
+          done <<< "$(printf '%s\n' "$candidates" | awk 'NF && !seen[$0]++')"
+
+          if [ -z "$selected" ]; then
+            echo "No se encontró una URL pública y accesible de producción." | tee artifacts/phase0/production-resolution-error.txt
             exit 1
           fi
-          if ! grep -qi "root\|DELTA MINING\|Correo electrónico" /tmp/phase0-production.html; then
-            echo "La respuesta no parece corresponder a la aplicación esperada." | tee artifacts/phase0/production-access-error.txt
-            exit 1
-          fi
+
+          echo "base_url=$selected" >> "$GITHUB_OUTPUT"
+          host="$(node -e 'console.log(new URL(process.argv[1]).host)' "$selected")"
+          echo "Producción resuelta: $host"
+          printf '%s\n' "$host" > artifacts/phase0/production-host.txt
 
       - name: Setup Node
         if: steps.credentials.outputs.available == 'true'
