@@ -26,14 +26,18 @@ const probeInit=()=>{
   const safeUrl=input=>{
     try{
       const u=new URL(String(input||""),location.origin);
-      return `${u.origin}${u.pathname}`;
+      const safe=new URLSearchParams();
+      ["action","dataset","source","sourceKey","limit","offset","force"].forEach(key=>{const value=u.searchParams.get(key);if(value!==null&&value!=="")safe.set(key,value);});
+      return `${u.origin}${u.pathname}${safe.toString()?`?${safe}`:""}`;
     }catch(_){return String(input||"").split("?")[0].slice(0,220);}
   };
   const classify=(input,init={})=>{
     const raw=typeof input==="string"?input:input?.url||"";
-    let action="",dataset="";
+    let action="",dataset="",sourceKey="",limit="",offset="",force="";
     try{
       const u=new URL(raw,location.origin);
+      action=u.searchParams.get("action")||"";dataset=u.searchParams.get("dataset")||"";sourceKey=u.searchParams.get("sourceKey")||u.searchParams.get("source")||"";
+      limit=u.searchParams.get("limit")||"";offset=u.searchParams.get("offset")||"";force=u.searchParams.get("force")||"";
       const parts=u.pathname.split("/").filter(Boolean);
       const restIndex=parts.indexOf("v1");
       if(u.hostname.includes("supabase.co")&&restIndex>=0&&parts[restIndex+1]){
@@ -48,12 +52,12 @@ const probeInit=()=>{
         const payload=params.get("payload");
         if(payload){
           const parsed=JSON.parse(payload);
-          action=String(parsed?.action||action||"");
-          dataset=String(parsed?.dataset||parsed?.source||parsed?.sourceKey||dataset||"");
+          action=String(parsed?.action||action||"");dataset=String(parsed?.dataset||parsed?.source||parsed?.sourceKey||dataset||"");
+          sourceKey=String(parsed?.sourceKey||parsed?.source||sourceKey||"");limit=String(parsed?.limit??limit??"");offset=String(parsed?.offset??offset??"");force=String(parsed?.force??force??"");
         }
       }
     }catch(_){}
-    return{url:safeUrl(raw),method:String(init?.method||input?.method||"GET").toUpperCase(),action,dataset};
+    return{url:safeUrl(raw),method:String(init?.method||input?.method||"GET").toUpperCase(),action,dataset,sourceKey,limit,offset,force,scenario:window.__dmProbeScenario||""};
   };
   const record=(type,detail={})=>{
     const event={id:++sequence,type,atMs:round(performance.now()),...detail};
@@ -112,6 +116,7 @@ const probeInit=()=>{
       return{
         capturedAt:new Date().toISOString(),
         events:events.map(e=>({...e})),
+        memory:performance.memory?{usedJSHeapSize:performance.memory.usedJSHeapSize,totalJSHeapSize:performance.memory.totalJSHeapSize,jsHeapSizeLimit:performance.memory.jsHeapSizeLimit}:null,
         navigation:nav?{
           durationMs:round(nav.duration),
           domInteractiveMs:round(nav.domInteractive),
@@ -196,8 +201,15 @@ async function clickVisible(page,label,{exact=true,timeout=15000}={}){
 async function ensureSidebarChild(page,groupLabel,childLabel){
   if(await clickVisible(page,childLabel,{exact:true,timeout:3000}))return true;
   await clickVisible(page,groupLabel,{exact:true,timeout:8000});
-  await sleep(250);
-  return clickVisible(page,childLabel,{exact:true,timeout:8000});
+  const deadline=Date.now()+15000;
+  while(Date.now()<deadline){
+    const child=page.getByRole("button",{name:new RegExp(`^${escapeRx(childLabel)}$`,"i")}).first();
+    if(await child.isVisible().catch(()=>false)){
+      try{await child.click({trial:true,timeout:1000});await child.click({timeout:3000});return true;}catch(_){}
+    }
+    await sleep(400);
+  }
+  return false;
 }
 
 async function openWelcomeModule(page,label){
@@ -236,6 +248,7 @@ function summarize(name,snap){
 }
 
 async function measureStep(page,label,action,{quietMs=2500,maxMs=90000}={}){
+  await page.evaluate(value=>{window.__dmProbeScenario=value;},label);
   const before=await snapshot(page);
   const beforeId=before?.probe?.events?.at(-1)?.id||0;
   const started=Date.now();
@@ -250,7 +263,7 @@ async function measureStep(page,label,action,{quietMs=2500,maxMs=90000}={}){
     resourceTransferBytes:events.filter(e=>e.type==="resource").reduce((s,e)=>s+(Number(e.transferSize)||0),0),
     longTaskMs:Math.round(events.filter(e=>e.type==="longtask").reduce((s,e)=>s+(Number(e.durationMs)||0),0)*100)/100,
     manifest:after.manifest,
-    network:events.filter(e=>e.type==="network").map(e=>({url:e.url,action:e.action,dataset:e.dataset,status:e.status,durationMs:e.durationMs,contentLength:e.contentLength})),
+    network:events.filter(e=>e.type==="network").map(e=>({url:e.url,action:e.action,dataset:e.dataset,sourceKey:e.sourceKey,limit:e.limit,offset:e.offset,force:e.force,scenario:e.scenario,status:e.status,durationMs:e.durationMs,contentLength:e.contentLength,error:e.error||null})),
   };
 }
 
