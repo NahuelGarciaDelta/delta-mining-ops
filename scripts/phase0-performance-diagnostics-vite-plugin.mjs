@@ -1,6 +1,7 @@
 const normalizeId=id=>String(id||"").replace(/\\/g,"/");
 
 function replaceOnce(code,needle,replacement,label){
+  code=code.replace(/\r\n/g,"\n");
   if(!code.includes(needle))throw new Error(`[phase0-performance] No se encontró ${label}`);
   return code.replace(needle,replacement);
 }
