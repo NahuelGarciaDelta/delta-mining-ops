@@ -13,11 +13,20 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const esc=value=>String(value).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
 
 async function login(page){
-  await page.goto(baseUrl,{waitUntil:"domcontentloaded",timeout:90000});
-  await page.getByPlaceholder("Correo electrónico").fill(email,{timeout:45000});
-  await page.getByPlaceholder("Contraseña").fill(password,{timeout:30000});
-  await page.getByRole("button",{name:/^INGRESAR$/i}).click({timeout:30000});
-  await page.locator(".dm-app-shell").waitFor({state:"visible",timeout:90000});
+  let detail="sin detalle";
+  for(let attempt=1;attempt<=2;attempt+=1){
+    await page.goto(baseUrl,{waitUntil:"domcontentloaded",timeout:90000});
+    await page.getByPlaceholder("Correo electrónico").fill(email,{timeout:45000});
+    await page.getByPlaceholder("Contraseña").fill(password,{timeout:30000});
+    await page.getByRole("button",{name:/^INGRESAR$/i}).click({timeout:30000});
+    try{
+      await page.locator(".dm-app-shell").waitFor({state:"visible",timeout:90000});
+      return;
+    }catch(_){
+      detail=await page.locator(".dm-login-screen").innerText().catch(()=>detail);
+    }
+  }
+  throw new Error(`Login no completado tras dos intentos: ${String(detail).replace(/\s+/g," ").slice(0,220)}`);
 }
 
 async function quiet(page,ms=3500){
