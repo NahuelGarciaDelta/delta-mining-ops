@@ -255,7 +255,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Build the exact baseline frontend
+      - name: Build normal and hidden-source-map diagnostic baseline frontends
         shell: bash
         run: |
           set -euo pipefail
@@ -263,7 +263,11 @@ jobs:
           git fetch --no-tags origin "$BASELINE_COMMIT"
           git worktree add --detach ../phase1c-baseline "$BASELINE_COMMIT"
           test "$(git -C ../phase1c-baseline rev-parse HEAD)" = "$BASELINE_COMMIT"
-          (cd ../phase1c-baseline && npm ci && VITE_DM_PERF_DIAGNOSTICS=1 npm run build) 2>&1 | tee baseline-build.log
+          cp scripts/phase1c-diagnostic-vite.config.mjs ../phase1c-baseline/phase1c-vite-diagnostic.config.mjs
+          (cd ../phase1c-baseline && npm ci && VITE_DM_PERF_DIAGNOSTICS=1 npm run build -- --outDir dist-normal) 2>&1 | tee baseline-normal-build.log
+          (cd ../phase1c-baseline && VITE_DM_PERF_DIAGNOSTICS=1 npx vite build --config phase1c-vite-diagnostic.config.mjs) 2>&1 | tee baseline-diagnostic-build.log
+          mkdir -p artifacts/phase1c-cpu
+          node scripts/phase1c-compare-builds.mjs ../phase1c-baseline/dist-normal ../phase1c-baseline/dist-diagnostic > artifacts/phase1c-cpu/build-identity.json
       - name: Install Chromium profiler runner
         run: |
           npm ci
@@ -273,16 +277,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/phase1b-ab-proxy.mjs --root=../phase1c-baseline/dist --port=4173 --backend="$BACKEND_TARGET" >/tmp/phase1c-proxy.log 2>&1 &
+          node scripts/phase1b-ab-proxy.mjs --root=../phase1c-baseline/dist-diagnostic --port=4173 --backend="$BACKEND_TARGET" >/tmp/phase1c-proxy.log 2>&1 &
           pid=$!
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
           DM_PERF_BASE_URL=http://127.0.0.1:4173 node scripts/phase1c-cpu-profile.mjs
+          node scripts/phase1c-symbolicate.mjs artifacts/phase1c-cpu ../phase1c-baseline/dist-diagnostic/assets
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: phase1c-baseline-cpu-profile
           path: |
             artifacts/phase1c-cpu/
-            baseline-build.log
+            baseline-normal-build.log
+            baseline-diagnostic-build.log
           retention-days: 14

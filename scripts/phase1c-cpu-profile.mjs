@@ -65,31 +65,22 @@ function analyse(profile,coverage){
   const nodes=new Map((profile.nodes||[]).map(node=>[node.id,node]));
   const parent=new Map();
   for(const node of profile.nodes||[])for(const child of node.children||[])parent.set(child,node.id);
-  const byName=new Map();
-  const add=(id,key,field,value)=>{
-    const node=nodes.get(id);if(!node)return;
-    const frame=node.callFrame||{};
-    const name=frame.functionName||"(anonymous)";
-    const url=String(frame.url||"").split("/").pop()||"";
-    const item=byName.get(name)||{function:name,url,totalMs:0,selfMs:0,samples:0,coverageCalls:0};
-    item[field]+=value;byName.set(name,item);
-  };
+  const byNode=new Map([...nodes.entries()].map(([id,node])=>[id,{nodeId:id,parentId:parent.get(id)??null,function:node.callFrame?.functionName||"(anonymous)",url:node.callFrame?.url||"",lineNumber:node.callFrame?.lineNumber??null,columnNumber:node.callFrame?.columnNumber??null,totalMs:0,selfMs:0,samples:0}]));
   const samples=profile.samples||[],deltas=profile.timeDeltas||[];
   samples.forEach((id,index)=>{
     const ms=Number(deltas[index]||0)/1000;
     let current=id;let guard=0;
-    while(current&&guard++<120){add(current,"", "totalMs",ms);current=parent.get(current);}
-    add(id,"","selfMs",ms);add(id,"","samples",1);
+    while(current&&guard++<120){const item=byNode.get(current);if(item)item.totalMs+=ms;current=parent.get(current);}
+    const leaf=byNode.get(id);if(leaf){leaf.selfMs+=ms;leaf.samples+=1;}
   });
+  const byName=new Map();
   for(const script of coverage||[])for(const fn of script.functions||[]){
     const name=fn.functionName||"(anonymous)";
-    const item=byName.get(name)||{function:name,url:String(script.url||"").split("/").pop()||"",totalMs:0,selfMs:0,samples:0,coverageCalls:0};
+    const item=byName.get(name)||{function:name,url:String(script.url||"").split("/").pop()||"",coverageCalls:0};
     item.coverageCalls+=Number(fn.ranges?.[0]?.count)||0;byName.set(name,item);
   }
-  const ranking=[...byName.values()].filter(item=>item.totalMs>0||item.coverageCalls>0).sort((a,b)=>b.totalMs-a.totalMs);
-  const names=["normalizeROP02","normalizeROP05","normalizeRMA15","loadFullDataset","calcControl"];
-  const targeted=names.map(name=>ranking.find(item=>item.function===name)||{function:name,coverageCalls:0,totalMs:0,selfMs:0,samples:0,missing:true});
-  return{ranking:ranking.slice(0,80),targeted};
+  const ranking=[...byNode.values()].filter(item=>item.totalMs>0).sort((a,b)=>b.totalMs-a.totalMs);
+  return{ranking:ranking.slice(0,120),coverage:[...byName.values()].sort((a,b)=>b.coverageCalls-a.coverageCalls).slice(0,120)};
 }
 
 async function profile(cdp,name,action){
@@ -121,6 +112,6 @@ try{
   results.push(await profile(cdp,"control",async()=>{await click(page,"Control ROP05 vs ROP02");await quiet(page,4500);}));
   results.push(await profile(cdp,"refresh",async()=>{await click(page,"Actualizar",8000);await quiet(page,8000);}));
   await fs.writeFile(path.join(outDir,"cpu-profile-summary.json"),JSON.stringify({baseUrl,results},null,2));
-  console.log(JSON.stringify(results.map(({scenario,durationMs,targeted,ranking})=>({scenario,durationMs,targeted,top:ranking.slice(0,10)})),null,2));
+  console.log(JSON.stringify(results.map(({scenario,durationMs,ranking})=>({scenario,durationMs,topNodes:ranking.slice(0,10)})),null,2));
   await context.close();
 }finally{await browser.close();}
