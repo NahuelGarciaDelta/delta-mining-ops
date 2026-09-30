@@ -326,7 +326,13 @@ jobs:
           (cd work/baseline && npm ci && npm run build) 2>&1 | tee baseline-build.log
           (cd work/candidate && npm ci && npm run build) 2>&1 | tee candidate-build.log
       - name: Vite SSR equivalence and microbench
-        run: node scripts/phase1c-rop02-equivalence.mjs work/baseline work/candidate | tee equivalence.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          node scripts/phase1c-rop02-equivalence.mjs work/baseline work/candidate | tee equivalence.json
+          test -s equivalence.json
+          node -e 'const fs=require("fs");const x=JSON.parse(fs.readFileSync("equivalence.json","utf8"));if(x.equivalence!==true)process.exit(1);'
       - name: Publish only the validated candidate
         shell: bash
         run: |
@@ -338,9 +344,12 @@ jobs:
           git -C work/candidate commit -m "perf: preindex ROP02 row keys"
           test "$(git -C work/candidate diff --name-only "$BASELINE_COMMIT" | wc -l)" = 1
           test "$(git -C work/candidate diff --name-only "$BASELINE_COMMIT")" = "src/shared/domain/index.jsx"
-          git -C work/candidate push origin HEAD:"$CANDIDATE_BRANCH"
+          test "$(git ls-remote origin "refs/heads/$CANDIDATE_BRANCH" | cut -f1)" = "7960c9ea19cb98e314961a778eb0a5409932adab"
+          git -C work/candidate push --force-with-lease="refs/heads/$CANDIDATE_BRANCH:7960c9ea19cb98e314961a778eb0a5409932adab" origin HEAD:"$CANDIDATE_BRANCH"
           git -C work/candidate rev-parse HEAD | tee candidate-sha.txt
           sha256sum work/baseline/src/shared/domain/index.jsx work/candidate/src/shared/domain/index.jsx | tee index-sha256.txt
+          test -s equivalence.json
+          node -e 'const fs=require("fs");const x=JSON.parse(fs.readFileSync("equivalence.json","utf8"));if(x.equivalence!==true)process.exit(1);'
           printf 'gate=passed\npublished=true\nbaseline=%s\n' "$BASELINE_COMMIT" > gate-result.txt
       - uses: actions/upload-artifact@v4
         if: always()

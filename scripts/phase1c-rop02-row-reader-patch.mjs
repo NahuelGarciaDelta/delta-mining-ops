@@ -30,5 +30,6 @@ const lines=[
 ['const operadorRaw=getValue','const operadorRaw=read'],['const supervisorRaw=getValue','const supervisorRaw=read'],['const supervisorClienteRaw=getValue','const supervisorClienteRaw=read'],['const turnoRaw=getValue','const turnoRaw=read'],['const parteRaw=getValue','const parteRaw=read'],['const proyectoRaw=getValue','const proyectoRaw=read'],['const hiRaw=getValue','const hiRaw=read'],['const hfRaw=getValue','const hfRaw=read'],['const cantHs=getValue','const cantHs=read'],['const combustibleRaw=getValue','const combustibleRaw=read'],['const aceiteRaw=getValue','const aceiteRaw=read'],['String(getValue(r,["Descripción','String(read(["Descripción'],['const desgasteRaw=getValue','const desgasteRaw=read'],['String(getValue(r,["Observaciones"','String(read(["Observaciones"']
 ];
 for(const [from,to] of lines){const count=source.split(from).length-1;if(count!==1)throw new Error(`Reemplazo no único: ${from}`);source=source.replace(from,to);}
+if(/\bread\(r\s*,/.test(source))throw new Error("normalizeROP02 conserva una llamada read(r, ...)");
 if(source===original)throw new Error("El parche no produjo cambios");
 await fs.writeFile(target,source);
