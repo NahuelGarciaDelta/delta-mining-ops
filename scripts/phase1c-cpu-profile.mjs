@@ -41,6 +41,20 @@ async function click(page,label,timeout=15000){
   await loc.click({timeout});
 }
 
+async function ensureSidebarChild(page,groupLabel,childLabel){
+  try{await click(page,childLabel,3000);return true;}catch(_){ }
+  await click(page,groupLabel,8000);
+  const deadline=Date.now()+15000;
+  while(Date.now()<deadline){
+    const child=page.getByRole("button",{name:new RegExp(`^${esc(childLabel)}$`,"i")}).first();
+    if(await child.isVisible().catch(()=>false)){
+      try{await child.click({trial:true,timeout:1000});await child.click({timeout:3000});return true;}catch(_){ }
+    }
+    await sleep(400);
+  }
+  return false;
+}
+
 async function openOffice(page){
   const loc=page.getByRole("button",{name:/Oficina Técnica/i}).first();
   await loc.click({timeout:15000});
@@ -103,8 +117,7 @@ try{
   results.push(await profile(cdp,"cold",async()=>{await login(page);await quiet(page,5000);}));
   results.push(await profile(cdp,"warm",async()=>{await page.reload({waitUntil:"domcontentloaded",timeout:90000});await page.locator(".dm-app-shell").waitFor({state:"visible",timeout:90000});await quiet(page,4000);}));
   await openOffice(page);
-  await click(page,"ROP05",8000).catch(()=>{});
-  results.push(await profile(cdp,"rop05",async()=>{await click(page,"Productividad");await quiet(page,5000);}));
+  results.push(await profile(cdp,"rop05",async()=>{if(!await ensureSidebarChild(page,"ROP05","Productividad"))throw new Error("No se encontró ROP05 / Productividad");await quiet(page,5000);}));
   results.push(await profile(cdp,"control",async()=>{await click(page,"Control ROP05 vs ROP02");await quiet(page,4500);}));
   results.push(await profile(cdp,"refresh",async()=>{await click(page,"Actualizar",8000);await quiet(page,8000);}));
   await fs.writeFile(path.join(outDir,"cpu-profile-summary.json"),JSON.stringify({baseUrl,results},null,2));
