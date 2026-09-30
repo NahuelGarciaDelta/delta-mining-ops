@@ -1,0 +1,52 @@
+name: Phase 1C ROP02 row reader validation
+on: { workflow_dispatch: {} }
+permissions: { contents: write }
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    env: { BASELINE: 26b07f0e54b00a1b83d8c31d0528d2481aa0a67c, BRANCH: phase1c-rop02-row-key-index }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Create deterministic baseline and candidate
+        run: |
+          git fetch --no-tags origin "$BASELINE"
+          git worktree add --detach work/baseline "$BASELINE"
+          git worktree add --detach work/candidate "$BASELINE"
+          node scripts/phase1c-rop02-row-reader-patch.mjs work/candidate/src/shared/domain/index.jsx
+          git -C work/candidate diff --name-only "$BASELINE" | tee candidate-files.txt
+          test "$(cat candidate-files.txt)" = "src/shared/domain/index.jsx"
+          git -C work/candidate diff --stat "$BASELINE" | tee candidate-diff-stat.txt
+          git -C work/candidate diff -- src/shared/domain/index.jsx | tee candidate-diff.patch
+      - name: Build exact baseline and candidate
+        run: |
+          (cd work/baseline && npm ci && npm run build) 2>&1 | tee baseline-build.log
+          (cd work/candidate && npm ci && npm run build) 2>&1 | tee candidate-build.log
+      - name: Vite SSR equivalence and microbench
+        run: node scripts/phase1c-rop02-equivalence.mjs work/baseline work/candidate | tee equivalence.json
+      - name: Publish only the validated candidate
+        run: |
+          git -C work/candidate config user.name github-actions[bot]
+          git -C work/candidate config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git -C work/candidate checkout -b "$BRANCH"
+          git -C work/candidate add src/shared/domain/index.jsx
+          git -C work/candidate commit -m "perf: preindex ROP02 row keys"
+          test "$(git -C work/candidate diff --name-only "$BASELINE" | wc -l)" = 1
+          test "$(git -C work/candidate diff --name-only "$BASELINE")" = "src/shared/domain/index.jsx"
+          git -C work/candidate push origin HEAD:"$BRANCH"
+          git -C work/candidate rev-parse HEAD | tee candidate-sha.txt
+          sha256sum work/baseline/src/shared/domain/index.jsx work/candidate/src/shared/domain/index.jsx | tee index-sha256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase1c-rop02-row-reader-validation
+          path: |
+            candidate-files.txt
+            candidate-diff-stat.txt
+            candidate-diff.patch
+            baseline-build.log
+            candidate-build.log
+            equivalence.json
+            candidate-sha.txt
+            index-sha256.txt
