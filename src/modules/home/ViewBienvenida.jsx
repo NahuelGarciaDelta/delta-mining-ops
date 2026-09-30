@@ -127,16 +127,59 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     });
     const exclusionMap=getBajoSanJuanExclusionMap(admitidosAtraso,latestRop02ByEquipmentProject);
     const availabilityResult=calculateHomeAvailabilityFromRop02(rop,admitidosAtraso,{normalizeEquipmentCode:canonicalEquivalentMachineCode,exclusionMap})||{};
+
+    // Disponibilidad del Resumen General = equipos viales + camiones.
+    // Las camionetas siguen excluidas. Se conserva exactamente el mismo criterio
+    // de estado: horas > 0 = Trabajo; sin horas y sólo FS = FS; si no, OD cuando corresponda.
+    const truckByCode=new Map();
+    let excludedTrucks=0;
+    rop.forEach(row=>{
+      const code=canonicalEquivalentMachineCode(codeOf(row));
+      if(!code||classifyActive(code)!=="camion")return;
+      const project=String(row.proyecto||row.lugar||row.Lugar||"").trim();
+      if(exclusionMap.has(equipmentProjectKey(code,project))||exclusionMap.has(code)){
+        if(!truckByCode.has(code))excludedTrucks+=1;
+        return;
+      }
+      const fecha=isoOfDate(dateOf(row));
+      const horas=toNum(row.horas??row.HORAS??getVal(row,["Cant. Hs.","Cant.Hs/ KM","Horas","Hs"]));
+      const estado=norm(row.estado||row.Estado||row.tipo_trabajo||getVal(row,["Estado","Tipo trabajo","Tipo de trabajo"])).toUpperCase();
+      const current=truckByCode.get(code);
+      if(!current||fecha>current.fecha){
+        truckByCode.set(code,{code,interno:code,lugar:project,fecha,horas,estados:new Set([estado].filter(Boolean)),rows:1});
+      }else if(fecha===current.fecha){
+        current.rows+=1;
+        current.horas+=horas;
+        if(estado)current.estados.add(estado);
+        if(project)current.lugar=project;
+      }
+    });
+    const truckItems=[];
+    const truckFsItems=[];
+    truckByCode.forEach(item=>{
+      const isFs=!(item.horas>0)&&item.estados?.size===1&&item.estados.has("FS");
+      const estado=item.horas>0?"Trabajo":(isFs?"FS":(item.estados?.has("OD")?"OD":"Trabajo"));
+      const detail={interno:item.code,lugar:item.lugar||"",estado,ultimoROP02:item.fecha,horas:Number(item.horas)||0};
+      truckItems.push(detail);
+      if(isFs)truckFsItems.push(detail);
+    });
+    const baseItems=Array.isArray(availabilityResult.items)?availabilityResult.items:[];
+    const baseFsItems=Array.isArray(availabilityResult.fsItems)?availabilityResult.fsItems:[];
+    const combinedItems=[...baseItems,...truckItems].sort((a,b)=>String(a.interno).localeCompare(String(b.interno)));
+    const combinedFsItems=[...baseFsItems,...truckFsItems].sort((a,b)=>String(a.interno).localeCompare(String(b.interno)));
+    const combinedNoDisponibles=combinedFsItems.length;
+    const combinedDisponibles=Math.max(0,combinedItems.length-combinedNoDisponibles);
     const availability={
-      disponibilidad:availabilityResult.disponibilidad??null,
-      disponibles:Number(availabilityResult.disponibles)||0,
-      noDisponibles:Number(availabilityResult.noDisponibles)||0,
-      items:Array.isArray(availabilityResult.items)?availabilityResult.items:[],
-      fsItems:Array.isArray(availabilityResult.fsItems)?availabilityResult.fsItems:[],
       ...availabilityResult,
+      disponibilidad:combinedItems.length?Math.round((combinedDisponibles/combinedItems.length)*100):null,
+      disponibles:combinedDisponibles,
+      noDisponibles:combinedNoDisponibles,
+      elegiblesAntesExclusiones:(Number(availabilityResult.elegiblesAntesExclusiones)||0)+truckByCode.size+excludedTrucks,
+      elegiblesDespuesExclusiones:combinedItems.length,
+      excluidosBajoSanJuan:(Number(availabilityResult.excluidosBajoSanJuan)||0)+excludedTrucks,
+      items:combinedItems,
+      fsItems:combinedFsItems,
     };
-    availability.items=Array.isArray(availability.items)?availability.items:[];
-    availability.fsItems=Array.isArray(availability.fsItems)?availability.fsItems:[];
     const rmaRecords=[];
     rma.forEach((row,index)=>{
       const interno=canonicalEquivalentMachineCode(codeOf(row));
