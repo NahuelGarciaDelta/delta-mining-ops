@@ -14,6 +14,11 @@ on:
       - "scripts/phase0-performance-diagnostics-vite-plugin.mjs"
       - "vite.config.js"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "production or phase1b-ab-local"
+        required: false
+        default: "production"
 
 permissions:
   contents: read
@@ -26,6 +31,7 @@ concurrency:
 jobs:
   bundle-metrics:
     name: Bundle metrics
+    if: ${{ inputs.mode != 'phase1b-ab-local' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -60,6 +66,7 @@ jobs:
 
   browser-metrics:
     name: Browser cold warm and slow measurements
+    if: ${{ inputs.mode != 'phase1b-ab-local' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -169,4 +176,60 @@ jobs:
           name: phase0-browser-metrics
           path: artifacts/phase0/
           if-no-files-found: warn
+          retention-days: 14
+
+  phase1b-local-ab:
+    name: Phase 1B local frontend A B
+    if: ${{ inputs.mode == 'phase1b-ab-local' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
+      DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+      BASELINE_COMMIT: 8a9bc2fa995de958f1a79a285d253130815cbbbb
+      CANDIDATE_COMMIT: 4817a174a7e481ee3c1407a0ecaceb4dc6d5f041
+      CANDIDATE_ORIGINAL_LOCAL_COMMIT: ded5921105e51d0d7eacc3fe20623a96d15690f1
+      BACKEND_TARGET: https://delta-mining-ops.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate identities and create isolated checkouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DM_PERF_EMAIL" && test -n "$DM_PERF_PASSWORD"
+          git fetch --no-tags origin "$BASELINE_COMMIT" "$CANDIDATE_COMMIT"
+          git worktree add --detach ../phase1b-baseline "$BASELINE_COMMIT"
+          git worktree add --detach ../phase1b-candidate "$CANDIDATE_COMMIT"
+          baseline_tree="$(git -C ../phase1b-baseline rev-parse HEAD^{tree})"
+          candidate_tree="$(git -C ../phase1b-candidate rev-parse HEAD^{tree})"
+          test "$candidate_tree" = "91c401f4bcbfbf57eb16b5b5fb49fa5bf514f115"
+          test "$(git -C ../phase1b-candidate rev-parse HEAD^)" = "$BASELINE_COMMIT"
+          mkdir -p artifacts/phase1b-ab
+          git -C ../phase1b-candidate diff --no-ext-diff --binary "$BASELINE_COMMIT".."$CANDIDATE_COMMIT" > artifacts/phase1b-ab/candidate.diff
+          node -e 'const fs=require("fs");fs.writeFileSync("artifacts/phase1b-ab/traceability.json",JSON.stringify({baselineCommit:process.env.BASELINE_COMMIT,candidateCommit:process.env.CANDIDATE_COMMIT,candidateOriginalLocalCommit:process.env.CANDIDATE_ORIGINAL_LOCAL_COMMIT,candidateContentEquivalent:true,baselineTree:process.argv[1],candidateTree:process.argv[2],backendTarget:process.env.BACKEND_TARGET,frontendLocalUrls:["http://127.0.0.1:4173","http://127.0.0.1:4174"]},null,2))' "$baseline_tree" "$candidate_tree"
+      - name: Build both exact frontends
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dir in ../phase1b-baseline ../phase1b-candidate; do (cd "$dir" && npm ci && VITE_DM_PERF_DIAGNOSTICS=1 npm run build); done
+      - name: Install browser runner
+        run: |
+          npm ci
+          npm install --no-save --package-lock=false playwright@1.49.1
+          npx playwright install --with-deps chromium
+      - name: Run consecutive batteries through transparent proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_case(){ node scripts/phase1b-ab-proxy.mjs --root="$2" --port="$3" --backend="$BACKEND_TARGET" >/tmp/phase1b-proxy.log 2>&1 & pid=$!; trap 'kill "$pid" 2>/dev/null || true' RETURN; for _ in $(seq 1 30); do curl -fsS "http://127.0.0.1:$3/" >/dev/null && break; sleep 1; done; rm -rf artifacts/phase0; DM_PERF_BASE_URL="http://127.0.0.1:$3" DM_PERF_RUN_SLOW=1 node scripts/phase0-production-measurement.mjs; mkdir -p "artifacts/phase1b-ab/$1"; cp -R artifacts/phase0/. "artifacts/phase1b-ab/$1/"; kill "$pid" 2>/dev/null || true; trap - RETURN; }
+          run_case baseline ../phase1b-baseline/dist 4173
+          run_case candidate ../phase1b-candidate/dist 4174
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase1b-local-ab-measurement
+          path: artifacts/phase1b-ab/
           retention-days: 14
