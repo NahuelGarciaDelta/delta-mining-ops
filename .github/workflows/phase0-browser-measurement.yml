@@ -214,7 +214,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for dir in ../phase1b-baseline ../phase1b-candidate; do (cd "$dir" && npm ci && VITE_DM_PERF_DIAGNOSTICS=1 npm run build); done
+          mkdir -p artifacts/phase1b-ab
+          for name in baseline candidate; do
+            dir="../phase1b-$name"
+            (cd "$dir" && npm ci && VITE_DM_PERF_DIAGNOSTICS=1 npm run build) 2>&1 | tee "artifacts/phase1b-ab/$name-build.log"
+          done
       - name: Install browser runner
         run: |
           npm ci
