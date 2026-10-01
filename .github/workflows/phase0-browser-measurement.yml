@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "production, phase1b-ab-local, phase1c-cpu-profile or phase1c-row-reader-validate"
+        description: "production, phase1b-ab-local, phase1c-cpu-profile, phase1c-row-reader-validate or phase1c-cpu-compare"
         required: false
         default: "production"
 
@@ -31,7 +31,7 @@ concurrency:
 jobs:
   bundle-metrics:
     name: Bundle metrics
-    if: ${{ inputs.mode != 'phase1b-ab-local' && inputs.mode != 'phase1c-cpu-profile' && inputs.mode != 'phase1c-row-reader-validate' }}
+    if: ${{ inputs.mode != 'phase1b-ab-local' && inputs.mode != 'phase1c-cpu-profile' && inputs.mode != 'phase1c-row-reader-validate' && inputs.mode != 'phase1c-cpu-compare' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -66,7 +66,7 @@ jobs:
 
   browser-metrics:
     name: Browser cold warm and slow measurements
-    if: ${{ inputs.mode != 'phase1b-ab-local' && inputs.mode != 'phase1c-cpu-profile' && inputs.mode != 'phase1c-row-reader-validate' }}
+    if: ${{ inputs.mode != 'phase1b-ab-local' && inputs.mode != 'phase1c-cpu-profile' && inputs.mode != 'phase1c-row-reader-validate' && inputs.mode != 'phase1c-cpu-compare' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
@@ -365,3 +365,53 @@ jobs:
             candidate-sha.txt
             index-sha256.txt
             gate-result.txt
+
+  phase1c-cpu-compare:
+    name: Phase 1C baseline candidate CPU comparison
+    if: ${{ inputs.mode == 'phase1c-cpu-compare' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
+      DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+      BACKEND_TARGET: https://delta-mining-ops.vercel.app
+      BASELINE_COMMIT: 26b07f0e54b00a1b83d8c31d0528d2481aa0a67c
+      CANDIDATE_COMMIT: 0b35e53efbee6ab8019ddef3ed955ccfd8391de5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Build exact local frontends
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASELINE_COMMIT" "$CANDIDATE_COMMIT"
+          git worktree add --detach ../p1c-base "$BASELINE_COMMIT"
+          git worktree add --detach ../p1c-candidate "$CANDIDATE_COMMIT"
+          for dir in ../p1c-base ../p1c-candidate; do
+            cp scripts/phase1c-diagnostic-vite.config.mjs "$dir/phase1c-vite-diagnostic.config.mjs"
+            (cd "$dir" && npm ci && VITE_DM_PERF_DIAGNOSTICS=1 npx vite build --config phase1c-vite-diagnostic.config.mjs)
+          done
+      - name: Profile both through identical local frontend proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm install --no-save --package-lock=false playwright@1.49.1
+          npx playwright install --with-deps chromium
+          for label in baseline candidate; do
+            root="../p1c-$([ "$label" = baseline ] && echo base || echo candidate)/dist-diagnostic"
+            node scripts/phase1b-ab-proxy.mjs --root="$root" --port=4173 --backend="$BACKEND_TARGET" >/tmp/p1c-$label-proxy.log 2>&1 & pid=$!
+            trap 'kill "$pid" 2>/dev/null || true' EXIT
+            for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+            rm -rf artifacts/phase1c-cpu
+            DM_PERF_BASE_URL=http://127.0.0.1:4173 node scripts/phase1c-cpu-profile.mjs
+            node scripts/phase1c-symbolicate.mjs artifacts/phase1c-cpu "$root/assets"
+            mv artifacts/phase1c-cpu "artifacts/phase1c-cpu-$label"
+            kill "$pid"; trap - EXIT
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase1c-cpu-baseline-candidate
+          path: artifacts/phase1c-cpu-*/
