@@ -1,108 +1,87 @@
-import fs from 'node:fs';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(process.argv[2] || 'artifacts/phase1c-ab');
 const PAIRS = [1, 2, 3, 4, 5];
-const SIDES = ['baseline', 'candidate'];
-const STEP_LABELS = {
-  rop05: 'ROP05 / Productividad',
-  control: 'Control ROP05 vs ROP02',
-  actualizar: 'Botón Actualizar en Control',
+
+const summaryScenarios = {
+  cold: 'Cold',
+  warm: 'Warm',
+  navigation: 'Navigation',
 };
 
-function displayStep(key) {
-  return key === 'rop05' ? 'ROP05' : key === 'control' ? 'Control' : 'Actualizar Control';
-}
-
-const metricDefs = [
-  ['cold.requests', 'Cold / requests'],
-  ['cold.resourceTransferBytes', 'Cold / resourceTransferBytes'],
-  ['cold.longTaskMs', 'Cold / longTaskMs'],
-  ['warm.requests', 'Warm / requests'],
-  ['warm.resourceTransferBytes', 'Warm / resourceTransferBytes'],
-  ['warm.longTaskMs', 'Warm / longTaskMs'],
-  ['navigation.requests', 'Navigation / requests'],
-  ['navigation.resourceTransferBytes', 'Navigation / resourceTransferBytes'],
-  ['navigation.longTaskMs', 'Navigation / longTaskMs'],
-  ...['rop05', 'control', 'actualizar'].flatMap((key) => [
-    [`${key}.requests`, `${displayStep(key)} / requests`],
-    [`${key}.resourceTransferBytes`, `${displayStep(key)} / resourceTransferBytes`],
-    [`${key}.longTaskMs`, `${displayStep(key)} / longTaskMs`],
-    [`${key}.durationMs`, `${displayStep(key)} / durationMs`],
-    [`${key}.status0`, `${displayStep(key)} / status0`],
-    [`${key}.networkErrors`, `${displayStep(key)} / networkErrors`],
-    [`${key}.timeouts`, `${displayStep(key)} / timeouts`],
-  ]),
+const stepSpecs = [
+  { key: 'rop05', label: 'ROP05', stepLabel: 'ROP05 / Productividad' },
+  { key: 'control', label: 'Control', stepLabel: 'Control ROP05 vs ROP02' },
+  { key: 'actualizar', label: 'Actualizar Control', stepLabel: 'Botón Actualizar en Control' },
 ];
 
-function exists(filePath) {
-  try {
-    return fs.existsSync(filePath);
-  } catch {
-    return false;
+const metricDefs = [];
+for (const [scenario, label] of Object.entries(summaryScenarios)) {
+  for (const field of ['requests', 'resourceTransferBytes', 'longTaskMs']) {
+    metricDefs.push({ key: `${scenario}.${field}`, label: `${label} ${field}` });
+  }
+}
+for (const spec of stepSpecs) {
+  for (const field of ['requests', 'resourceTransferBytes', 'longTaskMs', 'durationMs', 'status0', 'networkErrors', 'timeouts']) {
+    metricDefs.push({ key: `${spec.key}.${field}`, label: `${spec.label} ${field}` });
   }
 }
 
-function readText(filePath) {
-  return fs.readFileSync(filePath, 'utf8');
+const exists = async (p) => fs.access(p).then(() => true).catch(() => false);
+const readText = async (p) => fs.readFile(p, 'utf8').catch(() => null);
+const readJson = async (p) => {
+  try { return JSON.parse(await fs.readFile(p, 'utf8')); }
+  catch { return null; }
+};
+const numOrNull = (v) => Number.isFinite(Number(v)) ? Number(v) : null;
+
+function networkStats(step) {
+  if (!step || !Array.isArray(step.network)) {
+    return { status0: null, networkErrors: null, timeouts: null };
+  }
+  let status0 = 0;
+  let networkErrors = 0;
+  let timeouts = 0;
+  for (const item of step.network) {
+    if (Number(item?.status) === 0) status0 += 1;
+    const err = item?.error;
+    if (err !== null && err !== undefined && String(err) !== '') {
+      networkErrors += 1;
+      if (String(err).toLowerCase().includes('timeout')) timeouts += 1;
+    }
+  }
+  return { status0, networkErrors, timeouts };
 }
 
-function readJson(filePath) {
-  return JSON.parse(readText(filePath));
-}
+function extractSide(doc) {
+  if (!doc) return null;
+  const out = {};
+  const summaries = Array.isArray(doc.summaries) ? doc.summaries : [];
+  for (const scenario of Object.keys(summaryScenarios)) {
+    const item = summaries.find((x) => String(x?.scenario || '').toLowerCase() === scenario) || null;
+    out[scenario] = item ? {
+      requests: numOrNull(item.requests),
+      resourceTransferBytes: numOrNull(item.resourceTransferBytes),
+      longTaskMs: numOrNull(item.longTaskMs),
+    } : {
+      requests: null,
+      resourceTransferBytes: null,
+      longTaskMs: null,
+    };
+  }
 
-function numeric(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function csvCell(value) {
-  if (value === null || value === undefined) return 'N/A';
-  const text = String(value);
-  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-function markdownCell(value) {
-  return value === null || value === undefined ? 'N/A' : String(value);
-}
-
-function round(value, digits = 4) {
-  if (value === null || !Number.isFinite(value)) return null;
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
-}
-
-function median(values) {
-  const sorted = values
-    .filter((value) => typeof value === 'number' && Number.isFinite(value))
-    .sort((a, b) => a - b);
-  if (!sorted.length) return null;
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
-function getPath(object, dottedPath) {
-  return dottedPath.split('.').reduce((value, key) => {
-    if (value && Object.prototype.hasOwnProperty.call(value, key)) return value[key];
-    return null;
-  }, object);
-}
-
-function scenarioSummary(data, scenario) {
-  const item = Array.isArray(data?.summaries)
-    ? data.summaries.find((entry) => entry?.scenario === scenario)
-    : null;
-  if (!item) return { requests: null, resourceTransferBytes: null, longTaskMs: null };
-  return {
-    requests: numeric(item.requests),
-    resourceTransferBytes: numeric(item.resourceTransferBytes),
-    longTaskMs: numeric(item.longTaskMs),
-  };
-}
-
-function stepMetrics(data, label) {
-  const step = Array.isArray(data?.steps) ? data.steps.find((entry) => entry?.label === label) : null;
-  if (!step) {
-    return {
+  const steps = Array.isArray(doc.steps) ? doc.steps : [];
+  for (const spec of stepSpecs) {
+    const step = steps.find((x) => x?.label === spec.stepLabel) || null;
+    const net = networkStats(step);
+    out[spec.key] = step ? {
+      requests: numOrNull(step.requests),
+      resourceTransferBytes: numOrNull(step.resourceTransferBytes),
+      longTaskMs: numOrNull(step.longTaskMs),
+      durationMs: numOrNull(step.durationMs),
+      ...net,
+    } : {
       requests: null,
       resourceTransferBytes: null,
       longTaskMs: null,
@@ -112,172 +91,124 @@ function stepMetrics(data, label) {
       timeouts: null,
     };
   }
-
-  const network = Array.isArray(step.network) ? step.network : null;
-  return {
-    requests: numeric(step.requests),
-    resourceTransferBytes: numeric(step.resourceTransferBytes),
-    longTaskMs: numeric(step.longTaskMs),
-    durationMs: numeric(step.durationMs),
-    status0: network ? network.filter((item) => item?.status === 0).length : null,
-    networkErrors: network
-      ? network.filter(
-          (item) => item?.error !== null && item?.error !== undefined && String(item.error) !== '',
-        ).length
-      : null,
-    timeouts: network
-      ? network.filter((item) => String(item?.error || '').toLowerCase().includes('timeout')).length
-      : null,
-  };
+  return out;
 }
 
-function extract(data) {
-  return {
-    cold: scenarioSummary(data, 'cold'),
-    warm: scenarioSummary(data, 'warm'),
-    navigation: scenarioSummary(data, 'navigation'),
-    rop05: stepMetrics(data, STEP_LABELS.rop05),
-    control: stepMetrics(data, STEP_LABELS.control),
-    actualizar: stepMetrics(data, STEP_LABELS.actualizar),
-  };
+function getMetric(side, key) {
+  if (!side) return null;
+  const [group, field] = key.split('.');
+  const value = side?.[group]?.[field];
+  return Number.isFinite(value) ? value : null;
 }
 
-const pairs = [];
-for (const pair of PAIRS) {
-  const pairDir = path.join(root, `pair-${pair}`);
-  const validFile = path.join(pairDir, 'pair-valid.txt');
-  const valid = exists(validFile) && readText(validFile).trim() === 'true';
-  const entry = { pair, valid, baseline: null, candidate: null };
+function median(values) {
+  const nums = values.filter(Number.isFinite).slice().sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
 
-  for (const side of SIDES) {
-    const filePath = path.join(pairDir, side, 'production-browser-performance.json');
-    if (valid && exists(filePath)) {
-      try {
-        entry[side] = extract(readJson(filePath));
-      } catch (error) {
-        entry[side] = { parseError: String(error?.message || error) };
-      }
+function calcMetric(pairs, key) {
+  const cells = {};
+  const pairedB = [];
+  const pairedC = [];
+  const pairedSamples = [];
+  for (const pair of pairs) {
+    const b = pair.valid ? getMetric(pair.baseline, key) : null;
+    const c = pair.valid ? getMetric(pair.candidate, key) : null;
+    cells[`B${pair.pair}`] = b;
+    cells[`C${pair.pair}`] = c;
+    if (pair.valid && Number.isFinite(b) && Number.isFinite(c)) {
+      pairedB.push(b);
+      pairedC.push(c);
+      pairedSamples.push(pair.pair);
     }
   }
-  pairs.push(entry);
+  const medianBaseline = median(pairedB);
+  const medianCandidate = median(pairedC);
+  const delta = Number.isFinite(medianBaseline) && Number.isFinite(medianCandidate)
+    ? medianCandidate - medianBaseline
+    : null;
+  const deltaPercent = Number.isFinite(delta) && Number.isFinite(medianBaseline) && medianBaseline !== 0
+    ? (delta / medianBaseline) * 100
+    : null;
+  return { cells, pairedSamples, medianBaseline, medianCandidate, delta, deltaPercent };
 }
 
-const validPairs = pairs.filter((pair) => pair.valid).map((pair) => pair.pair);
+function csvCell(v) {
+  const s = v === null || v === undefined ? 'N/A' : String(v);
+  return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
+}
+function mdCell(v) {
+  if (v === null || v === undefined) return 'N/A';
+  if (typeof v === 'number' && !Number.isInteger(v)) return String(Math.round(v * 100) / 100);
+  return String(v);
+}
+
+await fs.mkdir(root, { recursive: true });
+const pairs = [];
+for (const pairNo of PAIRS) {
+  const pairDir = path.join(root, `pair-${pairNo}`);
+  const validMarker = await readText(path.join(pairDir, 'pair-valid.txt'));
+  const valid = String(validMarker || '').trim() === 'true';
+  const baselineDoc = await readJson(path.join(pairDir, 'baseline', 'production-browser-performance.json'));
+  const candidateDoc = await readJson(path.join(pairDir, 'candidate', 'production-browser-performance.json'));
+  pairs.push({
+    pair: pairNo,
+    valid,
+    baseline: valid ? extractSide(baselineDoc) : null,
+    candidate: valid ? extractSide(candidateDoc) : null,
+    files: {
+      baseline: await exists(path.join(pairDir, 'baseline', 'production-browser-performance.json')),
+      candidate: await exists(path.join(pairDir, 'candidate', 'production-browser-performance.json')),
+    },
+  });
+}
+
+const validPairs = pairs.filter((p) => p.valid).map((p) => p.pair);
+const conclusion = validPairs.length < 3 ? 'INCONCLUSIVE' : 'READY_FOR_REVIEW';
 const metrics = {};
-
-for (const [key, label] of metricDefs) {
-  const byPair = {};
-  const baselineValues = [];
-  const candidateValues = [];
-
-  for (const pair of pairs) {
-    const baseline =
-      pair.valid && pair.baseline && !pair.baseline.parseError ? getPath(pair.baseline, key) : null;
-    const candidate =
-      pair.valid && pair.candidate && !pair.candidate.parseError ? getPath(pair.candidate, key) : null;
-
-    byPair[pair.pair] = { baseline: baseline ?? null, candidate: candidate ?? null };
-    if (typeof baseline === 'number' && Number.isFinite(baseline)) baselineValues.push(baseline);
-    if (typeof candidate === 'number' && Number.isFinite(candidate)) candidateValues.push(candidate);
-  }
-
-  const medianBaseline = median(baselineValues);
-  const medianCandidate = median(candidateValues);
-  const delta =
-    medianBaseline !== null && medianCandidate !== null ? medianCandidate - medianBaseline : null;
-  const deltaPercent =
-    delta !== null && medianBaseline !== 0 ? (delta / medianBaseline) * 100 : null;
-
-  metrics[key] = {
-    label,
-    pairs: byPair,
-    medianBaseline: round(medianBaseline),
-    medianCandidate: round(medianCandidate),
-    delta: round(delta),
-    deltaPercent: round(deltaPercent),
-  };
-}
+for (const def of metricDefs) metrics[def.key] = { label: def.label, ...calcMetric(pairs, def.key) };
 
 const summary = {
   generatedAt: new Date().toISOString(),
   root,
   validPairs,
   validPairCount: validPairs.length,
-  conclusion: validPairs.length < 3 ? 'INCONCLUSIVE' : 'READY_FOR_REVIEW',
+  conclusion,
   pairs,
   metrics,
 };
+await fs.writeFile(path.join(root, 'summary.json'), JSON.stringify(summary, null, 2));
 
-fs.mkdirSync(root, { recursive: true });
-fs.writeFileSync(path.join(root, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
-
-const csvHeader = [
-  'metric',
-  'B1',
-  'C1',
-  'B2',
-  'C2',
-  'B3',
-  'C3',
-  'B4',
-  'C4',
-  'B5',
-  'C5',
-  'medianBaseline',
-  'medianCandidate',
-  'delta',
-  'deltaPercent',
-];
-const csvRows = [csvHeader.join(',')];
-for (const [key] of metricDefs) {
-  const metric = metrics[key];
-  const row = [metric.label];
-  for (const pair of PAIRS) row.push(metric.pairs[pair].baseline, metric.pairs[pair].candidate);
-  row.push(
-    metric.medianBaseline,
-    metric.medianCandidate,
-    metric.delta,
-    metric.deltaPercent,
-  );
-  csvRows.push(row.map(csvCell).join(','));
+const cols = ['metric', 'B1', 'C1', 'B2', 'C2', 'B3', 'C3', 'B4', 'C4', 'B5', 'C5', 'medianBaseline', 'medianCandidate', 'delta', 'deltaPercent'];
+const csv = [cols.join(',')];
+for (const def of metricDefs) {
+  const m = metrics[def.key];
+  const row = [def.label];
+  for (const i of PAIRS) row.push(m.cells[`B${i}`], m.cells[`C${i}`]);
+  row.push(m.medianBaseline, m.medianCandidate, m.delta, m.deltaPercent);
+  csv.push(row.map(csvCell).join(','));
 }
-fs.writeFileSync(path.join(root, 'summary.csv'), `${csvRows.join('\n')}\n`);
+await fs.writeFile(path.join(root, 'summary.csv'), `${csv.join('\n')}\n`);
 
-const markdown = [];
-markdown.push('# Phase 1C A/B');
-markdown.push('');
-markdown.push(`Valid pairs: ${validPairs.length}/5`);
-markdown.push(`Conclusion: ${summary.conclusion}`);
-markdown.push('');
-markdown.push(
-  '| Métrica | B1 | C1 | B2 | C2 | B3 | C3 | B4 | C4 | B5 | C5 | Mediana B | Mediana C | Δ | % |',
-);
-markdown.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
-for (const [key] of metricDefs) {
-  const metric = metrics[key];
-  const row = [metric.label];
-  for (const pair of PAIRS) {
-    row.push(markdownCell(metric.pairs[pair].baseline), markdownCell(metric.pairs[pair].candidate));
-  }
-  row.push(
-    markdownCell(metric.medianBaseline),
-    markdownCell(metric.medianCandidate),
-    markdownCell(metric.delta),
-    markdownCell(metric.deltaPercent),
-  );
-  markdown.push(`| ${row.join(' | ')} |`);
+const md = [];
+md.push('# Phase 1C A/B');
+md.push('');
+md.push(`Valid pairs: ${validPairs.length}/5 (${validPairs.length ? validPairs.join(', ') : 'none'})`);
+md.push(`Conclusion: ${conclusion}`);
+md.push('');
+md.push('| Métrica | B1 | C1 | B2 | C2 | B3 | C3 | B4 | C4 | B5 | C5 | Mediana B | Mediana C | Δ | % |');
+md.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
+for (const def of metricDefs) {
+  const m = metrics[def.key];
+  const row = [def.label];
+  for (const i of PAIRS) row.push(mdCell(m.cells[`B${i}`]), mdCell(m.cells[`C${i}`]));
+  row.push(mdCell(m.medianBaseline), mdCell(m.medianCandidate), mdCell(m.delta), mdCell(m.deltaPercent));
+  md.push(`| ${row.join(' | ')} |`);
 }
-markdown.push('');
-fs.writeFileSync(path.join(root, 'medians.md'), markdown.join('\n'));
+md.push('');
+md.push('Notes: medians use only valid pairs with numeric values on both baseline and candidate for the metric. Invalid pairs and missing fields are N/A.');
+await fs.writeFile(path.join(root, 'medians.md'), `${md.join('\n')}\n`);
 
-console.log(
-  JSON.stringify(
-    {
-      validPairs,
-      conclusion: summary.conclusion,
-      outputs: ['summary.json', 'summary.csv', 'medians.md'],
-    },
-    null,
-    2,
-  ),
-);
+console.log(JSON.stringify({ root, validPairs, conclusion, outputs: ['summary.json', 'summary.csv', 'medians.md'] }));
