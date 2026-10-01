@@ -25,11 +25,34 @@ const reader=`function createRowValueReader(row){
 if((source.match(new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"g"))||[]).length!==1)throw new Error("Marcador toNumber no único");
 source=source.replace(marker,reader+marker);
 const lines=[
-['const fechaRaw=getValue(r,','const read=createRowValueReader(r);\n    const fechaRaw=read('],
-['String(getValue(r,["Interno"','String(read(["Interno"'],['String(getValue(r,["Equipo"','String(read(["Equipo"'],
-['const operadorRaw=getValue','const operadorRaw=read'],['const supervisorRaw=getValue','const supervisorRaw=read'],['const supervisorClienteRaw=getValue','const supervisorClienteRaw=read'],['const turnoRaw=getValue','const turnoRaw=read'],['const parteRaw=getValue','const parteRaw=read'],['const proyectoRaw=getValue','const proyectoRaw=read'],['const hiRaw=getValue','const hiRaw=read'],['const hfRaw=getValue','const hfRaw=read'],['const cantHs=getValue','const cantHs=read'],['const combustibleRaw=getValue','const combustibleRaw=read'],['const aceiteRaw=getValue','const aceiteRaw=read'],['String(getValue(r,["Descripción','String(read(["Descripción'],['const desgasteRaw=getValue','const desgasteRaw=read'],['String(getValue(r,["Observaciones"','String(read(["Observaciones"']
+['const fechaRaw=getValue(r,["Fecha","Fecha:","col_0"]);','const read=createRowValueReader(r);\n    const fechaRaw=read(["Fecha","Fecha:","col_0"]);'],
+['const internoRaw=String(getValue(r,["Interno","Código Interno","Codigo Interno","CODIGO N° INTERNO","col_1"])).trim();','const internoRaw=String(read(["Interno","Código Interno","Codigo Interno","CODIGO N° INTERNO","col_1"])).trim();'],
+['const equipoRaw=String(getValue(r,["Equipo","EQUIPO","Tipo Equipo","Tipo de equipo","col_2"])).trim();','const equipoRaw=String(read(["Equipo","EQUIPO","Tipo Equipo","Tipo de equipo","col_2"])).trim();'],
+['const operadorRaw=getValue(r,["Operador","col_3"]);','const operadorRaw=read(["Operador","col_3"]);'],
+['const supervisorRaw=getValue(r,["Supervisor Delta","Supervisor","col_4"]);','const supervisorRaw=read(["Supervisor Delta","Supervisor","col_4"]);'],
+['const supervisorClienteRaw=getValue(r,["Supervisor Vial Cliente","Supervisor Cliente","col_5"]);','const supervisorClienteRaw=read(["Supervisor Vial Cliente","Supervisor Cliente","col_5"]);'],
+['const turnoRaw=getValue(r,["Turno de trabajo","Turno","col_6"]);','const turnoRaw=read(["Turno de trabajo","Turno","col_6"]);'],
+['const parteRaw=getValue(r,["N° Parte","Nº Parte","N Parte","Parte","col_7"]);','const parteRaw=read(["N° Parte","Nº Parte","N Parte","Parte","col_7"]);'],
+['const proyectoRaw=getValue(r,["Proyecto","Proyecto ","proyecto","col_8"]);','const proyectoRaw=read(["Proyecto","Proyecto ","proyecto","col_8"]);'],
+['const hiRaw=getValue(r,["Horómetro inicial","Horometro inicial","HI","col_9"]);','const hiRaw=read(["Horómetro inicial","Horometro inicial","HI","col_9"]);'],
+['const hfRaw=getValue(r,["Horómetro final","Horometro final","HF","col_10"]);','const hfRaw=read(["Horómetro final","Horometro final","HF","col_10"]);'],
+['const cantHs=getValue(r,["Cant. Hs.","Cant.Hs/ KM","Cant.Hs","Cant Hs","Cantidad de horas","col_11"]);','const cantHs=read(["Cant. Hs.","Cant.Hs/ KM","Cant.Hs","Cant Hs","Cantidad de horas","col_11"]);'],
+['const combustibleRaw=getValue(r,["Combustible","col_12"]);','const combustibleRaw=read(["Combustible","col_12"]);'],
+['const aceiteRaw=getValue(r,["Aceite","col_13"]);','const aceiteRaw=read(["Aceite","col_13"]);'],
+['const trabajo=String(getValue(r,["Descripción de los trabajos realizados","Descripcion de los trabajos realizados","Trabajos realizados","Descripción","Descripcion","col_14"])).trim();','const trabajo=String(read(["Descripción de los trabajos realizados","Descripcion de los trabajos realizados","Trabajos realizados","Descripción","Descripcion","col_14"])).trim();'],
+['const desgasteRaw=getValue(r,["Información sobre Desgaste","Informacion sobre Desgaste","Desgaste","col_15"]);','const desgasteRaw=read(["Información sobre Desgaste","Informacion sobre Desgaste","Desgaste","col_15"]);'],
+['const obs=String(getValue(r,["Observaciones","OBSERVACIONES","col_16"])).trim();','const obs=String(read(["Observaciones","OBSERVACIONES","col_16"])).trim();']
 ];
 for(const [from,to] of lines){const count=source.split(from).length-1;if(count!==1)throw new Error(`Reemplazo no único: ${from}`);source=source.replace(from,to);}
-if(/\bread\(r\s*,/.test(source))throw new Error("normalizeROP02 conserva una llamada read(r, ...)");
+const startMarker='function normalizeROP02(';
+const endMarker='function normSupervisorROP05(';
+if(source.split(startMarker).length!==2||source.split(endMarker).length!==2)throw new Error("Marcadores normalizeROP02 no únicos");
+const start=source.indexOf(startMarker),end=source.indexOf(endMarker);
+if(start<0||end<=start)throw new Error("Bloque normalizeROP02 inválido");
+const normalizeROP02Block=source.slice(start,end);
+if(/\bread\s*\(\s*r\s*,/.test(normalizeROP02Block))throw new Error("normalizeROP02 conserva una llamada read(r, ...)");
+if(!normalizeROP02Block.includes('const read=createRowValueReader(r);'))throw new Error("Falta reader local ROP02");
+if(normalizeROP02Block.includes('getValue(r,'))throw new Error("normalizeROP02 conserva getValue(r, ...)");
+if((normalizeROP02Block.match(/\bread\s*\(\s*\[/g)||[]).length!==17)throw new Error("Cantidad inesperada de lecturas read([...])");
 if(source===original)throw new Error("El parche no produjo cambios");
 await fs.writeFile(target,source);
