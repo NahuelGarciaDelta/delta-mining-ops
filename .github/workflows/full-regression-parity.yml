@@ -1,0 +1,91 @@
+name: Full OPS Parity
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: full-ops-parity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
+      DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Source parity guard
+        run: |
+          git fetch origin main
+          node scripts/regression-source-guard.mjs origin/main
+      - name: Build candidate
+        run: npm run build
+      - name: PM regression tests
+        run: node --test tests/pm-vite-pipeline-regression.test.mjs tests/pm-truck-rules.test.mjs
+      - name: Check browser credentials
+        run: |
+          test -n "$DM_PERF_EMAIL"
+          test -n "$DM_PERF_PASSWORD"
+      - name: Install Playwright
+        run: |
+          npm install --no-save --package-lock=false playwright@1.49.1
+          npx playwright install --with-deps chromium
+      - name: Resolve baseline and candidate deployments
+        id: urls
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          resolve_url() {
+            local mode="$1"; local query="$2"
+            for attempt in $(seq 1 30); do
+              deployments="$(gh api -H 'Accept: application/vnd.github+json' "/repos/$GITHUB_REPOSITORY/deployments?$query&per_page=30" 2>/dev/null || echo '[]')"
+              ids="$(printf '%s' "$deployments" | jq -r '.[].id' 2>/dev/null || true)"
+              for id in $ids; do
+                statuses="$(gh api -H 'Accept: application/vnd.github+json' "/repos/$GITHUB_REPOSITORY/deployments/$id/statuses?per_page=20" 2>/dev/null || echo '[]')"
+                url="$(printf '%s' "$statuses" | jq -r '.[] | select(.state=="success") | .environment_url // empty' | head -n1)"
+                if [ -n "$url" ]; then
+                  code="$(curl -L -sS --max-time 20 -o /tmp/dm.html -w '%{http_code}' "$url/" || echo 000)"
+                  if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 400 ] 2>/dev/null; then echo "$url"; return 0; fi
+                fi
+              done
+              echo "Esperando deployment $mode ($attempt/30)..." >&2; sleep 10
+            done
+            return 1
+          }
+          baseline="$(resolve_url baseline 'ref=main')"
+          candidate="$(resolve_url candidate "sha=$HEAD_SHA")"
+          echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
+      - name: Compare OPS vs candidate
+        env:
+          DM_BASELINE_URL: ${{ steps.urls.outputs.baseline }}
+          DM_CANDIDATE_URL: ${{ steps.urls.outputs.candidate }}
+        run: node scripts/full-regression-compare.mjs
+      - name: Upload parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-ops-parity
+          path: artifacts/full-regression/
+          if-no-files-found: warn
+          retention-days: 14
