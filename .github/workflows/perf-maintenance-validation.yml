@@ -1,0 +1,23 @@
+name: Perf Maintenance Validation
+on:
+  push:
+    branches:
+      - perf-maintenance-current-main
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: PM regression tests
+        run: |
+          node --test tests/pm-vite-pipeline-regression.test.mjs tests/pm-truck-rules.test.mjs
+      - name: Build
+        run: npm run build
