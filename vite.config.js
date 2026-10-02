@@ -36,7 +36,16 @@ import { controlRop02Rop05RefreshVitePlugin } from './scripts/control-rop02-rop0
 export default defineConfig({
   plugins: [controlRop02Rop05RefreshVitePlugin(), informeCostosResumenCategoriasVitePlugin(), pmPanelActive7DaysVitePlugin(), supabaseSameOriginProxyVitePlugin(), supabasePmReadFixVitePlugin(), abastecimientoLineEndingsVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02DailyControlRegressionVitePlugin(), administrativoDailyHiControlVitePlugin(), rop02TruckHistoryVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), equipmentLiveDataFixesVitePlugin(), abastecimientoInstantVitePlugin(), mutationIdempotencyVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfilePlaceholderCodeFixVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileLiveRop02FinalVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), equipmentProfilePmUnitsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), rop02ControlVehicleFiltersVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
-    host: '0.0.0.0'
+    host: '0.0.0.0',
+    // En desarrollo local permite usar exactamente las mismas APIs que producción
+    // sin cambiar el código cliente. Se activa sólo con DM_LOCAL_USE_PRODUCTION_API=1.
+    proxy: process.env.DM_LOCAL_USE_PRODUCTION_API === '1' ? {
+      '/api': {
+        target: 'https://delta-mining-ops.vercel.app',
+        changeOrigin: true,
+        secure: true
+      }
+    } : undefined
   },
   build: {
     chunkSizeWarningLimit: 900,

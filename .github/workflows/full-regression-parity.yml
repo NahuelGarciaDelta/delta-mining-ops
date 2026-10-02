@@ -1,0 +1,111 @@
+name: Full OPS Parity
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: full-ops-parity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
+      DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Source parity guard
+        run: |
+          git fetch origin main
+          node scripts/regression-source-guard.mjs origin/main
+      - name: Build candidate
+        run: npm run build
+      - name: PM regression tests
+        run: node --test tests/pm-vite-pipeline-regression.test.mjs tests/pm-truck-rules.test.mjs
+      - name: Check browser credentials
+        run: |
+          test -n "$DM_PERF_EMAIL"
+          test -n "$DM_PERF_PASSWORD"
+      - name: Install Playwright
+        run: |
+          npm install --no-save --package-lock=false playwright@1.49.1
+          npx playwright install --with-deps chromium
+      - name: Start candidate locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          DM_LOCAL_USE_PRODUCTION_API=1 npm run dev -- --host 127.0.0.1 --port 4173 > /tmp/dm-candidate-vite.log 2>&1 &
+          echo $! > /tmp/dm-candidate-vite.pid
+          for attempt in $(seq 1 60); do
+            code="$(curl -sS --max-time 5 -o /tmp/dm-candidate.html -w '%{http_code}' http://127.0.0.1:4173/ || echo 000)"
+            if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 400 ] 2>/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/dm-candidate-vite.log || true
+          exit 1
+
+      - name: Compare OPS vs candidate
+        id: compare
+        env:
+          DM_BASELINE_URL: https://delta-mining-ops.vercel.app
+          DM_CANDIDATE_URL: http://127.0.0.1:4173
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts/full-regression
+          node scripts/full-regression-compare.mjs 2>&1 | tee artifacts/full-regression/compare.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      - name: Publish parity diagnostics to PR
+        if: always() && github.event.pull_request.number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          {
+            echo "### Full OPS Parity · run #${{ github.run_number }}"
+            echo
+            if [ -f artifacts/full-regression/parity.md ]; then
+              cat artifacts/full-regression/parity.md
+            else
+              echo "**La comparación no llegó a generar parity.md.**"
+              echo
+              echo '~~~text'
+              tail -n 120 artifacts/full-regression/compare.log 2>/dev/null || true
+              echo '~~~'
+            fi
+          } > /tmp/parity-comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/parity-comment.md
+
+      - name: Upload parity report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-ops-parity
+          path: artifacts/full-regression/
+          if-no-files-found: warn
+          retention-days: 14

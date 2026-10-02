@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
 import MantenimientoProgramadoView from "./MantenimientoProgramadoView.jsx";
-import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine, LineChart, Line } from "recharts";
 import { escapeTooltipText as escTip } from "../../shared/safeTooltipSecurity.js";
 import ComparisonStrip from "../../components/ComparisonStrip.jsx";

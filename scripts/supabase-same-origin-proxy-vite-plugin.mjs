@@ -8,6 +8,9 @@ function requiredReplace(source,from,to,label){
 export function supabaseSameOriginProxyVitePlugin(){
   return{
     name:'delta-supabase-same-origin-proxy',
+    // En desarrollo local se lee Supabase directamente con la publishable key.
+    // El proxy same-origin se conserva exclusivamente para builds/deploys de producción.
+    apply:'build',
     enforce:'pre',
     transform(code,id){
       if(!id.replace(/\\/g,'/').endsWith(TARGET))return null;

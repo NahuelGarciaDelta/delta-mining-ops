@@ -240,22 +240,39 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     return set;
   }, [listaEquipos]);
 
+  const rop02Indexed = useMemo(() => {
+    const rows = [];
+    const years = new Set();
+    let maxTime = 0;
+    for (const row of (rop02All || [])) {
+      const fecha = ropFecha(row);
+      if (!fecha) continue;
+      const time = fecha.getTime();
+      rows.push({ row, fecha, time });
+      if (time > maxTime) maxTime = time;
+      years.add(fecha.getFullYear());
+    }
+    return { rows, years, maxTime };
+  }, [rop02All]);
+
   const actividad7Dias = useMemo(() => {
-    const fechasValidas = (rop02All || []).map(ropFecha).filter(Boolean);
-    const referenciaDatos = fechasValidas.length
-      ? new Date(Math.max(...fechasValidas.map(f => f.getTime())))
-      : new Date();
-    const hasta = parseDateValue(fechaHasta) || referenciaDatos;
+    // Si el período ya tiene fecha final (caso normal), no recorremos ROP02 una vez
+    // extra sólo para calcular una referencia que después no se usa.
+    const hastaSeleccionado = parseDateValue(fechaHasta);
+    let referenciaDatos = null;
+    if (!hastaSeleccionado) {
+      referenciaDatos = rop02Indexed.maxTime ? new Date(rop02Indexed.maxTime) : new Date();
+    }
+    const hasta = hastaSeleccionado || referenciaDatos || new Date();
     hasta.setHours(23, 59, 59, 999);
     const desde = parseDateValue(fechaDesde) || new Date(hasta);
     desde.setHours(0, 0, 0, 0);
     if (!fechaDesde) desde.setDate(desde.getDate() - 6);
     const map = new Map();
-    (rop02All || []).forEach(row => {
-      const fecha = ropFecha(row);
-      if (!fecha || fecha < desde || fecha > hasta) return;
+    for (const { row, fecha } of rop02Indexed.rows) {
+      if (fecha < desde || fecha > hasta) continue;
       const key = norm(ropInterno(row));
-      if (!key) return;
+      if (!key) continue;
       const horas = ropHoras(row, truckInternos.has(key));
       const proyecto = ropProyecto(row);
       const prev = map.get(key);
@@ -264,9 +281,9 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       } else if (horas > prev.horas) {
         map.set(key, { ...prev, horas });
       }
-    });
+    }
     return map;
-  }, [rop02All, fechaDesde, fechaHasta, truckInternos]);
+  }, [rop02Indexed, fechaDesde, fechaHasta, truckInternos]);
 
   const mergedConfigs = useMemo(() => {
     const map = new Map(PM_INITIAL_SEED.map(item => [norm(item.interno), {
@@ -361,7 +378,11 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     sinBase: visibles.filter(x => x.activo && x.estado === "SIN BASE").length,
   }), [visibles]);
 
+  const needsDashboard = tab === "dashboard" || tab === "gestion";
   const dashboard = useMemo(() => {
+    if (!needsDashboard) {
+      return { realizadosMes: 0, cumplimiento: 100, promedioHs: 0, porProyecto: [], urgentes: [], proximoTurno: [], estado: [], meses: [], turno: null, eventosPM: [], proximosMantenimientos: [] };
+    }
     const activos = visibles.filter(x => x.activo);
     const conBase = activos.filter(x => x.horometroUltimoPM > 0);
 
@@ -470,31 +491,44 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       .filter(x => x.estado !== "AL DÍA" || x.faltan <= 120)
       .sort((a, b) => a.faltan - b.faltan || b.transcurridas - a.transcurridas);
     return { realizadosMes, cumplimiento, promedioHs, porProyecto, urgentes, proximoTurno, estado, meses: mesesVisibles, turno, eventosPM, proximosMantenimientos };
-  }, [visibles, registros, mergedConfigs, kpis, C, fechaHasta, mesFiltro, anioFiltro, categoriaPorInterno]);
+  }, [needsDashboard, visibles, registros, mergedConfigs, kpis, C, fechaHasta, mesFiltro, anioFiltro, categoriaPorInterno]);
 
-  const usoDesdePMFiltrado = useMemo(() => visibles
-    .filter(x => x.horometroUltimoPM > 0 && categoriaPM(x) === usoCategoriaFiltro)
-    .sort((a, b) => b.transcurridas - a.transcurridas)
-    .slice(0, 15), [visibles, usoCategoriaFiltro]);
+  const usoDesdePMFiltrado = useMemo(() => {
+    if (tab !== "dashboard") return [];
+    return visibles
+      .filter(x => x.horometroUltimoPM > 0 && categoriaPM(x) === usoCategoriaFiltro)
+      .sort((a, b) => b.transcurridas - a.transcurridas)
+      .slice(0, 15);
+  }, [tab, visibles, usoCategoriaFiltro]);
 
-  const proximoTurnoFiltrado = useMemo(() => dashboard.proximoTurno
-    .filter(x => categoriaPM(x) === proximoCategoriaFiltro), [dashboard.proximoTurno, proximoCategoriaFiltro]);
+  const proximoTurnoFiltrado = useMemo(() => {
+    if (tab !== "dashboard") return [];
+    return dashboard.proximoTurno.filter(x => categoriaPM(x) === proximoCategoriaFiltro);
+  }, [tab, dashboard.proximoTurno, proximoCategoriaFiltro]);
+
+  // El Dashboard inicial no utiliza la proyección histórica diaria. Evitamos
+  // recorrer y ordenar todo ROP02 hasta que el usuario entra a Planificador o Gestión.
+  const needsPlanificacion = tab === "planificador" || tab === "gestion";
+  const needsRepuestosCalculados = tab === "planificador" || tab === "repuestos" || tab === "gestion";
 
   const actividadDiaria = useMemo(() => {
+    if (!needsPlanificacion) return new Map();
     const by = new Map();
-    (rop02All || []).forEach(row => {
+    for (const row of (rop02All || [])) {
       const interno = norm(ropInterno(row));
       const fecha = ropFecha(row);
-      if (!interno || !fecha) return;
+      if (!interno || !fecha) continue;
       const key = `${interno}|${fecha.toISOString().slice(0,10)}`;
       const h = ropHoras(row);
       const prev = by.get(key);
       if (!prev || h > prev.h) by.set(key, { interno, fecha, h });
-    });
+    }
     const grouped = new Map();
-    [...by.values()].forEach(x => {
-      const arr = grouped.get(x.interno) || []; arr.push(x); grouped.set(x.interno, arr);
-    });
+    for (const x of by.values()) {
+      const arr = grouped.get(x.interno) || [];
+      arr.push(x);
+      grouped.set(x.interno, arr);
+    }
     const out = new Map();
     grouped.forEach((arr, interno) => {
       arr.sort((a,b)=>a.fecha-b.fecha);
@@ -504,24 +538,40 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       out.set(interno, recent.length ? recent.reduce((a,v)=>a+v,0)/recent.length : 0);
     });
     return out;
-  }, [rop02All]);
+  }, [needsPlanificacion, rop02All]);
 
-  const planificacion = useMemo(() => visibles.filter(e=>e.horometroUltimoPM>0).map(e=>{
-    const promedioDia = actividadDiaria.get(norm(e.interno)) || 0;
-    const dias = promedioDia>0 ? Math.max(0, e.faltan/promedioDia) : null;
-    const fechaEstimada = dias===null ? "" : (()=>{const d=new Date();d.setDate(d.getDate()+Math.ceil(dias));return d.toISOString().slice(0,10)})();
-    const prog = programaciones.find(p=>norm(p.interno)===norm(e.interno)&&String(p.estado||"").toUpperCase()!=="CERRADO");
-    return {...e,promedioDia,diasEstimados:dias,fechaEstimada,programado:prog||null,estadoGestion:prog?"PROGRAMADO":e.estado};
-  }).sort((a,b)=>(a.fechaEstimada||"9999").localeCompare(b.fechaEstimada||"9999")), [visibles, actividadDiaria, programaciones]);
+  const planificacion = useMemo(() => {
+    if (!needsPlanificacion) return [];
+    const programacionActiva = new Map();
+    for (const p of programaciones) {
+      if (String(p.estado||"").toUpperCase() === "CERRADO") continue;
+      const key = norm(p.interno);
+      if (key && !programacionActiva.has(key)) programacionActiva.set(key,p);
+    }
+    return visibles.filter(e=>e.horometroUltimoPM>0).map(e=>{
+      const promedioDia = actividadDiaria.get(norm(e.interno)) || 0;
+      const dias = promedioDia>0 ? Math.max(0, e.faltan/promedioDia) : null;
+      const fechaEstimada = dias===null ? "" : (()=>{const d=new Date();d.setDate(d.getDate()+Math.ceil(dias));return d.toISOString().slice(0,10)})();
+      const prog = programacionActiva.get(norm(e.interno)) || null;
+      return {...e,promedioDia,diasEstimados:dias,fechaEstimada,programado:prog,estadoGestion:prog?"PROGRAMADO":e.estado};
+    }).sort((a,b)=>(a.fechaEstimada||"9999").localeCompare(b.fechaEstimada||"9999"));
+  }, [needsPlanificacion, visibles, actividadDiaria, programaciones]);
 
-  const alertas = useMemo(() => planificacion.filter(e=>["PM ATRASADO","PM URGENTE"].includes(e.estado)|| (e.programado&&e.programado.fecha<today())).map(e=>({
-    nivel:e.estado==="PM ATRASADO"?"CRÍTICA":e.programado&&e.programado.fecha<today()?"VENCIDA":"ALTA",
-    interno:e.interno, mensaje:e.programado&&e.programado.fecha<today()?`PM programado vencido (${e.programado.fecha})`:`${e.estado}: ${fmt(e.faltan)} h faltantes`, fecha:e.programado?.fecha||e.fechaEstimada||""
-  })), [planificacion]);
+  const alertas = useMemo(() => {
+    if (tab !== "gestion") return [];
+    return planificacion.filter(e=>["PM ATRASADO","PM URGENTE"].includes(e.estado)|| (e.programado&&e.programado.fecha<today())).map(e=>({
+      nivel:e.estado==="PM ATRASADO"?"CRÍTICA":e.programado&&e.programado.fecha<today()?"VENCIDA":"ALTA",
+      interno:e.interno, mensaje:e.programado&&e.programado.fecha<today()?`PM programado vencido (${e.programado.fecha})`:`${e.estado}: ${fmt(e.faltan)} h faltantes`, fecha:e.programado?.fecha||e.fechaEstimada||""
+    }));
+  }, [tab, planificacion]);
 
-  const repuestosPorPM = useMemo(() => repuestos.map(r=>({...r, faltante:Math.max(0,num(r.cantidadMinima)-num(r.stockActual)), disponible:num(r.stockActual)>=num(r.cantidadMinima)})), [repuestos]);
+  const repuestosPorPM = useMemo(() => {
+    if (!needsRepuestosCalculados) return [];
+    return repuestos.map(r=>({...r, faltante:Math.max(0,num(r.cantidadMinima)-num(r.stockActual)), disponible:num(r.stockActual)>=num(r.cantidadMinima)}));
+  }, [needsRepuestosCalculados, repuestos]);
 
   const indicadoresGestion = useMemo(() => {
+    if (tab !== "gestion") return {realizados:0,programados:0,alertas:0,atrasoPromedio:0,atrasoMaximo:0,coberturaBase:0,disponibilidadRepuestos:100,cerrados:0};
     const realizados = dashboard.eventosPM || [];
     const atrasos = visibles.filter(e=>e.estado==="PM ATRASADO").map(e=>Math.max(0,e.transcurridas-e.atrasadoDesde));
     const programados = programaciones.filter(p=>String(p.estado||"").toUpperCase()==="PROGRAMADO").length;
@@ -534,7 +584,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       disponibilidadRepuestos: repuestosPorPM.length?Math.round((repuestosPorPM.filter(r=>r.disponible).length/repuestosPorPM.length)*100):100,
       cerrados:aTiempo
     };
-  }, [dashboard.eventosPM, visibles, programaciones, registros, alertas, kpis, repuestosPorPM]);
+  }, [tab, dashboard.eventosPM, visibles, programaciones, registros, alertas, kpis, repuestosPorPM]);
 
   const saveProgramacion = async () => {
     if(!programacionEdit.interno||!programacionEdit.fecha){appAlert?.("Seleccioná equipo y fecha.");return;}
@@ -575,15 +625,14 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   ], []);
 
   const aniosFiltro = useMemo(() => {
-    const years = new Set([2026, 2027, 2028]);
+    const years = new Set([2026, 2027, 2028, ...rop02Indexed.years]);
     const collectYear = value => {
       const date = parseDateValue(value);
       if (date) years.add(date.getFullYear());
     };
-    (rop02All || []).forEach(row => collectYear(row?.fecha || pick(row, ["fecha", "fecha del parte diario", "fecha parte"])));
     (registros || []).forEach(row => collectYear(row?.fecha || pick(row, ["fecha", "fecha pm", "fecha realizado"])));
     return [...years].filter(y => y >= 2020 && y <= 2028).sort((a, b) => a - b);
-  }, [rop02All, registros]);
+  }, [rop02Indexed, registros]);
 
   const aplicarPeriodoMes = (monthValue, yearValue) => {
     if (!monthValue && !yearValue) return;
