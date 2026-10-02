@@ -362,79 +362,111 @@ export default function App(){
   },[sidebarOpen,dashSt,stMant,stCHC,stRanking,navOpen,st02,stHorometros,stVeh,stComb,stControlErrores,stCtrlEquipo,stControlROP02,st05,stCtrl]);
 
 
-  // Normaliza todo cada vez que llega una fuente nueva.
-  // Ventaja: podemos cargar por pestaña sin perder consistencia entre ROP02, ROP05, RMA15 e insumos.
+  // Normaliza únicamente los grupos de datos que realmente cambiaron.
+  // Esto evita volver a procesar ROP02/ROP05 completos cuando entra RMA15/insumos
+  // (y viceversa), reduciendo bloqueos del hilo principal al cambiar de módulo.
+  const normalizationInputsRef=useRef({});
   useEffect(()=>{
     const src=rawSources||{};
+    const prev=normalizationInputsRef.current||{};
+    const projectChanged=prev.proyectoUsuario!==proyectoUsuario;
+    const operationalChanged=projectChanged||
+      prev.rop05!==src.rop05||
+      prev.rop02_fs!==src.rop02_fs||
+      prev.rop02_jm!==src.rop02_jm||
+      prev.rop02_filosur!==src.rop02_filosur||
+      prev.rop02_zorro!==src.rop02_zorro;
+    const maintenanceChanged=projectChanged||
+      prev.insumos!==src.insumos||
+      prev.rma15_fs!==src.rma15_fs||
+      prev.rma15_jm!==src.rma15_jm;
+    const listaChanged=prev.lista_equipos!==src.lista_equipos;
     const errs=[];
 
-    const rop05Raw=src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data):[];
     if(src.rop05&&!src.rop05.ok)errs.push({source:"ROP05",...src.rop05.error});
-
-    if(rop05Raw.length){
-      buildTareaMap(rop05Raw.map(r=>r.tarea).filter(Boolean));
-      setRop05(rop05Raw.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),tarea:normTarea(r.tarea)})));
-    }else if(src.rop05){
-      setRop05([]);
-    }
-
-    const rFS=src.rop02_fs?.ok&&src.rop02_fs.data?normalizeROP02(src.rop02_fs.data,"FILO DEL SOL"):[];
-    const rJM=src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
-    const rFSur=src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
-    const rZorro=src.rop02_zorro?.ok&&src.rop02_zorro.data?normalizeROP02(src.rop02_zorro.data,"EL ZORRO"):[];
     if(src.rop02_fs&&!src.rop02_fs.ok)errs.push({source:"ROP02 — Filo del Sol",...src.rop02_fs.error});
     if(src.rop02_jm&&!src.rop02_jm.ok)errs.push({source:"ROP02 — José María",...src.rop02_jm.error});
     if(src.rop02_filosur&&!src.rop02_filosur.ok)errs.push({source:"ROP02 — Filo Sur",...src.rop02_filosur.error});
     if(src.rop02_zorro&&!src.rop02_zorro.ok)errs.push({source:"ROP02 — El Zorro",...src.rop02_zorro.error});
-
-    const allRop02=[...rFS,...rJM,...rFSur,...rZorro];
-    if(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur || src.rop02_zorro){
-      const allNames=[...allRop02.map(r=>r.supervisor),...allRop02.map(r=>r.operario),...rop05Raw.map(r=>r.supervisor)].filter(Boolean);
-      buildCanonicalMap(allNames);
-      const normalizedRop02=allRop02.map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),supervisor:normName(r.supervisor),operario:normName(r.operario)}));
-      setRop02ControlAll(normalizedRop02);
-      setRop02All(normalizedRop02.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)));
-    }
-
-    const insumosMap={};
-    if(src.insumos?.ok&&src.insumos.data){
-      src.insumos.data.forEach(r=>{
-        const cod=normalizeInsumoCode(getValue(r,["CODIGO","Codigo","Código","codigo","código","Cod","cod"])||"");
-        if(cod){
-          const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Insumo","Nombre"])||"").trim();
-          insumosMap[cod]={
-            descripcion,
-            descripcionAdicional:getInsumoExtra(r,descripcion),
-            costoUnitario:toMoneyNumber(getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario con IVA","PRECIO UNITARIO CON IVA","precio unitario con IVA","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"])),
-          };
-        }
-      });
-      setInsumos(insumosMap);
-    }
-
-    const rmaFS=src.rma15_fs?.ok&&src.rma15_fs.data?src.rma15_fs.data:[];
-    const rmaJM=src.rma15_jm?.ok&&src.rma15_jm.data?src.rma15_jm.data:[];
     if(src.rma15_fs&&!src.rma15_fs.ok)errs.push({source:"RMA15 — Filo del Sol",...src.rma15_fs.error});
     if(src.rma15_jm&&!src.rma15_jm.ok)errs.push({source:"RMA15 — José María",...src.rma15_jm.error});
-    if(rmaFS.length || rmaJM.length || src.rma15_fs || src.rma15_jm){
-      setRma15([
-        ...rmaFS.map(r=>normalizeRMA15({...r,_proyectoForzado:"FILO DEL SOL"},insumosMap)),
-        ...rmaJM.map(r=>normalizeRMA15({...r,_proyectoForzado:"JOSE MARIA"},insumosMap)),
-      ].filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina)})));
+    if(src.lista_equipos&&!src.lista_equipos.ok)errs.push({source:"Lista Maestra de Equipos",...src.lista_equipos.error});
+
+    if(operationalChanged){
+      const rop05Raw=src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data):[];
+      if(rop05Raw.length){
+        buildTareaMap(rop05Raw.map(r=>r.tarea).filter(Boolean));
+        setRop05(rop05Raw.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),tarea:normTarea(r.tarea)})));
+      }else if(src.rop05){
+        setRop05([]);
+      }
+
+      const rFS=src.rop02_fs?.ok&&src.rop02_fs.data?normalizeROP02(src.rop02_fs.data,"FILO DEL SOL"):[];
+      const rJM=src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
+      const rFSur=src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
+      const rZorro=src.rop02_zorro?.ok&&src.rop02_zorro.data?normalizeROP02(src.rop02_zorro.data,"EL ZORRO"):[];
+      const allRop02=[...rFS,...rJM,...rFSur,...rZorro];
+      if(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur || src.rop02_zorro){
+        const allNames=[...allRop02.map(r=>r.supervisor),...allRop02.map(r=>r.operario),...rop05Raw.map(r=>r.supervisor)].filter(Boolean);
+        buildCanonicalMap(allNames);
+        const normalizedRop02=allRop02.map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),supervisor:normName(r.supervisor),operario:normName(r.operario)}));
+        setRop02ControlAll(normalizedRop02);
+        setRop02All(normalizedRop02.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)));
+      }
     }
 
-    if(src.lista_equipos?.ok&&src.lista_equipos.data){
-      setListaEquipos(src.lista_equipos.data.map(row=>Object.fromEntries(
-        Object.entries(row||{}).map(([key,value])=>[
-          key,
-          /codigo|código|interno|equipo/i.test(key)?resolveEquipmentCodeAlias(value):value
-        ])
-      )));
-    }else if(src.lista_equipos&&!src.lista_equipos.ok){
-      errs.push({source:"Lista Maestra de Equipos",...src.lista_equipos.error});
-      setListaEquipos([]);
+    if(maintenanceChanged){
+      const insumosMap={};
+      if(src.insumos?.ok&&src.insumos.data){
+        src.insumos.data.forEach(r=>{
+          const cod=normalizeInsumoCode(getValue(r,["CODIGO","Codigo","Código","codigo","código","Cod","cod"])||"");
+          if(cod){
+            const descripcion=String(getValue(r,["DESCRIPCIÓN","DESCRIPCION","Descripción","Descripcion","descripcion","Artículo","Articulo","ARTICULO","Insumo","Nombre"])||"").trim();
+            insumosMap[cod]={
+              descripcion,
+              descripcionAdicional:getInsumoExtra(r,descripcion),
+              costoUnitario:toMoneyNumber(getValue(r,["COSTO UNITARIO","Costo Unitario","Costo unitario","Precio unitario con IVA","PRECIO UNITARIO CON IVA","precio unitario con IVA","Precio unitario","PRECIO UNITARIO","Precio","PRECIO","Costo","COSTO"])),
+            };
+          }
+        });
+        setInsumos(insumosMap);
+      }
+
+      const rmaFS=src.rma15_fs?.ok&&src.rma15_fs.data?src.rma15_fs.data:[];
+      const rmaJM=src.rma15_jm?.ok&&src.rma15_jm.data?src.rma15_jm.data:[];
+      if(rmaFS.length || rmaJM.length || src.rma15_fs || src.rma15_jm){
+        setRma15([
+          ...rmaFS.map(r=>normalizeRMA15({...r,_proyectoForzado:"FILO DEL SOL"},insumosMap)),
+          ...rmaJM.map(r=>normalizeRMA15({...r,_proyectoForzado:"JOSE MARIA"},insumosMap)),
+        ].filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina)})));
+      }
     }
 
+    if(listaChanged){
+      if(src.lista_equipos?.ok&&src.lista_equipos.data){
+        setListaEquipos(src.lista_equipos.data.map(row=>Object.fromEntries(
+          Object.entries(row||{}).map(([key,value])=>[
+            key,
+            /codigo|código|interno|equipo/i.test(key)?resolveEquipmentCodeAlias(value):value
+          ])
+        )));
+      }else if(src.lista_equipos){
+        setListaEquipos([]);
+      }
+    }
+
+    normalizationInputsRef.current={
+      proyectoUsuario,
+      rop05:src.rop05,
+      rop02_fs:src.rop02_fs,
+      rop02_jm:src.rop02_jm,
+      rop02_filosur:src.rop02_filosur,
+      rop02_zorro:src.rop02_zorro,
+      insumos:src.insumos,
+      rma15_fs:src.rma15_fs,
+      rma15_jm:src.rma15_jm,
+      lista_equipos:src.lista_equipos,
+    };
     setErrors(errs);
     setDataHydrated(true);
   },[rawSources,proyectoUsuario]);
