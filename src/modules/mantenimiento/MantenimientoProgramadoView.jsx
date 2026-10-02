@@ -241,29 +241,21 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   }, [listaEquipos]);
 
   const actividad7Dias = useMemo(() => {
-    const rows = rop02All || [];
-    // En el uso normal fechaHasta ya está definida. En ese caso procesamos ROP02
-    // una sola vez; sólo buscamos la fecha máxima si el usuario deja el límite vacío.
-    let hasta = parseDateValue(fechaHasta);
-    if (!hasta) {
-      let maxTime = 0;
-      for (const row of rows) {
-        const fecha = ropFecha(row);
-        if (fecha) maxTime = Math.max(maxTime, fecha.getTime());
-      }
-      hasta = maxTime ? new Date(maxTime) : new Date();
-    }
+    const fechasValidas = (rop02All || []).map(ropFecha).filter(Boolean);
+    const referenciaDatos = fechasValidas.length
+      ? new Date(Math.max(...fechasValidas.map(f => f.getTime())))
+      : new Date();
+    const hasta = parseDateValue(fechaHasta) || referenciaDatos;
     hasta.setHours(23, 59, 59, 999);
     const desde = parseDateValue(fechaDesde) || new Date(hasta);
     desde.setHours(0, 0, 0, 0);
     if (!fechaDesde) desde.setDate(desde.getDate() - 6);
-
     const map = new Map();
-    for (const row of rows) {
+    (rop02All || []).forEach(row => {
       const fecha = ropFecha(row);
-      if (!fecha || fecha < desde || fecha > hasta) continue;
+      if (!fecha || fecha < desde || fecha > hasta) return;
       const key = norm(ropInterno(row));
-      if (!key) continue;
+      if (!key) return;
       const horas = ropHoras(row, truckInternos.has(key));
       const proyecto = ropProyecto(row);
       const prev = map.get(key);
@@ -272,7 +264,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       } else if (horas > prev.horas) {
         map.set(key, { ...prev, horas });
       }
-    }
+    });
     return map;
   }, [rop02All, fechaDesde, fechaHasta, truckInternos]);
 
