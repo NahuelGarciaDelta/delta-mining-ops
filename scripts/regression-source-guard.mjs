@@ -4,6 +4,7 @@ const changed=execFileSync("git",["diff","--name-only",`${base}...HEAD`],{encodi
 const allowed=new Set([
   "scripts/pm-panel-active-7-days-vite-plugin.mjs",
   "scripts/supabase-same-origin-proxy-vite-plugin.mjs",
+  "scripts/vehicle-km-maintenance-vite-plugin.mjs",
   "src/App.jsx",
   "src/modules/mantenimiento/MantenimientoModule.jsx",
   "src/modules/mantenimiento/MantenimientoProgramadoView.jsx",
