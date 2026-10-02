@@ -87,7 +87,7 @@ const activityForCode = (map, value) => {
       out = requiredReplace(
         out,
         `      const key = norm(ropInterno(row));
-      if (!key) return;
+      if (!key) continue;
       const horas = ropHoras(row, truckInternos.has(key));
       const proyecto = ropProyecto(row);
       const prev = map.get(key);
@@ -98,7 +98,7 @@ const activityForCode = (map, value) => {
       }`,
         `      const rawInterno = ropInterno(row);
       const keys = codeVariants(rawInterno);
-      if (!keys.length) return;
+      if (!keys.length) continue;
       const esCamion = keys.some(key => truckInternos.has(key));
       const horas = ropHoras(row, esCamion);
       const proyecto = ropProyecto(row);
