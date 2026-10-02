@@ -17,7 +17,8 @@ export function pmPanelActive7DaysVitePlugin() {
       const file = String(id || '').replace(/\\/g, '/')
       if (!file.endsWith(TARGET)) return null
 
-      let next = code
+      const usesCrlf = code.includes('\r\n')
+      let next = usesCrlf ? code.replace(/\r\n/g, '\n') : code
 
       const anchor = `  const selected = (value, filter) => filter === ALL || (Array.isArray(filter) ? filter.includes(value) || filter.includes(ALL) : value === filter);`
       const injected = `  const panelInternosActivos7Dias = useMemo(() => {\n    const filas = (rop02All || []).map(row => ({ row, fecha: ropFecha(row) })).filter(x => x.fecha);\n    if (!filas.length) return new Set();\n    const referencia = new Date(Math.max(...filas.map(x => x.fecha.getTime())));\n    referencia.setHours(23, 59, 59, 999);\n    const corte = new Date(referencia);\n    corte.setHours(0, 0, 0, 0);\n    corte.setDate(corte.getDate() - 7);\n    const activos = new Set();\n    filas.forEach(({ row, fecha }) => {\n      if (fecha < corte || fecha > referencia) return;\n      const key = norm(ropInterno(row));\n      if (key) activos.add(key);\n    });\n    return activos;\n  }, [rop02All]);\n\n${anchor}`
@@ -41,6 +42,7 @@ export function pmPanelActive7DaysVitePlugin() {
         'filas de la tabla Panel de flota'
       )
 
+      if (usesCrlf) next = next.replace(/\n/g, '\r\n')
       return { code: next, map: null }
     }
   }
