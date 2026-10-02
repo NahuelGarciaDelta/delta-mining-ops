@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
   deployments: read
+  issues: write
+  pull-requests: write
 
 concurrency:
   group: full-ops-parity-${{ github.event.pull_request.number || github.ref }}
@@ -64,10 +66,41 @@ jobs:
           exit 1
 
       - name: Compare OPS vs candidate
+        id: compare
         env:
           DM_BASELINE_URL: https://delta-mining-ops.vercel.app
           DM_CANDIDATE_URL: http://127.0.0.1:4173
-        run: node scripts/full-regression-compare.mjs
+        shell: bash
+        run: |
+          set +e
+          mkdir -p artifacts/full-regression
+          node scripts/full-regression-compare.mjs 2>&1 | tee artifacts/full-regression/compare.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit "$code"
+
+      - name: Publish parity diagnostics to PR
+        if: always() && github.event.pull_request.number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          {
+            echo "### Full OPS Parity · run #${{ github.run_number }}"
+            echo
+            if [ -f artifacts/full-regression/parity.md ]; then
+              cat artifacts/full-regression/parity.md
+            else
+              echo "**La comparación no llegó a generar parity.md.**"
+              echo
+              echo '~~~text'
+              tail -n 120 artifacts/full-regression/compare.log 2>/dev/null || true
+              echo '~~~'
+            fi
+          } > /tmp/parity-comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/parity-comment.md
+
       - name: Upload parity report
         if: always()
         uses: actions/upload-artifact@v4
