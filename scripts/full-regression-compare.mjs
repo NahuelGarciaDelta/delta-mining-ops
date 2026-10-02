@@ -111,7 +111,7 @@ function diagnostics(page){const d={pageErrors:[],consoleErrors:[],failed:[],fiv
 
 const browser=await chromium.launch({headless:true});
 const bc=await browser.newContext({viewport:{width:1440,height:1000}}),cc=await browser.newContext({viewport:{width:1440,height:1000}});
-const bp=await bc.newPage(),cp=await cc.newPage();const bd=diagnostics(bp),cd=diagnostics(cp),const results=[];
+const bp=await bc.newPage(),cp=await cc.newPage();const bd=diagnostics(bp),cd=diagnostics(cp),results=[];
 try{
  await Promise.all([login(bp,BASELINE),login(cp,CANDIDATE)]);await Promise.all([settle(bp,60000),settle(cp,60000)]);
  for(const s of S){
