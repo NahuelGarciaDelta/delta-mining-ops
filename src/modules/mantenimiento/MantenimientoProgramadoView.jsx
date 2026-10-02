@@ -241,11 +241,19 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   }, [listaEquipos]);
 
   const actividad7Dias = useMemo(() => {
-    const fechasValidas = (rop02All || []).map(ropFecha).filter(Boolean);
-    const referenciaDatos = fechasValidas.length
-      ? new Date(Math.max(...fechasValidas.map(f => f.getTime())))
-      : new Date();
-    const hasta = parseDateValue(fechaHasta) || referenciaDatos;
+    // Si el período ya tiene fecha final (caso normal), no recorremos ROP02 una vez
+    // extra sólo para calcular una referencia que después no se usa.
+    const hastaSeleccionado = parseDateValue(fechaHasta);
+    let referenciaDatos = null;
+    if (!hastaSeleccionado) {
+      let maxTime = 0;
+      (rop02All || []).forEach(row => {
+        const fecha = ropFecha(row);
+        if (fecha) maxTime = Math.max(maxTime, fecha.getTime());
+      });
+      referenciaDatos = maxTime ? new Date(maxTime) : new Date();
+    }
+    const hasta = hastaSeleccionado || referenciaDatos || new Date();
     hasta.setHours(23, 59, 59, 999);
     const desde = parseDateValue(fechaDesde) || new Date(hasta);
     desde.setHours(0, 0, 0, 0);
