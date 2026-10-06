@@ -1,4 +1,5 @@
 import {SUPABASE_TYPED_SOURCES,fetchSupabaseDatasetQuery,fetchSupabaseHealth,fetchSupabasePmSnapshot,fetchSupabaseSource,fetchSupabaseVersions} from "./supabaseReadApi.js";
+import {appsScriptRequestKey,resetAppsScriptInflightForTests,shareAppsScriptRequest} from "./appsScriptRequestCoordinator.js";
 
 const ROP02_BUNDLE_SOURCES=Object.freeze(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"]);
 let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
@@ -38,6 +39,8 @@ export function buildAppsScriptUrl(baseUrl,action,params={}){
 
 export function sleep_(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 
+export {resetAppsScriptInflightForTests};
+
 export async function runWithConcurrency_(items,limit,worker){
   const results=new Array(items.length);let cursor=0;
   const concurrency=Math.min(Math.max(1,Number(limit)||1),items.length);
@@ -59,25 +62,28 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
   if(compact&&!['health','diag','clear_cache','sync','versions','get_data_versions'].includes(action))requestParams.compact="1";
   if(action==="rop05")requestParams.limit="all";
 
-  let lastErr=null;
-  for(let attempt=0;attempt<=retries;attempt++){
-    const controller=typeof AbortController!=="undefined"?new AbortController():null;
-    const timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
-    try{
-      const requestUrl=buildAppsScriptUrl(url,action,requestParams);
-      const res=await fetch(requestUrl,{cache:"no-store",redirect:"follow",signal:controller?.signal});
-      if(!res.ok)throw new Error(`HTTP ${res.status} desde el Apps Script`);
-      const text=await res.text();let json;
-      try{json=JSON.parse(text);}catch(_){throw new Error("El Apps Script devolvió HTML. Verificá que esté publicado como 'Cualquier persona'.");}
-      json=expandCompactResponse(json);
-      if(!json.ok&&!json.sources)throw new Error(json.error?.message||"Respuesta inválida del Apps Script");
-      return json;
-    }catch(err){
-      lastErr=err?.name==="AbortError"?new Error(`La consulta ${action} superó ${Math.round(timeoutMs/1000)} segundos`):err;
-      if(attempt<retries)await sleep_(700*(attempt+1));
-    }finally{if(timer)clearTimeout(timer);}
-  }
-  throw lastErr;
+  const key=appsScriptRequestKey(url,action,requestParams,{timeoutMs,retries});
+  return shareAppsScriptRequest(key,async()=>{
+    let lastErr=null;
+    for(let attempt=0;attempt<=retries;attempt++){
+      const controller=typeof AbortController!=="undefined"?new AbortController():null;
+      const timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
+      try{
+        const requestUrl=buildAppsScriptUrl(url,action,requestParams);
+        const res=await fetch(requestUrl,{cache:"no-store",redirect:"follow",signal:controller?.signal});
+        if(!res.ok)throw new Error(`HTTP ${res.status} desde el Apps Script`);
+        const text=await res.text();let json;
+        try{json=JSON.parse(text);}catch(_){throw new Error("El Apps Script devolvió HTML. Verificá que esté publicado como 'Cualquier persona'.");}
+        json=expandCompactResponse(json);
+        if(!json.ok&&!json.sources)throw new Error(json.error?.message||"Respuesta inválida del Apps Script");
+        return json;
+      }catch(err){
+        lastErr=err?.name==="AbortError"?new Error(`La consulta ${action} superó ${Math.round(timeoutMs/1000)} segundos`):err;
+        if(attempt<retries)await sleep_(700*(attempt+1));
+      }finally{if(timer)clearTimeout(timer);}
+    }
+    throw lastErr;
+  });
 }
 
 // Compatibilidad para consumidores antiguos: el bundle se arma directamente desde

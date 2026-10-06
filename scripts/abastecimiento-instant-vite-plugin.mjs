@@ -110,7 +110,12 @@ export function abastecimientoInstantVitePlugin(){
       if(!next.includes('RABA03_VIEW_CACHE_KEY')){
         throw new Error('No se pudo aplicar la caché local de Abastecimiento');
       }
-      if(!next.includes('action=raba03')||!next.includes('action=remitos_cargados')||!next.includes('action=estados_solicitudes')){
+      const hasAppsScriptRead=action=>{
+        const direct=new RegExp(`action=${action}(?:[&"'\\s]|$)`).test(next);
+        const fetchAction=new RegExp(`fetchAction\\(\\s*APPS_SCRIPT_URL\\s*,\\s*["']${action}["']`).test(next);
+        return direct||fetchAction;
+      };
+      if(!["raba03","remitos_cargados","estados_solicitudes"].every(hasAppsScriptRead)){
         throw new Error('Abastecimiento debe conservar todas sus lecturas por Apps Script');
       }
       if(next.includes('fetchRaba03FromSupabase')||next.includes('fetchAbastecimientoSnapshot')){

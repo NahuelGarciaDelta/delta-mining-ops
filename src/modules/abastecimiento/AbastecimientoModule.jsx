@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef, startTransiti
 import ReactDOM from "react-dom";
 import { clearSharedStock, uploadStockExcel } from "../../services/stockService.js";
 import { registerRefreshTask } from "../../services/refreshManager.js";
+import { fetchAction } from "../../services/appsScriptApi.js";
 import { useSharedStock } from "./stock/useSharedStock.js";
 import { stockValidationSummary, validateStockWorkbook } from "./stock/stockValidation.js";
 import {useProgressiveRows} from "../../hooks/useProgressiveRows.js";
@@ -391,9 +392,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
 
   const loadEstadosSolicitudesCompartidos=useCallback(async({silent=true}={})=>{
     try{
-      const res=await fetchWithTimeout(`${APPS_SCRIPT_URL}?action=estados_solicitudes&force=1&_=${Date.now()}`,{cache:"no-store",redirect:"follow"},15000,"Estados de solicitudes");
-      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
-      const json=await res.json();
+      const json=await fetchAction(APPS_SCRIPT_URL,"estados_solicitudes",{force:true,compact:false,retries:0,timeoutMs:15000});
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los estados compartidos.");
       const closed={};
       const rejected={};
@@ -441,10 +440,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
 
   const loadRemitosCompartidos=useCallback(async({silent=true}={})=>{
     try{
-      const url=`${APPS_SCRIPT_URL}?action=remitos_cargados&limit=all&force=1&_=${Date.now()}`;
-      const res=await fetchWithTimeout(url,{method:"GET",cache:"no-store",redirect:"follow"},15000,"Remitos");
-      if(!res.ok)throw new Error(`Error HTTP ${res.status}`);
-      const json=await res.json();
+      const json=await fetchAction(APPS_SCRIPT_URL,"remitos_cargados",{force:true,compact:false,retries:0,timeoutMs:15000,params:{limit:"all"}});
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron leer los remitos cargados.");
       const shared=buildRemitosCompartidos(json.data||[]);
       // Sincronización realmente silenciosa: solo actualizar React si cambió el contenido.

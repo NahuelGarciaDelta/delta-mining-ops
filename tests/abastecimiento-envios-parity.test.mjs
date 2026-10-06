@@ -15,7 +15,9 @@ test("OPS mantiene Envíos sin solicitud por código + proyecto + fecha sobre Ap
   const code = transformed?.code || source;
 
   assert.match(code, /action=raba03/);
-  assert.match(code, /action=remitos_cargados/);
+  // Remitos sigue leyendo Apps Script, pero ahora pasa por fetchAction para
+  // compartir requests concurrentes y respetar el timeout configurado.
+  assert.match(code, /fetchAction\(APPS_SCRIPT_URL,"remitos_cargados"/);
   assert.match(code, /sol\.fechaMs<=fechaMs/);
   assert.match(code, /\(!proyecto\|\|!sol\.proyecto\|\|sol\.proyecto===proyecto\)/);
   assert.doesNotMatch(code, /sol\.descripcion===descripcionNormalizada/);

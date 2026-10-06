@@ -1,0 +1,74 @@
+name: Phase 0 Performance Validation
+
+on:
+  push:
+    branches:
+      - phase0-performance-measurement
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase0-performance-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate local imports
+        id: imports
+        continue-on-error: true
+        run: node scripts/validate-local-imports.mjs
+
+      - name: Syntax checks
+        id: syntax
+        continue-on-error: true
+        run: npm run check
+
+      - name: Security audit
+        id: security
+        continue-on-error: true
+        run: npm run lint:security
+
+      - name: Tests
+        id: tests
+        continue-on-error: true
+        run: npm test
+
+      - name: Build
+        id: build
+        continue-on-error: true
+        run: npm run build
+
+      - name: Enforce validation result
+        if: always()
+        env:
+          IMPORTS: ${{ steps.imports.outcome }}
+          SYNTAX: ${{ steps.syntax.outcome }}
+          SECURITY: ${{ steps.security.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        run: |
+          echo "imports=$IMPORTS"
+          echo "syntax=$SYNTAX"
+          echo "security=$SECURITY"
+          echo "tests=$TESTS"
+          echo "build=$BUILD"
+          if [ "$IMPORTS" != "success" ] || [ "$SYNTAX" != "success" ] || [ "$SECURITY" != "success" ] || [ "$TESTS" != "success" ] || [ "$BUILD" != "success" ]; then
+            exit 1
+          fi

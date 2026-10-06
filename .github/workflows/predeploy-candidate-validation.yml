@@ -1,0 +1,166 @@
+name: Predeploy Candidate Validation
+
+on:
+  push:
+    branches:
+      - phase1c-rop02-row-key-index
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: predeploy-phase1c-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: phase1c-rop02-row-key-index
+          path: candidate
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            candidate/package-lock.json
+            main/package-lock.json
+
+      - name: Install candidate
+        working-directory: candidate
+        run: npm ci
+
+      - name: Candidate local imports
+        working-directory: candidate
+        run: node scripts/validate-local-imports.mjs
+
+      - name: Candidate syntax/check
+        working-directory: candidate
+        run: npm run check
+
+      - name: Candidate security lint
+        working-directory: candidate
+        run: npm run lint:security
+
+      - name: Candidate focused regression tests
+        working-directory: candidate
+        run: >
+          node --test
+          tests/control-rop02-rop05-refresh-vite-plugin.test.mjs
+          tests/apps-script-inflight.test.mjs
+          tests/abastecimiento-plugin-apps-script-reads.test.mjs
+          tests/abastecimiento-envios-parity.test.mjs
+          tests/abastecimiento-loading-regression.test.mjs
+          tests/performance-diagnostics.test.mjs
+          tests/phase0-performance-diagnostics-vite-plugin.test.mjs
+
+      - name: Candidate build
+        working-directory: candidate
+        run: npm run build
+
+      - name: Install main
+        working-directory: main
+        run: npm ci
+
+      - name: Main build reference
+        working-directory: main
+        run: npm run build
+
+      - name: Main full test diagnostic
+        id: main_tests
+        working-directory: main
+        shell: bash
+        run: |
+          set +e
+          npm test > ../main-tests.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Candidate full test diagnostic
+        id: candidate_tests
+        working-directory: candidate
+        shell: bash
+        run: |
+          set +e
+          npm test > ../candidate-tests.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Classify full-suite regression
+        shell: bash
+        env:
+          MAIN_EXIT: ${{ steps.main_tests.outputs.exit_code }}
+          CANDIDATE_EXIT: ${{ steps.candidate_tests.outputs.exit_code }}
+        run: |
+          echo "Main npm test exit: $MAIN_EXIT"
+          echo "Candidate npm test exit: $CANDIDATE_EXIT"
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          def failure_names(path):
+              names=set()
+              for line in Path(path).read_text(encoding="utf-8",errors="replace").splitlines():
+                  m=re.match(r"not ok \d+ - (.*)",line)
+                  if not m:
+                      continue
+                  name=m.group(1)
+                  name=re.sub(r"/home/runner/work/delta-mining-ops/delta-mining-ops/(?:main|candidate)/","<repo>/",name)
+                  names.add(name)
+              return names
+
+          main=failure_names("main-tests.log")
+          candidate=failure_names("candidate-tests.log")
+          extra=sorted(candidate-main)
+          fixed=sorted(main-candidate)
+
+          print(f"Main failing subtests: {len(main)}")
+          print(f"Candidate failing subtests: {len(candidate)}")
+          print("Candidate-only failures:")
+          print("\n".join(f"  - {x}" for x in extra) if extra else "  - none")
+          print("Failures present on main but not candidate:")
+          print("\n".join(f"  - {x}" for x in fixed) if fixed else "  - none")
+
+          with open(Path(__import__("os").environ["GITHUB_STEP_SUMMARY"]),"a",encoding="utf-8") as f:
+              f.write("## Predeploy validation\n\n")
+              f.write("- Candidate build: PASS\n")
+              f.write("- Main build reference: PASS\n")
+              f.write("- Focused candidate tests: PASS\n")
+              f.write(f"- Main full test exit: {__import__('os').environ.get('MAIN_EXIT')}\n")
+              f.write(f"- Candidate full test exit: {__import__('os').environ.get('CANDIDATE_EXIT')}\n")
+              f.write(f"- Main failing subtests: {len(main)}\n")
+              f.write(f"- Candidate failing subtests: {len(candidate)}\n")
+              f.write(f"- Candidate-only failures: {len(extra)}\n")
+              if extra:
+                  f.write("\n### Candidate-only failures\n")
+                  for item in extra:
+                      f.write(f"- {item}\n")
+
+          if extra:
+              raise SystemExit("Candidate has failing subtests not present on main")
+          PY
+
+      - name: Upload full-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: predeploy-full-test-diagnostics
+          path: |
+            main-tests.log
+            candidate-tests.log
+          retention-days: 14

@@ -10,6 +10,7 @@ import {
 } from "./licitacionPlanillasData.js";
 import { AcquisitionCostSelector, LICITACIONES_STORAGE_KEY, createEmptyTender, loadLocalTenders, normalizeTender } from "./licitacionesState.jsx";
 import { registerRefreshTask } from "../../services/refreshManager.js";
+import { fetchAction } from "../../services/appsScriptApi.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 let __deps = {};
@@ -51,8 +52,7 @@ function LicitacionesView({listaEquipos=[],rop02All=[],rma15=[],usdRate=1,initia
   useEffect(()=>{if(initialTab&&initialTab!==tab)setTab(initialTab);},[initialTab]);
   const cargarLicitaciones=useCallback(async({silent=false}={})=>{
     try{
-      const res=await fetch(`${APPS_SCRIPT_URL}?action=licitaciones_compartidas&_=${Date.now()}`,{cache:"no-store"});
-      const json=await res.json();
+      const json=await fetchAction(APPS_SCRIPT_URL,"licitaciones_compartidas",{compact:false,retries:0});
       if(!json.ok)throw new Error(json?.error?.message||"No se pudieron cargar las licitaciones.");
       const rows=Array.isArray(json.data)?json.data.map(normalizeTender):[];
       if(rows.length){setLicitaciones(rows);setActiveId(prev=>rows.some(x=>x.id===prev)?prev:rows[0].id);rows.forEach(x=>lastSavedRef.current.set(x.id,JSON.stringify(x)));}

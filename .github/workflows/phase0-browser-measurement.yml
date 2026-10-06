@@ -1,0 +1,172 @@
+name: Phase 0 Performance Measurements
+
+on:
+  push:
+    branches:
+      - phase0-performance-measurement
+    paths:
+      - ".github/workflows/phase0-browser-measurement.yml"
+      - "scripts/phase0-browser-measurement.mjs"
+      - "scripts/phase0-production-measurement.mjs"
+      - "scripts/phase0-bundle-metrics.mjs"
+      - "src/services/performanceDiagnostics.js"
+      - "src/services/refreshManager.js"
+      - "scripts/phase0-performance-diagnostics-vite-plugin.mjs"
+      - "vite.config.js"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: phase0-performance-measurements-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle-metrics:
+    name: Bundle metrics
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout instrumented branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build instrumented app
+        env:
+          VITE_DM_PERF_DIAGNOSTICS: "1"
+        run: npm run build
+
+      - name: Measure bundle and gzip sizes
+        run: node scripts/phase0-bundle-metrics.mjs
+
+      - name: Upload bundle metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-bundle-metrics
+          path: |
+            artifacts/phase0/bundle-metrics.json
+            artifacts/phase0/bundle-metrics.csv
+          retention-days: 14
+
+  browser-metrics:
+    name: Browser cold warm and slow measurements
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
+      DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+      DM_PERF_RUN_SLOW: "1"
+    steps:
+      - name: Checkout measurement branch
+        uses: actions/checkout@v4
+
+      - name: Check measurement credentials
+        id: credentials
+        shell: bash
+        run: |
+          if [ -n "$DM_PERF_EMAIL" ] && [ -n "$DM_PERF_PASSWORD" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "GitHub Secrets de medición disponibles."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No se ejecutará navegación autenticada hasta configurar DM_PERF_EMAIL y DM_PERF_PASSWORD."
+          fi
+
+      - name: Resolve reachable production URL
+        if: steps.credentials.outputs.available == 'true'
+        id: production
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/phase0
+          candidates=""
+
+          deployments="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/deployments?ref=main&per_page=50" 2>/dev/null || echo '[]')"
+          ids="$(printf '%s' "$deployments" | jq -r '.[].id' 2>/dev/null || true)"
+          for id in $ids; do
+            statuses="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/deployments/${id}/statuses?per_page=20" 2>/dev/null || echo '[]')"
+            urls="$(printf '%s' "$statuses" | jq -r '.[] | select(.state == "success") | .environment_url // empty' 2>/dev/null || true)"
+            if [ -n "$urls" ]; then
+              candidates="$candidates"$'\n'"$urls"
+            fi
+          done
+
+          candidates="$candidates"$'\n'https://delta-mining-ops.vercel.app$'\n'https://deltaminingops.vercel.app
+          selected=""
+          while IFS= read -r candidate; do
+            [ -z "$candidate" ] && continue
+            candidate="${candidate%/}"
+            code="$(curl -L -sS --max-time 20 -o /tmp/phase0-candidate.html -w '%{http_code}' "${candidate}/" || echo 000)"
+            host="$(node -e 'try{console.log(new URL(process.argv[1]).host)}catch{console.log("invalid")}' "$candidate")"
+            echo "Candidato $host -> HTTP $code"
+            if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 400 ] 2>/dev/null && grep -qi "root\|DELTA MINING\|Correo electrónico" /tmp/phase0-candidate.html; then
+              selected="$candidate"
+              break
+            fi
+          done <<< "$(printf '%s\n' "$candidates" | awk 'NF && !seen[$0]++')"
+
+          if [ -z "$selected" ]; then
+            echo "No se encontró una URL pública y accesible de producción." | tee artifacts/phase0/production-resolution-error.txt
+            exit 1
+          fi
+
+          echo "base_url=$selected" >> "$GITHUB_OUTPUT"
+          host="$(node -e 'console.log(new URL(process.argv[1]).host)' "$selected")"
+          echo "Producción resuelta: $host"
+          printf '%s\n' "$host" > artifacts/phase0/production-host.txt
+
+      - name: Setup Node
+        if: steps.credentials.outputs.available == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install app dependencies
+        if: steps.credentials.outputs.available == 'true'
+        run: npm ci
+
+      - name: Install Playwright runner without changing repository lockfile
+        if: steps.credentials.outputs.available == 'true'
+        run: npm install --no-save --package-lock=false playwright@1.49.1
+
+      - name: Install Chromium
+        if: steps.credentials.outputs.available == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run authenticated production performance battery
+        if: steps.credentials.outputs.available == 'true'
+        env:
+          DM_PERF_BASE_URL: ${{ steps.production.outputs.base_url }}
+        run: node scripts/phase0-production-measurement.mjs
+
+      - name: Record why browser battery was skipped
+        if: steps.credentials.outputs.available != 'true'
+        shell: bash
+        run: |
+          mkdir -p artifacts/phase0
+          cat > artifacts/phase0/browser-measurement-skipped.txt <<'EOF'
+          La batería autenticada de Fase 0 no se ejecutó porque el repositorio todavía no tiene disponibles los GitHub Actions Secrets DM_PERF_EMAIL y DM_PERF_PASSWORD.
+          No se requieren ni deben guardarse credenciales dentro del código o de los artifacts.
+          EOF
+
+      - name: Upload browser metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-browser-metrics
+          path: artifacts/phase0/
+          if-no-files-found: warn
+          retention-days: 14

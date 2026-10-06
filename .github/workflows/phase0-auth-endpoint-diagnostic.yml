@@ -1,0 +1,42 @@
+name: Phase 0 Auth Endpoint Diagnostic
+
+on:
+  push:
+    branches:
+      - phase0-performance-measurement
+    paths:
+      - ".github/workflows/phase0-auth-endpoint-diagnostic.yml"
+      - "scripts/phase0-auth-endpoint-diagnostic.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-auth-endpoint:
+    name: Diagnose Supabase auth endpoint safely
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DM_PERF_EMAIL: ${{ secrets.DM_PERF_EMAIL }}
+      DM_PERF_PASSWORD: ${{ secrets.DM_PERF_PASSWORD }}
+    steps:
+      - name: Checkout measurement branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run direct auth endpoint diagnostic
+        run: node scripts/phase0-auth-endpoint-diagnostic.mjs
+
+      - name: Upload safe diagnostic artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase0-auth-endpoint-diagnostic
+          path: artifacts/phase0/auth-endpoint-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 7
