@@ -62,6 +62,8 @@ jobs:
           tests/control-rop02-rop05-refresh-vite-plugin.test.mjs
           tests/apps-script-inflight.test.mjs
           tests/abastecimiento-plugin-apps-script-reads.test.mjs
+          tests/abastecimiento-envios-parity.test.mjs
+          tests/abastecimiento-loading-regression.test.mjs
           tests/performance-diagnostics.test.mjs
           tests/phase0-performance-diagnostics-vite-plugin.test.mjs
 
@@ -107,22 +109,51 @@ jobs:
         run: |
           echo "Main npm test exit: $MAIN_EXIT"
           echo "Candidate npm test exit: $CANDIDATE_EXIT"
-          {
-            echo "## Predeploy validation"
-            echo
-            echo "- Candidate build: PASS"
-            echo "- Main build reference: PASS"
-            echo "- Focused candidate tests: PASS"
-            echo "- Main full test exit: $MAIN_EXIT"
-            echo "- Candidate full test exit: $CANDIDATE_EXIT"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$MAIN_EXIT" = "0" ] && [ "$CANDIDATE_EXIT" != "0" ]; then
-            echo "Candidate introduces a full-suite failure not present on main."
-            exit 1
-          fi
-          if [ "$MAIN_EXIT" != "0" ] && [ "$CANDIDATE_EXIT" != "0" ]; then
-            echo "Full suite fails on both main and candidate; classified as pre-existing until diff evidence says otherwise."
-          fi
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          def failure_names(path):
+              names=set()
+              for line in Path(path).read_text(encoding="utf-8",errors="replace").splitlines():
+                  m=re.match(r"not ok \d+ - (.*)",line)
+                  if not m:
+                      continue
+                  name=m.group(1)
+                  name=re.sub(r"/home/runner/work/delta-mining-ops/delta-mining-ops/(?:main|candidate)/","<repo>/",name)
+                  names.add(name)
+              return names
+
+          main=failure_names("main-tests.log")
+          candidate=failure_names("candidate-tests.log")
+          extra=sorted(candidate-main)
+          fixed=sorted(main-candidate)
+
+          print(f"Main failing subtests: {len(main)}")
+          print(f"Candidate failing subtests: {len(candidate)}")
+          print("Candidate-only failures:")
+          print("\n".join(f"  - {x}" for x in extra) if extra else "  - none")
+          print("Failures present on main but not candidate:")
+          print("\n".join(f"  - {x}" for x in fixed) if fixed else "  - none")
+
+          with open(Path(__import__("os").environ["GITHUB_STEP_SUMMARY"]),"a",encoding="utf-8") as f:
+              f.write("## Predeploy validation\n\n")
+              f.write("- Candidate build: PASS\n")
+              f.write("- Main build reference: PASS\n")
+              f.write("- Focused candidate tests: PASS\n")
+              f.write(f"- Main full test exit: {__import__('os').environ.get('MAIN_EXIT')}\n")
+              f.write(f"- Candidate full test exit: {__import__('os').environ.get('CANDIDATE_EXIT')}\n")
+              f.write(f"- Main failing subtests: {len(main)}\n")
+              f.write(f"- Candidate failing subtests: {len(candidate)}\n")
+              f.write(f"- Candidate-only failures: {len(extra)}\n")
+              if extra:
+                  f.write("\n### Candidate-only failures\n")
+                  for item in extra:
+                      f.write(f"- {item}\n")
+
+          if extra:
+              raise SystemExit("Candidate has failing subtests not present on main")
+          PY
 
       - name: Upload full-test diagnostics
         if: always()
