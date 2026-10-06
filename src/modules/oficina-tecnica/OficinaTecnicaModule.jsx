@@ -11,6 +11,7 @@ import {cancelErrorAcceptance,errorAcceptanceKey,saveErrorAcceptance,useErrorAcc
 import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/index.jsx";
 import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";
+import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -3546,6 +3547,14 @@ function calcularErroresControlEquipo(rows){
       }
     }
 
+    // Continuidad dentro del mismo día: HF del TD debe ser exactamente el HI del TN.
+    // Antes sólo se controlaba la continuidad entre días, por lo que cortes TD→TN
+    // como 1695 → 1696 no se informaban.
+    cronologico.forEach(d=>{
+      const errorMismoDia=buildRop02TdTnHorometerError(d.TD,d.TN,maq);
+      if(errorMismoDia)erroresHoro.push(errorMismoDia);
+    });
+
     const turnoOrden=r=>(String(r?.turno||"").toUpperCase().includes("NOCHE")?1:0);
     const parteNumero=r=>parseParte(r?.parte)??0;
     const diasHoro=cronologico.map(d=>{
@@ -4019,6 +4028,10 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     }}>{children}</span>
   );
   const isSinCarga=v=>{const s=String(v||"").trim().toLowerCase().replace(/[^a-z]/g,"");return s==="sincarga"||s==="sincargar"||s==="sincargado";};
+  const fichaHoroError=useMemo(
+    ()=>fichaActual?buildRop02TdTnHorometerError(fichaActual.TD,fichaActual.TN,fichaMaquina):null,
+    [fichaActual,fichaMaquina]
+  );
   const FILAS=[
     {key:"parte",      label:"Parte diario",    render:r=>r?.parte||"—"},
     {key:"hi",         label:"Hi",              render:r=>r?.horometroInicial!=null?r.horometroInicial:"—"},
@@ -4179,7 +4192,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
                   <tbody>
                     {FILAS.map(({key,label,render})=>{
                       const rTD=fichaActual.TD; const rTN=fichaActual.TN;
-                      const renderCell=(turno,r)=>{if(!editMode)return render(r);if(!r)return <span style={{color:C.textMuted}}>—</span>;const val=editDraft[turno]?.[key]??"";return<input type={FIELD_CFG[key]?.type||"text"} value={val} onChange={e=>setEditDraft(d=>({...d,[turno]:{...d[turno],[key]:e.target.value}}))} style={inpStyle}/>;};
+                      const renderCell=(turno,r)=>{if(!editMode){const value=render(r);const mismatch=fichaHoroError&&((key==="hf"&&turno==="TD")||(key==="hi"&&turno==="TN"));return mismatch?<PinkBox>{value}</PinkBox>:value;}if(!r)return <span style={{color:C.textMuted}}>—</span>;const val=editDraft[turno]?.[key]??"";return<input type={FIELD_CFG[key]?.type||"text"} value={val} onChange={e=>setEditDraft(d=>({...d,[turno]:{...d[turno],[key]:e.target.value}}))} style={inpStyle}/>;};
                       return(<tr key={key}><td style={{padding:"11px 16px",fontWeight:900,fontSize:14,color:C.textSub,background:C.surface+"55",borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`}}>{label}</td><td style={{padding:editMode?"8px 10px":"13px 18px",fontSize:16,color:cellColor(rTD),background:cellBg(rTD),borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`,verticalAlign:"middle",lineHeight:1.5,fontWeight:800}}>{renderCell("TD",rTD)}</td><td style={{padding:editMode?"8px 10px":"13px 18px",fontSize:16,color:cellColor(rTN),background:cellBg(rTN),borderBottom:`1px solid ${C.border}22`,verticalAlign:"middle",lineHeight:1.5,fontWeight:800}}>{renderCell("TN",rTN)}</td></tr>);
                     })}
                   </tbody>
