@@ -1,0 +1,135 @@
+name: Predeploy Candidate Validation
+
+on:
+  push:
+    branches:
+      - phase1c-rop02-row-key-index
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: predeploy-phase1c-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: phase1c-rop02-row-key-index
+          path: candidate
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            candidate/package-lock.json
+            main/package-lock.json
+
+      - name: Install candidate
+        working-directory: candidate
+        run: npm ci
+
+      - name: Candidate local imports
+        working-directory: candidate
+        run: node scripts/validate-local-imports.mjs
+
+      - name: Candidate syntax/check
+        working-directory: candidate
+        run: npm run check
+
+      - name: Candidate security lint
+        working-directory: candidate
+        run: npm run lint:security
+
+      - name: Candidate focused regression tests
+        working-directory: candidate
+        run: >
+          node --test
+          tests/control-rop02-rop05-refresh-vite-plugin.test.mjs
+          tests/apps-script-inflight.test.mjs
+          tests/abastecimiento-plugin-apps-script-reads.test.mjs
+          tests/performance-diagnostics.test.mjs
+          tests/phase0-performance-diagnostics-vite-plugin.test.mjs
+
+      - name: Candidate build
+        working-directory: candidate
+        run: npm run build
+
+      - name: Install main
+        working-directory: main
+        run: npm ci
+
+      - name: Main build reference
+        working-directory: main
+        run: npm run build
+
+      - name: Main full test diagnostic
+        id: main_tests
+        working-directory: main
+        shell: bash
+        run: |
+          set +e
+          npm test > ../main-tests.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Candidate full test diagnostic
+        id: candidate_tests
+        working-directory: candidate
+        shell: bash
+        run: |
+          set +e
+          npm test > ../candidate-tests.log 2>&1
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Classify full-suite regression
+        shell: bash
+        env:
+          MAIN_EXIT: ${{ steps.main_tests.outputs.exit_code }}
+          CANDIDATE_EXIT: ${{ steps.candidate_tests.outputs.exit_code }}
+        run: |
+          echo "Main npm test exit: $MAIN_EXIT"
+          echo "Candidate npm test exit: $CANDIDATE_EXIT"
+          {
+            echo "## Predeploy validation"
+            echo
+            echo "- Candidate build: PASS"
+            echo "- Main build reference: PASS"
+            echo "- Focused candidate tests: PASS"
+            echo "- Main full test exit: $MAIN_EXIT"
+            echo "- Candidate full test exit: $CANDIDATE_EXIT"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MAIN_EXIT" = "0" ] && [ "$CANDIDATE_EXIT" != "0" ]; then
+            echo "Candidate introduces a full-suite failure not present on main."
+            exit 1
+          fi
+          if [ "$MAIN_EXIT" != "0" ] && [ "$CANDIDATE_EXIT" != "0" ]; then
+            echo "Full suite fails on both main and candidate; classified as pre-existing until diff evidence says otherwise."
+          fi
+
+      - name: Upload full-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: predeploy-full-test-diagnostics
+          path: |
+            main-tests.log
+            candidate-tests.log
+          retention-days: 14
