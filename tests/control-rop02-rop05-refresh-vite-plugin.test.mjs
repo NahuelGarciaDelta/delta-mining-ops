@@ -23,14 +23,26 @@ function Demo(){
 }
 `
 
-test('Actualizar fuerza ROP02 y ROP05 desde la fuente y actualiza controlRemote',()=>{
-  const plugin=controlRop02Rop05RefreshVitePlugin()
-  const out=plugin.transform(source,'C:/repo/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')?.code||''
+function assertRefreshInjection(out){
   assert.match(out,/refreshHistoricalDataset\(dataset,query\)/)
   assert.match(out,/registerRefreshTask\("oficina-control-rop02-rop05-refresh"/)
   assert.match(out,/loadFullDataset\("rop02",\{force:true\}\)/)
   assert.match(out,/loadFullDataset\("rop05",\{force:true\}\)/)
   assert.match(out,/setControlRemote\(\{loaded:true,rop02:next02,rop05:next05\}\)/)
+}
+
+test('Actualizar fuerza ROP02 y ROP05 desde la fuente y actualiza controlRemote',()=>{
+  const plugin=controlRop02Rop05RefreshVitePlugin()
+  const out=plugin.transform(source,'C:/repo/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')?.code||''
+  assertRefreshInjection(out)
+})
+
+test('acepta checkout CRLF sin cambiar la semántica inyectada',()=>{
+  const plugin=controlRop02Rop05RefreshVitePlugin()
+  const crlf=source.replace(/\n/g,'\r\n')
+  const out=plugin.transform(crlf,'C:\\repo\\src\\modules\\oficina-tecnica\\OficinaTecnicaModule.jsx')?.code||''
+  assert.equal(out.includes('\r\n'),false)
+  assertRefreshInjection(out)
 })
 
 test('no toca otros módulos',()=>{
