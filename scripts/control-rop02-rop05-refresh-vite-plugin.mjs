@@ -17,7 +17,10 @@ export function controlRop02Rop05RefreshVitePlugin() {
       const file = String(id || '').replace(/\\/g, '/')
       if (!file.endsWith(TARGET)) return null
 
-      let next = code
+      // El plugin usa anclas de texto deliberadamente estrictas. Normalizamos
+      // únicamente los finales de línea para que el mismo source funcione
+      // idéntico en checkouts LF (Linux/Vercel) y CRLF (Windows/Codex local).
+      let next = String(code || '').replace(/\r\n/g, '\n')
 
       next = replaceExactlyOnce(
         next,
