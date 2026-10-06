@@ -4,13 +4,14 @@ on:
   push:
     branches:
       - phase1c-rop02-row-key-index
+      - "fix/**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: predeploy-phase1c-${{ github.ref }}
+  group: predeploy-candidate-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,7 +22,7 @@ jobs:
       - name: Checkout candidate
         uses: actions/checkout@v4
         with:
-          ref: phase1c-rop02-row-key-index
+          ref: ${{ github.ref_name }}
           path: candidate
 
       - name: Checkout main
@@ -66,6 +67,7 @@ jobs:
           tests/abastecimiento-loading-regression.test.mjs
           tests/performance-diagnostics.test.mjs
           tests/phase0-performance-diagnostics-vite-plugin.test.mjs
+          tests/rop02-td-tn-horometer-continuity.test.mjs
 
       - name: Candidate build
         working-directory: candidate
