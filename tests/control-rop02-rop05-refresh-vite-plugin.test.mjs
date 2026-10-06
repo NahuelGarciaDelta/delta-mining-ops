@@ -1,19 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { controlRop02Rop05RefreshVitePlugin } from '../scripts/control-rop02-rop05-refresh-vite-plugin.mjs'
 
 const source = `
 import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 function Demo(){
   const loadFullDataset=useCallback(async(dataset,{force=false}={})=>{
-    const getter=dataset==="rop02"?getRop02:getRop05;
-    const result=await getter({
-      limit:"all",
-      offset:0,
-      sortBy:"fecha",
-      sortDirection:"desc"
-    });
-    return result.data;
+    const task=(async()=>{
+      const getter=dataset==="rop02"?getRop02:getRop05;
+      const result=await getter({
+        limit:"all",
+        offset:0,
+        sortBy:"fecha",
+        sortDirection:"desc"
+      });
+      return result.data;
+    })();
+    return task;
   },[]);
   const [controlRemote,setControlRemote]=useState({loaded:false,rop02:[],rop05:[]});
   const controlLive=useMemo(
@@ -42,6 +46,13 @@ test('acepta checkout CRLF sin cambiar la semántica inyectada',()=>{
   const crlf=source.replace(/\n/g,'\r\n')
   const out=plugin.transform(crlf,'C:\\repo\\src\\modules\\oficina-tecnica\\OficinaTecnicaModule.jsx')?.code||''
   assert.equal(out.includes('\r\n'),false)
+  assertRefreshInjection(out)
+})
+
+test('transforma el OficinaTecnicaModule real del repositorio',async()=>{
+  const plugin=controlRop02Rop05RefreshVitePlugin()
+  const actual=await readFile(new URL('../src/modules/oficina-tecnica/OficinaTecnicaModule.jsx',import.meta.url),'utf8')
+  const out=plugin.transform(actual,'/repo/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx')?.code||''
   assertRefreshInjection(out)
 })
 
