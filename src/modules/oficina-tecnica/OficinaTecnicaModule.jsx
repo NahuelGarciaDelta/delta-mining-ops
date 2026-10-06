@@ -10,7 +10,8 @@ import {cancelEquipmentMovement,saveEquipmentMovement,useEquipmentMovements} fro
 import {cancelErrorAcceptance,errorAcceptanceKey,saveErrorAcceptance,useErrorAcceptances} from "../../services/errorAcceptances.js";
 import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/index.jsx";
-import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";\nimport {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
+import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";
+import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
