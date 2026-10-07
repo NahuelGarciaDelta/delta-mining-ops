@@ -241,11 +241,21 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   }, [listaEquipos]);
 
   const actividad7Dias = useMemo(() => {
-    const fechasValidas = (rop02All || []).map(ropFecha).filter(Boolean);
-    const referenciaDatos = fechasValidas.length
-      ? new Date(Math.max(...fechasValidas.map(f => f.getTime())))
-      : new Date();
-    const hasta = parseDateValue(fechaHasta) || referenciaDatos;
+    // Mientras el snapshot PM está cargando no tiene sentido recorrer miles de ROP02:
+    // la vista todavía muestra el loader y el cálculo se repetirá al terminar la carga.
+    if (loading) return new Map();
+
+    let hasta = parseDateValue(fechaHasta);
+    if (!hasta) {
+      // Sólo buscamos la última fecha del dataset cuando el usuario realmente dejó
+      // "Hasta" vacío. En el flujo normal evitamos un primer barrido completo redundante.
+      let latestTime = 0;
+      (rop02All || []).forEach(row => {
+        const fecha = ropFecha(row);
+        if (fecha && fecha.getTime() > latestTime) latestTime = fecha.getTime();
+      });
+      hasta = latestTime ? new Date(latestTime) : new Date();
+    }
     hasta.setHours(23, 59, 59, 999);
     const desde = parseDateValue(fechaDesde) || new Date(hasta);
     desde.setHours(0, 0, 0, 0);
@@ -266,7 +276,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       }
     });
     return map;
-  }, [rop02All, fechaDesde, fechaHasta, truckInternos]);
+  }, [loading, rop02All, fechaDesde, fechaHasta, truckInternos]);
 
   const mergedConfigs = useMemo(() => {
     const map = new Map(PM_INITIAL_SEED.map(item => [norm(item.interno), {
@@ -362,6 +372,21 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   }), [visibles]);
 
   const dashboard = useMemo(() => {
+    if (!["dashboard", "gestion"].includes(tab)) {
+      return {
+        realizadosMes: 0,
+        cumplimiento: 100,
+        promedioHs: 0,
+        porProyecto: [],
+        urgentes: [],
+        proximoTurno: [],
+        estado: [],
+        meses: [],
+        turno: null,
+        eventosPM: [],
+        proximosMantenimientos: [],
+      };
+    }
     const activos = visibles.filter(x => x.activo);
     const conBase = activos.filter(x => x.horometroUltimoPM > 0);
 
@@ -470,17 +495,19 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       .filter(x => x.estado !== "AL DÍA" || x.faltan <= 120)
       .sort((a, b) => a.faltan - b.faltan || b.transcurridas - a.transcurridas);
     return { realizadosMes, cumplimiento, promedioHs, porProyecto, urgentes, proximoTurno, estado, meses: mesesVisibles, turno, eventosPM, proximosMantenimientos };
-  }, [visibles, registros, mergedConfigs, kpis, C, fechaHasta, mesFiltro, anioFiltro, categoriaPorInterno]);
+  }, [tab, visibles, registros, mergedConfigs, kpis, C, fechaHasta, mesFiltro, anioFiltro, categoriaPorInterno]);
 
-  const usoDesdePMFiltrado = useMemo(() => visibles
+  const usoDesdePMFiltrado = useMemo(() => tab === "dashboard" ? visibles
     .filter(x => x.horometroUltimoPM > 0 && categoriaPM(x) === usoCategoriaFiltro)
     .sort((a, b) => b.transcurridas - a.transcurridas)
-    .slice(0, 15), [visibles, usoCategoriaFiltro]);
+    .slice(0, 15) : [], [tab, visibles, usoCategoriaFiltro]);
 
-  const proximoTurnoFiltrado = useMemo(() => dashboard.proximoTurno
-    .filter(x => categoriaPM(x) === proximoCategoriaFiltro), [dashboard.proximoTurno, proximoCategoriaFiltro]);
+  const proximoTurnoFiltrado = useMemo(() => tab === "dashboard"
+    ? dashboard.proximoTurno.filter(x => categoriaPM(x) === proximoCategoriaFiltro)
+    : [], [tab, dashboard.proximoTurno, proximoCategoriaFiltro]);
 
   const actividadDiaria = useMemo(() => {
+    if (!["planificador", "gestion"].includes(tab)) return new Map();
     const by = new Map();
     (rop02All || []).forEach(row => {
       const interno = norm(ropInterno(row));
@@ -504,24 +531,33 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       out.set(interno, recent.length ? recent.reduce((a,v)=>a+v,0)/recent.length : 0);
     });
     return out;
-  }, [rop02All]);
+  }, [tab, rop02All]);
 
-  const planificacion = useMemo(() => visibles.filter(e=>e.horometroUltimoPM>0).map(e=>{
+  const planificacion = useMemo(() => {
+    if (!["planificador", "gestion"].includes(tab)) return [];
+    return visibles.filter(e=>e.horometroUltimoPM>0).map(e=>{
     const promedioDia = actividadDiaria.get(norm(e.interno)) || 0;
     const dias = promedioDia>0 ? Math.max(0, e.faltan/promedioDia) : null;
     const fechaEstimada = dias===null ? "" : (()=>{const d=new Date();d.setDate(d.getDate()+Math.ceil(dias));return d.toISOString().slice(0,10)})();
     const prog = programaciones.find(p=>norm(p.interno)===norm(e.interno)&&String(p.estado||"").toUpperCase()!=="CERRADO");
     return {...e,promedioDia,diasEstimados:dias,fechaEstimada,programado:prog||null,estadoGestion:prog?"PROGRAMADO":e.estado};
-  }).sort((a,b)=>(a.fechaEstimada||"9999").localeCompare(b.fechaEstimada||"9999")), [visibles, actividadDiaria, programaciones]);
+  }).sort((a,b)=>(a.fechaEstimada||"9999").localeCompare(b.fechaEstimada||"9999"));
+  }, [tab, visibles, actividadDiaria, programaciones]);
 
-  const alertas = useMemo(() => planificacion.filter(e=>["PM ATRASADO","PM URGENTE"].includes(e.estado)|| (e.programado&&e.programado.fecha<today())).map(e=>({
-    nivel:e.estado==="PM ATRASADO"?"CRÍTICA":e.programado&&e.programado.fecha<today()?"VENCIDA":"ALTA",
-    interno:e.interno, mensaje:e.programado&&e.programado.fecha<today()?`PM programado vencido (${e.programado.fecha})`:`${e.estado}: ${fmt(e.faltan)} h faltantes`, fecha:e.programado?.fecha||e.fechaEstimada||""
-  })), [planificacion]);
+  const alertas = useMemo(() => {
+    if (tab !== "gestion") return [];
+    return planificacion.filter(e=>["PM ATRASADO","PM URGENTE"].includes(e.estado)|| (e.programado&&e.programado.fecha<today())).map(e=>({
+      nivel:e.estado==="PM ATRASADO"?"CRÍTICA":e.programado&&e.programado.fecha<today()?"VENCIDA":"ALTA",
+      interno:e.interno, mensaje:e.programado&&e.programado.fecha<today()?`PM programado vencido (${e.programado.fecha})`:`${e.estado}: ${fmt(e.faltan)} h faltantes`, fecha:e.programado?.fecha||e.fechaEstimada||""
+    }));
+  }, [tab, planificacion]);
 
   const repuestosPorPM = useMemo(() => repuestos.map(r=>({...r, faltante:Math.max(0,num(r.cantidadMinima)-num(r.stockActual)), disponible:num(r.stockActual)>=num(r.cantidadMinima)})), [repuestos]);
 
   const indicadoresGestion = useMemo(() => {
+    if (tab !== "gestion") {
+      return { realizados: 0, programados: 0, alertas: 0, atrasoPromedio: 0, atrasoMaximo: 0, coberturaBase: 0, disponibilidadRepuestos: 100, cerrados: 0 };
+    }
     const realizados = dashboard.eventosPM || [];
     const atrasos = visibles.filter(e=>e.estado==="PM ATRASADO").map(e=>Math.max(0,e.transcurridas-e.atrasadoDesde));
     const programados = programaciones.filter(p=>String(p.estado||"").toUpperCase()==="PROGRAMADO").length;
@@ -534,7 +570,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       disponibilidadRepuestos: repuestosPorPM.length?Math.round((repuestosPorPM.filter(r=>r.disponible).length/repuestosPorPM.length)*100):100,
       cerrados:aTiempo
     };
-  }, [dashboard.eventosPM, visibles, programaciones, registros, alertas, kpis, repuestosPorPM]);
+  }, [tab, dashboard.eventosPM, visibles, programaciones, registros, alertas, kpis, repuestosPorPM]);
 
   const saveProgramacion = async () => {
     if(!programacionEdit.interno||!programacionEdit.fecha){appAlert?.("Seleccioná equipo y fecha.");return;}
@@ -575,15 +611,22 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   ], []);
 
   const aniosFiltro = useMemo(() => {
+    if (loading) return [2026, 2027, 2028];
     const years = new Set([2026, 2027, 2028]);
     const collectYear = value => {
-      const date = parseDateValue(value);
+      const raw = text(value);
+      const match = raw.match(/^(\d{4})/);
+      if (match) {
+        years.add(Number(match[1]));
+        return;
+      }
+      const date = parseDateValue(raw);
       if (date) years.add(date.getFullYear());
     };
     (rop02All || []).forEach(row => collectYear(row?.fecha || pick(row, ["fecha", "fecha del parte diario", "fecha parte"])));
     (registros || []).forEach(row => collectYear(row?.fecha || pick(row, ["fecha", "fecha pm", "fecha realizado"])));
     return [...years].filter(y => y >= 2020 && y <= 2028).sort((a, b) => a - b);
-  }, [rop02All, registros]);
+  }, [loading, rop02All, registros]);
 
   const aplicarPeriodoMes = (monthValue, yearValue) => {
     if (!monthValue && !yearValue) return;
@@ -659,7 +702,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   const btnStyle = { height: 34, border: 0, borderRadius: 8, background: C?.accent || "#e8001d", color: "#fff", padding: "0 14px", fontWeight: 700, cursor: "pointer" };
   const statusColor = { "AL DÍA": C?.green || "#10b981", "PM PRÓXIMO": C?.yellow || "#f59e0b", "PM URGENTE": C?.orange || "#fb923c", "PM ATRASADO": C?.red || "#ef4444", "SIN BASE": C?.textMuted || "#64748b", "PROGRAMADO": C?.blue || "#3b82f6" };
 
-  if (loading) return <div style={{ margin: 16, minHeight: "55vh", display: "grid", placeItems: "center", background: "rgba(0,0,0,.68)", border: `1px solid ${C?.border || "#333"}`, borderRadius: 16, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
+  if (loading) return <div style={{ margin: 16, minHeight: "55vh", display: "grid", placeItems: "center", background: "rgba(0,0,0,.78)", border: `1px solid ${C?.border || "#333"}`, borderRadius: 16 }}>
     {LoadingMotoniveladora
       ? <LoadingMotoniveladora size={340} label="Cargando mantenimiento programado..." />
       : <div style={{ color: C?.textSub }}>Cargando mantenimiento programado…</div>}
@@ -689,7 +732,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
 
   return <div style={{ padding: 16 }}>
     {readOnly && <div style={{padding:"9px 12px",marginBottom:12,borderRadius:8,border:"1px solid rgba(59,130,246,.4)",background:"rgba(59,130,246,.09)",color:"#93c5fd",fontSize:11,fontWeight:700}}>Modo solo lectura: puede consultar la planificación y el historial, pero no registrar ni modificar PM.</div>}
-    {(["dashboard","panel","planificador","gestion"].includes(tab)) && <div style={{ marginBottom: 14, padding: "14px 16px", borderRadius: 12, background: "rgba(0,0,0,.55)", border: `1px solid ${C?.border || "#333"}`, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
+    {(["dashboard","panel","planificador","gestion"].includes(tab)) && <div style={{ marginBottom: 14, padding: "14px 16px", borderRadius: 12, background: tab === "panel" ? "rgba(0,0,0,.72)" : "rgba(0,0,0,.55)", border: `1px solid ${C?.border || "#333"}`, backdropFilter: tab === "panel" ? "none" : "blur(8px)", WebkitBackdropFilter: tab === "panel" ? "none" : "blur(8px)" }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
         <label style={{ display: "grid", gap: 5, color: C?.textMuted, fontSize: 10, fontWeight: 800, textTransform: "uppercase" }}>Mes
           <select value={mesFiltro} onChange={e => aplicarMes(e.target.value)} style={{ ...inputStyle, minWidth: 145 }}>
@@ -804,10 +847,17 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     </div>}
 
     {tab === "panel" && <>
-      <Card title="Estado de mantenimiento programado">
+      <Card
+        title="Estado de mantenimiento programado"
+        style={{
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+          background: "rgba(28,28,28,0.94)",
+        }}
+      >
         <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ fontSize: 11, color: C?.textMuted, marginBottom: 10 }}>Se muestran los equipos con registros ROP02 entre {fechaDesde || "el inicio"} y {fechaHasta || "la última fecha disponible"}. El horómetro actual es el último HF encontrado para cada interno dentro del período.</div>
-        <div style={{ overflowX: "auto", border: `1px solid ${C?.border || "#333"}`, borderRadius: 10 }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}><thead><tr>{["Interno", "Marca y modelo", "Proyecto", "Última actividad", "Horómetro actual", "Último PM", "Hs desde PM", "Próximo PM", "Estado", "Acción"].map(h => <th key={h} style={{ padding: "9px 10px", textAlign: "left", color: C?.textSub, borderBottom: `1px solid ${C?.border}` }}>{h}</th>)}</tr></thead><tbody>
+        <div style={{ overflowX: "auto", border: `1px solid ${C?.border || "#333"}`, borderRadius: 10, contain: "layout paint" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}><thead><tr>{["Interno", "Marca y modelo", "Proyecto", "Última actividad", "Horómetro actual", "Último PM", "Hs desde PM", "Próximo PM", "Estado", "Acción"].map(h => <th key={h} style={{ padding: "9px 10px", textAlign: "left", color: C?.textSub, borderBottom: `1px solid ${C?.border}` }}>{h}</th>)}</tr></thead><tbody>
           {visibles.length === 0 && <tr><td colSpan={10} style={{ padding: 24, textAlign: "center", color: C?.textMuted }}>No hay equipos activos que coincidan con los filtros.</td></tr>}
           {visibles.map(e => <tr key={e.interno}><td style={{ padding: 9, fontWeight: 800, borderBottom: `1px solid ${C?.border}33` }}>{e.interno}</td><td style={{ padding: 9 }}>{[e.marca, e.modelo].filter(Boolean).join(" — ") || marcaModelo(e.equipo)}</td><td style={{ padding: 9 }}>{e.proyecto || "—"}</td><td style={{ padding: 9 }}>{e.ultimaActividad || "—"}</td><td style={{ padding: 9, fontWeight: 700 }}>{fmt(e.horometroActual)}</td><td style={{ padding: 9 }}>{e.horometroUltimoPM ? fmt(e.horometroUltimoPM) : "Sin cargar"}</td><td style={{ padding: 9, fontWeight: 700 }}>{e.horometroUltimoPM ? fmt(e.transcurridas) : "—"}</td><td style={{ padding: 9 }}>{e.proximoPM ? fmt(e.proximoPM) : "—"}</td><td style={{ padding: 9 }}><Badge color={statusColor[e.estado]}>{e.estado}</Badge></td><td style={{ padding: 9 }}><button style={btnStyle} onClick={() => { setRealizado(r => ({ ...r, interno: e.interno, horometro: String(e.horometroActual || "") })); changeTab("realizado"); }}>Realizado</button></td></tr>)}
         </tbody></table></div>
