@@ -7,7 +7,8 @@ import {
   filterOperatorActivity,
   latestOperatorEquipmentRows,
   operatorIdentityKey,
-  operatorShiftCode,\n  titleCaseDisplay,
+  operatorShiftCode,
+  titleCaseDisplay,
 } from "../src/modules/gestion-humana/gestionHumanaData.js";
 
 const rows=[
