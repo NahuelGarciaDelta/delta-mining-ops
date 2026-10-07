@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildOperatorEquipmentSummary,
+  buildOperatorEquipmentSummary,\n  buildOperatorProfile,
   buildOperatorSummary,
   filterOperatorActivity,
   latestOperatorEquipmentRows,
@@ -68,4 +68,21 @@ test("resumen por equipo ordena por horas y conserva última fecha",()=>{
   assert.equal(summary[0].horas,24);
   assert.equal(summary[0].dias,2);
   assert.equal(summary[0].ultimaFecha,"2026-10-04");
+});
+
+
+test("ficha del operador conserva última actividad y resumen del período",()=>{
+  const enriched=rows.filter(row=>row.operario==="Juan Pérez").map(row=>({
+    ...row,
+    tipoEquipo:row._tipo,
+    sitio:row.fecha==="2026-10-04"?"JOSE MARIA LA BREA":"FILO CAMPAMENTO",
+  }));
+  const profile=buildOperatorProfile(enriched);
+  assert.equal(profile.operario,"Juan Pérez");
+  assert.equal(profile.hours,24);
+  assert.equal(profile.days,2);
+  assert.equal(profile.currentMachine,"MOT-001");
+  assert.equal(profile.currentSite,"JOSE MARIA LA BREA");
+  assert.equal(profile.latestDate,"2026-10-04");
+  assert.equal(profile.equipment[0].sitio,"JOSE MARIA LA BREA");
 });

@@ -116,19 +116,27 @@ export function buildOperatorEquipmentSummary(rows){
     if(!key)return;
     const current=map.get(key)||{
       maquina:key,
-      tipo:row._tipo||row.equipo||"",
+      tipo:row.tipoEquipo||row._tipo||row.equipo||"",
       horas:0,
       dias:new Set(),
       proyectos:new Set(),
+      sitios:new Set(),
       ultimaFecha:"",
+      ultimoSitio:"",
+      ultimoProyecto:"",
     };
     current.horas+=Number(row.horas)||0;
     if(row.fecha){
       current.dias.add(row.fecha);
-      if(row.fecha>current.ultimaFecha)current.ultimaFecha=row.fecha;
+      if(row.fecha>=current.ultimaFecha){
+        current.ultimaFecha=row.fecha;
+        current.ultimoSitio=String(row.sitio||row.ubicacion||"").trim();
+        current.ultimoProyecto=String(row.proyecto||"").trim();
+      }
     }
     if(row.proyecto)current.proyectos.add(row.proyecto);
-    if(!current.tipo)current.tipo=row._tipo||row.equipo||"";
+    if(row.sitio||row.ubicacion)current.sitios.add(String(row.sitio||row.ubicacion).trim());
+    if(!current.tipo)current.tipo=row.tipoEquipo||row._tipo||row.equipo||"";
     map.set(key,current);
   });
   return [...map.values()].map(item=>({
@@ -137,8 +145,33 @@ export function buildOperatorEquipmentSummary(rows){
     horas:item.horas,
     dias:item.dias.size,
     ultimaFecha:item.ultimaFecha,
-    proyecto:[...item.proyectos].sort().join(" / "),
+    proyecto:item.ultimoProyecto||[...item.proyectos].sort().join(" / "),
+    sitio:item.ultimoSitio||[...item.sitios].sort().join(" / "),
   })).sort((a,b)=>b.horas-a.horas||a.maquina.localeCompare(b.maquina));
+}
+
+export function buildOperatorProfile(rows){
+  const valid=(rows||[]).filter(isOperatingRecord);
+  if(!valid.length)return null;
+  const latest=valid.reduce((current,row)=>newerRow(current,row),null);
+  const summary=buildOperatorSummary(valid);
+  return{
+    operario:String(latest?.operario||valid[0]?.operario||"").trim(),
+    ...summary,
+    supervisors:[...new Set(valid.map(row=>String(row.supervisor||"").trim()).filter(Boolean))].sort(),
+    shifts:[...new Set(valid.map(row=>operatorShiftCode(row.turno)).filter(Boolean))].sort(),
+    projects:[...new Set(valid.map(row=>String(row.proyecto||"").trim()).filter(Boolean))].sort(),
+    sites:[...new Set(valid.map(row=>String(row.sitio||row.ubicacion||row.proyecto||"").trim()).filter(Boolean))].sort(),
+    latestDate:String(latest?.fecha||""),
+    currentMachine:String(latest?.maquina||""),
+    currentType:String(latest?.tipoEquipo||latest?._tipo||latest?.equipo||""),
+    currentSite:String(latest?.sitio||latest?.ubicacion||latest?.proyecto||""),
+    currentProject:String(latest?.proyecto||""),
+    currentSupervisor:String(latest?.supervisor||""),
+    currentShift:operatorShiftCode(latest?.turno),
+    currentPart:String(latest?.parte||""),
+    equipment:buildOperatorEquipmentSummary(valid),
+  };
 }
 
 export function latestActivityDate(rows){
