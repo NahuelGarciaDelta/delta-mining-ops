@@ -280,7 +280,6 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     {id:"costosMant",label:"Informe de costos",icon:"barChart",color:"#a78bfa"},
     {id:"equipmentProfile",label:"Ficha única",icon:"person",color:"#22c55e"},
     {id:"dashboard",label:"Dashboard ejecutivo",icon:"dashboard",color:"#60a5fa"},
-    {id:"gestionHumanaSitio",label:"Gestión Humana",icon:"usersRound",color:"#ec4899"},
     {id:"licitaciones",label:"Licitaciones",icon:"fileSpreadsheet",color:"#22d3ee"},
     {id:"pmProgramacion",label:"Mantenimiento programado",icon:"calendar",color:"#f97316"},
   ];
