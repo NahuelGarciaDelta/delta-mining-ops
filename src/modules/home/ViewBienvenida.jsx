@@ -247,6 +247,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     {label:"Oficina Técnica",desc:"Planes, ROP, productividad y documentación técnica.",icon:"fileBarChart",color:"#2388ff",module:"oficina",view:"rop02"},
     {label:"Mantenimiento",desc:"OT, preventivos, costos y disponibilidad.",icon:"wrench",color:"#f2a500",module:"mantenimiento",view:"mant"},
     {label:"Calidad",desc:"Inspecciones, no conformidades y KPI.",icon:"shieldCheck",color:"#22c55e",module:"calidad",view:"chc"},
+    {label:"Gestión Humana",desc:"Operadores, actividad, historial y desempeño.",icon:"usersRound",color:"#ec4899",module:"gestionHumana",view:"gestionHumanaSitio"},
     {label:"Abastecimiento",desc:"RABA, remitos, stock y abastecimiento.",icon:"package",color:"#a855f7",module:"abastecimiento",view:"abastecimiento"},
     {label:"Taller Central",desc:"Equipos, repuestos y servicios internos.",icon:"gear",color:"#f97316",module:"tallerCentral",view:"tallerCentral"},
     {label:"Licitaciones",desc:"Ofertas, proyectos y seguimiento.",icon:"fileSpreadsheet",color:"#22d3ee",module:"licitaciones",view:"licitaciones"},
@@ -279,6 +280,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     {id:"costosMant",label:"Informe de costos",icon:"barChart",color:"#a78bfa"},
     {id:"equipmentProfile",label:"Ficha única",icon:"person",color:"#22c55e"},
     {id:"dashboard",label:"Dashboard ejecutivo",icon:"dashboard",color:"#60a5fa"},
+    {id:"gestionHumanaSitio",label:"Gestión Humana",icon:"usersRound",color:"#ec4899"},
     {id:"licitaciones",label:"Licitaciones",icon:"fileSpreadsheet",color:"#22d3ee"},
     {id:"pmProgramacion",label:"Mantenimiento programado",icon:"calendar",color:"#f97316"},
   ];
