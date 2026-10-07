@@ -611,15 +611,22 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   ], []);
 
   const aniosFiltro = useMemo(() => {
+    if (loading) return [2026, 2027, 2028];
     const years = new Set([2026, 2027, 2028]);
     const collectYear = value => {
-      const date = parseDateValue(value);
+      const raw = text(value);
+      const match = raw.match(/^(\d{4})/);
+      if (match) {
+        years.add(Number(match[1]));
+        return;
+      }
+      const date = parseDateValue(raw);
       if (date) years.add(date.getFullYear());
     };
     (rop02All || []).forEach(row => collectYear(row?.fecha || pick(row, ["fecha", "fecha del parte diario", "fecha parte"])));
     (registros || []).forEach(row => collectYear(row?.fecha || pick(row, ["fecha", "fecha pm", "fecha realizado"])));
     return [...years].filter(y => y >= 2020 && y <= 2028).sort((a, b) => a - b);
-  }, [rop02All, registros]);
+  }, [loading, rop02All, registros]);
 
   const aplicarPeriodoMes = (monthValue, yearValue) => {
     if (!monthValue && !yearValue) return;
