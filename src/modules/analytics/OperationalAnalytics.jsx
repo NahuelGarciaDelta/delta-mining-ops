@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { C as UI_C } from "../../components/ui/index.jsx";
 import { getHoursExtremes } from "./hoursExtremes.js";
 import { getMonthlyCutoffRange } from "./monthlyCutoffRange.js";
+import { titleCaseDisplay } from "../gestion-humana/gestionHumanaData.js";
 
 let C=UI_C, Icon, Spinner, Badge, StatCard, Card, Table, Sel, MultiSel, DateIn, PeriodMonthYear, TabBtn, AlertBanner, HelpTip;
 let fmtNum, fmtFecha, uniq, normDate, cleanMachine, canonicalEquivalentMachineCode, isRop02ControlMachineExcluded, dmMatchTipoMaquinaSeleccion, dmTipoMaquinaOptions, matchMulti, multiIsAll, multiIncludes, normalizeMachineCode, getMachineType, isExcluded, excelFromCols, proyColor, semaforo, appAlert;
