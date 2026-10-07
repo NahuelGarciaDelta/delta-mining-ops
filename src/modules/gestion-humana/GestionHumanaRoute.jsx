@@ -61,8 +61,8 @@ function FilterShell({mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFec
   const operatorHasFilter=singleOperator?Boolean(String(operario||"").trim()):!multiIsAll(operario,ALL);
   const hasFilters=!multiIsAll(tipoMaquina,ALL_MACHINES)||!multiIsAll(proyecto,ALL)||!multiIsAll(maquina,ALL_MACHINES)||!multiIsAll(supervisor,ALL)||operatorHasFilter||!multiIsAll(turno,ALL)||(mode==="dia"&&Boolean(fecha))||(mode==="periodo"&&(Boolean(fechaD)||Boolean(fechaH)));
   const operatorControl=singleOperator
-    ?<Sel label="Operario" value={String(operario||"")} onChange={setOperario} options={[{value:"",label:"Seleccionar operador..."},...options.operarios.map(value=>({value,label:value}))]}/>
-    :<MultiSel label="Operario" value={operario} onChange={setOperario} options={[{value:ALL,label:"Todos"},...options.operarios.map(value=>({value,label:value}))]}/>;
+    ?<Sel label="Operario" value={String(operario||"")} onChange={setOperario} options={[{value:"",label:"Seleccionar operador..."},...options.operarios.map(value=>({value,label:titleCaseDisplay(value)}))]}/>
+    :<MultiSel label="Operario" value={operario} onChange={setOperario} options={[{value:ALL,label:"Todos"},...options.operarios.map(value=>({value,label:titleCaseDisplay(value)}))]}/>;
   return(
     <Card>
       <div style={{padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
@@ -75,10 +75,10 @@ function FilterShell({mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFec
             ?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>
             :<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
           {singleOperator&&operatorControl}
-          <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{setTipoMaquina(value);setMaquina(ALL_MACHINES);}} options={dmTipoMaquinaOptions()}/>
+          <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{setTipoMaquina(value);setMaquina(ALL_MACHINES);}} options={dmTipoMaquinaOptions().map(option=>({...option,label:titleCaseDisplay(option.label)}))}/>
           <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:ALL,label:"Todos"},...options.proyectos.map(value=>({value,label:value}))]}/>
-          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:ALL_MACHINES,label:"Todos"},...options.maquinas.filter(value=>multiIsAll(tipoMaquina,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(value,tipoMaquina)).map(value=>({value,label:value}))]}/>
-          <MultiSel label="Supervisor" value={supervisor} onChange={setSupervisor} options={[{value:ALL,label:"Todos"},...options.supervisores.map(value=>({value,label:value}))]}/>
+          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:ALL_MACHINES,label:"Todos"},...options.maquinas.filter(value=>multiIsAll(tipoMaquina,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(value,tipoMaquina)).map(value=>({value,label:titleCaseDisplay(value)}))]}/>
+          <MultiSel label="Supervisor" value={supervisor} onChange={setSupervisor} options={[{value:ALL,label:"Todos"},...options.supervisores.map(value=>({value,label:titleCaseDisplay(value)}))]}/>
           {!singleOperator&&operatorControl}
           <MultiSel label="Turno" value={turno} onChange={setTurno} options={[{value:ALL,label:"Todos"},{value:"TD",label:"TD"},{value:"TN",label:"TN"}]}/>
           <button onClick={onReset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hasFilters?1:.3,pointerEvents:hasFilters?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
@@ -153,14 +153,14 @@ function OperadoresEnSitio({rop02All,listaEquipos}){
   }),[currentRows]);
 
   const cols=useMemo(()=>[
-    {key:"operario",label:"Operador",wrap:true},
+    {key:"operario",label:"Operador",render:value=><span>{titleCaseDisplay(value)}</span>,wrap:true},
     {key:"maquina",label:"Equipo",render:value=><Badge color={C.purple}>{value}</Badge>},
-    {key:"tipoEquipo",label:"Tipo de equipo",render:value=><ColorTag value={value} color={equipmentTypeColor(value)}/>},
+    {key:"tipoEquipo",label:"Tipo de equipo",render:value=><ColorTag value={titleCaseDisplay(value)} color={equipmentTypeColor(value)}/>},
     {key:"proyecto",label:"Proyecto",render:value=><Badge color={proyColor(value)}>{value||"—"}</Badge>},
     {key:"sitio",label:"Sitio / ubicación",render:value=><ColorTag value={value} color={stableTone(value)}/>},
     {key:"fecha",label:"Fecha",render:value=>fmtFecha(value)},
     {key:"turnoCodigo",label:"Turno",render:value=><Badge color={value==="TN"?C.purple:C.blue}>{value}</Badge>},
-    {key:"supervisor",label:"Supervisor",wrap:true},
+    {key:"supervisor",label:"Supervisor",render:value=><span>{titleCaseDisplay(value)}</span>,wrap:true},
     {key:"parte",label:"Parte"},
     {key:"horas",label:"Horas",render:value=><span style={{color:C.accent,fontWeight:700}}>{fmtNum(value)}</span>},
   ],[]);
@@ -227,9 +227,9 @@ function HistorialOperadores({rop02All,listaEquipos}){
     {key:"turnoCodigo",label:"Turno",render:value=><Badge color={value==="TN"?C.purple:C.blue}>{value}</Badge>},
     {key:"proyecto",label:"Proyecto",render:value=><Badge color={proyColor(value)}>{value||"—"}</Badge>},
     {key:"maquina",label:"Equipo",render:value=><Badge color={C.purple}>{value}</Badge>},
-    {key:"tipoEquipo",label:"Tipo de equipo",render:value=><ColorTag value={value} color={equipmentTypeColor(value)}/>},
+    {key:"tipoEquipo",label:"Tipo de equipo",render:value=><ColorTag value={titleCaseDisplay(value)} color={equipmentTypeColor(value)}/>},
     {key:"sitio",label:"Sitio / ubicación",render:value=><ColorTag value={value} color={stableTone(value)}/>},
-    {key:"supervisor",label:"Supervisor",wrap:true},
+    {key:"supervisor",label:"Supervisor",render:value=><span>{titleCaseDisplay(value)}</span>,wrap:true},
     {key:"parte",label:"Parte"},
     {key:"horometroInicial",label:"HI",render:value=>fmtNum(value)},
     {key:"horometroFinal",label:"HF",render:value=>fmtNum(value)},
@@ -240,7 +240,7 @@ function HistorialOperadores({rop02All,listaEquipos}){
 
   const equipmentCols=useMemo(()=>[
     {key:"maquina",label:"Equipo",render:value=><Badge color={C.purple}>{value}</Badge>},
-    {key:"tipo",label:"Tipo",render:value=><ColorTag value={value} color={equipmentTypeColor(value)}/>},
+    {key:"tipo",label:"Tipo",render:value=><ColorTag value={titleCaseDisplay(value)} color={equipmentTypeColor(value)}/>},
     {key:"horas",label:"Horas",render:value=><span style={{color:C.accent,fontWeight:700}}>{fmtNum(value)}</span>},
     {key:"dias",label:"Días"},
     {key:"ultimaFecha",label:"Última fecha",render:value=>fmtFecha(value)},
@@ -281,13 +281,13 @@ function HistorialOperadores({rop02All,listaEquipos}){
                 <div style={{width:48,height:48,borderRadius:14,background:C.accent+"1f",border:`1px solid ${C.accent}55`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><Icon name="usersRound" size={23} color={C.accent}/></div>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:10,fontWeight:900,letterSpacing:".1em",textTransform:"uppercase",color:C.textMuted}}>Ficha del operador</div>
-                  <div style={{fontSize:21,fontWeight:900,color:C.text,marginTop:2,whiteSpace:"normal"}}>{profile.operario}</div>
+                  <div style={{fontSize:21,fontWeight:900,color:C.text,marginTop:2,whiteSpace:"normal"}}>{titleCaseDisplay(profile.operario)}</div>
                   <div style={{fontSize:11,color:C.textSub,marginTop:4}}>Última actividad registrada: <strong style={{color:C.text}}>{fmtFecha(profile.latestDate)}</strong> · {profile.currentShift}</div>
                 </div>
               </div>
               <div style={{display:"flex",gap:7,flexWrap:"wrap",justifyContent:"flex-end"}}>
                 <Badge color={proyColor(profile.currentProject)}>{profile.currentProject||"Sin proyecto"}</Badge>
-                <ColorTag value={profile.currentType} color={equipmentTypeColor(profile.currentType)}/>
+                <ColorTag value={titleCaseDisplay(profile.currentType)} color={equipmentTypeColor(profile.currentType)}/>
                 <ColorTag value={profile.currentSite} color={stableTone(profile.currentSite)}/>
               </div>
             </div>
@@ -295,14 +295,14 @@ function HistorialOperadores({rop02All,listaEquipos}){
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:9}}>
               <ProfileFact label="Último equipo"><Badge color={C.purple}>{profile.currentMachine||"—"}</Badge></ProfileFact>
               <ProfileFact label="Ubicación actual"><ColorTag value={profile.currentSite} color={stableTone(profile.currentSite)}/></ProfileFact>
-              <ProfileFact label="Supervisor actual">{profile.currentSupervisor||"—"}</ProfileFact>
+              <ProfileFact label="Supervisor actual">{titleCaseDisplay(profile.currentSupervisor)||"—"}</ProfileFact>
               <ProfileFact label="Último parte">{profile.currentPart||"—"}</ProfileFact>
             </div>
 
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:9}}>
               <ProfileFact label="Proyectos del período"><TagList values={profile.projects}/></ProfileFact>
               <ProfileFact label="Turnos trabajados"><TagList values={profile.shifts}/></ProfileFact>
-              <ProfileFact label="Supervisores del período"><TagList values={profile.supervisors}/></ProfileFact>
+              <ProfileFact label="Supervisores del período"><TagList values={profile.supervisors} formatValue={titleCaseDisplay}/></ProfileFact>
             </div>
           </div>
         </Card>

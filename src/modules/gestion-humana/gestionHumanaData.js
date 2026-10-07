@@ -2,6 +2,15 @@ function stripAccents(value){
   return String(value??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 }
 
+export function titleCaseDisplay(value){
+  const raw=String(value??"").trim().replace(/\s+/g," ");
+  if(!raw)return "";
+  // Mantener códigos de equipo/identificadores (PCA-0101, MOT-0047, etc.).
+  if(/^[A-Z]{2,5}[- ]?\d{2,5}(?:[- ][A-Z0-9]{1,4})?$/i.test(raw))return raw.toUpperCase();
+  const lower=raw.toLocaleLowerCase("es-AR");
+  return lower.replace(/(^|[\s'’/-])([a-záéíóúüñ])/g,(_,sep,char)=>sep+char.toLocaleUpperCase("es-AR"));
+}
+
 export function operatorIdentityKey(value){
   return stripAccents(value).trim().replace(/\s+/g," ").toUpperCase();
 }

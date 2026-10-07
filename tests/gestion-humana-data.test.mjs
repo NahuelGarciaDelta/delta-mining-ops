@@ -7,7 +7,7 @@ import {
   filterOperatorActivity,
   latestOperatorEquipmentRows,
   operatorIdentityKey,
-  operatorShiftCode,
+  operatorShiftCode,\n  titleCaseDisplay,
 } from "../src/modules/gestion-humana/gestionHumanaData.js";
 
 const rows=[
@@ -102,4 +102,14 @@ test("selector singular de operador filtra sólo la persona elegida con matchMul
   });
   assert.equal(filtered.length,3);
   assert.ok(filtered.every(row=>row.operario===selected));
+});
+
+
+test("normaliza nombres y tipos para presentación sin alterar códigos de equipo",()=>{
+  assert.equal(titleCaseDisplay("PIERSANTINI GASTON"),"Piersantini Gaston");
+  assert.equal(titleCaseDisplay("GODOY JORGE ELIAZAR"),"Godoy Jorge Eliazar");
+  assert.equal(titleCaseDisplay("CARGADOR FRONTAL"),"Cargador Frontal");
+  assert.equal(titleCaseDisplay("MOTONIVELADORA"),"Motoniveladora");
+  assert.equal(titleCaseDisplay("PCA-0101"),"PCA-0101");
+  assert.equal(titleCaseDisplay("mot-0047"),"MOT-0047");
 });
