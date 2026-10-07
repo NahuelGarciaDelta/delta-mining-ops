@@ -6,6 +6,7 @@ const app=fs.readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
 const home=fs.readFileSync(new URL("../src/modules/home/ViewBienvenida.jsx",import.meta.url),"utf8");
 const sources=fs.readFileSync(new URL("../src/config/viewSources.js",import.meta.url),"utf8");
 const access=fs.readFileSync(new URL("../src/app/viewAccess.js",import.meta.url),"utf8");
+const route=fs.readFileSync(new URL("../src/modules/gestion-humana/GestionHumanaRoute.jsx",import.meta.url),"utf8");
 
 test("Gestión Humana está integrada en home y navegación",()=>{
   assert.match(home,/label:"Gestión Humana"/);
@@ -33,4 +34,10 @@ test("Gestión Humana usa el sistema de áreas existente",()=>{
   assert.match(access,/gestionHumanaSitio: "GESTIÓN HUMANA"/);
   assert.match(access,/gestionHumanaHistorial: "GESTIÓN HUMANA"/);
   assert.match(access,/gestionHumanaRanking: "GESTIÓN HUMANA"/);
+});
+
+
+test("Gestión Humana no duplica navegación con una barra superior interna",()=>{
+  assert.doesNotMatch(route,/tabs\.map\(tab=>/);
+  assert.doesNotMatch(route,/>Gestión Humana<\/span>/);
 });

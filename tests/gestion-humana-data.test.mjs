@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  buildOperatorEquipmentSummary,\n  buildOperatorProfile,
+  buildOperatorEquipmentSummary,
+  buildOperatorProfile,
   buildOperatorSummary,
   filterOperatorActivity,
   latestOperatorEquipmentRows,

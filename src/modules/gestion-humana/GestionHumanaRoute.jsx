@@ -9,7 +9,7 @@ import {
 } from "../../shared/domain/index.jsx";
 import {ViewRankingOperarios} from "../analytics/index.js";
 import {
-  buildOperatorEquipmentSummary,buildOperatorSummary,filterOperatorActivity,
+  buildOperatorProfile,filterOperatorActivity,
   isOperatingRecord,latestActivityDate,latestOperatorEquipmentRows,operatorShiftCode
 } from "./gestionHumanaData.js";
 
