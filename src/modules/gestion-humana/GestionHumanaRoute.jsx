@@ -10,7 +10,7 @@ import {
 import {ViewRankingOperarios} from "../analytics/index.js";
 import {
   buildOperatorProfile,filterOperatorActivity,
-  isOperatingRecord,latestActivityDate,latestOperatorEquipmentRows,operatorShiftCode
+  isOperatingRecord,latestActivityDate,latestOperatorEquipmentRows,operatorShiftCode,titleCaseDisplay
 } from "./gestionHumanaData.js";
 
 const ALL="todos";
@@ -52,9 +52,9 @@ function ProfileFact({label,children}){
   </div>;
 }
 
-function TagList({values=[]}){
+function TagList({values=[],formatValue=value=>value}){
   if(!values.length)return <span style={{color:C.textMuted}}>—</span>;
-  return <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{values.map(value=><ColorTag key={value} value={value}/>)}</div>;
+  return <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{values.map(value=><ColorTag key={value} value={formatValue(value)}/>)}</div>;
 }
 
 function FilterShell({mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,tipoMaquina,setTipoMaquina,proyecto,setProyecto,maquina,setMaquina,supervisor,setSupervisor,operario,setOperario,turno,setTurno,options,onReset,singleOperator=false}){

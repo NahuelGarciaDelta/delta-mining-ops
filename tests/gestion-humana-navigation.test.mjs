@@ -41,3 +41,9 @@ test("Gestión Humana no duplica navegación con una barra superior interna",()=
   assert.doesNotMatch(route,/tabs\.map\(tab=>/);
   assert.doesNotMatch(route,/>Gestión Humana<\/span>/);
 });
+
+
+test("Gestión Humana importa el helper de presentación que usa en runtime",()=>{
+  assert.match(route,/operatorShiftCode,titleCaseDisplay\s*\}\s*from "\.\/gestionHumanaData\.js"/);
+  assert.match(route,/titleCaseDisplay\(value\)/);
+});
