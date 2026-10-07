@@ -1,9 +1,9 @@
 import React,{useEffect,useMemo,useState} from "react";
 import {
-  C,Card,StatCard,Table,Badge,MultiSel,DateIn,PeriodMonthYear,TabBtn,Icon
+  C,Card,StatCard,Table,Badge,MultiSel,DateIn,PeriodMonthYear,TabBtn,Icon,matchMulti,multiIsAll
 } from "../../components/ui/index.jsx";
 import {
-  fmtFecha,fmtNum,uniq,proyColor,matchMulti,multiIsAll,
+  fmtFecha,fmtNum,uniq,proyColor,
   dmTipoMaquinaOptions,dmMatchTipoMaquinaSeleccion,
   buildListaEquipoInfoIndex,getListaEquipoInfoMatch,excelFromCols
 } from "../../shared/domain/index.jsx";
