@@ -15,6 +15,7 @@ const AREA_RULES = {
   CALIDAD: EDIT,
   "TALLER CENTRAL": EDIT,
   LICITACIONES: APPROVE,
+  "GESTION HUMANA": READ_ONLY,
   ADMINISTRACION: READ_ONLY,
 };
 
@@ -44,6 +45,6 @@ export function can(action, targetArea, identity) {
 }
 
 export function getPermissionSnapshot(identity = getCurrentUserIdentity()) {
-  const areas = ["OFICINA TÉCNICA", "MANTENIMIENTO", "ABASTECIMIENTO", "CALIDAD", "TALLER CENTRAL", "LICITACIONES"];
+  const areas = ["OFICINA TÉCNICA", "MANTENIMIENTO", "ABASTECIMIENTO", "CALIDAD", "TALLER CENTRAL", "LICITACIONES", "GESTIÓN HUMANA"];
   return Object.fromEntries(areas.map((area) => [area, [...getPermissionsForArea(area, identity)]]));
 }

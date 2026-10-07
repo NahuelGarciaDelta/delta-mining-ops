@@ -5,6 +5,7 @@ import { AbastecimientoRoute } from "./modules/abastecimiento/index.js";
 import { MantenimientoRoute } from "./modules/mantenimiento/index.js";
 import { LicitacionesRoute } from "./modules/licitaciones/index.js";
 import { OficinaTecnicaRoute } from "./modules/oficina-tecnica/index.js";
+import { GestionHumanaRoute } from "./modules/gestion-humana/index.js";
 import UserSettingsModal from "./components/UserSettingsModal.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
 import { APPS_SCRIPT_URL } from "./config/app.js";
@@ -31,7 +32,7 @@ import { resolveEquipmentCodeAlias } from "./modules/equipment/equipmentCode.js"
 import { Login } from "./modules/auth/index.js";
 import { ViewBienvenida, ExecutiveDashboard } from "./modules/home/index.js";
 import { dmNormalizeArea } from "./shared/access.js";
-import { ViewCostosUnitarios, ViewRankingOperarios, ViewCambiosTurno } from "./modules/analytics/index.js";
+import { ViewCostosUnitarios, ViewCambiosTurno } from "./modules/analytics/index.js";
 import ReactDOM from "react-dom";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
@@ -733,7 +734,6 @@ export default function App(){
     {id:"grp_rop05",icon:"prod",label:"ROP05",type:"group",color:C.green,children:[
       {id:"rop05",icon:"prod",label:"Productividad"},
       {id:"rop05Discriminacion",icon:"listTree",label:"Discriminación por tarea"},
-      {id:"ranking",icon:"medal",label:"Ranking Operarios"},
     ]},
     {id:"grp_rma15",icon:"gear",label:"RMA15",type:"group",color:C.yellow,children:[
       {id:"mant",icon:"wrench",label:"Mantenimiento"},
@@ -746,7 +746,7 @@ export default function App(){
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",equipmentProfile:"Ficha única del equipo",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",ranking:"Ranking de Operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",pmProgramado:"Mantenimiento Programado",pmDashboard:"Mantenimiento Programado — Dashboard",pmPlanificador:"Mantenimiento Programado — Planificador",pmProgramacion:"Mantenimiento Programado — Programación",pmPanel:"Mantenimiento Programado — Panel de flota",pmRealizado:"Mantenimiento Programado — Registrar realizado",pmRepuestos:"Mantenimiento Programado — Repuestos",pmGestion:"Mantenimiento Programado — Gestión y alertas",pmConfig:"Mantenimiento Programado — Configuración",pmHistorial:"Mantenimiento Programado — Historial",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",equipmentProfile:"Ficha única del equipo",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",gestionHumanaSitio:"Operadores en sitio",gestionHumanaHistorial:"Historial de operadores",gestionHumanaRanking:"Ranking de operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",pmProgramado:"Mantenimiento Programado",pmDashboard:"Mantenimiento Programado — Dashboard",pmPlanificador:"Mantenimiento Programado — Planificador",pmProgramacion:"Mantenimiento Programado — Programación",pmPanel:"Mantenimiento Programado — Panel de flota",pmRealizado:"Mantenimiento Programado — Registrar realizado",pmRepuestos:"Mantenimiento Programado — Repuestos",pmGestion:"Mantenimiento Programado — Gestión y alertas",pmConfig:"Mantenimiento Programado — Configuración",pmHistorial:"Mantenimiento Programado — Historial",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
   titles.cambiosTurno="Control de horas mensuales";
   const titleHelp={
     equipmentProfile:"Ficha transversal por interno: integra Lista Maestra, ROP02, ROP05, RMA15, PM, costos y estado operativo.",
@@ -760,7 +760,9 @@ export default function App(){
     combustible:"Análisis de litros de combustible cargados por equipo, proyecto y período, con ranking de consumo.",
     cambiosTurno:"Control mensual de horas acumuladas por equipo y calendario de rotación de supervisores en el período 26 al 25.",
     rop05:"ROP05 = Reporte de Producción: cantidad y tipo de trabajo productivo realizado por cada equipo (m³, m², horas, etc.).",
-    ranking:"Ranking de operarios según horas trabajadas, días activos y equipos operados.",
+    gestionHumanaSitio:"Operadores con actividad registrada, equipo asignado y sitio del equipo según Lista Maestra/ROP02.",
+    gestionHumanaHistorial:"Historial por operador: horas, fechas, equipos, proyectos, turnos y tareas registradas.",
+    gestionHumanaRanking:"Ranking de operarios según horas trabajadas, días activos y equipos operados.",
     chc:"ICHC = Indicador de Control de Horas Contratadas: compara las horas efectivamente trabajadas contra las horas pactadas por contrato (180 hs/mes por equipo).",
     mant:"RMA15 = Registro de Mantenimiento: órdenes de trabajo (OT), insumos y costos de mantenimiento de cada equipo.",
     distMant:"Calendario mensual de mantenimientos preventivos y correctivos por equipo. Incluye KPI de correctivos realizados pocos días después de un preventivo.",
@@ -812,6 +814,14 @@ export default function App(){
       return [
         {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
         {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
+      ];
+    }
+    if(activeModule==="gestionHumana"){
+      return [
+        {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"gestionHumanaSitio",icon:"usersRound",label:"Operadores en sitio",type:"item",color:C.accent},
+        {id:"gestionHumanaHistorial",icon:"clipboardList",label:"Historial de operadores",type:"item",color:C.blue},
+        {id:"gestionHumanaRanking",icon:"medal",label:"Ranking de operarios",type:"item",color:C.yellow},
       ];
     }
     if(activeModule==="mantenimiento"){
@@ -1068,7 +1078,7 @@ export default function App(){
                   stCHC={stCHC} setStCHC={setStCHC} stCtrl={stCtrl} setStCtrl={setStCtrl}
                 /></ModuleErrorBoundary>}
                 {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Control de horas mensuales" onRetry={loadData}><ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando control de horas mensuales..." />)}
-                {view==="ranking"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Ranking de Operarios" onRetry={loadData}><ViewRankingOperarios deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All} rop05={rop05} extState={stRanking} setExtState={setStRanking}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Ranking..." />)}
+                {["gestionHumanaSitio","gestionHumanaHistorial","gestionHumanaRanking"].includes(view)&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Gestión Humana" onRetry={loadData}><GestionHumanaRoute view={view} rop02All={rop02All} rop05={rop05} listaEquipos={listaEquipos} rankingDeps={OPERATIONAL_ANALYTICS_DEPS} rankingState={stRanking} setRankingState={setStRanking} onNavigate={navigateToView}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Gestión Humana..." />)}
                 {view==="mant"&&(viewDataReady?<ModuleErrorBoundary name="Mantenimiento" onRetry={loadData}><MantenimientoRoute mode="mantenimiento" deps={MANTENIMIENTO_DEPS} rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando" />)}
                 {view==="distMant"&&(dataHydrated&&rma15.length>0?<ModuleErrorBoundary name="Distribución de mantenimientos" onRetry={loadData}><MantenimientoRoute mode="distribucion" deps={MANTENIMIENTO_DEPS} rma15={rma15}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
                 {["pmProgramado","pmDashboard","pmPlanificador","pmProgramacion","pmPanel","pmRealizado","pmRepuestos","pmGestion","pmConfig","pmHistorial"].includes(view)&&(dataHydrated&&listaEquipos.length>0?<ModuleErrorBoundary name="Mantenimiento Programado" onRetry={loadData}><MantenimientoRoute mode="programado" readOnly={!can("edit","MANTENIMIENTO")} deps={MANTENIMIENTO_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} initialTab={({pmProgramado:"dashboard",pmDashboard:"dashboard",pmPlanificador:"planificador",pmProgramacion:"programacion",pmPanel:"panel",pmRealizado:"realizado",pmRepuestos:"repuestos",pmGestion:"gestion",pmConfig:"config",pmHistorial:"historial"})[view]} onTabChange={tab=>navigateToView(({dashboard:"pmDashboard",planificador:"pmPlanificador",programacion:"pmProgramacion",panel:"pmPanel",realizado:"pmRealizado",repuestos:"pmRepuestos",gestion:"pmGestion",config:"pmConfig",historial:"pmHistorial"})[tab]||"pmDashboard")}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
