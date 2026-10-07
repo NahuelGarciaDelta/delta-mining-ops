@@ -804,10 +804,17 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     </div>}
 
     {tab === "panel" && <>
-      <Card title="Estado de mantenimiento programado">
+      <Card
+        title="Estado de mantenimiento programado"
+        style={{
+          backdropFilter: "none",
+          WebkitBackdropFilter: "none",
+          background: "rgba(28,28,28,0.94)",
+        }}
+      >
         <div style={{ padding: "14px 16px 16px" }}>
         <div style={{ fontSize: 11, color: C?.textMuted, marginBottom: 10 }}>Se muestran los equipos con registros ROP02 entre {fechaDesde || "el inicio"} y {fechaHasta || "la última fecha disponible"}. El horómetro actual es el último HF encontrado para cada interno dentro del período.</div>
-        <div style={{ overflowX: "auto", border: `1px solid ${C?.border || "#333"}`, borderRadius: 10 }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}><thead><tr>{["Interno", "Marca y modelo", "Proyecto", "Última actividad", "Horómetro actual", "Último PM", "Hs desde PM", "Próximo PM", "Estado", "Acción"].map(h => <th key={h} style={{ padding: "9px 10px", textAlign: "left", color: C?.textSub, borderBottom: `1px solid ${C?.border}` }}>{h}</th>)}</tr></thead><tbody>
+        <div style={{ overflowX: "auto", border: `1px solid ${C?.border || "#333"}`, borderRadius: 10, contain: "layout paint" }}><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}><thead><tr>{["Interno", "Marca y modelo", "Proyecto", "Última actividad", "Horómetro actual", "Último PM", "Hs desde PM", "Próximo PM", "Estado", "Acción"].map(h => <th key={h} style={{ padding: "9px 10px", textAlign: "left", color: C?.textSub, borderBottom: `1px solid ${C?.border}` }}>{h}</th>)}</tr></thead><tbody>
           {visibles.length === 0 && <tr><td colSpan={10} style={{ padding: 24, textAlign: "center", color: C?.textMuted }}>No hay equipos activos que coincidan con los filtros.</td></tr>}
           {visibles.map(e => <tr key={e.interno}><td style={{ padding: 9, fontWeight: 800, borderBottom: `1px solid ${C?.border}33` }}>{e.interno}</td><td style={{ padding: 9 }}>{[e.marca, e.modelo].filter(Boolean).join(" — ") || marcaModelo(e.equipo)}</td><td style={{ padding: 9 }}>{e.proyecto || "—"}</td><td style={{ padding: 9 }}>{e.ultimaActividad || "—"}</td><td style={{ padding: 9, fontWeight: 700 }}>{fmt(e.horometroActual)}</td><td style={{ padding: 9 }}>{e.horometroUltimoPM ? fmt(e.horometroUltimoPM) : "Sin cargar"}</td><td style={{ padding: 9, fontWeight: 700 }}>{e.horometroUltimoPM ? fmt(e.transcurridas) : "—"}</td><td style={{ padding: 9 }}>{e.proximoPM ? fmt(e.proximoPM) : "—"}</td><td style={{ padding: 9 }}><Badge color={statusColor[e.estado]}>{e.estado}</Badge></td><td style={{ padding: 9 }}><button style={btnStyle} onClick={() => { setRealizado(r => ({ ...r, interno: e.interno, horometro: String(e.horometroActual || "") })); changeTab("realizado"); }}>Realizado</button></td></tr>)}
         </tbody></table></div>
