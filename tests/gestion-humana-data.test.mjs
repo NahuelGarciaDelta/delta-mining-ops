@@ -87,3 +87,19 @@ test("ficha del operador conserva última actividad y resumen del período",()=>
   assert.equal(profile.latestDate,"2026-10-04");
   assert.equal(profile.equipment[0].sitio,"JOSE MARIA LA BREA");
 });
+
+
+test("selector singular de operador filtra sólo la persona elegida con matchMulti de UI",()=>{
+  const uiMatchMulti=(item,value,def="todos")=>{
+    if(!Array.isArray(value))return true;
+    return value.includes(item)||value.includes(def);
+  };
+  const selected="Juan Pérez";
+  const filtered=filterOperatorActivity(rows,{
+    mode:"periodo",
+    operario:[selected],
+    matchMulti:uiMatchMulti,
+  });
+  assert.equal(filtered.length,3);
+  assert.ok(filtered.every(row=>row.operario===selected));
+});

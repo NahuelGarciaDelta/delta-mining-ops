@@ -203,11 +203,16 @@ function HistorialOperadores({rop02All,listaEquipos}){
   const[operario,setOperario]=useState("");
   const[turno,setTurno]=useState(ALL);
 
+  const operatorSelected=Boolean(String(operario||"").trim());
   const filtered=useMemo(()=>filterOperatorActivity(rop02All,{
-    mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,turno,tipoMaquina,
+    mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,
+    // FilterShell usa Sel para un único operador. matchMulti interpreta los
+    // strings no-array como "Todos", por eso el valor debe viajar como array.
+    operario:operatorSelected?[operario]:ALL,
+    turno,tipoMaquina,
     matchMulti,
     machineMatches:(machine,type)=>multiIsAll(type,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(machine,type),
-  }),[rop02All,mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,turno,tipoMaquina]);
+  }),[rop02All,mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,operatorSelected,turno,tipoMaquina]);
 
   const sortedRows=useMemo(()=>[...filtered].sort((a,b)=>
     String(b.fecha||"").localeCompare(String(a.fecha||""))||
@@ -216,7 +221,6 @@ function HistorialOperadores({rop02All,listaEquipos}){
   ).map(row=>enrichOperatorRow(row,locationIndex)),[filtered,locationIndex]);
   const profile=useMemo(()=>buildOperatorProfile(sortedRows),[sortedRows]);
   const equipmentSummary=profile?.equipment||[];
-  const operatorSelected=Boolean(String(operario||"").trim());
 
   const historyCols=useMemo(()=>[
     {key:"fecha",label:"Fecha",render:value=>fmtFecha(value)},
