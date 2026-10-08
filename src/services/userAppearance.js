@@ -1,3 +1,14 @@
+export const C={
+  bg:"#0d0d0d",surface:"#161616",card:"#1c1c1c",border:"#2a2a2a",borderLight:"#333333",
+  accent:"#e8001d",accentDim:"rgba(232,0,29,0.12)",
+  teal:"#06b6d4",tealDim:"rgba(6,182,212,0.12)",
+  blue:"#3b82f6",blueDim:"rgba(59,130,246,0.12)",
+  purple:"#a855f7",purpleDim:"rgba(168,85,247,0.12)",
+  red:"#e8001d",redDim:"rgba(232,0,29,0.12)",
+  yellow:"#f59e0b",yellowDim:"rgba(245,158,11,0.12)",
+  green:"#22c55e",greenDim:"rgba(34,197,94,0.12)",
+  text:"#f0f0f0",textMuted:"#666666",textSub:"#999999",
+};
 export const DEFAULT_APPEARANCE=Object.freeze({accent:"red",background:"operations",backgroundCustom:"",backgroundCustomName:"",savedBackgrounds:[],backgroundDim:48,backgroundBlur:0,panelOpacity:55,density:"normal",scale:"normal",sidebar:"remember",reducedMotion:false});
 export const APPEARANCE_ACCENTS=Object.freeze([{id:"red",label:"Rojo Delta",hex:"#e8001d"},{id:"blue",label:"Azul",hex:"#3b82f6"},{id:"cyan",label:"Celeste",hex:"#06b6d4"},{id:"green",label:"Verde",hex:"#22c55e"},{id:"orange",label:"Naranja",hex:"#f59e0b"},{id:"purple",label:"Violeta",hex:"#a855f7"}]);
 export const APPEARANCE_BACKGROUNDS=Object.freeze([{id:"operations",label:"Cordillera",src:"/img/embedded/home-welcome-b80067ac.jpg",previewFit:"cover"},{id:"login",label:"Delta",src:"/img/embedded/home-inline-0c79147d.png",previewFit:"contain"},{id:"none",label:"Sin imagen",src:"",previewFit:"cover"}]);
