@@ -62,7 +62,7 @@ jobs:
           grep "^not ok " test-output.log >> "$GITHUB_STEP_SUMMARY" || true
           echo "Test totals:" >> "$GITHUB_STEP_SUMMARY"
           grep "^# \\(tests\\|pass\\|fail\\)" test-output.log >> "$GITHUB_STEP_SUMMARY" || true
-          grep "^not ok " test-output.log || true
+          grep -A 18 "^not ok " test-output.log | head -n 450 || true
           tail -n 15 test-output.log || true
       - name: Upload complete diagnostic logs
         if: always()
