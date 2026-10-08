@@ -78,7 +78,7 @@ function FilterShell({mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFec
           {singleOperator&&operatorControl}
           <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{setTipoMaquina(value);setMaquina(ALL_MACHINES);}} options={gestionHumanaTipoMaquinaOptions(dmTipoMaquinaOptions()).map(option=>({...option,label:titleCaseDisplay(option.label)}))}/>
           <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:ALL,label:"Todos"},...options.proyectos.map(value=>({value,label:value}))]}/>
-          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:ALL_MACHINES,label:"Todos"},...options.maquinas.filter(value=>multiIsAll(tipoMaquina,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(value,tipoMaquina)).map(value=>({value,label:titleCaseDisplay(value)}))]}/>
+          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:ALL_MACHINES,label:"Todos"},...options.maquinas.filter(value=>gestionHumanaMatchTipoMaquina(value,tipoMaquina,null,dmMatchTipoMaquinaSeleccion)).map(value=>({value,label:titleCaseDisplay(value)}))]}/>
           <MultiSel label="Supervisor" value={supervisor} onChange={setSupervisor} options={[{value:ALL,label:"Todos"},...options.supervisores.map(value=>({value,label:titleCaseDisplay(value)}))]}/>
           {!singleOperator&&operatorControl}
           <MultiSel label="Turno" value={turno} onChange={setTurno} options={[{value:ALL,label:"Todos"},{value:"TD",label:"TD"},{value:"TN",label:"TN"}]}/>
