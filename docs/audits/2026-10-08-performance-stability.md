@@ -114,3 +114,24 @@ Un único efecto de `App.jsx` dependía del objeto completo `rawSources` y reeje
 **Validación:** la ejecución focalizada para el código previo a la ampliación del workflow (`d494abb`) finalizó PASS; la ejecución del commit de CI `9cd9562` debe verificarse separadamente antes de aprobar esta intervención. No se ejecutó `npm test` completo, medición en navegador ni mediciones productivas; no se afirman aceleraciones numéricas.
 
 **Riesgos pendientes:** carga integral con sesión real, revisiones de todos los componentes y transformadores de Vite, incompatibilidades históricas en pruebas de Apps Script, resultados reproducibles de `npm test` y revisión de posible superposición del refresco automático. Sin merge, deploy manual ni cambios de datos productivos.
+
+### Auditoría final solicitada — ejecución completa en GitHub Actions (2026-10-08)
+
+**Evidencia reproducible:** [Run 37821985493](https://github.com/NahuelGarciaDelta/delta-mining-ops/actions/runs/37821985493) del commit `aed93ac`. El workflow incorporó `full-suite-diagnostic` con `npm run lint:eslint`, `npm test`, resumen de fallos y artefactos descargables; el `continue-on-error` se aplica únicamente a las comprobaciones diagnósticas y **no significa que la suite haya pasado**.
+
+**Resultados reales de Linux:** la suite ejecutó **298 pruebas: 276 PASS, 22 FAIL**. `npm run lint:eslint` finalizó con código 0, aunque conserva advertencias heredadas. El job de checks focalizados y build Linux finalizó PASS. Estos son resultados de CI, no mediciones de navegador ni evaluación E2E de los módulos.
+
+**Pruebas fallidas identificadas en los logs (22):**
+- Atraso: snapshot/ventana reciente, visibilidad de equipos TOP-0036/PCA-0021, separación equipo/proyecto.
+- Dashboard/Inicio: resumen diferido, fechas ISO/DD/MM/YYYY, limpieza de filtro global, reemplazo React de tabla, fuente Bienvenida, consulta resumen mensual, alcance del Dashboard Gerencial.
+- Movimientos de equipos: TOP-0072 inferidos.
+- Gestión Humana: fecha vigente y suma de estadísticas.
+- Migración y contratos: router/headers Apps Script, suite `historical-query-backend.test.mjs`, paginación histórica de pantallas, rango de Informe de Costos, lecturas pesadas Supabase frente a Apps Script.
+- Abastecimiento/Stock: bypass caché RABA03, suite `stock-auth-session.test.mjs` y flujo de Stock sin Drive/Base64/hojas versionadas.
+- Perfil gerente: suite `gerente-profile.test.mjs`.
+
+Las suites de Apps Script/Stock mantienen también referencias al antiguo `AppsScript_Delta_Mining_OPS_FINAL.txt` (ausente), constatadas en la salida de `npm test`. No corresponde fabricar el archivo ni eliminar las pruebas para obtener un resultado verde. Algunos fallos comprueban estructura por cadenas de texto y deberán contrastarse con el comportamiento actual antes de atribuirlos a regresiones; **la causa individual de todos los fallos no está demostrada**.
+
+**Previews Vercel:** proyecto aislado `delta-mining-ops-audit-preview`, commit `d711441`; deployment https://delta-mining-ops-audit-preview-hyec9g399.vercel.app con `target=null` (preview) y estado **READY**, y otro build aislado READY. El usuario informa que la aplicación de prueba funciona bien. No se modificó el despliegue histórico de Delta Mining OPS. No están verificadas las credenciales/variables de producción del proyecto de prueba; evitar escrituras operativas hasta constatar el aislamiento.
+
+**Decisión de auditoría:** **NO-GO para merge y despliegue productivo**. La preview puede usarse para revisión manual, pero falta corregir o justificar los 22 fallos y ejecutar pruebas funcionales con datos representativos, sin comprometer producción. No se afirma haber terminado una auditoría integral funcional completa cuando la evidencia no lo respalda.
