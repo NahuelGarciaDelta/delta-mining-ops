@@ -36,3 +36,14 @@ test("an unchanged empty-but-valid source remains cached until version changes",
   assert.deepEqual(planVersionedRefresh(["insumos"],current,{insumos:123}),[]);
   assert.deepEqual(planVersionedRefresh(["insumos"],current,{insumos:124}),["insumos"]);
 });
+
+test("row-count mismatch forces refresh even when timestamp version is unchanged", () => {
+  const current={rop02_jm:{ok:true,data:[{id:1},{id:2}],meta:{serverVersion:120}}};
+  assert.deepEqual(planVersionedRefresh(["rop02_jm"],current,{rop02_jm:120},{rop02_jm:1}),["rop02_jm"]);
+});
+
+test("matching row count keeps the unchanged local snapshot", () => {
+  const current={rop02_jm:{ok:true,data:[{id:1},{id:2}],meta:{serverVersion:120}}};
+  assert.deepEqual(planVersionedRefresh(["rop02_jm"],current,{rop02_jm:120},{rop02_jm:2}),[]);
+  assert.deepEqual(planVersionedRefresh(["rop02_jm"],current,{rop02_jm:120}),[]);
+});
