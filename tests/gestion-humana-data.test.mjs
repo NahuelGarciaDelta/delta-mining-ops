@@ -5,6 +5,10 @@ import {
   buildOperatorProfile,
   buildOperatorSummary,
   filterOperatorActivity,
+  gestionHumanaMatchTipoMaquina,
+  gestionHumanaTipoMaquinaOptions,
+  gestionHumanaVehicleType,
+  isOperatingRecord,
   latestOperatorEquipmentRows,
   operatorIdentityKey,
   operatorShiftCode,
@@ -113,4 +117,31 @@ test("normaliza nombres y tipos para presentación sin alterar códigos de equip
   assert.equal(titleCaseDisplay("MOTONIVELADORA"),"Motoniveladora");
   assert.equal(titleCaseDisplay("PCA-0101"),"PCA-0101");
   assert.equal(titleCaseDisplay("mot-0047"),"MOT-0047");
+});
+
+
+test("Gestión Humana incluye camionetas y camiones aunque ROP02 los marque _excluded",()=>{
+  const camioneta={fecha:"2026-10-04",maquina:"CTA-0848",operario:"Chofer Pickup",proyecto:"JOSE MARIA",turno:"TD",horas:8,estado:"TRABAJO",_excluded:true,_tipo:"CAMIONETA"};
+  const camion={fecha:"2026-10-04",maquina:"CAR-0101",operario:"Chofer Camion",proyecto:"JOSE MARIA",turno:"TD",horas:9,estado:"TRABAJO",_excluded:true,_tipo:"CAMION REGADOR"};
+  assert.equal(gestionHumanaVehicleType(camioneta),"CAMIONETAS");
+  assert.equal(gestionHumanaVehicleType(camion),"CAMIONES");
+  assert.equal(isOperatingRecord(camioneta),true);
+  assert.equal(isOperatingRecord(camion),true);
+  const filtered=filterOperatorActivity([camioneta,camion],{mode:"periodo"});
+  assert.equal(filtered.length,2);
+});
+
+test("Gestión Humana conserva excluido CAA-0002",()=>{
+  const row={fecha:"2026-10-04",maquina:"CAA-0002",operario:"Operador",proyecto:"JOSE MARIA",turno:"TD",horas:8,estado:"TRABAJO",_excluded:true};
+  assert.equal(gestionHumanaVehicleType(row),"");
+  assert.equal(isOperatingRecord(row),false);
+});
+
+test("filtro Tipo de Máquina ofrece y reconoce Camiones y Camionetas",()=>{
+  const opts=gestionHumanaTipoMaquinaOptions([{value:"todas",label:"Todas"}]);
+  assert.ok(opts.some(x=>x.value==="CAMIONES"));
+  assert.ok(opts.some(x=>x.value==="CAMIONETAS"));
+  assert.equal(gestionHumanaMatchTipoMaquina("CTA-0848",["CAMIONETAS"]),true);
+  assert.equal(gestionHumanaMatchTipoMaquina("CAR-0101",["CAMIONES"]),true);
+  assert.equal(gestionHumanaMatchTipoMaquina("MOT-0047",["CAMIONES"]),false);
 });

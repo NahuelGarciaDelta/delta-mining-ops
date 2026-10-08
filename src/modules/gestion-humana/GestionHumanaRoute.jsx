@@ -10,6 +10,7 @@ import {
 import {ViewRankingOperarios} from "../analytics/index.js";
 import {
   buildOperatorProfile,filterOperatorActivity,
+  gestionHumanaMatchTipoMaquina,gestionHumanaTipoMaquinaOptions,
   isOperatingRecord,latestActivityDate,latestOperatorEquipmentRows,operatorShiftCode,titleCaseDisplay
 } from "./gestionHumanaData.js";
 
@@ -75,9 +76,9 @@ function FilterShell({mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFec
             ?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>
             :<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
           {singleOperator&&operatorControl}
-          <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{setTipoMaquina(value);setMaquina(ALL_MACHINES);}} options={dmTipoMaquinaOptions().map(option=>({...option,label:titleCaseDisplay(option.label)}))}/>
+          <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{setTipoMaquina(value);setMaquina(ALL_MACHINES);}} options={gestionHumanaTipoMaquinaOptions(dmTipoMaquinaOptions()).map(option=>({...option,label:titleCaseDisplay(option.label)}))}/>
           <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:ALL,label:"Todos"},...options.proyectos.map(value=>({value,label:value}))]}/>
-          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:ALL_MACHINES,label:"Todos"},...options.maquinas.filter(value=>multiIsAll(tipoMaquina,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(value,tipoMaquina)).map(value=>({value,label:titleCaseDisplay(value)}))]}/>
+          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:ALL_MACHINES,label:"Todos"},...options.maquinas.filter(value=>gestionHumanaMatchTipoMaquina(value,tipoMaquina,null,dmMatchTipoMaquinaSeleccion)).map(value=>({value,label:titleCaseDisplay(value)}))]}/>
           <MultiSel label="Supervisor" value={supervisor} onChange={setSupervisor} options={[{value:ALL,label:"Todos"},...options.supervisores.map(value=>({value,label:titleCaseDisplay(value)}))]}/>
           {!singleOperator&&operatorControl}
           <MultiSel label="Turno" value={turno} onChange={setTurno} options={[{value:ALL,label:"Todos"},{value:"TD",label:"TD"},{value:"TN",label:"TN"}]}/>
@@ -136,7 +137,7 @@ function OperadoresEnSitio({rop02All,listaEquipos}){
   const filtered=useMemo(()=>filterOperatorActivity(rop02All,{
     mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,turno,tipoMaquina,
     matchMulti,
-    machineMatches:(machine,type)=>multiIsAll(type,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(machine,type),
+    machineMatches:(machine,type,row)=>gestionHumanaMatchTipoMaquina(machine,type,row,dmMatchTipoMaquinaSeleccion),
   }),[rop02All,mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,turno,tipoMaquina]);
 
   const currentRows=useMemo(()=>{
@@ -211,7 +212,7 @@ function HistorialOperadores({rop02All,listaEquipos}){
     operario:operatorSelected?[operario]:ALL,
     turno,tipoMaquina,
     matchMulti,
-    machineMatches:(machine,type)=>multiIsAll(type,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(machine,type),
+    machineMatches:(machine,type,row)=>gestionHumanaMatchTipoMaquina(machine,type,row,dmMatchTipoMaquinaSeleccion),
   }),[rop02All,mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,operatorSelected,turno,tipoMaquina]);
 
   const sortedRows=useMemo(()=>[...filtered].sort((a,b)=>
