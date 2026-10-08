@@ -14,7 +14,8 @@ export function planDerivedRefresh(previousSources, sources, previousProject, pr
   const rma15Changed = changed("rma15_fs") || changed("rma15_jm");
 
   return {
-    rop05: projectChanged || rop05Changed,
+    // ROP05 output also resolves equipment aliases from the master roster.
+    rop05: projectChanged || rop05Changed || rosterChanged,
     // The canonical name map also includes ROP05 supervisor names.
     rop02: projectChanged || rop02Changed || rop05Changed || rosterChanged,
     insumos: insumosChanged,
