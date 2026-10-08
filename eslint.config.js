@@ -14,7 +14,10 @@ export default [
         FileReader: "readonly", FormData: "readonly", setTimeout: "readonly", clearTimeout: "readonly",
         setInterval: "readonly", clearInterval: "readonly", console: "readonly", structuredClone: "readonly",
         AbortController: "readonly", CustomEvent: "readonly", Event: "readonly", Worker: "readonly",
-        performance: "readonly", requestAnimationFrame: "readonly", cancelAnimationFrame: "readonly",
+        Element: "readonly", Node: "readonly", HTMLInputElement: "readonly", HTMLTextAreaElement: "readonly",
+        HTMLTableElement: "readonly", MutationObserver: "readonly", PerformanceObserver: "readonly",
+        Request: "readonly", Response: "readonly", TextEncoder: "readonly", createImageBitmap: "readonly", getComputedStyle: "readonly",
+        location: "readonly", performance: "readonly", requestAnimationFrame: "readonly", cancelAnimationFrame: "readonly",
         indexedDB: "readonly", self: "readonly", process: "readonly"
       }
     },

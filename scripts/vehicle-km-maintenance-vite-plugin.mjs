@@ -14,7 +14,9 @@ export function vehicleKmMaintenanceVitePlugin() {
     transform(code, id) {
       if (!id.replace(/\\/g, '/').endsWith(TARGET)) return null
 
-      let out = code
+      // El plugin también se ejecuta de manera aislada en pruebas. No depender de que
+      // el normalizador global haya corrido antes evita que CRLF invalide anclas LF.
+      let out = code.replace(/\r\n/g, '\n')
 
       // IMPORTANTE: desde 2026-09 los CAMIONES se mantienen por HORÓMETRO cada 500 h.
       // Este helper sólo representa vehículos que continúan por kilometraje (camionetas).
