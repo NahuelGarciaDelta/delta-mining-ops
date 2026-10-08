@@ -1426,11 +1426,25 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     if(!calcCostoMensual||!costoMensualWorkerReady)return;
     const token=++costoMensualWorkerQueryRef.current;
     setCostoMensualWorkerUpdating(true);
+
+    // En "Resumen de costo mensual por grupo", el filtro Tipo máquina representa
+    // CATEGORÍAS DE AMORTIZACIÓN (las asignadas en "Categorías por modelo").
+    // No debe aplicarse antes contra meta.tipo del equipo (EXCAVADORA, OTROS, etc.),
+    // porque eso elimina equipos antes de que amortizacionGrupoInfo pueda resolver
+    // su categoría real. El filtrado por categoría/equipo/propiedad se hace después,
+    // en PROCESS_RESUMEN_EQUIPO, usando _resumenTipoValue.
+    const summaryBaseFilters=isCostosTabResumen
+      ?{proyecto:dFProyecto,propiedad:"todos",maquina:"todos",tipo:"todos"}
+      :{proyecto:dFProyecto,propiedad:dFCPropiedad,maquina:dFCMaquinas,tipo:dFCTipoEquipo};
+    const summaryHistoricalFilters=isCostosTabResumen
+      ?{proyecto:dFProyecto,propiedad:"todos",maquina:"todos",tipo:"todos"}
+      :{proyecto:dFProyecto,propiedad:dFPropiedad,maquina:dFMaquinas,tipo:dFTipoEquipo};
+
     dmCategoriasCommand("QUERY_COST_MONTHLY",{
       months:mesesCostoMensual,fixedMonths:mesesFijosAcumuladoMensual,monthsAccum:mesesAcumulado,
       rates:monthlyDollar,baseRate:Number(usdRate2)||1,hsJM:hsEfJM,hsFS:hsEfFS,subtotalJM,subtotalFS,
-      filters:{proyecto:dFProyecto,propiedad:dFCPropiedad,maquina:dFCMaquinas,tipo:dFCTipoEquipo},
-      filtersHistorical:{proyecto:dFProyecto,propiedad:dFPropiedad,maquina:dFMaquinas,tipo:dFTipoEquipo},
+      filters:summaryBaseFilters,
+      filtersHistorical:summaryHistoricalFilters,
       filtersMO:{proyecto:dFProyecto,propiedad:dFMOPropiedad,maquina:dFMOMaquinas,tipo:dFMOTipoEquipo}
     }).then(result=>{
       if(token!==costoMensualWorkerQueryRef.current)return;
@@ -1443,7 +1457,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     }).catch(err=>console.error("No se pudo actualizar Costo mensual en el Worker",err)).finally(()=>{
       if(token===costoMensualWorkerQueryRef.current)setCostoMensualWorkerUpdating(false);
     });
-  },[calcCostoMensual,costoMensualWorkerReady,mesesCostoMensual,mesesFijosAcumuladoMensual,mesesAcumulado,monthlyDollar,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,dFPropiedad,dFMaquinas,dFTipoEquipo,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo]);
+  },[calcCostoMensual,isCostosTabResumen,costoMensualWorkerReady,mesesCostoMensual,mesesFijosAcumuladoMensual,mesesAcumulado,monthlyDollar,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,dFPropiedad,dFMaquinas,dFTipoEquipo,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo]);
 
   React.useLayoutEffect(()=>{
     if(tab==="t6")restoreCostoMensualScroll();
@@ -2061,7 +2075,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const modeloEspecial=String(getValue(eqLista,["Modelo","MODELO","Modelo Tipo","Modelo/Tipo","Marca / Modelo","Marca/Modelo"])||"")
       .normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[\s\-_/]+/g,"");
     const claveCategoria=claveCategoriaAmortizacion(code);
-    const categoriaManual=claveCategoria?normalizarCategoriaTexto(amortizacionCategorias?.[claveCategoria]):"";
+    const categoriaManualRaw=claveCategoria?normalizarCategoriaTexto(amortizacionCategorias?.[claveCategoria]):"";
+    // S/D es un fallback técnico, no una categoría válida elegida por el usuario.
+    // Si quedó persistido desde una versión anterior, no debe pisar la
+    // clasificación real del equipo.
+    const categoriaManual=["S/D","SIN CATEGORIA"].includes(categoriaManualRaw)?"":categoriaManualRaw;
     if(categoriaManual){
       const gi=AMORTIZACION_GRUPOS.findIndex(g=>normalizarCategoriaTexto(g.tipo)===categoriaManual);
       return {grupo:categoriaManual,grupoIndex:gi>=0?gi:998,orden:0};
@@ -2089,9 +2107,18 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       }
     }
 
-    const fallback=tipoEquipoListaMaestra(equipo)||getMachineType(equipo)||"S/D";
+    // Último respaldo: antes de caer en S/D, reutilizar la misma
+    // clasificación robusta que ya usa el resto del Informe de Costos.
+    // No modifica costos ni agrupaciones especiales; sólo evita que códigos
+    // válidos queden sin tipo por una correlación incompleta.
+    const familiaLista=normalizarCategoriaTexto(familiaEquipoCosto(code));
+    const tipoLista=normalizarCategoriaTexto(tipoEquipoListaMaestra(code));
+    const tipoMeta=normalizarCategoriaTexto(metaEquipoCosto(code)?.tipo);
+    const tipoCodigo=normalizarCategoriaTexto(getMachineType(code));
+    const fallback=[familiaLista,tipoLista,tipoMeta,tipoCodigo]
+      .find(v=>v&&v!=="S/D"&&v!=="SIN CATEGORIA")||"S/D";
     return {grupo:fallback,grupoIndex:999,orden:9999};
-  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra,getEquipoListaMaestra,codigoCanonicoEquipo,claveCategoriaAmortizacion,amortizacionCategorias,normalizarCategoriaTexto]);
+  },[AMORTIZACION_GRUPOS,tipoEquipoListaMaestra,getEquipoListaMaestra,codigoCanonicoEquipo,claveCategoriaAmortizacion,amortizacionCategorias,normalizarCategoriaTexto,familiaEquipoCosto,metaEquipoCosto]);
 
   // Índice liviano para la subpestaña de categorías. Evita recorrer todo el
   // catálogo una vez por cada categoría y otra vez por cada fila renderizada.
