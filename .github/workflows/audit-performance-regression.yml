@@ -43,21 +43,19 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Full ESLint diagnostic
+      - name: Full ESLint validation
         id: eslint
-        continue-on-error: true
         run: npm run lint:eslint > eslint-output.log 2>&1
-      - name: Full test suite diagnostic
+      - name: Full test suite validation
         id: tests
-        continue-on-error: true
         run: npm test > test-output.log 2>&1
       - name: Publish diagnostic outcome
         if: always()
         run: |
-          echo "### Full-suite diagnostic (NOT a release gate)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Full-suite validation (CI required)" >> "$GITHUB_STEP_SUMMARY"
           echo "ESLint: ${{ steps.eslint.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "npm test: ${{ steps.tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Failures are preserved in the artifacts below; this diagnostic job does not certify production." >> "$GITHUB_STEP_SUMMARY"
+          echo "Full suite now fails CI on any test failure. Nine external-backend tests may skip when the external script is absent; this does not certify production." >> "$GITHUB_STEP_SUMMARY"
           echo "Failed tests:" >> "$GITHUB_STEP_SUMMARY"
           grep "^not ok " test-output.log >> "$GITHUB_STEP_SUMMARY" || true
           echo "Test totals:" >> "$GITHUB_STEP_SUMMARY"
