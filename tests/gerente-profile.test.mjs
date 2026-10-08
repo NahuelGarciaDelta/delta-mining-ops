@@ -30,8 +30,8 @@ test("GERENTE está disponible y persiste en la sesión del perfil",()=>{
 
 test("Apps Script normaliza, guarda y devuelve GERENTE sin convertirlo en administrador",{skip:!fs.existsSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt",import.meta.url))?"Apps Script externo no disponible":false},()=>{
   const source=fs.readFileSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt",import.meta.url),"utf8");
-  assert.match(source,/function usuarioNormalizarArea_\(v\)/);
-  assert.match(source,/var requestedArea=usuarioNormalizarArea_\(payload\.area\)/);
+  assert.match(source,/var requestedArea=String\(payload\.area\|\|""\)\.trim\(\)\.toUpperCase\(\)/);
+  assert.match(source,/var canChangeArea=\(currentRole==="ADMIN"\|\|currentRole==="ADMINISTRADOR"\)/);
   assert.match(source,/if\(canChangeArea\)info\.sheet\.getRange\(rowNum,info\.areaIdx\+1\)\.setValue\(area\)/);
   assert.doesNotMatch(source,/currentRole==="GERENTE"/);
 });
