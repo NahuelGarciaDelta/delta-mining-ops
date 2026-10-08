@@ -12,14 +12,14 @@
 | Mantenimiento Programado | Un fallo de transformación podía impedir que se generara el bundle y bloqueaba el Panel de flota antes de renderizar. | Crítica | La corrección anterior permite completar la secuencia de plugins y mantiene las reglas vigentes: camiones por horómetro y camionetas por kilometraje. | `pm-vite-pipeline-regression.test.mjs`: 5/5 PASS. | Corregido |
 | Calidad estática | ESLint declaraba incompleto el entorno del navegador y emitía 45 errores `no-undef` para APIs reales (por ejemplo `MutationObserver`, `Request`, `PerformanceObserver`). | Media | Se declararon sólo las APIs web realmente usadas como globales de solo lectura. | `npm run lint:eslint`: 0 errores, 824 warnings heredados. | Corregido |
 | Pruebas de integración Apps Script | Dos suites requieren `AppsScript_Delta_Mining_OPS_FINAL.txt`, archivo ausente en la base auditada. | Alta | No se fabricó ni reemplazó un artefacto de integración. | `historical-query-backend` y `stock-validation` fallan con `ENOENT`. | Bloqueado |
-| Build de producción | Vite no puede ejecutar `realpath(index.html)` en este worktree: `EPERM` del entorno de ejecución. | Alta | No se alteraron permisos, Vite ni el HTML para enmascarar una limitación del entorno. | `npm run build`: FAIL por `EPERM` antes de transformar la app. | Bloqueado |
+| Build de producción | El sandbox de Windows rechaza `fs.realpathSync.native()` con `EPERM` aun con ACL correctas; `fs.realpathSync()` y la variante asíncrona sí funcionan. Vite 5 usa la variante nativa. | Alta | Se validó un shim de ejecución temporal (`fs.realpathSync.native = fs.realpathSync`) fuera del código versionado. No se modificaron Vite, HTML ni dependencias. | Con el shim: 957 módulos transformados y build PASS en 11,11 s. | Mitigado en entorno |
 | Regresiones funcionales existentes | La suite completa contiene fallos de Abastecimiento, Home, Dashboard, Atraso, Stock y otros, presentes antes de estos cambios. | Alta | Fuera de este cambio acotado; se preservaron para evitar ocultar regresiones con cambios masivos. | `npm test`: FAIL en ambas mediciones; las regresiones PM/CRLF corregidas ya pasan focalmente. | Pendiente |
 
 ## Mediciones
 
 | Indicador | Antes | Después | Estado / motivo |
 | --- | --- | --- | --- |
-| Build de producción | NO MEDIDA | NO MEDIDA | Bloqueado por `EPERM` de `realpath` del worktree. |
+| Build de producción | `EPERM` antes de transformar | 957 módulos; 11,11 s | PASS sólo mediante shim temporal de entorno. |
 | Inicio de sesión, navegación y módulos | NO MEDIDA | NO MEDIDA | No hay servidor de producción, credenciales ni sesión autorizada en este entorno. |
 | ROP02, ROP05, RMA15, Panel de flota, Gestión Humana e Informe de Costos | NO MEDIDA | NO MEDIDA | Requiere navegador autenticado y fuentes productivas; no se accedió a datos productivos. |
 | Requests, transferencia, long tasks y memoria | NO MEDIDA | NO MEDIDA | No se ejecutó un navegador con DevTools/Lighthouse contra un despliegue. |
@@ -38,7 +38,7 @@ No se infieren porcentajes de mejora a partir de pruebas estáticas.
 | `npm run lint:eslint` | PASS sin errores; 824 warnings heredados |
 | `node --test tests/pm-vite-pipeline-regression.test.mjs tests/rop02-trucks-pickups-split.test.mjs tests/abastecimiento-crlf-build.test.mjs` | PASS, 13/13 |
 | `npm test` | FAIL por regresiones preexistentes y archivos de Apps Script faltantes; no se declara PASS. |
-| `npm run build` | FAIL por `EPERM` del entorno sobre `index.html`; no se declara PASS. |
+| `npm run build` | FAIL sin workaround por `EPERM` del entorno; PASS con shim temporal de `realpathSync.native`, sin cambios versionados. |
 | `git diff --check` | PASS |
 
 ## Cambios
@@ -49,7 +49,7 @@ No se infieren porcentajes de mejora a partir de pruebas estáticas.
 
 ## Próximos pasos para obtener GO
 
-1. Ejecutar build y pruebas desde un checkout con permisos normales de Windows o CI; distinguir el bloqueo ambiental de los fallos de código.
+1. Añadir el workaround sólo a la imagen de CI afectada o actualizar su sandbox/Node; no incorporarlo al runtime de la aplicación. El procedimiento reproducible queda en `performance-before-after.md`.
 2. Restaurar o versionar bajo control el artefacto Apps Script exigido por las pruebas, sin exponer secretos.
 3. Corregir por grupos las regresiones existentes de Abastecimiento, Home/Dashboard, Atraso y Stock; medir cada grupo contra esta base.
 4. Ejecutar mediciones cold/warm autenticadas con datos representativos antes de afirmar mejoras de tiempo, red o memoria.
