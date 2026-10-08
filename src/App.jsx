@@ -636,7 +636,7 @@ export default function App(){
         if(background&&reason==="auto"){
           try{
             const manifest=await fetchSyncVersions(APPS_SCRIPT_URL);
-            toRefresh=planVersionedRefresh(sources,rawSourcesRef.current,manifest?.ok?manifest.versions:null);
+            toRefresh=planVersionedRefresh(sources,rawSourcesRef.current,manifest?.ok?manifest.versions:null,manifest?.rowCounts);
           }catch(error){
             console.warn("No se pudo verificar la vigencia de los datasets; se recargarán.",error);
           }
