@@ -30,10 +30,46 @@ function partNumber(value){
   return matches?Number(matches[matches.length-1]):0;
 }
 
+export function gestionHumanaVehicleType(rowOrMachine){
+  const row=typeof rowOrMachine==="object"&&rowOrMachine?rowOrMachine:{maquina:rowOrMachine};
+  const maquina=String(row.maquina||row._internoRaw||"").trim().toUpperCase();
+  const compact=maquina.replace(/[^A-Z0-9]/g,"");
+  const tipo=stripAccents(String(row.tipoEquipo||row._tipo||row.equipo||"")).trim().toUpperCase();
+
+  if(tipo.includes("CAMIONETA")||tipo.includes("PICKUP")||tipo.includes("PICK UP"))return "CAMIONETAS";
+  if(tipo.includes("CAMION")||tipo.includes("CAMIÓN"))return "CAMIONES";
+
+  if(/^CTA/.test(compact)||/^AG[0-9]/.test(compact)||/^AH[0-9]/.test(compact)||
+     /^[A-Z]{2}[0-9]{3}[A-Z]{2}$/.test(compact)||/^[A-Z]{3}[0-9]{3}[A-Z]{2}$/.test(compact)){
+    return "CAMIONETAS";
+  }
+  if(/^CAC/.test(compact)||/^CAR/.test(compact)||/^CAV/.test(compact)||/^CAA/.test(compact)||
+     /^CAT[0-9]/.test(compact)){
+    return "CAMIONES";
+  }
+  return "";
+}
+
+export function gestionHumanaTipoMaquinaOptions(baseOptions=[]){
+  const out=[...(baseOptions||[])];
+  if(!out.some(x=>x.value==="CAMIONES"))out.push({value:"CAMIONES",label:"Camiones"});
+  if(!out.some(x=>x.value==="CAMIONETAS"))out.push({value:"CAMIONETAS",label:"Camionetas"});
+  return out;
+}
+
+export function gestionHumanaMatchTipoMaquina(machine,selection,row=null,baseMatcher=()=>false){
+  const values=Array.isArray(selection)?selection:[selection];
+  if(selection==null||selection==="todas"||values.includes("todas"))return true;
+  const vehicleType=gestionHumanaVehicleType(row||machine);
+  if(vehicleType&&values.includes(vehicleType))return true;
+  return baseMatcher(machine,selection);
+}
+
 export function isOperatingRecord(row){
+  const vehicleType=gestionHumanaVehicleType(row);
   return Boolean(
     row &&
-    !row._excluded &&
+    (!row._excluded||Boolean(vehicleType)) &&
     String(row.estado||"").toUpperCase()==="TRABAJO" &&
     String(row.operario||"").trim() &&
     String(row.maquina||"").trim() &&
@@ -65,7 +101,7 @@ export function filterOperatorActivity(rows,filters={}){
     if(!matchMulti(row.supervisor,supervisor,"todos"))return false;
     if(!matchMulti(row.operario,operario,"todos"))return false;
     if(!matchMulti(operatorShiftCode(row.turno),turno,"todos"))return false;
-    if(!machineMatches(row.maquina,tipoMaquina))return false;
+    if(!machineMatches(row.maquina,tipoMaquina,row))return false;
     return true;
   });
 }
