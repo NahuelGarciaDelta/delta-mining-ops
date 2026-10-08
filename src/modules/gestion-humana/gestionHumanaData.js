@@ -30,10 +30,56 @@ function partNumber(value){
   return matches?Number(matches[matches.length-1]):0;
 }
 
+function normalizedFleetText(value){
+  return stripAccents(value).trim().replace(/\s+/g," ").toUpperCase();
+}
+
+const KNOWN_TRUCK_PLATES=new Set(["AG611LL","AG661LL","AG816QB","AG818QB"]);
+
+export function gestionHumanaVehicleKind(rowOrMachine){
+  const row=rowOrMachine&&typeof rowOrMachine==="object"?rowOrMachine:{maquina:rowOrMachine};
+  const semantic=[
+    row.tipoEquipo,row._tipo,row.equipo,row.familia,row.tipo,row.clase,
+  ].map(normalizedFleetText).filter(Boolean).join(" ");
+
+  if(semantic.includes("CAMIONETA"))return "CAMIONETA";
+  if(semantic.includes("CAMION"))return "CAMION";
+
+  const code=normalizedFleetText(row.maquina||row.interno||row.codigo||"").replace(/[^A-Z0-9]/g,"");
+  if(!code)return "";
+  if(/^CTA/.test(code))return "CAMIONETA";
+  if(/^(CAC|CAR|CAV|CAA)/.test(code)||code==="CAT0073"||KNOWN_TRUCK_PLATES.has(code))return "CAMION";
+
+  // Patentes sin Familia/Tipo: dentro de ROP02 corresponden mayoritariamente
+  // a móviles livianos. Los camiones conocidos se resuelven antes por tipo/código.
+  if(/^[A-Z]{2}[0-9]{3}[A-Z]{2}$/.test(code)||/^[A-Z]{3}[0-9]{3}[A-Z]{2}$/.test(code))return "CAMIONETA";
+  if(/^AG[0-9]/.test(code)||/^AH[0-9]/.test(code))return "CAMIONETA";
+  return "";
+}
+
+export function gestionHumanaTipoMaquinaOptions(baseOptions=[]){
+  const out=[...(baseOptions||[])];
+  const add=(value,label)=>{if(!out.some(option=>option?.value===value))out.push({value,label});};
+  add("CAMIONES","Camiones");
+  add("CAMIONETAS","Camionetas");
+  return out;
+}
+
+export function matchesGestionHumanaMachineType(row,selection,baseMatcher=()=>false){
+  if(!Array.isArray(selection)||selection.includes("todas"))return true;
+  const selected=selection.filter(Boolean);
+  const kind=gestionHumanaVehicleKind(row);
+  if(selected.includes("CAMIONES")&&kind==="CAMION")return true;
+  if(selected.includes("CAMIONETAS")&&kind==="CAMIONETA")return true;
+  const machineSelection=selected.filter(value=>value!=="CAMIONES"&&value!=="CAMIONETAS");
+  return machineSelection.length>0?Boolean(baseMatcher(row?.maquina||row,machineSelection)):false;
+}
+
 export function isOperatingRecord(row){
+  const allowedByScope=!row?false:(!row._excluded||Boolean(gestionHumanaVehicleKind(row)));
   return Boolean(
     row &&
-    !row._excluded &&
+    allowedByScope &&
     String(row.estado||"").toUpperCase()==="TRABAJO" &&
     String(row.operario||"").trim() &&
     String(row.maquina||"").trim() &&
@@ -65,7 +111,7 @@ export function filterOperatorActivity(rows,filters={}){
     if(!matchMulti(row.supervisor,supervisor,"todos"))return false;
     if(!matchMulti(row.operario,operario,"todos"))return false;
     if(!matchMulti(operatorShiftCode(row.turno),turno,"todos"))return false;
-    if(!machineMatches(row.maquina,tipoMaquina))return false;
+    if(!machineMatches(row.maquina,tipoMaquina,row))return false;
     return true;
   });
 }
