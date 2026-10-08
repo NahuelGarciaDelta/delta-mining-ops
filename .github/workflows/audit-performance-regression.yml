@@ -1,0 +1,33 @@
+name: Audit Performance Regression
+
+on:
+  push:
+    branches:
+      - audit/full-app-performance-stability
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Syntax checks
+        run: npm run check
+      - name: Security checks
+        run: npm run lint:security
+      - name: Auto-refresh regression tests
+        run: node --test tests/refresh-planner.test.mjs
+      - name: Existing Vite/PM regression tests
+        run: node --test tests/pm-vite-pipeline-regression.test.mjs tests/rop02-trucks-pickups-split.test.mjs tests/abastecimiento-crlf-build.test.mjs
+      - name: Build (Linux, no Windows EPERM shim)
+        run: npm run build
