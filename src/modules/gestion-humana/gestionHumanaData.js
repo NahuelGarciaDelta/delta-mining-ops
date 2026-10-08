@@ -36,6 +36,9 @@ export function gestionHumanaVehicleType(rowOrMachine){
   const compact=maquina.replace(/[^A-Z0-9]/g,"");
   const tipo=stripAccents(String(row.tipoEquipo||row._tipo||row.equipo||"")).trim().toUpperCase();
 
+  // CAA-0002 mantiene su exclusión histórica incluso dentro de Gestión Humana.
+  if(compact==="CAA0002"||compact==="CAA0002JM")return "";
+
   if(tipo.includes("CAMIONETA")||tipo.includes("PICKUP")||tipo.includes("PICK UP"))return "CAMIONETAS";
   if(tipo.includes("CAMION")||tipo.includes("CAMIÓN"))return "CAMIONES";
 
