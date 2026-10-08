@@ -26,7 +26,7 @@ jobs:
       - name: Security checks
         run: npm run lint:security
       - name: Auto-refresh regression tests
-        run: node --test tests/refresh-planner.test.mjs tests/derived-refresh-planner.test.mjs
+        run: node --test tests/refresh-planner.test.mjs tests/derived-refresh-planner.test.mjs tests/historical-data-service.test.mjs
       - name: Existing Vite/PM regression tests
         run: node --test tests/pm-vite-pipeline-regression.test.mjs tests/rop02-trucks-pickups-split.test.mjs tests/abastecimiento-crlf-build.test.mjs
       - name: Build (Linux, no Windows EPERM shim)
