@@ -10,7 +10,8 @@ import UserSettingsModal from "./components/UserSettingsModal.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
 import { APPS_SCRIPT_URL } from "./config/app.js";
 import { VIEW_SOURCES } from "./config/viewSources.js";
-import { fetchAction, fetchHealth, fetchSource, runWithConcurrency_ } from "./services/appsScriptApi.js";
+import { planVersionedRefresh } from "./data/refreshPlanner.js";
+import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcurrency_ } from "./services/appsScriptApi.js";
 import { clearAuthenticatedSession, getAuthenticatedUser } from "./services/authSession.js";
 import { appAlert, appConfirm } from "./services/dialogService.js";
 import { APP_FILTERS_STATE_KEY, readSavedAppFilters, readSavedDataSources, saveDataSourcesToStorage, getCachedSourceTimestamp, mergeIncrementalSource, readCachedSourceRecords, readCachedSource, writeCachedSource } from "./services/appCache.js";
@@ -621,7 +622,20 @@ export default function App(){
     const sources=VIEW_SOURCES[view]||[];
     if(!background)setLoading(true);
     try{
-      if(sources.length)await loadSources(sources,{force:true,background});
+      if(sources.length){
+        let toRefresh=sources;
+        // Automatic refresh must not re-download unchanged ROP02/RMA15/ROP05 snapshots.
+        // A missing/failed manifest falls back to the previous safe full refresh.
+        if(background&&reason==="auto"){
+          try{
+            const manifest=await fetchSyncVersions(APPS_SCRIPT_URL);
+            toRefresh=planVersionedRefresh(sources,rawSourcesRef.current,manifest?.ok?manifest.versions:null);
+          }catch(error){
+            console.warn("No se pudo verificar la vigencia de los datasets; se recargarán.",error);
+          }
+        }
+        if(toRefresh.length)await loadSources(toRefresh,{force:true,background});
+      }
       else if(view==="bienvenida")await loadInitial();
 
       // Único motor de actualización: los módulos con endpoints propios registran
@@ -653,8 +667,8 @@ export default function App(){
   },[view,loadSources,loadInitial]);
 
   // ─── Auto-refresh global: recarga la vista activa cada 5 minutos ─────────────
-  // Llama a loadData (mismo comportamiento que el botón "Actualizar", con force)
-  // para las fuentes de la vista actual. Si la pestaña del navegador está oculta,
+  // Verifica versiones antes de descargar fuentes; el botón manual sí fuerza la carga.
+  // Si la pestaña del navegador está oculta,
   // no refresca (para no gastar cuota del Apps Script); al volver a la pestaña,
   // refresca automáticamente si pasaron más de 5 minutos desde la última carga.
   const lastAutoRefreshRef=useRef(Date.now());
