@@ -62,7 +62,7 @@ La auditoría se continuó directamente en la rama `audit/full-app-performance-s
 
 `src/App.jsx` llamaba `loadSources(VIEW_SOURCES[view], {force:true})` desde `refreshCurrentView` aun para `reason:"auto"`. Esto obligaba a volver a descargar, adaptar y escribir en IndexedDB las fuentes activas incluso cuando sus versiones en Supabase no cambiaban.
 
-**Corrección:** `src/data/refreshPlanner.js` utiliza `fetchSyncVersions` y compara cada `meta.serverVersion` local con el manifiesto remoto para omitir fuentes sin cambios. Si el manifiesto falla o falta una versión, se conserva el comportamiento seguro anterior (descarga completa). El botón manual mantiene `force:true`. Los refresh handlers específicos registrados en `refreshManager` siguen ejecutándose. No se alteraron los intervalos de actualización ni las reglas de negocio.
+**Corrección:** `src/data/refreshPlanner.js` utiliza `fetchSyncVersions` y compara cada `meta.serverVersion` local con el manifiesto remoto **y también la cantidad de filas** para omitir fuentes sin cambios. Si el manifiesto falla o falta una versión, se conserva el comportamiento seguro anterior (descarga completa). El botón manual mantiene `force:true`. Los refresh handlers específicos registrados en `refreshManager` siguen ejecutándose. No se alteraron los intervalos de actualización ni las reglas de negocio.
 
 **Evidencia estructural:** en el manifiesto de Supabase existían, entre otros, 8.954 filas ROP02 JM, 5.052 ROP02 FS y 8.458 ROP05 durante el diagnóstico; estos totales son variables operativos y **no** son mediciones de latencia. Una vista sin cambios puede ahora omitir sus descargas completas y sus escrituras de caché.
 
@@ -86,3 +86,5 @@ Un único efecto de `App.jsx` dependía del objeto completo `rawSources` y reeje
 - Resolución o clasificación individual de la suite completa fallida.
 - Evaluación adicional de vistas pesadas y consultas a Supabase (lecturas diagnósticas únicamente).
 - **Sin merge a main ni deploy de producción.** Los cambios a la rama pueden activar compilaciones o previews automáticos por integraciones de GitHub/Vercel; eso es distinto de un deploy de producción.
+
+**Protección adicional:** `fetchSupabaseVersions()` conserva los conteos del manifiesto en `rowCounts`; un conteo diferente fuerza la descarga aun si el timestamp de versión coincide. Esta equivalencia de conteos se verificó mediante consultas de solo lectura en las fuentes ROP02 JM/FS, RMA15 JM/FS, ROP05, insumos y lista de equipos. Se agregaron pruebas para cambios de cantidad sin cambio de versión.
