@@ -88,3 +88,15 @@ Un único efecto de `App.jsx` dependía del objeto completo `rawSources` y reeje
 - **Sin merge a main ni deploy de producción.** Los cambios a la rama pueden activar compilaciones o previews automáticos por integraciones de GitHub/Vercel; eso es distinto de un deploy de producción.
 
 **Protección adicional:** `fetchSupabaseVersions()` conserva los conteos del manifiesto en `rowCounts`; un conteo diferente fuerza la descarga aun si el timestamp de versión coincide. Esta equivalencia de conteos se verificó mediante consultas de solo lectura en las fuentes ROP02 JM/FS, RMA15 JM/FS, ROP05, insumos y lista de equipos. Se agregaron pruebas para cambios de cantidad sin cambio de versión.
+
+### Continuación — coherencia de alias ROP05 (2026-10-08)
+
+**Problema confirmado:** `planDerivedRefresh` invalidaba ROP02 y RMA15 cuando cambiaba `lista_equipos`, pero no ROP05. El efecto real de `src/App.jsx` resuelve `resolveEquipmentCodeAlias(r.maquina)` también en las filas derivadas de ROP05; de ese modo podía quedar una representación obsoleta de los códigos tras una actualización de la Lista Maestra.
+
+**Corrección implementada:** `src/data/derivedRefreshPlanner.js` marca `rop05: true` ante cambios de `lista_equipos`; `tests/derived-refresh-planner.test.mjs` ajusta la expectativa anterior y añade una regresión aislada. Commits: `e7c75e9` y `b09b9d9`. Se mantiene el resto de la invalidación de datos y no se altera ningún cálculo, interfaz o registro operativo.
+
+**Validación remota:** [GitHub Actions para `b09b9d9`](https://github.com/NahuelGarciaDelta/delta-mining-ops/actions/runs/37820535854) **PASS** (instalación, comprobaciones, pruebas de planificadores, regresiones Vite/PM y build Linux). La ejecución transitoria de `e7c75e9` falló al no corresponder aún su expectativa de test; quedó corregido por el commit de pruebas posterior. Esta validación es focalizada: `npm test` completo continúa NO-GO y no hay mediciones de velocidad en navegador.
+
+**Despliegues:** no se hizo merge, deploy manual ni cambios de `main`. Se intentó inspeccionar la configuración de Vercel en modo lectura, pero respondió **403 forbidden** para el alcance conectado. Por ello no está verificado si pushes a esta rama generan previews automáticas.
+
+**Próxima intervención recomendada:** cubrir en prueba de integración el efecto real React y los mapas globales de nombres/tareas; caracterizar fallas de la suite completa contra la base; revisar invalidación y concurrencia de refrescos, con mediciones reproducibles.
