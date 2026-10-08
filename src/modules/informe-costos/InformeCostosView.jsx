@@ -1426,11 +1426,25 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     if(!calcCostoMensual||!costoMensualWorkerReady)return;
     const token=++costoMensualWorkerQueryRef.current;
     setCostoMensualWorkerUpdating(true);
+
+    // En "Resumen de costo mensual por grupo", el filtro Tipo máquina representa
+    // CATEGORÍAS DE AMORTIZACIÓN (las asignadas en "Categorías por modelo").
+    // No debe aplicarse antes contra meta.tipo del equipo (EXCAVADORA, OTROS, etc.),
+    // porque eso elimina equipos antes de que amortizacionGrupoInfo pueda resolver
+    // su categoría real. El filtrado por categoría/equipo/propiedad se hace después,
+    // en PROCESS_RESUMEN_EQUIPO, usando _resumenTipoValue.
+    const summaryBaseFilters=isCostosTabResumen
+      ?{proyecto:dFProyecto,propiedad:"todos",maquina:"todos",tipo:"todos"}
+      :{proyecto:dFProyecto,propiedad:dFCPropiedad,maquina:dFCMaquinas,tipo:dFCTipoEquipo};
+    const summaryHistoricalFilters=isCostosTabResumen
+      ?{proyecto:dFProyecto,propiedad:"todos",maquina:"todos",tipo:"todos"}
+      :{proyecto:dFProyecto,propiedad:dFPropiedad,maquina:dFMaquinas,tipo:dFTipoEquipo};
+
     dmCategoriasCommand("QUERY_COST_MONTHLY",{
       months:mesesCostoMensual,fixedMonths:mesesFijosAcumuladoMensual,monthsAccum:mesesAcumulado,
       rates:monthlyDollar,baseRate:Number(usdRate2)||1,hsJM:hsEfJM,hsFS:hsEfFS,subtotalJM,subtotalFS,
-      filters:{proyecto:dFProyecto,propiedad:dFCPropiedad,maquina:dFCMaquinas,tipo:dFCTipoEquipo},
-      filtersHistorical:{proyecto:dFProyecto,propiedad:dFPropiedad,maquina:dFMaquinas,tipo:dFTipoEquipo},
+      filters:summaryBaseFilters,
+      filtersHistorical:summaryHistoricalFilters,
       filtersMO:{proyecto:dFProyecto,propiedad:dFMOPropiedad,maquina:dFMOMaquinas,tipo:dFMOTipoEquipo}
     }).then(result=>{
       if(token!==costoMensualWorkerQueryRef.current)return;
@@ -1443,7 +1457,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     }).catch(err=>console.error("No se pudo actualizar Costo mensual en el Worker",err)).finally(()=>{
       if(token===costoMensualWorkerQueryRef.current)setCostoMensualWorkerUpdating(false);
     });
-  },[calcCostoMensual,costoMensualWorkerReady,mesesCostoMensual,mesesFijosAcumuladoMensual,mesesAcumulado,monthlyDollar,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,dFPropiedad,dFMaquinas,dFTipoEquipo,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo]);
+  },[calcCostoMensual,isCostosTabResumen,costoMensualWorkerReady,mesesCostoMensual,mesesFijosAcumuladoMensual,mesesAcumulado,monthlyDollar,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,dFPropiedad,dFMaquinas,dFTipoEquipo,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo]);
 
   React.useLayoutEffect(()=>{
     if(tab==="t6")restoreCostoMensualScroll();
