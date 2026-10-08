@@ -44,7 +44,7 @@ test("lecturas pesadas usan Supabase y no Apps Script",()=>{
   assert.match(supabaseRead,/rop02_frontend/);
   assert.match(supabaseRead,/rma15_frontend/);
   assert.match(supabaseRead,/PAGE_CONCURRENCY=4/);
-  assert.match(supabaseRead,/REQUEST_TIMEOUT_MS=12000/);
+  assert.match(supabaseRead,/REQUEST_TIMEOUT_MS=45000/);
 });
 
 test("el pool respeta el limite pedido y coalesce heartbeats de versiones",()=>{
