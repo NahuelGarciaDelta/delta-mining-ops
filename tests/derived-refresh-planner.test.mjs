@@ -31,10 +31,19 @@ test("RMA15 changes leave unrelated datasets untouched",()=>{
 
 test("equipment roster invalidates alias-dependent views",()=>{
   const old=snapshot(),next={...old,lista_equipos:{data:[],ok:true}};
-  assert.deepEqual(planDerivedRefresh(old,next,"TODO","TODO"),{rop05:false,rop02:true,insumos:false,rma15:true,listaEquipos:true});
+  assert.deepEqual(planDerivedRefresh(old,next,"TODO","TODO"),{rop05:true,rop02:true,insumos:false,rma15:true,listaEquipos:true});
 });
 
 test("project change re-filters project-specific outputs",()=>{
   const old=snapshot();
   assert.deepEqual(planDerivedRefresh(old,old,"TODO","JOSE MARIA"),{rop05:true,rop02:true,insumos:false,rma15:true,listaEquipos:false});
+});
+
+test("roster-only change refreshes ROP05 equipment alias while preserving unrelated price map",()=>{
+  const old=snapshot(),next={...old,lista_equipos:{ok:true,data:[{codigo_nuevo:"EXC-0001"}]}};
+  const rebuild=planDerivedRefresh(old,next,"JOSE MARIA","JOSE MARIA");
+  assert.equal(rebuild.rop05,true);
+  assert.equal(rebuild.rop02,true);
+  assert.equal(rebuild.rma15,true);
+  assert.equal(rebuild.insumos,false);
 });
