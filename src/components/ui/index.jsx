@@ -1,3 +1,5 @@
+import { C } from "../../services/userAppearance.js";
+export { C } from "../../services/userAppearance.js";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
 import {DEFAULT_PROGRESSIVE_ROWS,useProgressiveRows} from "../../hooks/useProgressiveRows.js";
@@ -6,17 +8,7 @@ import { fmtNum, normDate, toNumber } from "../../shared/formatters.js";
 import { SafeTooltipHtml } from "../../shared/safeTooltip.jsx";
 
 // ─── Colores ──────────────────────────────────────────────────────────────────
-export const C={
-  bg:"#0d0d0d",surface:"#161616",card:"#1c1c1c",border:"#2a2a2a",borderLight:"#333333",
-  accent:"#e8001d",accentDim:"rgba(232,0,29,0.12)",
-  teal:"#06b6d4",tealDim:"rgba(6,182,212,0.12)",
-  blue:"#3b82f6",blueDim:"rgba(59,130,246,0.12)",
-  purple:"#a855f7",purpleDim:"rgba(168,85,247,0.12)",
-  red:"#e8001d",redDim:"rgba(232,0,29,0.12)",
-  yellow:"#f59e0b",yellowDim:"rgba(245,158,11,0.12)",
-  green:"#22c55e",greenDim:"rgba(34,197,94,0.12)",
-  text:"#f0f0f0",textMuted:"#666666",textSub:"#999999",
-};
+
 export const STYLES=`
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
