@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { C as UI_C } from "../../components/ui/index.jsx";
 import { getHoursExtremes } from "./hoursExtremes.js";
 import { getMonthlyCutoffRange } from "./monthlyCutoffRange.js";
-import { titleCaseDisplay } from "../gestion-humana/gestionHumanaData.js";
+import { gestionHumanaMatchTipoMaquina, gestionHumanaTipoMaquinaOptions, isOperatingRecord, titleCaseDisplay } from "../gestion-humana/gestionHumanaData.js";
 
 let C=UI_C, Icon, Spinner, Badge, StatCard, Card, Table, Sel, MultiSel, DateIn, PeriodMonthYear, TabBtn, AlertBanner, HelpTip;
 let fmtNum, fmtFecha, uniq, normDate, cleanMachine, canonicalEquivalentMachineCode, isRop02ControlMachineExcluded, dmMatchTipoMaquinaSeleccion, dmTipoMaquinaOptions, matchMulti, multiIsAll, multiIncludes, normalizeMachineCode, getMachineType, isExcluded, excelFromCols, proyColor, semaforo, appAlert;
@@ -18,7 +18,7 @@ function BtnExcel({onClick}){
   );
 }
 function ViewRankingOperariosInner({rop02All,rop05,extState,setExtState}){
-  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded&&r.estado==="TRABAJO"),[rop02All]);
+  const rop02Prod=useMemo(()=>rop02All.filter(isOperatingRecord),[rop02All]);
   const proyecto=extState?.proyecto??"todos";
   const setProyecto=v=>setExtState(s=>({...s,proyecto:v}));
   const tipoMaquina=extState?.tipoMaquina??"todas";
@@ -34,7 +34,7 @@ function ViewRankingOperariosInner({rop02All,rop05,extState,setExtState}){
   const proyectos=useMemo(()=>uniq(rop02Prod.map(r=>r.proyecto)),[rop02Prod]);
 
   const filtered=useMemo(()=>rop02Prod.filter(r=>{
-    if(!dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina))return false;
+    if(!gestionHumanaMatchTipoMaquina(r.maquina,tipoMaquina,r,dmMatchTipoMaquinaSeleccion))return false;
     if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
     if(modeR==="dia"){if(fecha&&r.fecha!==fecha)return false;}
     if(modeR==="periodo"){if(fechaD&&r.fecha<fechaD)return false;if(fechaH&&r.fecha>fechaH)return false;}
@@ -87,7 +87,7 @@ function ViewRankingOperariosInner({rop02All,rop05,extState,setExtState}){
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {modeR==="dia"&&<DateIn label="Fecha" value={fecha} onChange={setFecha}/>}
             {modeR==="periodo"&&<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-            <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={setTipoMaquina} options={dmTipoMaquinaOptions()}/>
+            <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={setTipoMaquina} options={gestionHumanaTipoMaquinaOptions(dmTipoMaquinaOptions())}/>
             <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
             <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
           </div>
