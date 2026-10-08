@@ -100,3 +100,17 @@ Un único efecto de `App.jsx` dependía del objeto completo `rawSources` y reeje
 **Despliegues:** no se hizo merge, deploy manual ni cambios de `main`. Se intentó inspeccionar la configuración de Vercel en modo lectura, pero respondió **403 forbidden** para el alcance conectado. Por ello no está verificado si pushes a esta rama generan previews automáticas.
 
 **Próxima intervención recomendada:** cubrir en prueba de integración el efecto real React y los mapas globales de nombres/tareas; caracterizar fallas de la suite completa contra la base; revisar invalidación y concurrencia de refrescos, con mediciones reproducibles.
+
+### Continuación — auditoría transversal del paginador histórico (2026-10-08)
+
+**Alcance revisado:** estructura completa del repositorio (árbol de 429 entradas), catálogo de pruebas, políticas de refresco, coordinador de solicitudes Apps Script, deduplicador de datasets, paginación histórica y planificadores de datos. Este barrido **no equivale** a pruebas end-to-end exhaustivas de todos los módulos; la suite completa sigue pendiente.
+
+**Problema 1:** `createPagedDatasetController.loadMore` permitía dos solicitudes paralelas con el mismo `nextOffset`; cuando ambas finalizaban podían anexar dos veces la misma página. **Corrección:** compartir la promesa de la página en curso dentro de la misma generación, sin bloquear la recuperación de nuevas páginas.
+
+**Problema 2:** `request` dejaba `loading:true` cuando `fetchPage` rechazaba la promesa. **Corrección:** restituir el indicador de carga en caso de error de la generación vigente; los resultados viejos no pisan el estado tras una nueva consulta o un reset.
+
+**Archivos:** `src/data/pagedDatasetController.js` (`d494abb`), `tests/historical-data-service.test.mjs` (`877f7a3`), `.github/workflows/audit-performance-regression.yml` (`9cd9562`). Tres regresiones agregadas: llamadas `loadMore` simultáneas, fallo y reintento de carga incremental, fallo de carga inicial.
+
+**Validación:** la ejecución focalizada para el código previo a la ampliación del workflow (`d494abb`) finalizó PASS; la ejecución del commit de CI `9cd9562` debe verificarse separadamente antes de aprobar esta intervención. No se ejecutó `npm test` completo, medición en navegador ni mediciones productivas; no se afirman aceleraciones numéricas.
+
+**Riesgos pendientes:** carga integral con sesión real, revisiones de todos los componentes y transformadores de Vite, incompatibilidades históricas en pruebas de Apps Script, resultados reproducibles de `npm test` y revisión de posible superposición del refresco automático. Sin merge, deploy manual ni cambios de datos productivos.
