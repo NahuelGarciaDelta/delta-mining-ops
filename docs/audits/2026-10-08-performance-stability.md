@@ -155,3 +155,18 @@ Se inspeccionaron directamente las pruebas, su implementación y las expectativa
 **CI posterior a cambios:** ejecución [37823263743](https://github.com/NahuelGarciaDelta/delta-mining-ops/actions/runs/37823263743), solicitada para comprobar los tests revisados. La validación final de la suite completa se debe comparar con los 22 fallos originales. No se hizo merge ni deploy adicional.
 
 **Validación confirmada de los tres ajustes:** el workflow [37823263743](https://github.com/NahuelGarciaDelta/delta-mining-ops/actions/runs/37823263743) finalizó PASS en las verificaciones focalizadas, la compilación y el diagnóstico. La suite completa ejecutó **298 pruebas, 279 PASS, 19 FAIL**, frente a 276 PASS y 22 FAIL anteriores. Esta reducción de tres fallos corresponde exactamente a las expectativas revisadas de movimientos y Gestión Humana; el diagnóstico completo sigue fallando, aunque el workflow marca success debido a `continue-on-error` del job diagnóstico.
+
+### Continuación con Apps Script real proporcionado — 2026-10-08
+
+Se contrastó localmente el script completo compartido por el usuario (6.503 líneas) con las pruebas de contratos de backend. **El archivo no se publicó en el repositorio GitHub**: contiene configuración interna y referencias a planillas de la empresa; el repo frontend es público.
+
+**Confirmado mediante inspección del código facilitado:**
+- Router GET para `query_dataset`, `get_equipment_history`, `get_rop02_latest_by_equipment_project`.
+- `getRop02SourcesForRange_` permite rango entre años; `readFilteredQuerySource_` filtra antes de paginar, con lectura por bloque; `handleQueryDataset_` ordena antes de paginar y publica total, hasMore, nextOffset y métricas.
+- Existen aceleradores de resumen mensual y último ROP02.
+- Stock usa `STOCK_TEMP`, bloqueo `tryLock(30000)`, promoción de hoja temporal tras escribir; en el cuerpo del reemplazo de Stock no se utiliza DriveApp. Otras partes del mismo backend sí usan DriveApp legítimamente: por eso es incorrecto buscar la palabra en las 6.503 líneas.
+- El área de perfil se normaliza actualmente con `String(payload.area||"").trim().toUpperCase()` y solo ADMIN/ADMINISTRADOR puede cambiar el área; las pruebas que exigían la función `usuarioNormalizarArea_` no correspondían al script aportado.
+
+**Actualización de pruebas:** Los tests dependientes del Apps Script externo ahora aceptan ejecutarse localmente al disponer del archivo `AppsScript_Delta_Mining_OPS_FINAL.txt`; cuando el archivo no está en un checkout público, quedan **SKIP explícito**, no PASS. La validación del Stock se limita al manejador pertinente. Se conservan las validaciones de las partes frontend independientes. Los commits son `2a37ed7`, `da00fc3`, `ba5875e` y `771ff34`.
+
+**Evidencia CI sobre `ba5875e`:** 303 pruebas contabilizadas, 279 PASS, 17 FAIL, 7 SKIP. La reducción del número de fallos respecto de 19 **no demuestra dos correcciones funcionales**: corresponde principalmente a que los contratos de backend externo pasaron a SKIP cuando falta el script en CI. La ejecución posterior con `771ff34` requiere comprobación independiente. Se mantiene **NO-GO** y se recomienda ejecutar las aserciones de backend en entorno privado con el script real para poder certificar sus contratos.
