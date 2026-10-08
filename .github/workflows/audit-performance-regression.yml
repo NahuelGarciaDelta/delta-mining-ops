@@ -58,7 +58,12 @@ jobs:
           echo "ESLint: ${{ steps.eslint.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "npm test: ${{ steps.tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Failures are preserved in the artifacts below; this diagnostic job does not certify production." >> "$GITHUB_STEP_SUMMARY"
-          tail -n 80 test-output.log || true
+          echo "Failed tests:" >> "$GITHUB_STEP_SUMMARY"
+          grep "^not ok " test-output.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo "Test totals:" >> "$GITHUB_STEP_SUMMARY"
+          grep "^# \\(tests\\|pass\\|fail\\)" test-output.log >> "$GITHUB_STEP_SUMMARY" || true
+          grep "^not ok " test-output.log || true
+          tail -n 15 test-output.log || true
       - name: Upload complete diagnostic logs
         if: always()
         uses: actions/upload-artifact@v4
