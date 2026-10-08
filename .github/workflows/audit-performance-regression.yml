@@ -31,3 +31,41 @@ jobs:
         run: node --test tests/pm-vite-pipeline-regression.test.mjs tests/rop02-trucks-pickups-split.test.mjs tests/abastecimiento-crlf-build.test.mjs
       - name: Build (Linux, no Windows EPERM shim)
         run: npm run build
+
+  full-suite-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Full ESLint diagnostic
+        id: eslint
+        continue-on-error: true
+        run: npm run lint:eslint > eslint-output.log 2>&1
+      - name: Full test suite diagnostic
+        id: tests
+        continue-on-error: true
+        run: npm test > test-output.log 2>&1
+      - name: Publish diagnostic outcome
+        if: always()
+        run: |
+          echo "### Full-suite diagnostic (NOT a release gate)" >> "$GITHUB_STEP_SUMMARY"
+          echo "ESLint: ${{ steps.eslint.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "npm test: ${{ steps.tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Failures are preserved in the artifacts below; this diagnostic job does not certify production." >> "$GITHUB_STEP_SUMMARY"
+          tail -n 80 test-output.log || true
+      - name: Upload complete diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-suite-diagnostic
+          path: |
+            eslint-output.log
+            test-output.log
+          if-no-files-found: warn
+          retention-days: 14
