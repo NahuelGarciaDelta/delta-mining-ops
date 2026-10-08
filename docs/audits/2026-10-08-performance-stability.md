@@ -53,3 +53,36 @@ No se infieren porcentajes de mejora a partir de pruebas estáticas.
 2. Restaurar o versionar bajo control el artefacto Apps Script exigido por las pruebas, sin exponer secretos.
 3. Corregir por grupos las regresiones existentes de Abastecimiento, Home/Dashboard, Atraso y Stock; medir cada grupo contra esta base.
 4. Ejecutar mediciones cold/warm autenticadas con datos representativos antes de afirmar mejoras de tiempo, red o memoria.
+
+## Continuación remota — fase de reducción de trabajo redundante (2026-10-08)
+
+La auditoría se continuó directamente en la rama `audit/full-app-performance-stability`, sin merge ni despliegue manual. Estos cambios **no modifican** registros productivos, endpoints de escritura, RLS, scripts de sincronización, cálculos de negocio ni interfaz.
+
+### Hallazgo 1: recarga íntegra automática cada cinco minutos
+
+`src/App.jsx` llamaba `loadSources(VIEW_SOURCES[view], {force:true})` desde `refreshCurrentView` aun para `reason:"auto"`. Esto obligaba a volver a descargar, adaptar y escribir en IndexedDB las fuentes activas incluso cuando sus versiones en Supabase no cambiaban.
+
+**Corrección:** `src/data/refreshPlanner.js` utiliza `fetchSyncVersions` y compara cada `meta.serverVersion` local con el manifiesto remoto para omitir fuentes sin cambios. Si el manifiesto falla o falta una versión, se conserva el comportamiento seguro anterior (descarga completa). El botón manual mantiene `force:true`. Los refresh handlers específicos registrados en `refreshManager` siguen ejecutándose. No se alteraron los intervalos de actualización ni las reglas de negocio.
+
+**Evidencia estructural:** en el manifiesto de Supabase existían, entre otros, 8.954 filas ROP02 JM, 5.052 ROP02 FS y 8.458 ROP05 durante el diagnóstico; estos totales son variables operativos y **no** son mediciones de latencia. Una vista sin cambios puede ahora omitir sus descargas completas y sus escrituras de caché.
+
+### Hallazgo 2: normalización global al cambiar cualquier fuente
+
+Un único efecto de `App.jsx` dependía del objeto completo `rawSources` y reejecutaba normalización ROP02, ROP05, RMA15, insumos y Lista Maestra cuando cualquier dataset cambiaba, aunque el resto de las referencias de origen permaneciera igual.
+
+**Corrección:** `src/data/derivedRefreshPlanner.js` determina dependencias a partir de la identidad de cada snapshot y el proyecto seleccionado. La actualización de insumos recalcula RMA15 y su valorización, pero no ROP02 ni ROP05. ROP05 sigue invalidando el mapa canónico de nombres de ROP02, y Lista Maestra invalida vistas que dependen de alias. Se reutiliza el mapa de insumos si esa fuente no cambió. No se modificaron `normalizeROP02`, `normalizeROP05` o `normalizeRMA15`.
+
+### Validaciones automáticas agregadas
+
+- `tests/refresh-planner.test.mjs`: casos de versiones iguales, distintas, sin manifiesto, cachés inválidas, fuentes desconocidas y claves duplicadas.
+- `tests/derived-refresh-planner.test.mjs`: casos de hidratación inicial, cambios aislados de costos/RMA15/ROP05, alias de flota y cambio de proyecto.
+- `.github/workflows/audit-performance-regression.yml`: en la rama de auditoría ejecuta instalación, checks, pruebas focalizadas históricas y compilación Linux (sin shim EPERM).
+- La suite completa `npm test` continúa marcada como **pendiente/NO-GO** debido a regresiones preexistentes; el nuevo workflow no declara que todas las suites pasen.
+
+### Pendiente para autorización GO
+
+- Medición reproducible cold/warm en navegador autenticado: tiempo de interacción, long tasks, CPU, memoria, tráfico real y resultados comparados.
+- Pruebas funcionales integrales de todos los módulos afectados.
+- Resolución o clasificación individual de la suite completa fallida.
+- Evaluación adicional de vistas pesadas y consultas a Supabase (lecturas diagnósticas únicamente).
+- **Sin merge a main ni deploy de producción.** Los cambios a la rama pueden activar compilaciones o previews automáticos por integraciones de GitHub/Vercel; eso es distinto de un deploy de producción.
