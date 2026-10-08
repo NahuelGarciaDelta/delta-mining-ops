@@ -1,4 +1,4 @@
-import { C } from "../components/ui/index.jsx";
+import { C } from "./userAppearance.js";
 import { applyAppearance, readLocalAppearance } from "./userAppearance.js";
 
 export const AUTHENTICATED_USER_KEY = "dm_authenticated_user";

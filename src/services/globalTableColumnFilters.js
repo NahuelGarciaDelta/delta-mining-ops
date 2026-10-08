@@ -140,7 +140,7 @@ function eligible(table){
   return leafHeaderLabels(table).length>0;
 }
 function decorateTable(table){
-  if(!eligible(table)){cleanupTableUi(table);return;}
+  if(!eligible(table)){cleanupTableUi(table,{clearFilters:Boolean(table?.closest?.(DISABLE_SELECTOR))});return;}
   table.setAttribute(READY_ATTR,"1");ensureToolbar(table);ensureFilterRow(table);
   if(hasActiveFilters(table))scheduleApplyFilters(table);
 }
@@ -154,13 +154,27 @@ function processNode(node){
   if(node.matches?.(".dm-app-content table"))decorateTable(node);
   node.querySelectorAll?.(".dm-app-content table, table").forEach(table=>{if(table.closest?.(".dm-app-content"))decorateTable(table);});
 }
-function fullScan(){document.querySelectorAll(".dm-app-content table").forEach(decorateTable);}
+function cleanupDisabledRegions(){
+  document.querySelectorAll(DISABLE_SELECTOR).forEach(root=>{
+    root.querySelectorAll(`.${TOOLBAR_CLASS}`).forEach(toolbar=>toolbar.remove());
+    root.querySelectorAll("table").forEach(table=>cleanupTableUi(table,{clearFilters:true}));
+  });
+}
+function cleanupOrphanToolbars(){
+  const seenOwners=new Set();
+  document.querySelectorAll(`.${TOOLBAR_CLASS}`).forEach(toolbar=>{
+    const owner=toolbarOwner.get(toolbar);
+    if(!owner||!owner.isConnected||seenOwners.has(owner))toolbar.remove();
+    else seenOwners.add(owner);
+  });
+}
+function fullScan(){cleanupDisabledRegions();cleanupOrphanToolbars();document.querySelectorAll(".dm-app-content table").forEach(decorateTable);}
 
 export function installGlobalTableColumnFilters(){
   if(typeof window==="undefined"||window.__dmGlobalTableColumnFiltersInstalled)return;
   window.__dmGlobalTableColumnFiltersInstalled=true;installStyles();
   let raf=0;const pending=new Set();
-  const flush=()=>{raf=0;const nodes=[...pending];pending.clear();nodes.forEach(processNode);};
+  const flush=()=>{raf=0;const nodes=[...pending];pending.clear();cleanupDisabledRegions();cleanupOrphanToolbars();nodes.forEach(processNode);};
   const scheduleNode=node=>{if(node instanceof Element)pending.add(node);if(!raf)raf=requestAnimationFrame(flush);};
   const observer=new MutationObserver(mutations=>{
     mutations.forEach(mutation=>{

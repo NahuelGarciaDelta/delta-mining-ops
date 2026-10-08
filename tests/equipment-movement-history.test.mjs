@@ -2,14 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {mergeEquipmentMovements} from "../src/modules/equipment/equipmentMovementHistory.js";
 
-test("conserva los movimientos inferidos de TOP-0072",()=>{
+test("ROP02 establece únicamente el primer proyecto; cambios posteriores requieren movimientos registrados",()=>{
   const result=mergeEquipmentMovements([
     {maquina:"TOP-0072",fecha:"2026-06-20",proyecto:"EL ZORRO"},
     {maquina:"TOP-0072",fecha:"2026-07-21",proyecto:"FDS"},
   ],[],"TOP0072");
-  assert.deepEqual(result.map(x=>[x.fecha,x.desde,x.hasta]),[
-    ["21/07/2026","El Zorro","Filo del Sol"],
-    ["20/06/2026","—","El Zorro"],
+  assert.deepEqual(result.map(x=>[x.fecha,x.desde,x.hasta,x.source]),[
+    ["20/06/2026","—","El Zorro","ROP02"],
   ]);
 });
 

@@ -1,0 +1,74 @@
+name: Audit Performance Regression
+
+on:
+  push:
+    branches:
+      - audit/full-app-performance-stability
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Syntax checks
+        run: npm run check
+      - name: Security checks
+        run: npm run lint:security
+      - name: Auto-refresh regression tests
+        run: node --test tests/refresh-planner.test.mjs tests/derived-refresh-planner.test.mjs tests/historical-data-service.test.mjs
+      - name: Existing Vite/PM regression tests
+        run: node --test tests/pm-vite-pipeline-regression.test.mjs tests/rop02-trucks-pickups-split.test.mjs tests/abastecimiento-crlf-build.test.mjs
+      - name: Build (Linux, no Windows EPERM shim)
+        run: npm run build
+
+  full-suite-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Full ESLint validation
+        id: eslint
+        run: npm run lint:eslint > eslint-output.log 2>&1
+      - name: Full test suite validation
+        id: tests
+        run: npm test > test-output.log 2>&1
+      - name: Publish diagnostic outcome
+        if: always()
+        run: |
+          echo "### Full-suite validation (CI required)" >> "$GITHUB_STEP_SUMMARY"
+          echo "ESLint: ${{ steps.eslint.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "npm test: ${{ steps.tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Full suite now fails CI on any test failure. Nine external-backend tests may skip when the external script is absent; this does not certify production." >> "$GITHUB_STEP_SUMMARY"
+          echo "Failed tests:" >> "$GITHUB_STEP_SUMMARY"
+          grep "^not ok " test-output.log >> "$GITHUB_STEP_SUMMARY" || true
+          echo "Test totals:" >> "$GITHUB_STEP_SUMMARY"
+          grep "^# \\(tests\\|pass\\|fail\\)" test-output.log >> "$GITHUB_STEP_SUMMARY" || true
+          grep -A 18 "^not ok " test-output.log | head -n 450 || true
+          tail -n 15 test-output.log || true
+      - name: Upload complete diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-suite-diagnostic
+          path: |
+            eslint-output.log
+            test-output.log
+          if-no-files-found: warn
+          retention-days: 14

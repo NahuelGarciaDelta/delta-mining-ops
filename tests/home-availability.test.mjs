@@ -104,7 +104,7 @@ test("TOP-0036 y PCA-0021 siguen visibles como atrasados aunque no cargaron en l
     row("TOP-0036-JM","2026-08-01",8),
     row("PCA-0021","2026-07-30",8),
     row("EXC-0001","2026-08-11",8),
-  ],{}, {normalizeEquipmentCode:code=>String(code).replace(/-JM$/i,"")});
+  ],{}, {referenceDate:"2026-08-11",normalizeEquipmentCode:code=>String(code).replace(/-JM$/i,"")});
   assert.equal(result.fechaMaximaROP02,"2026-08-11");
   assert.deepEqual(result.atrasados.map(item=>item.codigo).sort(),["PCA-0021","TOP-0036"]);
   assert.equal(result.atrasados.find(item=>item.codigo==="TOP-0036").diasSinCarga,10);
@@ -115,7 +115,7 @@ test("Atraso separa equipo y proyecto y conserva supervisor y ventana del origen
   const result=calculateAtrasoRop02([
     {...row("TOP-0072","2026-07-18",8),proyecto:"EL ZORRO",supervisor:"Supervisor Zorro"},
     {...row("TOP-0072","2026-08-11",8),proyecto:"FDS",supervisor:"Supervisor FDS"},
-  ]);
+  ],{}, {referenceDate:"2026-08-11"});
   assert.equal(result.atrasados.length,1);
   assert.equal(result.atrasados[0].codigo,"TOP-0072");
   assert.equal(result.atrasados[0].proyecto,"EL ZORRO");

@@ -176,8 +176,13 @@ export async function fetchSupabaseSource(source){
 export async function fetchSupabaseVersions(){
   try{
     const {data}=await request("/rest/v1/rpc/delta_source_versions",{method:"POST",body:{},timeoutMs:5000});
-    const versions={};(Array.isArray(data)?data:[]).forEach(row=>{versions[row.source_key]=Number(row.server_version||0);});
-    return {ok:true,source:"supabase",versions,serverTime:new Date().toISOString()};
+    const versions={},rowCounts={};
+    (Array.isArray(data)?data:[]).forEach(row=>{
+      versions[row.source_key]=Number(row.server_version||0);
+      const count=Number(row.rows);
+      if(row.rows!==null&&row.rows!==undefined&&Number.isSafeInteger(count)&&count>=0)rowCounts[row.source_key]=count;
+    });
+    return {ok:true,source:"supabase",versions,rowCounts,serverTime:new Date().toISOString()};
   }catch(error){console.warn("No se pudo leer el manifiesto Supabase",error);return null;}
 }
 

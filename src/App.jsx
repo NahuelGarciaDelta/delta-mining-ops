@@ -10,7 +10,9 @@ import UserSettingsModal from "./components/UserSettingsModal.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
 import { APPS_SCRIPT_URL } from "./config/app.js";
 import { VIEW_SOURCES } from "./config/viewSources.js";
-import { fetchAction, fetchHealth, fetchSource, runWithConcurrency_ } from "./services/appsScriptApi.js";
+import { planVersionedRefresh } from "./data/refreshPlanner.js";
+import { planDerivedRefresh } from "./data/derivedRefreshPlanner.js";
+import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcurrency_ } from "./services/appsScriptApi.js";
 import { clearAuthenticatedSession, getAuthenticatedUser } from "./services/authSession.js";
 import { appAlert, appConfirm } from "./services/dialogService.js";
 import { APP_FILTERS_STATE_KEY, readSavedAppFilters, readSavedDataSources, saveDataSourcesToStorage, getCachedSourceTimestamp, mergeIncrementalSource, readCachedSourceRecords, readCachedSource, writeCachedSource } from "./services/appCache.js";
@@ -365,31 +367,36 @@ export default function App(){
 
   // Normaliza todo cada vez que llega una fuente nueva.
   // Ventaja: podemos cargar por pestaña sin perder consistencia entre ROP02, ROP05, RMA15 e insumos.
+  const normalizedInputsRef=useRef(null);
+  const insumosMapRef=useRef({});
   useEffect(()=>{
     const src=rawSources||{};
+    const previous=normalizedInputsRef.current;
+    const rebuild=planDerivedRefresh(previous?.sources,src,previous?.proyectoUsuario,proyectoUsuario);
+    normalizedInputsRef.current={sources:src,proyectoUsuario};
     const errs=[];
 
-    const rop05Raw=src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data):[];
+    const rop05Raw=(rebuild.rop05||rebuild.rop02)&&src.rop05?.ok&&src.rop05.data?normalizeROP05(src.rop05.data):[];
     if(src.rop05&&!src.rop05.ok)errs.push({source:"ROP05",...src.rop05.error});
 
-    if(rop05Raw.length){
+    if(rebuild.rop05&&rop05Raw.length){
       buildTareaMap(rop05Raw.map(r=>r.tarea).filter(Boolean));
       setRop05(rop05Raw.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),tarea:normTarea(r.tarea)})));
-    }else if(src.rop05){
+    }else if(rebuild.rop05&&src.rop05){
       setRop05([]);
     }
 
-    const rFS=src.rop02_fs?.ok&&src.rop02_fs.data?normalizeROP02(src.rop02_fs.data,"FILO DEL SOL"):[];
-    const rJM=src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
-    const rFSur=src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
-    const rZorro=src.rop02_zorro?.ok&&src.rop02_zorro.data?normalizeROP02(src.rop02_zorro.data,"EL ZORRO"):[];
+    const rFS=rebuild.rop02&&src.rop02_fs?.ok&&src.rop02_fs.data?normalizeROP02(src.rop02_fs.data,"FILO DEL SOL"):[];
+    const rJM=rebuild.rop02&&src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
+    const rFSur=rebuild.rop02&&src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
+    const rZorro=rebuild.rop02&&src.rop02_zorro?.ok&&src.rop02_zorro.data?normalizeROP02(src.rop02_zorro.data,"EL ZORRO"):[];
     if(src.rop02_fs&&!src.rop02_fs.ok)errs.push({source:"ROP02 — Filo del Sol",...src.rop02_fs.error});
     if(src.rop02_jm&&!src.rop02_jm.ok)errs.push({source:"ROP02 — José María",...src.rop02_jm.error});
     if(src.rop02_filosur&&!src.rop02_filosur.ok)errs.push({source:"ROP02 — Filo Sur",...src.rop02_filosur.error});
     if(src.rop02_zorro&&!src.rop02_zorro.ok)errs.push({source:"ROP02 — El Zorro",...src.rop02_zorro.error});
 
     const allRop02=[...rFS,...rJM,...rFSur,...rZorro];
-    if(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur || src.rop02_zorro){
+    if(rebuild.rop02&&(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur || src.rop02_zorro)){
       const allNames=[...allRop02.map(r=>r.supervisor),...allRop02.map(r=>r.operario),...rop05Raw.map(r=>r.supervisor)].filter(Boolean);
       buildCanonicalMap(allNames);
       const normalizedRop02=allRop02.map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),supervisor:normName(r.supervisor),operario:normName(r.operario)}));
@@ -397,8 +404,8 @@ export default function App(){
       setRop02All(normalizedRop02.filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)));
     }
 
-    const insumosMap={};
-    if(src.insumos?.ok&&src.insumos.data){
+    const insumosMap=rebuild.insumos?{}:insumosMapRef.current;
+    if(rebuild.insumos&&src.insumos?.ok&&src.insumos.data){
       src.insumos.data.forEach(r=>{
         const cod=normalizeInsumoCode(getValue(r,["CODIGO","Codigo","Código","codigo","código","Cod","cod"])||"");
         if(cod){
@@ -412,19 +419,20 @@ export default function App(){
       });
       setInsumos(insumosMap);
     }
+    if(rebuild.insumos)insumosMapRef.current=insumosMap;
 
-    const rmaFS=src.rma15_fs?.ok&&src.rma15_fs.data?src.rma15_fs.data:[];
-    const rmaJM=src.rma15_jm?.ok&&src.rma15_jm.data?src.rma15_jm.data:[];
+    const rmaFS=rebuild.rma15&&src.rma15_fs?.ok&&src.rma15_fs.data?src.rma15_fs.data:[];
+    const rmaJM=rebuild.rma15&&src.rma15_jm?.ok&&src.rma15_jm.data?src.rma15_jm.data:[];
     if(src.rma15_fs&&!src.rma15_fs.ok)errs.push({source:"RMA15 — Filo del Sol",...src.rma15_fs.error});
     if(src.rma15_jm&&!src.rma15_jm.ok)errs.push({source:"RMA15 — José María",...src.rma15_jm.error});
-    if(rmaFS.length || rmaJM.length || src.rma15_fs || src.rma15_jm){
+    if(rebuild.rma15&&(rmaFS.length || rmaJM.length || src.rma15_fs || src.rma15_jm)){
       setRma15([
         ...rmaFS.map(r=>normalizeRMA15({...r,_proyectoForzado:"FILO DEL SOL"},insumosMap)),
         ...rmaJM.map(r=>normalizeRMA15({...r,_proyectoForzado:"JOSE MARIA"},insumosMap)),
       ].filter(r=>dmProjectMatches(r.proyecto,proyectoUsuario)).map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina)})));
     }
 
-    if(src.lista_equipos?.ok&&src.lista_equipos.data){
+    if(rebuild.listaEquipos&&src.lista_equipos?.ok&&src.lista_equipos.data){
       setListaEquipos(src.lista_equipos.data.map(row=>Object.fromEntries(
         Object.entries(row||{}).map(([key,value])=>[
           key,
@@ -433,7 +441,7 @@ export default function App(){
       )));
     }else if(src.lista_equipos&&!src.lista_equipos.ok){
       errs.push({source:"Lista Maestra de Equipos",...src.lista_equipos.error});
-      setListaEquipos([]);
+      if(rebuild.listaEquipos)setListaEquipos([]);
     }
 
     setErrors(errs);
@@ -621,7 +629,20 @@ export default function App(){
     const sources=VIEW_SOURCES[view]||[];
     if(!background)setLoading(true);
     try{
-      if(sources.length)await loadSources(sources,{force:true,background});
+      if(sources.length){
+        let toRefresh=sources;
+        // Automatic refresh must not re-download unchanged ROP02/RMA15/ROP05 snapshots.
+        // A missing/failed manifest falls back to the previous safe full refresh.
+        if(background&&reason==="auto"){
+          try{
+            const manifest=await fetchSyncVersions(APPS_SCRIPT_URL);
+            toRefresh=planVersionedRefresh(sources,rawSourcesRef.current,manifest?.ok?manifest.versions:null,manifest?.rowCounts);
+          }catch(error){
+            console.warn("No se pudo verificar la vigencia de los datasets; se recargarán.",error);
+          }
+        }
+        if(toRefresh.length)await loadSources(toRefresh,{force:true,background});
+      }
       else if(view==="bienvenida")await loadInitial();
 
       // Único motor de actualización: los módulos con endpoints propios registran
@@ -653,8 +674,8 @@ export default function App(){
   },[view,loadSources,loadInitial]);
 
   // ─── Auto-refresh global: recarga la vista activa cada 5 minutos ─────────────
-  // Llama a loadData (mismo comportamiento que el botón "Actualizar", con force)
-  // para las fuentes de la vista actual. Si la pestaña del navegador está oculta,
+  // Verifica versiones antes de descargar fuentes; el botón manual sí fuerza la carga.
+  // Si la pestaña del navegador está oculta,
   // no refresca (para no gastar cuota del Apps Script); al volver a la pestaña,
   // refresca automáticamente si pasaron más de 5 minutos desde la última carga.
   const lastAutoRefreshRef=useRef(Date.now());

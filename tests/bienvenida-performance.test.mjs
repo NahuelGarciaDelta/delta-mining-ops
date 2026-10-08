@@ -13,9 +13,11 @@ test("Bienvenida se monta aunque la carga global todavía esté activa",()=>{
 test("Resumen difiere cálculos y muestra loading granular sin ceros falsos",()=>{
   assert.match(home,/requestIdleCallback\(calculate/);
   assert.match(home,/loading:\{\s*flota:/);
-  for(const block of ["flota","disponibilidad","ot","stock"]){
+  for(const block of ["flota","disponibilidad","ot"]){
     assert.match(home,new RegExp(`summaryLoading\\.${block}`));
   }
+  assert.match(home,/loading:\{flota:true,disponibilidad:true,ot:true,stock:true\}/);
+  assert.match(home,/sharedStockRows/);
   assert.match(home,/"Cargando…"/);
 });
 

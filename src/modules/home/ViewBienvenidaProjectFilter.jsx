@@ -13,7 +13,7 @@ const normalizeDateKey=value=>{
   if(!raw)return "";
   let match=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if(match)return `${match[1]}-${String(match[2]).padStart(2,"0")}-${String(match[3]).padStart(2,"0")}`;
-  match=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})/);
+  match=raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4}|\d{2})(?!\d)/);
   if(match){let year=Number(match[3]);if(year<100)year+=2000;return `${year}-${String(match[2]).padStart(2,"0")}-${String(match[1]).padStart(2,"0")}`;}
   const parsed=new Date(raw);
   return Number.isNaN(parsed.getTime())?"":`${parsed.getFullYear()}-${String(parsed.getMonth()+1).padStart(2,"0")}-${String(parsed.getDate()).padStart(2,"0")}`;

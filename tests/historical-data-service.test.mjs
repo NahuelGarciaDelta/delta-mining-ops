@@ -45,3 +45,41 @@ test("una respuesta obsoleta no reemplaza el filtro mas reciente",async()=>{
   assert.equal(stale.stale,true);
   assert.equal(controller.snapshot().rows[0].project,"FS");
 });
+
+test("dos loadMore simultáneos comparten la misma página sin duplicar filas",async()=>{
+  let release, calls=0;
+  const controller=createPagedDatasetController(async(_dataset,params)=>{
+    calls++;
+    if(params.offset===0)return{data:[{id:0}],total:2,hasMore:true,nextOffset:1};
+    return new Promise(resolve=>{release=()=>resolve({data:[{id:1}],total:2,hasMore:false,nextOffset:null});});
+  });
+  await controller.loadFirst("rop02",{proyecto:"JM"});
+  const first=controller.loadMore("rop02",{proyecto:"JM"});
+  const second=controller.loadMore("rop02",{proyecto:"JM"});
+  assert.equal(first,second);
+  assert.equal(calls,2);
+  release();
+  await Promise.all([first,second]);
+  assert.deepEqual(controller.snapshot().rows.map(row=>row.id),[0,1]);
+  assert.equal(controller.snapshot().loading,false);
+});
+
+test("error de red deja recuperar la paginación y permite reintento",async()=>{
+  let attempts=0;
+  const controller=createPagedDatasetController(async(_dataset,params)=>{
+    if(params.offset===0)return{data:[{id:0}],total:2,hasMore:true,nextOffset:1};
+    if(++attempts===1)throw new Error("red");
+    return{data:[{id:1}],total:2,hasMore:false,nextOffset:null};
+  });
+  await controller.loadFirst("rop02",{});
+  await assert.rejects(controller.loadMore("rop02",{}),/red/);
+  assert.equal(controller.snapshot().loading,false);
+  await controller.loadMore("rop02",{});
+  assert.deepEqual(controller.snapshot().rows.map(row=>row.id),[0,1]);
+});
+
+test("error de consulta inicial no deja indicador loading permanente",async()=>{
+  const controller=createPagedDatasetController(async()=>{throw new Error("sin conexión");});
+  await assert.rejects(controller.loadFirst("rop05",{}),/sin conexión/);
+  assert.equal(controller.snapshot().loading,false);
+});

@@ -43,11 +43,11 @@ test("operadores en sitio toma el registro más reciente y TN gana a TD el mismo
   assert.equal(operatorShiftCode(latest[0].turno),"TN");
 });
 
-test("sin rango explícito operadores en sitio usa la última fecha disponible",()=>{
+test("sin rango explícito operadores en sitio incluye camionetas y usa la última fecha disponible",()=>{
   const latest=latestOperatorEquipmentRows(rows);
-  assert.equal(latest.length,2);
+  assert.equal(latest.length,3);
   assert.ok(latest.every(row=>row.fecha==="2026-10-04"));
-  assert.deepEqual(latest.map(row=>row.operario).sort(),["Juan Pérez","María López"].sort());
+  assert.deepEqual(latest.map(row=>row.operario).sort(),["Juan Pérez","María López","Chofer Uno"].sort());
 });
 
 test("historial filtra operador y período sin incluir estados no operativos ni excluidos",()=>{
@@ -59,13 +59,13 @@ test("historial filtra operador y período sin incluir estados no operativos ni 
   assert.ok(filtered.every(row=>row.operario==="Juan Pérez"));
 });
 
-test("resumen suma horas, días, equipos, proyectos y registros",()=>{
+test("resumen incluye vehículos operativos al sumar horas, días, equipos, proyectos y registros",()=>{
   const summary=buildOperatorSummary(rows);
-  assert.equal(summary.hours,30);
+  assert.equal(summary.hours,35);
   assert.equal(summary.days,2);
-  assert.equal(summary.machines,2);
+  assert.equal(summary.machines,3);
   assert.equal(summary.projects,2);
-  assert.equal(summary.records,4);
+  assert.equal(summary.records,5);
 });
 
 test("resumen por equipo ordena por horas y conserva última fecha",()=>{

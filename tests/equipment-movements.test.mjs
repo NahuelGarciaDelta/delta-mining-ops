@@ -39,7 +39,7 @@ test("movimientos del mismo equipo permanecen independientes por proyecto origen
   assert.equal(active.get("TOP-0072|FILO DEL SOL")?.id,"fds");
 });
 
-test("Apps Script conserva router, lock, UUID, hoja y headers obligatorios",()=>{
+test("Apps Script conserva router, lock, UUID, hoja y headers obligatorios",{skip:!fs.existsSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt",import.meta.url))?"Apps Script externo no disponible en checkout público":false},()=>{
   const source=fs.readFileSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt",import.meta.url),"utf8");
   for(const action of ["get_equipment_movements","get_active_equipment_movements","save_equipment_movement","cancel_equipment_movement"])assert.match(source,new RegExp(action));
   assert.match(source,/SpreadsheetApp\.openById\(MOVIMIENTOS_EQUIPOS_DB_ID_\)/);
