@@ -135,3 +135,21 @@ Las suites de Apps Script/Stock mantienen también referencias al antiguo `AppsS
 **Previews Vercel:** proyecto aislado `delta-mining-ops-audit-preview`, commit `d711441`; deployment https://delta-mining-ops-audit-preview-hyec9g399.vercel.app con `target=null` (preview) y estado **READY**, y otro build aislado READY. El usuario informa que la aplicación de prueba funciona bien. No se modificó el despliegue histórico de Delta Mining OPS. No están verificadas las credenciales/variables de producción del proyecto de prueba; evitar escrituras operativas hasta constatar el aislamiento.
 
 **Decisión de auditoría:** **NO-GO para merge y despliegue productivo**. La preview puede usarse para revisión manual, pero falta corregir o justificar los 22 fallos y ejecutar pruebas funcionales con datos representativos, sin comprometer producción. No se afirma haber terminado una auditoría integral funcional completa cuando la evidencia no lo respalda.
+
+### Revisión individual de las 22 fallas — continuación del 08/10/2026
+
+Se inspeccionaron directamente las pruebas, su implementación y las expectativas de movimientos de equipo, Gestión Humana, Stock, router histórico y Atraso.
+
+**Tres fallas con causa identificada en pruebas desactualizadas:**
+1. `equipment-movement-history`: exigía inferir cada cambio de proyecto por ROP02, aunque `inferRop02ProjectMovements` documenta y aplica únicamente el primer proyecto observado; cambios posteriores requieren registro persistido. Se actualizó la prueba (commit `3bd1bd3`) sin cambiar datos ni lógica productiva.
+2. `gestion-humana-data`, última fecha: esperaba dos personas, omitiendo el conductor de la camioneta CTA-001 que ahora debe ser visible por la regla explícita de Gestión Humana. La nueva expectativa incluye tres personas (commit `7187ba2`).
+3. `gestion-humana-data`, resumen: esperaba 30 horas, dos equipos y cuatro partes, omitiendo la misma camioneta operativa de cinco horas. La prueba ahora exige 35 horas, tres equipos y cinco partes (commit `7187ba2`). No se alteró la lógica de cómputo.
+
+**Contradicciones verificadas, todavía sin modificar:**
+- `tests/atraso-rop02-filters.test.mjs` exige `atrasoROP02:[]`; `tests/atraso-remote-query.test.mjs` exige las cuatro fuentes de ROP02 para la misma vista. Ambos contratos son incompatibles. Debe validarse la pantalla real y la estrategia de fallback antes de escoger una.
+- `tests/stock-validation.test.mjs` y `tests/historical-query-backend.test.mjs` leen directamente un Apps Script histórico ausente. Son pruebas ligadas a la arquitectura retirada y no acreditan por sí solas una regresión del frontend actual.
+- La prueba de `instant-startup-regression` espera `REQUEST_TIMEOUT_MS=12000`, mientras la API Supabase usa un timeout principal de 45000 ms para fuentes grandes. Modificar ese timeout para satisfacer texto estático podría reintroducir errores; se requiere evaluación de la política y pruebas de red.
+
+**Sin diagnóstico suficiente para declarar reparados:** las demás fallas de Dashboard, Atraso, Abastecimiento, perfiles y consultas históricas. Muchas son aserciones regex de archivos fuente, pero ello no basta para afirmar que están obsoletas: requieren contrato vigente y prueba funcional.
+
+**CI posterior a cambios:** ejecución [37823263743](https://github.com/NahuelGarciaDelta/delta-mining-ops/actions/runs/37823263743), solicitada para comprobar los tests revisados. La validación final de la suite completa se debe comparar con los 22 fallos originales. No se hizo merge ni deploy adicional.
