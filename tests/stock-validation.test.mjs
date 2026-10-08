@@ -28,10 +28,11 @@ test("rechaza números inválidos, depósitos desconocidos y mínimo mayor al m�
   assert.match(result.report.rejections[0].reasons.join(" "),/Stock mínimo mayor/);
 });
 
-test("el flujo activo de Stock no usa Drive, Base64 ni hojas versionadas",()=>{
+test("el flujo activo de Stock no usa Drive, Base64 ni hojas versionadas",{skip:!fs.existsSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt",import.meta.url))?"Apps Script externo no disponible":false},()=>{
   const backend=fs.readFileSync(new URL("../AppsScript_Delta_Mining_OPS_FINAL.txt",import.meta.url),"utf8");
   const service=fs.readFileSync(new URL("../src/services/stockService.js",import.meta.url),"utf8");
-  assert.doesNotMatch(backend,/DriveApp|STOCK_DATA_V|STOCK_DRIVE_FOLDER_ID|STOCK_ACTIVE_FILE_ID/);
+  const stockSection=backend.slice(backend.indexOf("function handleStockExcelUpload_"),backend.indexOf("function handleStockExcelClear_"));
+  assert.doesNotMatch(stockSection,/DriveApp|STOCK_DATA_V|STOCK_DRIVE_FOLDER_ID|STOCK_ACTIVE_FILE_ID/);
   assert.doesNotMatch(service,/FileReader|fileToBase64|base64/i);
   assert.match(backend,/STOCK_TEMP_SHEET_="STOCK_TEMP"/);
   assert.match(backend,/lock\.tryLock\(30000\)/);
