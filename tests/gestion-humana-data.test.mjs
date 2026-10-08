@@ -5,7 +5,10 @@ import {
   buildOperatorProfile,
   buildOperatorSummary,
   filterOperatorActivity,
+  gestionHumanaTipoMaquinaOptions,
+  gestionHumanaVehicleKind,
   latestOperatorEquipmentRows,
+  matchesGestionHumanaMachineType,
   operatorIdentityKey,
   operatorShiftCode,
   titleCaseDisplay,
@@ -17,6 +20,7 @@ const rows=[
   {fecha:"2026-10-04",maquina:"MOT-001",operario:"Juan Pérez",supervisor:"Supervisor B",proyecto:"FILO DEL SOL",turno:"TD",parte:"102",horas:9,estado:"TRABAJO",_excluded:false,_tipo:"MOTONIVELADORA"},
   {fecha:"2026-10-04",maquina:"EXC-002",operario:"María López",supervisor:"Supervisor B",proyecto:"JOSE MARIA",turno:"Turno Noche",parte:"88",horas:6,estado:"TRABAJO",_excluded:false,_tipo:"EXCAVADORA"},
   {fecha:"2026-10-04",maquina:"CTA-001",operario:"Chofer Uno",supervisor:"Supervisor B",proyecto:"JOSE MARIA",turno:"TD",parte:"1",horas:5,estado:"TRABAJO",_excluded:true,_tipo:"CAMIONETA"},
+  {fecha:"2026-10-04",maquina:"CAV-0114-JM",operario:"Chofer Camion",supervisor:"Supervisor B",proyecto:"JOSE MARIA",turno:"TN",parte:"3",horas:4,estado:"TRABAJO",_excluded:true,_tipo:"CAMION VOLCADOR"},
   {fecha:"2026-10-04",maquina:"MOT-003",operario:"Operador OD",supervisor:"Supervisor B",proyecto:"JOSE MARIA",turno:"TD",parte:"2",horas:0,estado:"OD",_excluded:false,_tipo:"MOTONIVELADORA"},
 ];
 
@@ -41,12 +45,12 @@ test("operadores en sitio toma el registro más reciente y TN gana a TD el mismo
 
 test("sin rango explícito operadores en sitio usa la última fecha disponible",()=>{
   const latest=latestOperatorEquipmentRows(rows);
-  assert.equal(latest.length,2);
+  assert.equal(latest.length,4);
   assert.ok(latest.every(row=>row.fecha==="2026-10-04"));
-  assert.deepEqual(latest.map(row=>row.operario).sort(),["Juan Pérez","María López"].sort());
+  assert.deepEqual(latest.map(row=>row.operario).sort(),["Juan Pérez","María López","Chofer Uno","Chofer Camion"].sort());
 });
 
-test("historial filtra operador y período sin incluir estados no operativos ni excluidos",()=>{
+test("historial filtra operador y período sin incluir estados no operativos",()=>{
   const filtered=filterOperatorActivity(rows,{
     mode:"periodo",fechaD:"2026-10-03",fechaH:"2026-10-04",
     operario:"Juan Pérez",
@@ -57,11 +61,11 @@ test("historial filtra operador y período sin incluir estados no operativos ni 
 
 test("resumen suma horas, días, equipos, proyectos y registros",()=>{
   const summary=buildOperatorSummary(rows);
-  assert.equal(summary.hours,30);
+  assert.equal(summary.hours,39);
   assert.equal(summary.days,2);
-  assert.equal(summary.machines,2);
+  assert.equal(summary.machines,4);
   assert.equal(summary.projects,2);
-  assert.equal(summary.records,4);
+  assert.equal(summary.records,6);
 });
 
 test("resumen por equipo ordena por horas y conserva última fecha",()=>{
@@ -113,4 +117,26 @@ test("normaliza nombres y tipos para presentación sin alterar códigos de equip
   assert.equal(titleCaseDisplay("MOTONIVELADORA"),"Motoniveladora");
   assert.equal(titleCaseDisplay("PCA-0101"),"PCA-0101");
   assert.equal(titleCaseDisplay("mot-0047"),"MOT-0047");
+});
+
+
+test("Gestión Humana incorpora camionetas y camiones aunque ROP02 los marque excluidos",()=>{
+  const pickup=rows.find(row=>row.maquina==="CTA-001");
+  const truck=rows.find(row=>row.maquina==="CAV-0114-JM");
+  assert.equal(gestionHumanaVehicleKind(pickup),"CAMIONETA");
+  assert.equal(gestionHumanaVehicleKind(truck),"CAMION");
+  const valid=filterOperatorActivity(rows,{mode:"periodo"});
+  assert.ok(valid.some(row=>row.maquina==="CTA-001"));
+  assert.ok(valid.some(row=>row.maquina==="CAV-0114-JM"));
+});
+
+test("filtro de tipo de Gestión Humana agrega Camiones y Camionetas",()=>{
+  const options=gestionHumanaTipoMaquinaOptions([{value:"todas",label:"Todas"},{value:"MOT",label:"Motoniveladora"}]);
+  assert.ok(options.some(option=>option.value==="CAMIONES"));
+  assert.ok(options.some(option=>option.value==="CAMIONETAS"));
+  const baseMatcher=(machine,selection)=>selection.includes("MOT")&&String(machine).startsWith("MOT");
+  assert.equal(matchesGestionHumanaMachineType(rows.find(row=>row.maquina==="CTA-001"),["CAMIONETAS"],baseMatcher),true);
+  assert.equal(matchesGestionHumanaMachineType(rows.find(row=>row.maquina==="CAV-0114-JM"),["CAMIONES"],baseMatcher),true);
+  assert.equal(matchesGestionHumanaMachineType(rows[0],["MOT"],baseMatcher),true);
+  assert.equal(matchesGestionHumanaMachineType(rows[0],["CAMIONES"],baseMatcher),false);
 });

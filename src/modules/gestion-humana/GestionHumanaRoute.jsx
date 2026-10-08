@@ -10,7 +10,8 @@ import {
 import {ViewRankingOperarios} from "../analytics/index.js";
 import {
   buildOperatorProfile,filterOperatorActivity,
-  isOperatingRecord,latestActivityDate,latestOperatorEquipmentRows,operatorShiftCode,titleCaseDisplay
+  gestionHumanaTipoMaquinaOptions,isOperatingRecord,latestActivityDate,latestOperatorEquipmentRows,
+  matchesGestionHumanaMachineType,operatorShiftCode,titleCaseDisplay
 } from "./gestionHumanaData.js";
 
 const ALL="todos";
@@ -75,9 +76,9 @@ function FilterShell({mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFec
             ?<DateIn label="Fecha" value={fecha} onChange={setFecha}/>
             :<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
           {singleOperator&&operatorControl}
-          <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{setTipoMaquina(value);setMaquina(ALL_MACHINES);}} options={dmTipoMaquinaOptions().map(option=>({...option,label:titleCaseDisplay(option.label)}))}/>
+          <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{setTipoMaquina(value);setMaquina(ALL_MACHINES);}} options={gestionHumanaTipoMaquinaOptions(dmTipoMaquinaOptions()).map(option=>({...option,label:titleCaseDisplay(option.label)}))}/>
           <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:ALL,label:"Todos"},...options.proyectos.map(value=>({value,label:value}))]}/>
-          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:ALL_MACHINES,label:"Todos"},...options.maquinas.filter(value=>multiIsAll(tipoMaquina,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(value,tipoMaquina)).map(value=>({value,label:titleCaseDisplay(value)}))]}/>
+          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:ALL_MACHINES,label:"Todos"},...options.maquinas.filter(value=>matchesGestionHumanaMachineType(options.maquinaRows?.get(value)||{maquina:value},tipoMaquina,dmMatchTipoMaquinaSeleccion)).map(value=>({value,label:titleCaseDisplay(value)}))]}/>
           <MultiSel label="Supervisor" value={supervisor} onChange={setSupervisor} options={[{value:ALL,label:"Todos"},...options.supervisores.map(value=>({value,label:titleCaseDisplay(value)}))]}/>
           {!singleOperator&&operatorControl}
           <MultiSel label="Turno" value={turno} onChange={setTurno} options={[{value:ALL,label:"Todos"},{value:"TD",label:"TD"},{value:"TN",label:"TN"}]}/>
@@ -94,6 +95,7 @@ function useOperatorFilterOptions(rop02All){
     return{
       proyectos:uniq(rows.map(row=>row.proyecto).filter(Boolean)).sort(),
       maquinas:uniq(rows.map(row=>row.maquina).filter(Boolean)).sort(),
+      maquinaRows:new Map(rows.filter(row=>row.maquina).map(row=>[row.maquina,row])),
       supervisores:uniq(rows.map(row=>row.supervisor).filter(Boolean)).sort(),
       operarios:uniq(rows.map(row=>row.operario).filter(Boolean)).sort(),
     };
@@ -136,7 +138,7 @@ function OperadoresEnSitio({rop02All,listaEquipos}){
   const filtered=useMemo(()=>filterOperatorActivity(rop02All,{
     mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,turno,tipoMaquina,
     matchMulti,
-    machineMatches:(machine,type)=>multiIsAll(type,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(machine,type),
+    machineMatches:(machine,type,row)=>matchesGestionHumanaMachineType(row||{maquina:machine},type,dmMatchTipoMaquinaSeleccion),
   }),[rop02All,mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,turno,tipoMaquina]);
 
   const currentRows=useMemo(()=>{
@@ -211,7 +213,7 @@ function HistorialOperadores({rop02All,listaEquipos}){
     operario:operatorSelected?[operario]:ALL,
     turno,tipoMaquina,
     matchMulti,
-    machineMatches:(machine,type)=>multiIsAll(type,ALL_MACHINES)||dmMatchTipoMaquinaSeleccion(machine,type),
+    machineMatches:(machine,type,row)=>matchesGestionHumanaMachineType(row||{maquina:machine},type,dmMatchTipoMaquinaSeleccion),
   }),[rop02All,mode,fecha,fechaD,fechaH,proyecto,maquina,supervisor,operario,operatorSelected,turno,tipoMaquina]);
 
   const sortedRows=useMemo(()=>[...filtered].sort((a,b)=>
@@ -333,7 +335,7 @@ export default function GestionHumanaRoute({view,rop02All=[],rop05=[],listaEquip
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {active==="gestionHumanaSitio"&&<OperadoresEnSitio rop02All={rop02All} listaEquipos={listaEquipos}/>}
       {active==="gestionHumanaHistorial"&&<HistorialOperadores rop02All={rop02All} listaEquipos={listaEquipos}/>}
-      {active==="gestionHumanaRanking"&&<ViewRankingOperarios deps={rankingDeps} rop02All={rop02All} rop05={rop05} extState={rankingState} setExtState={setRankingState}/>}
+      {active==="gestionHumanaRanking"&&<ViewRankingOperarios deps={rankingDeps} rop02All={rop02All} rop05={rop05} extState={rankingState} setExtState={setRankingState} includeFleetVehicles/>}
     </div>
   );
 }
