@@ -47,3 +47,10 @@ test("Gestión Humana importa el helper de presentación que usa en runtime",()=
   assert.match(route,/operatorShiftCode,titleCaseDisplay\s*\}\s*from "\.\/gestionHumanaData\.js"/);
   assert.match(route,/titleCaseDisplay\(value\)/);
 });
+
+
+test("Gestión Humana habilita camionetas y camiones también en Ranking",()=>{
+  assert.match(route,/includeFleetVehicles/);
+  assert.match(route,/gestionHumanaTipoMaquinaOptions/);
+  assert.match(route,/matchesGestionHumanaMachineType/);
+});
