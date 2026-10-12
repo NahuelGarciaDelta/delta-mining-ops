@@ -110,9 +110,9 @@ export async function fetchSource(_url,source,_options={}){
 
 // El heartbeat también sale de Supabase. Así una simple comprobación de vigencia
 // nunca dispara una ejecución de Apps Script ni abre una planilla.
-export async function fetchSyncVersions(_url){
+export async function fetchSyncVersions(_url,{force=false}={}){
   const now=Date.now();
-  if(syncVersionsMemo_.value&&now-syncVersionsMemo_.at<SYNC_VERSIONS_MEMO_MS)return syncVersionsMemo_.value;
+  if(!force&&syncVersionsMemo_.value&&now-syncVersionsMemo_.at<SYNC_VERSIONS_MEMO_MS)return syncVersionsMemo_.value;
   if(syncVersionsMemo_.promise)return syncVersionsMemo_.promise;
   const task=fetchSupabaseVersions().then(value=>{if(value)syncVersionsMemo_={value,at:Date.now(),promise:null};return value;});
   syncVersionsMemo_={value:syncVersionsMemo_.value,at:syncVersionsMemo_.at,promise:task};
