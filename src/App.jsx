@@ -515,7 +515,7 @@ export default function App(){
 
   const fetchOneSource=useCallback(async(key,{force=false,cacheRecords={}}={})=>{
     const existingRequest=sourceRequestsRef.current.get(key);
-    if(existingRequest&&!force)return existingRequest;
+    if(existingRequest)return existingRequest;
 
     const task=(async()=>{
       const cacheRecord=cacheRecords[key]||await readCachedSource(key).catch(()=>null);
@@ -547,11 +547,31 @@ export default function App(){
     setFatalError(null);
     const cacheRecords=await hydrateSourcesFromCache(requested);
     const now=Date.now();
-    const toCheck=force?requested:requested.filter(key=>{
-      const hasData=rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data);
+    // La hidratación React puede continuar en transición. Usar también el
+    // registro IndexedDB para comparar versiones sin esperar un nuevo render.
+    const knownSources={...rawSourcesRef.current};
+    requested.forEach(key=>{
+      if(!(knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
+        const cached=cacheRecords?.[key]?.value;
+        if(cached?.ok&&Array.isArray(cached.data))knownSources[key]=cached;
+      }
+    });
+    let toCheck=force?requested:requested.filter(key=>{
+      const hasData=knownSources[key]?.ok&&Array.isArray(knownSources[key].data);
       const fresh=now-Number(lastCheckedBySourceRef.current[key]||0)<SYNC_FRESH_MS;
       return !hasData||!fresh;
     });
+    // El último acceso puede superar 5 min sin que Supabase haya cambiado.
+    // Verificar un manifiesto pequeño antes de volver a descargar miles de filas.
+    // Si falla el manifiesto, prevalece la lectura normal para no ocultar novedades.
+    if(!force&&toCheck.some(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
+      try{
+        const manifest=await fetchSyncVersions(APPS_SCRIPT_URL);
+        if(manifest?.ok)toCheck=planVersionedRefresh(toCheck,knownSources,manifest.versions,manifest.rowCounts);
+      }catch(error){
+        console.warn("Manifest no disponible; lectura de respaldo conservada.",error);
+      }
+    }
     if(!toCheck.length)return;
 
     const hasVisible=toCheck.some(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data));
@@ -631,11 +651,12 @@ export default function App(){
     try{
       if(sources.length){
         let toRefresh=sources;
-        // Automatic refresh must not re-download unchanged ROP02/RMA15/ROP05 snapshots.
-        // A missing/failed manifest falls back to the previous safe full refresh.
-        if(background&&reason==="auto"){
+        // Manual y automático revisan las versiones antes de descargar.
+        // El botón Actualizar omite snapshots idénticos, pero vuelve a leer
+        // normalmente si el manifiesto falla: nunca sacrifica consistencia.
+        if(reason==="auto"||reason==="manual"){
           try{
-            const manifest=await fetchSyncVersions(APPS_SCRIPT_URL);
+            const manifest=await fetchSyncVersions(APPS_SCRIPT_URL,{force:reason==="manual"});
             toRefresh=planVersionedRefresh(sources,rawSourcesRef.current,manifest?.ok?manifest.versions:null,manifest?.rowCounts);
           }catch(error){
             console.warn("No se pudo verificar la vigencia de los datasets; se recargarán.",error);
