@@ -1,3 +1,4 @@
+import {createRequestLimiter} from "./requestConcurrency.js";
 const env=(typeof import.meta!=="undefined"&&import.meta.env)?import.meta.env:{};
 const SUPABASE_URL=String(env.VITE_SUPABASE_URL||"https://jwfocqaxlckuxoklwyxs.supabase.co").replace(/\/+$/,"");
 const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2").trim();
@@ -5,6 +6,8 @@ const PAGE_SIZE=1000;
 const PAGE_CONCURRENCY=4;
 const REQUEST_TIMEOUT_MS=45000;
 const ADAPT_CHUNK_SIZE=1200;
+// El límite es GLOBAL, no por fuente: evita picos al cambiar de módulo.
+const limitSupabasePageRequest=createRequestLimiter(5);
 
 export const SUPABASE_TYPED_SOURCES=new Set([
   "rop02_fs","rop02_jm","rop02_filosur","rop02_zorro",
@@ -58,7 +61,7 @@ async function runLimited(items,limit,worker){
 }
 
 async function fetchPage(table,params,offset,{count=false,pageSize=PAGE_SIZE}={}){
-  return request(`/rest/v1/${table}?${queryString({...params,limit:pageSize,offset})}`,{prefer:count?"count=exact":""});
+  return limitSupabasePageRequest(()=>request(`/rest/v1/${table}?${queryString({...params,limit:pageSize,offset})}`,{prefer:count?"count=exact":""}));
 }
 
 async function fetchAll(table,params={}){
