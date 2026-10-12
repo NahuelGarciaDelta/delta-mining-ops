@@ -30,7 +30,6 @@ function withHardTimeout_(promise,ms,label="consulta"){
   return Promise.race([Promise.resolve(promise),timeout]).finally(()=>clearTimeout(timer));
 }
 function remember_(key,value){memory.delete(key);memory.set(key,value);while(memory.size>MAX_MEMORY_QUERIES)memory.delete(memory.keys().next().value);}
-function versionsDiffer_(localVersions={},remoteVersions={}){const local=localVersions||{},remote=remoteVersions||{},keys=new Set([...Object.keys(local),...Object.keys(remote)]);if(!keys.size)return false;for(const key of keys){if(Number(local[key]||0)!==Number(remote[key]||0))return true;}return false;}
 function notifyDatasetUpdated_(dataset,key,value,params){if(typeof window==="undefined"||typeof window.dispatchEvent!=="function")return;try{window.dispatchEvent(new CustomEvent(HISTORICAL_UPDATED_EVENT,{detail:{dataset,key,value,params:{...(params||{})}}}));}catch(_){}}
 function normalizeHomeProject_(value){const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");if(!raw||raw==="TODOS"||raw==="TODO")return "TODOS";if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";return raw;}
 function currentHomeProject_(){if(typeof window==="undefined")return "TODOS";return normalizeHomeProject_(window.__dmHomeSummaryProject||"TODOS");}
