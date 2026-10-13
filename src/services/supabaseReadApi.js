@@ -200,7 +200,7 @@ export async function fetchSupabaseVersionsLightweight(){
     const {data,response}=await limitSupabasePageRequest(()=>
       request(`/rest/v1/${table}?${queryString(params)}`,{prefer:"count=exact",timeoutMs:8000}));
     const range=String(response.headers.get("content-range")||"");
-    const matched=range.match(/\\/(\\d+)$/);
+    const matched=range.match(/\/(\d+)$/);
     if(!matched)throw new Error(`La fuente ${source} no confirmó su cantidad`);
     const count=Number(matched[1]);
     const stamp=Array.isArray(data)?data[0]?.synced_at:null;
