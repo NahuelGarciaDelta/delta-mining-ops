@@ -176,6 +176,49 @@ export async function fetchSupabaseSource(source){
   return {ok:true,source:"supabase",data,meta:{source:String(source||""),rows:data.length,returnedRows:data.length,hasMore:false,serverVersion:latest||Date.now(),serverTime:new Date(latest||Date.now()).toISOString()}};
 }
 
+// Si el RPC principal excede el tiempo de respuesta bajo carga, obtener las
+// versiones mediante SELECTs de una sola fila con count=exact. Esto conserva
+// la invalidación de los snapshots sin transferir ROP02/ROP05/RMA15 completos.
+// El manifiesto alternativo puede ser parcial: una fuente fallida se revalida
+// con la descarga habitual, nunca se declara fresca sin pruebas.
+const LIGHTWEIGHT_VERSION_SOURCES=Object.freeze([
+  ...Object.keys(ROP02_PREFIX),
+  "rop05","rma15_fs","rma15_jm","lista_equipos","insumos"
+]);
+
+function lightweightVersionQuery_(source){
+  if(ROP02_PREFIX[source])return{table:"rop02",params:{
+    select:"synced_at",source_dataset:`eq.${source}`,source_row:"not.is.null",order:"synced_at.desc",limit:1}};
+  if(source==="rma15_fs"||source==="rma15_jm")return{table:"rma15",params:{
+    select:"synced_at",source_dataset:`eq.${source}`,order:"synced_at.desc",limit:1}};
+  return{table:source,params:{select:"synced_at",order:"synced_at.desc",limit:1}};
+}
+
+export async function fetchSupabaseVersionsLightweight(){
+  const results=await Promise.allSettled(LIGHTWEIGHT_VERSION_SOURCES.map(async source=>{
+    const {table,params}=lightweightVersionQuery_(source);
+    const {data,response}=await limitSupabasePageRequest(()=>
+      request(`/rest/v1/${table}?${queryString(params)}`,{prefer:"count=exact",timeoutMs:8000}));
+    const range=String(response.headers.get("content-range")||"");
+    const matched=range.match(/\/(\d+)$/);
+    if(!matched)throw new Error(`La fuente ${source} no confirmó su cantidad`);
+    const count=Number(matched[1]);
+    const stamp=Array.isArray(data)?data[0]?.synced_at:null;
+    const version=stamp?Date.parse(stamp):0;
+    if(count>0&&(!Number.isFinite(version)||version<=0))
+      throw new Error(`La fuente ${source} no confirmó su versión`);
+    return {source,count,version:count===0?0:version};
+  }));
+  const versions={},rowCounts={};
+  results.forEach(result=>{
+    if(result.status!=="fulfilled")return;
+    const {source,count,version}=result.value;
+    versions[source]=version;rowCounts[source]=count;
+  });
+  if(!Object.keys(versions).length)return null;
+  return {ok:true,source:"supabase-lightweight",versions,rowCounts,serverTime:new Date().toISOString()};
+}
+
 export async function fetchSupabaseVersions(){
   try{
     const {data}=await request("/rest/v1/rpc/delta_source_versions",{method:"POST",body:{},timeoutMs:5000});
@@ -186,7 +229,10 @@ export async function fetchSupabaseVersions(){
       if(row.rows!==null&&row.rows!==undefined&&Number.isSafeInteger(count)&&count>=0)rowCounts[row.source_key]=count;
     });
     return {ok:true,source:"supabase",versions,rowCounts,serverTime:new Date().toISOString()};
-  }catch(error){console.warn("No se pudo leer el manifiesto Supabase",error);return null;}
+  }catch(error){
+    console.warn("Manifiesto Supabase no disponible: revalidación liviana de respaldo",error);
+    return fetchSupabaseVersionsLightweight().catch(()=>null);
+  }
 }
 
 export async function fetchSupabasePmSnapshot(){

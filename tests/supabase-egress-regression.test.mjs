@@ -47,8 +47,11 @@ test("seguridad: los GET iniciales y manuales pasan por control de version",()=>
   assert.match(app,/if\(existingRequest\)return existingRequest/);
 });
 
-test("seguridad: ROP02 filtrado conserva la lectura viva sin cache historica",()=>{
+test("ROP02 filtrado solo reutiliza cache si su version sigue vigente",()=>{
   const source=fs.readFileSync(new URL("../src/data/historicalDataService.js",import.meta.url),"utf8");
-  assert.match(source,/live&&!isOfficeControlFullQuery_\(params\)/);
+  assert.match(source,/const cached=await readDatasetQuery\(dataset,params\)/);
+  assert.match(source,/historicalSnapshotMatchesManifest\(dataset,cached,sync\)/);
   assert.match(source,/if\(!sync&&!live\)return cached/);
+  assert.doesNotMatch(source,/live&&!isOfficeControlFullQuery_\(params\)\)return fetchDatasetPage/);
+  assert.match(source,/export const refreshHistoricalDataset=\(dataset,params=\{\}\)=>fetchDatasetPage/);
 });
