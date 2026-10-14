@@ -6,7 +6,7 @@
     "start": "2026-10-14",
     "end": "2026-11-14"
   },
-  "scope": "Organizaci\u00f3n NahuelGarciaDelta; filtro de proyecto truncado, inclusi\u00f3n de todos los proyectos no confirmada",
+  "scope": "Usuario confirma que DELTA Mining OPS es el \u00fanico proyecto de la organizaci\u00f3n; no enumerado por API",
   "metrics": {
     "egressGB": 6.096,
     "cachedEgressGB": 0,
@@ -35,8 +35,8 @@
   "notEstablished": [
     "Desglose Egress por servicio",
     "Acumulado del ciclo nuevo",
-    "Inclusi\u00f3n de todos los proyectos",
     "Otras cuotas efectivas y estado de grace period",
     "Ahorro de la versi\u00f3n optimizada en usuarios productivos"
-  ]
+  ],
+  "projectCountUserReported": 1
 }
