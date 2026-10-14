@@ -122,7 +122,7 @@ function transform(source:any) {
 const output=(o:Row,s=200)=>new Response(JSON.stringify(o),{status:s,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
 Deno.serve(async(req:Request)=>{
   const started=Date.now();
-  let dryRun=false,authorized=false,syncAttempted=false;
+  let dryRun=false,authorized=false,syncAttempted=false,syncConfirmed=false;
   let cachedHealth:any=null;
   try {
     if(req.method!=="POST")return output({ok:false,error:"METHOD_NOT_ALLOWED"},405);
@@ -149,19 +149,22 @@ Deno.serve(async(req:Request)=>{
       return output({ok:true,dryRun:true,dataset:DATASET,rows:rows.length,destinationBefore:prevCount,sourceModifiedAt:srcStamp,version:VERSION,checkCodes:rows.filter(r=>["299","856","1054","1055","4175","4266"].includes(r.codigo)).map(r=>({codigo:r.codigo,precio:r.precio_unitario})),durationMs:Date.now()-started});
     syncAttempted=true;
     const result=await rpc("sync_typed_dataset",{p_dataset:DATASET,p_rows:rows});
+    if(result?.ok!==true)throw Error("SYNC_UNCONFIRMED");
     const after=await tableRows();
     if(after!==rows.length) throw Error("POST_SYNC_COUNT_MISMATCH:"+after+"/"+rows.length);
+    syncConfirmed=true;
     const now=new Date().toISOString();
     await saveHealth({last_attempt_at:now,last_success_at:now,last_error:"",consecutive_failures:0,source_rows:rows.length,destination_rows:after,duration_ms:Date.now()-started,details:{automatic:true,version:VERSION,sourceModifiedAt:srcStamp,serverVersion:s.meta?.serverVersion??null,result}});
     return output({ok:true,changed:true,dataset:DATASET,rows:rows.length,before:prevCount,after,sourceModifiedAt:srcStamp,version:VERSION,durationMs:Date.now()-started});
   }catch(e){
     const msg=e instanceof Error?e.message:String(e);
-    if(authorized&&!dryRun){
+    if(authorized&&!dryRun&&!syncConfirmed&&!msg.startsWith("HEALTH_READ")&&!msg.startsWith("HEALTH_WRITE")){
       try {
         const old=cachedHealth||await health();
         await saveHealth({last_attempt_at:new Date().toISOString(),last_error:msg.slice(0,700),consecutive_failures:Number(old?.consecutive_failures||0)+1,duration_ms:Date.now()-started});
       }catch{}
     }
+    if(syncConfirmed)return output({ok:true,changed:true,dataset:DATASET,healthSync:"pending",error:msg,outcomeUnknown:false,retryAutomatically:false,version:VERSION,durationMs:Date.now()-started});
     const timeout=msg.endsWith("_TIMEOUT");
     // A lost RPC response does not prove failure: next scheduled pass must reconcile.
     return output({ok:false,error:msg,dataset:DATASET,dryRun,retryAutomatically:false,outcomeUnknown:syncAttempted,version:VERSION,durationMs:Date.now()-started},timeout?504:500);

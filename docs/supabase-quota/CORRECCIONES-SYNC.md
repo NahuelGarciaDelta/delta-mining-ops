@@ -59,4 +59,7 @@ El Preview actualizado contiene el frontend y su nueva validación de conteos, a
 Se mantiene pendiente el ensayo extremo a extremo con copias de Sheets y una base con RLS/triggers/volumen representativo. No se puede certificar ausencia absoluta de inconsistencia de servicios reales sin ese ensayo. No se escribieron horómetros/contraseñas reales ni se ejecutaron migraciones o despliegues productivos.
 
 
-Validación final: npm run validate — 400 aprobadas, 0 fallidas, 0 omitidas; npm run build aprobado (advertencia existente footer remitos). FK de rma15_insumos comprobada mediante SELECT read_only y conservada en child-foreign-key.json; el ensayo usa la misma referencia/cascada. Los datasets confirmados vacíos también conservan caché válida; una colección local no vacía con counts cero se rechaza.
+Validación final: npm run validate — 402 aprobadas, 0 fallidas, 0 omitidas; npm run build aprobado (advertencia existente footer remitos). FK de rma15_insumos comprobada mediante SELECT read_only y conservada en child-foreign-key.json; el ensayo usa la misma referencia/cascada. Los datasets confirmados vacíos también conservan caché válida; una colección local no vacía con counts cero se rechaza.
+
+
+Prueba adicional: perder la respuesta del RPC no provoca otro intento de escritura; un RPC HTTP 200 sin ok=true se rechaza. Si los datos y el conteo están confirmados pero falla health, la respuesta informa ok=true / healthSync=pending, sin un falso fallo de guardado ni un segundo POST de health. La suite final cubre estos casos con mocks.
