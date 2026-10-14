@@ -1,0 +1,23 @@
+{
+  "kind": "simulation; four overlapping identical ROP02 reads; synthetic fixture; not billed Supabase usage",
+  "runs": [
+    {
+      "version": "before-d7e91f",
+      "requests": 4,
+      "jsonResponseBytes": 2576,
+      "rowsPerConsumer": 1
+    },
+    {
+      "version": "after-working-tree",
+      "requests": 1,
+      "jsonResponseBytes": 511,
+      "rowsPerConsumer": 1
+    }
+  ],
+  "savings": {
+    "requests": 3,
+    "bytes": 2065,
+    "percent": 80.16304347826086
+  },
+  "sameFunctionalOutput": true
+}

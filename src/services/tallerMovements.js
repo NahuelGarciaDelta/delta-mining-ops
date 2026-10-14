@@ -1,6 +1,7 @@
 import {APPS_SCRIPT_URL} from "../config/app.js";
 import {fetchAction} from "./appsScriptApi.js";
 import {postToAppsScript} from "./writeActions.js";
+import {createInflightRead} from "./inflightRead.js";
 
 const DIRECT_APPS_SCRIPT_URL="https://script.google.com/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec";
 const CACHE_PREFIX="dm_taller_movements_v6_";
@@ -70,7 +71,11 @@ async function fetchSupabaseTallerMovements(){
   }finally{if(timer)clearTimeout(timer);}
 }
 
-async function fetchFreshTallerMovements(){
+const shareTallerRead=createInflightRead();
+function fetchFreshTallerMovements(){
+  return shareTallerRead("all-movements",fetchFreshTallerMovementsUnshared);
+}
+async function fetchFreshTallerMovementsUnshared(){
   try{
     return await fetchSupabaseTallerMovements();
   }catch(supabaseError){

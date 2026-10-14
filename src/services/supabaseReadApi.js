@@ -1,4 +1,5 @@
 import {createRequestLimiter} from "./requestConcurrency.js";
+import {createInflightRead} from "./inflightRead.js";
 const env=(typeof import.meta!=="undefined"&&import.meta.env)?import.meta.env:{};
 const SUPABASE_URL=String(env.VITE_SUPABASE_URL||"https://jwfocqaxlckuxoklwyxs.supabase.co").replace(/\/+$/,"");
 const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2").trim();
@@ -25,7 +26,14 @@ function authHeaders(extra={}){
   return {apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,Accept:"application/json",...extra};
 }
 
-async function request(path,{method="GET",body=null,prefer="",timeoutMs=REQUEST_TIMEOUT_MS}={}){
+const shareRead=createInflightRead();
+function request(path,options={}){
+  const {method="GET",body=null,prefer="",timeoutMs=REQUEST_TIMEOUT_MS}=options;
+  const key=JSON.stringify([path,method,body,prefer,timeoutMs]);
+  return shareRead(key,()=>performRequest(path,options));
+}
+
+async function performRequest(path,{method="GET",body=null,prefer="",timeoutMs=REQUEST_TIMEOUT_MS}={}){
   const controller=typeof AbortController!=="undefined"?new AbortController():null;
   const timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
   try{
@@ -155,9 +163,10 @@ function listaEquiposLegacy(row={}){
 
 const insumoLegacy=row=>({...((row&&row.raw_data)||{}),Codigo:row?.codigo,"Código":row?.codigo,Descripcion:row?.descripcion,"Descripción":row?.descripcion,Precio:row?.precio_unitario,"Precio Unitario":row?.precio_unitario,_sourceDataset:row?.source_dataset,_sourceRow:row?.source_row});
 
+const ROP02_COLUMNS="fecha,interno,equipo,operador,supervisor_delta,supervisor_vial_cliente,turno_trabajo,numero_parte,proyecto,horometro_inicial,horometro_final,cantidad_horas,combustible,aceite,aceite_text,descripcion_trabajos,informacion_desgaste,observaciones,source_key,synced_at,estado";
 function sourceConfig(source){
   if(ROP02_PREFIX[source])return {table:"rop02_frontend",params:{
-    select:"fecha,interno,equipo,operador,supervisor_delta,supervisor_vial_cliente,turno_trabajo,numero_parte,proyecto,horometro_inicial,horometro_final,cantidad_horas,combustible,aceite,aceite_text,descripcion_trabajos,informacion_desgaste,observaciones,source_key,synced_at,estado",
+    select:ROP02_COLUMNS,
     source_key:`like.${ROP02_PREFIX[source]}*`,order:"fecha.asc,source_key.asc"},adapt:rop02Legacy};
   if(source==="rop05")return {table:"rop05",params:{select:"*",order:"source_row.asc"},adapt:rop05Legacy};
   if(source==="rma15_fs")return {table:"rma15_frontend",params:{select:"*",source_dataset:"eq.rma15_fs",order:"source_row.asc"},adapt:rma15Legacy};
@@ -271,7 +280,7 @@ function setDateRange(q,column,from,to){
 
 function datasetConfig(dataset,params={}){
   if(dataset==="rop02"){
-    const q=new URLSearchParams({select:"*"});setDateRange(q,"fecha",params.desde,params.hasta);
+    const q=new URLSearchParams({select:ROP02_COLUMNS});setDateRange(q,"fecha",params.desde,params.hasta);
     setExact(q,"proyecto",params.proyecto||params.project);setExact(q,"interno",params.equipo);setExact(q,"supervisor_delta",params.supervisor);setExact(q,"operador",params.operario);setExact(q,"estado",params.estado);setExact(q,"equipo",params.tipo);
     const sortMap={fecha:"fecha",maquina:"interno",interno:"interno",equipo:"equipo",operario:"operador",supervisor:"supervisor_delta",turno:"turno_trabajo",parte:"numero_parte",proyecto:"proyecto",horas:"cantidad_horas",combustible:"combustible"};
     q.set("order",`${sortMap[params.sortBy]||"fecha"}.${String(params.sortDirection||"desc").toLowerCase()==="asc"?"asc":"desc"},source_key.asc`);

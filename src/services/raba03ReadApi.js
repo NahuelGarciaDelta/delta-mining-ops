@@ -1,3 +1,4 @@
+import {createInflightRead} from "./inflightRead.js";
 const env=(typeof import.meta!=="undefined"&&import.meta.env)?import.meta.env:{};
 const SUPABASE_URL=String(env.VITE_SUPABASE_URL||"https://jwfocqaxlckuxoklwyxs.supabase.co").replace(/\/+$/,"");
 const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2").trim();
@@ -23,7 +24,11 @@ async function page(offset){
   }finally{if(timer)clearTimeout(timer);}
 }
 
-export async function fetchRaba03FromSupabase(){
+const shareAbastecimientoRead=createInflightRead();
+export function fetchRaba03FromSupabase(){
+  return shareAbastecimientoRead("raba03",fetchRaba03Unshared);
+}
+async function fetchRaba03Unshared(){
   const first=await page(0);
   let raw=[...first];
   if(first.length===PAGE_SIZE){
@@ -38,7 +43,10 @@ export async function fetchRaba03FromSupabase(){
   return {ok:true,source:"supabase",data,meta:{rows:data.length,serverTime:new Date(latest||Date.now()).toISOString()}};
 }
 
-export async function fetchAbastecimientoSnapshot(){
+export function fetchAbastecimientoSnapshot(){
+  return shareAbastecimientoRead("snapshot",fetchAbastecimientoSnapshotUnshared);
+}
+async function fetchAbastecimientoSnapshotUnshared(){
   const controller=typeof AbortController!=="undefined"?new AbortController():null;
   const timer=controller?setTimeout(()=>controller.abort(),TIMEOUT_MS):null;
   try{
