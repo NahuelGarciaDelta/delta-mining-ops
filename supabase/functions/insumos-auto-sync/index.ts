@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const VERSION = "2026-10-14-INSUMOS-COUNT-ONLY-V2";
+const VERSION = "2026-10-14-INSUMOS-BOUNDED-V3";
 const DATASET = "insumos";
 const SOURCE_URL = "https://script.google.com/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec";
 type Row = Record<string, unknown>;
@@ -52,53 +52,50 @@ function authHeaders(more:Record<string,string>={}) {
   const a=adminKey();
   return {apikey:a,...(a.startsWith("sb_secret_") ? {} : {Authorization:"Bearer "+a}),...more};
 }
+async function requestText(url:string|URL,init:RequestInit,timeoutMs:number,stage:string) {
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
+  try {
+    const response=await fetch(url,{...init,signal:controller.signal});
+    const text=init.method==="HEAD"?"":await response.text();
+    return {ok:response.ok,status:response.status,headers:response.headers,text};
+  } catch(error) {
+    if(controller.signal.aborted||(error instanceof Error&&error.name==="AbortError"))throw Error(stage+"_TIMEOUT");
+    throw Error(stage+"_TRANSPORT_ERROR");
+  } finally {clearTimeout(timer);}
+}
 async function rpc(fn:string,payload:Row) {
-  const r=await fetch(baseUrl()+"/rest/v1/rpc/"+fn,{
-    method:"POST",headers:authHeaders({"Content-Type":"application/json"}),
-    body:JSON.stringify(payload)
-  });
-  const t=await r.text();let data:any;
-  try {data=JSON.parse(t)} catch {data=t}
-  if(!r.ok) throw Error(fn+"_HTTP_"+r.status+":"+t.slice(0,350));
-  return data;
+  const r=await requestText(baseUrl()+"/rest/v1/rpc/"+fn,{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify(payload)},15000,fn);
+  if(!r.ok)throw Error(fn+"_HTTP_"+r.status);
+  return r.text?JSON.parse(r.text):null;
 }
 async function tableRows() {
-  // Count-only safety check: the former GET body was never consumed.
-  const cnt=await fetch(baseUrl()+"/rest/v1/insumos?source_dataset=eq.insumos&select=id",{
-    method:"HEAD",headers:authHeaders({Prefer:"count=exact"})
-  });
-  if(!cnt.ok) throw Error("DEST_COUNT_"+cnt.status);
-  return Number((cnt.headers.get("content-range")||"").split("/")[1]||0);
+  // Count-only: do not download unused destination records.
+  const r=await requestText(baseUrl()+"/rest/v1/insumos?source_dataset=eq.insumos&select=id",{method:"HEAD",headers:authHeaders({Prefer:"count=exact"})},10000,"DEST_COUNT");
+  if(!r.ok)throw Error("DEST_COUNT_"+r.status);
+  const range=r.headers.get("content-range")||"";
+  if(!/\/\d+$/.test(range))throw Error("DEST_COUNT_UNCONFIRMED");
+  const count=Number(range.split("/")[1]);
+  if(!Number.isSafeInteger(count)||count<0)throw Error("DEST_COUNT_UNCONFIRMED");
+  return count;
 }
 async function health() {
-  const r=await fetch(baseUrl()+"/rest/v1/sheet_sync_health?dataset=eq.insumos&select=*",{
-    headers:authHeaders({Accept:"application/json"})
-  });
+  const r=await requestText(baseUrl()+"/rest/v1/sheet_sync_health?dataset=eq.insumos&select=details,destination_rows,last_error,consecutive_failures",{headers:authHeaders({Accept:"application/json"})},10000,"HEALTH_READ");
   if(!r.ok)throw Error("HEALTH_READ_"+r.status);
-  return (await r.json())?.[0]||null;
+  return JSON.parse(r.text)?.[0]||null;
 }
 async function saveHealth(o:Row) {
-  const r=await fetch(baseUrl()+"/rest/v1/sheet_sync_health?on_conflict=dataset",{
-    method:"POST",headers:authHeaders({"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"}),
-    body:JSON.stringify([{dataset:DATASET,...o,updated_at:new Date().toISOString()}])
-  });
-  if(!r.ok)throw Error("HEALTH_WRITE_"+r.status+":"+(await r.text()).slice(0,250));
+  const r=await requestText(baseUrl()+"/rest/v1/sheet_sync_health?on_conflict=dataset",{method:"POST",headers:authHeaders({"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"}),body:JSON.stringify([{dataset:DATASET,...o,updated_at:new Date().toISOString()}])},10000,"HEALTH_WRITE");
+  if(!r.ok)throw Error("HEALTH_WRITE_"+r.status);
 }
 async function fetchSource() {
   const url=new URL(SOURCE_URL);
-  url.searchParams.set("action","insumos");
-  url.searchParams.set("limit","all");
-  url.searchParams.set("force","1");
-  url.searchParams.set("compact","0");
-  const c=new AbortController(),timer=setTimeout(()=>c.abort(),50000);
-  try {
-    const r=await fetch(url.toString(),{signal:c.signal,redirect:"follow",headers:{Accept:"application/json,text/plain,*/*"},cache:"no-store"});
-    if(!r.ok) throw Error("SHEET_HTTP_"+r.status);
-    const body=await r.json();
-    if(!body?.ok||!Array.isArray(body.data))throw Error("SHEET_INVALID_RESPONSE");
-    if(keyNorm(body?.meta?.sheetNameUsed)!=="hoja 1")throw Error("WRONG_SHEET_BLOCKED");
-    return body;
-  } finally {clearTimeout(timer)}
+  url.searchParams.set("action","insumos");url.searchParams.set("limit","all");url.searchParams.set("force","1");url.searchParams.set("compact","0");
+  const r=await requestText(url,{redirect:"follow",cache:"no-store",headers:{Accept:"application/json,text/plain,*/*"}},50000,"SOURCE");
+  if(!r.ok)throw Error("SHEET_HTTP_"+r.status);
+  const body=JSON.parse(r.text);
+  if(!body?.ok||!Array.isArray(body.data))throw Error("SHEET_INVALID_RESPONSE");
+  if(keyNorm(body?.meta?.sheetNameUsed)!=="hoja 1")throw Error("WRONG_SHEET_BLOCKED");
+  return body;
 }
 function transform(source:any) {
   const raw=source.data as Row[];
@@ -125,12 +122,14 @@ function transform(source:any) {
 const output=(o:Row,s=200)=>new Response(JSON.stringify(o),{status:s,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
 Deno.serve(async(req:Request)=>{
   const started=Date.now();
-  let dryRun=false;
+  let dryRun=false,authorized=false,syncAttempted=false;
+  let cachedHealth:any=null;
   try {
     if(req.method!=="POST")return output({ok:false,error:"METHOD_NOT_ALLOWED"},405);
     const token=txt(req.headers.get("x-delta-sync-token"));
     if(!token || await rpc("verify_rop02_sync_token",{p_token:token})!==true)
       return output({ok:false,error:"UNAUTHORIZED"},401);
+    authorized=true;
     const payload=await req.json().catch(()=>({}));
     dryRun=payload?.dryRun===true;
     const s=await fetchSource();
@@ -138,13 +137,17 @@ Deno.serve(async(req:Request)=>{
     const prevCount=await tableRows();
     if(prevCount>100 && rows.length<Math.floor(prevCount*0.9))
       throw Error("SUSPICIOUS_SOURCE_SHRINK_BLOCKED:"+rows.length+"/"+prevCount);
-    const h=await health();
+    const h=await health();cachedHealth=h;
     const srcStamp=txt(s?.meta?.sourceModifiedAt);
     const previousStamp=txt(h?.details?.sourceModifiedAt);
-    if(!dryRun && srcStamp && previousStamp===srcStamp && Number(h?.destination_rows)===rows.length && prevCount===rows.length)
+    if(!dryRun && srcStamp && previousStamp===srcStamp && Number(h?.destination_rows)===rows.length && prevCount===rows.length) {
+      // Clear a stale failure once, only after a complete source/count verification.
+      if(h?.last_error||Number(h?.consecutive_failures||0)>0)await saveHealth({last_attempt_at:new Date().toISOString(),last_error:"",consecutive_failures:0});
       return output({ok:true,changed:false,dataset:DATASET,rows:rows.length,sourceModifiedAt:srcStamp,version:VERSION,durationMs:Date.now()-started});
+    }
     if(dryRun)
       return output({ok:true,dryRun:true,dataset:DATASET,rows:rows.length,destinationBefore:prevCount,sourceModifiedAt:srcStamp,version:VERSION,checkCodes:rows.filter(r=>["299","856","1054","1055","4175","4266"].includes(r.codigo)).map(r=>({codigo:r.codigo,precio:r.precio_unitario})),durationMs:Date.now()-started});
+    syncAttempted=true;
     const result=await rpc("sync_typed_dataset",{p_dataset:DATASET,p_rows:rows});
     const after=await tableRows();
     if(after!==rows.length) throw Error("POST_SYNC_COUNT_MISMATCH:"+after+"/"+rows.length);
@@ -153,12 +156,14 @@ Deno.serve(async(req:Request)=>{
     return output({ok:true,changed:true,dataset:DATASET,rows:rows.length,before:prevCount,after,sourceModifiedAt:srcStamp,version:VERSION,durationMs:Date.now()-started});
   }catch(e){
     const msg=e instanceof Error?e.message:String(e);
-    if(!dryRun){
+    if(authorized&&!dryRun){
       try {
-        const old=await health();
-        await saveHealth({last_attempt_at:new Date().toISOString(),last_error:msg.slice(0,700),consecutive_failures:Number(old?.consecutive_failures||0)+1,duration_ms:Date.now()-started,details:{...(old?.details||{}),automatic:true,version:VERSION,lastFailureAt:new Date().toISOString()}});
+        const old=cachedHealth||await health();
+        await saveHealth({last_attempt_at:new Date().toISOString(),last_error:msg.slice(0,700),consecutive_failures:Number(old?.consecutive_failures||0)+1,duration_ms:Date.now()-started});
       }catch{}
     }
-    return output({ok:false,error:msg,dataset:DATASET,dryRun,version:VERSION,durationMs:Date.now()-started},500);
+    const timeout=msg.endsWith("_TIMEOUT");
+    // A lost RPC response does not prove failure: next scheduled pass must reconcile.
+    return output({ok:false,error:msg,dataset:DATASET,dryRun,retryAutomatically:false,outcomeUnknown:syncAttempted,version:VERSION,durationMs:Date.now()-started},timeout?504:500);
   }
 });

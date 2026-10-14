@@ -1,0 +1,5 @@
+[
+  {
+    "definition": "FOREIGN KEY (rma15_id) REFERENCES rma15(id) ON DELETE CASCADE"
+  }
+]

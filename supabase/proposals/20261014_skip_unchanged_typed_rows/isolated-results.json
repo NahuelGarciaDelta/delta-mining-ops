@@ -1,0 +1,61 @@
+{
+  "kind": "Actual isolated PostgreSQL engine (PGlite), synthetic records, zero network; NOT live Supabase or Google",
+  "engine": "PostgreSQL 17.5 on aarch64-unknown-linux-gnu, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit",
+  "cases": [
+    {
+      "dataset": "rop05",
+      "identicalStable": true,
+      "changedRowUpdated": true,
+      "otherRowStable": true,
+      "deletionConfirmed": true,
+      "nullNoopStable": true,
+      "emptyConfirmed": true,
+      "childOnlyChangeDetected": null
+    },
+    {
+      "dataset": "rma15_fs",
+      "identicalStable": true,
+      "changedRowUpdated": true,
+      "otherRowStable": true,
+      "deletionConfirmed": true,
+      "nullNoopStable": true,
+      "emptyConfirmed": true,
+      "childOnlyChangeDetected": true
+    },
+    {
+      "dataset": "rma15_jm",
+      "identicalStable": true,
+      "changedRowUpdated": true,
+      "otherRowStable": true,
+      "deletionConfirmed": true,
+      "nullNoopStable": true,
+      "emptyConfirmed": true,
+      "childOnlyChangeDetected": true
+    },
+    {
+      "dataset": "lista_equipos",
+      "identicalStable": true,
+      "changedRowUpdated": true,
+      "otherRowStable": true,
+      "deletionConfirmed": true,
+      "nullNoopStable": true,
+      "emptyConfirmed": true,
+      "childOnlyChangeDetected": null
+    },
+    {
+      "dataset": "insumos",
+      "identicalStable": true,
+      "changedRowUpdated": true,
+      "otherRowStable": true,
+      "deletionConfirmed": true,
+      "nullNoopStable": true,
+      "emptyConfirmed": true,
+      "childOnlyChangeDetected": null
+    }
+  ],
+  "unnecessaryUpdatesBefore": 10,
+  "unnecessaryUpdatesAfter": 0,
+  "rollbackExecuted": true,
+  "productionWrites": false,
+  "limitation": "No production RLS/triggers/concurrent processes cloned. Versions based on max timestamp alone must also compare row counts for deletes."
+}

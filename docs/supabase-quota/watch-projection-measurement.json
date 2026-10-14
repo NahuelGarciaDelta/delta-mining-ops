@@ -1,0 +1,9 @@
+{
+  "kind": "Real record, SQL JSON serialization sizes; not billing bytes or direct HTTP sample",
+  "measurement": [
+    {
+      "before_json_bytes": 393,
+      "after_json_bytes": 54
+    }
+  ]
+}

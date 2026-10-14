@@ -82,8 +82,14 @@
   ],
   "changes": "Only skip unchanged conflict updates using null-safe comparisons; business values and existing deletion clauses preserved",
   "executed": false,
-  "sqlIntegrationTested": false,
+  "sqlIntegrationTested": true,
   "sqlArtifactsLineEndings": "LF; baseline digest refers to retrieved mixed-line-ending definition",
-  "forwardArtifactSha256": "485c596e6dad90f5efec0b02bd706cb96ed0134e828500d654986c13287f7a17",
-  "rollbackArtifactSha256": "a2acafcdd85b886d027c6d3b8038b64f8013d8309c164cb551e7bfd212bd062a"
+  "forwardArtifactSha256": "adba96450cb7faa1fd260f9ec37f89306635d988182b093035cffe1074c41371",
+  "rollbackArtifactSha256": "a2acafcdd85b886d027c6d3b8038b64f8013d8309c164cb551e7bfd212bd062a",
+  "childCollectionsCompared": [
+    "rma15_insumos"
+  ],
+  "sqlIntegrationEnvironment": "PostgreSQL 17.5 via PGlite 0.3.14, in-memory synthetic fixture; no production connection",
+  "executedInProduction": false,
+  "resultsFile": "isolated-results.json"
 }

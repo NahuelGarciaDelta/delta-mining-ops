@@ -1,0 +1,372 @@
+[
+  {
+    "table_name": "insumos",
+    "column_name": "id",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "insumos",
+    "column_name": "source_dataset",
+    "data_type": "text"
+  },
+  {
+    "table_name": "insumos",
+    "column_name": "source_row",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "insumos",
+    "column_name": "codigo",
+    "data_type": "text"
+  },
+  {
+    "table_name": "insumos",
+    "column_name": "descripcion",
+    "data_type": "text"
+  },
+  {
+    "table_name": "insumos",
+    "column_name": "precio_unitario",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "insumos",
+    "column_name": "descripcion_adicional",
+    "data_type": "text"
+  },
+  {
+    "table_name": "insumos",
+    "column_name": "raw_data",
+    "data_type": "jsonb"
+  },
+  {
+    "table_name": "insumos",
+    "column_name": "synced_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "id",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "source_dataset",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "source_row",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "codigo_nuevo",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "codigo_drusila",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "familia",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "marca",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "modelo",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "potencia",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "numero_serie",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "vida_util_hs_km",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "lugar_alquiler",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "horas",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "horas_trabajo_mes",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "tipo_combustible",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "anio_fabricacion",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "cantidad_neumaticos",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "horas_hombre_mecanico",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "consumo_combustible",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "capacidad",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "fecha_ingreso",
+    "data_type": "date"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "costo_local_usd",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "tarifa_mensual_usd",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "costo_neumatico_unidad",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "propiedad",
+    "data_type": "text"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "raw_data",
+    "data_type": "jsonb"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "synced_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "lista_equipos",
+    "column_name": "codigo_anterior",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "id",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "source_dataset",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "source_row",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "fecha_ot",
+    "data_type": "date"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "proyecto",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "equipo",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "interno",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "km_hs",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "tipo_mantenimiento",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "equipo_operativo",
+    "data_type": "boolean"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "turno",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "lugar",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "intervencion",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "observaciones",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "mail_avisado",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "raw_data",
+    "data_type": "jsonb"
+  },
+  {
+    "table_name": "rma15",
+    "column_name": "synced_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "id",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "source_dataset",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "source_row",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "fecha",
+    "data_type": "date"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "mes",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "ancho",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "largo",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "profundidad",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "tarea",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "proyecto",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "interno",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "supervisor",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "tipo_equipo",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "numero_parte",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "unidad",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "horas_productivas",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "cantidad_produccion",
+    "data_type": "numeric"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "observaciones",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "raw_data",
+    "data_type": "jsonb"
+  },
+  {
+    "table_name": "rop05",
+    "column_name": "synced_at",
+    "data_type": "timestamp with time zone"
+  }
+]

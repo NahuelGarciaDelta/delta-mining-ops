@@ -14,10 +14,18 @@ export function historicalVersionsForDataset(dataset,manifest){
   const selected={};
   for(const key of keys){
     const value=Number(manifest.versions[key]);
-    if(!Number.isFinite(value)||value<=0)return null;
+    if(!Number.isFinite(value)||value<0||(value===0&&manifest.rowCounts?.[key]!==0))return null;
     selected[key]=value;
   }
   return selected;
+}
+
+export function historicalCountsForDataset(dataset,manifest){
+  if(!manifest?.rowCounts)return null;
+  const keys=SOURCES[String(dataset||" ").trim().toLowerCase()]||[String(dataset||"").trim().toLowerCase()];
+  const counts={};
+  for(const key of keys){const value=manifest.rowCounts[key];if(!Number.isSafeInteger(value)||value<0)return null;counts[key]=value;}
+  return counts;
 }
 
 export function historicalSnapshotMatchesManifest(dataset,cached,manifest){
@@ -25,6 +33,11 @@ export function historicalSnapshotMatchesManifest(dataset,cached,manifest){
   const remote=historicalVersionsForDataset(dataset,manifest);
   const local=cached.versions||{};
   if(!remote)return false;
+  if(manifest.rowCounts){
+    const counts=historicalCountsForDataset(dataset,manifest);
+    if(!counts||Object.entries(counts).some(([key,count])=>cached.rowCounts?.[key]!==count))return false;
+    if(Object.values(counts).every(count=>count===0)&&cached.data.length>0)return false;
+  }
   return Object.entries(remote).every(([key,version])=>Number(local[key])===version);
 }
 
