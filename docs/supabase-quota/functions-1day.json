@@ -1,0 +1,130 @@
+[
+  {
+    "name": "rop02-sheet-sync",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "all-sheets-sync",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "delta-sheet-sync",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "delta-taller-probe",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "taller-sheet-sync",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "sheet-sync-safe",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "rop05-sheet-sync",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "user-config-sheet-sync",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "delta-external-sheet-sync",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "delta-external-sheet-sync-v3",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "delta-rop02-incremental-sync",
+    "requests": 46,
+    "serverErrors": 0,
+    "buckets": 11,
+    "firstBucket": "2026-10-13T18:00:00",
+    "lastBucket": "2026-10-14T16:00:00"
+  },
+  {
+    "name": "delta-rop05-incremental-sync",
+    "requests": 38,
+    "serverErrors": 0,
+    "buckets": 12,
+    "firstBucket": "2026-10-13T20:00:00",
+    "lastBucket": "2026-10-14T18:00:00"
+  },
+  {
+    "name": "repair-rop05-once",
+    "requests": 0,
+    "serverErrors": 0,
+    "buckets": 0,
+    "firstBucket": null,
+    "lastBucket": null
+  },
+  {
+    "name": "lista-equipos-auto-sync",
+    "requests": 27,
+    "serverErrors": 0,
+    "buckets": 4,
+    "firstBucket": "2026-10-14T14:00:00",
+    "lastBucket": "2026-10-14T17:00:00"
+  },
+  {
+    "name": "lista-equipos-version-watch",
+    "requests": 252,
+    "serverErrors": 9,
+    "buckets": 25,
+    "firstBucket": "2026-10-13T18:00:00",
+    "lastBucket": "2026-10-14T18:00:00"
+  },
+  {
+    "name": "insumos-auto-sync",
+    "requests": 82,
+    "serverErrors": 2,
+    "buckets": 25,
+    "firstBucket": "2026-10-13T18:00:00",
+    "lastBucket": "2026-10-14T18:00:00"
+  }
+]

@@ -1,0 +1,162 @@
+[
+  {
+    "dataset": "articulos_desgaste",
+    "destination_rows": 165,
+    "source_rows": 165,
+    "last_success_at": "2026-09-17 01:19:42.4961+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "estados_solicitudes",
+    "destination_rows": 228,
+    "source_rows": 228,
+    "last_success_at": "2026-09-17 01:25:16.836383+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "insumos",
+    "destination_rows": 1879,
+    "source_rows": 1879,
+    "last_success_at": "2026-10-08 16:46:02.204+00",
+    "consecutive_failures": 42,
+    "has_error": true,
+    "source_modified_at": "2026-10-08T16:30:59.507Z",
+    "server_version": "299"
+  },
+  {
+    "dataset": "licitaciones",
+    "destination_rows": 4,
+    "source_rows": 4,
+    "last_success_at": "2026-09-17 00:54:15.38593+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "lista_equipos",
+    "destination_rows": 119,
+    "source_rows": 119,
+    "last_success_at": "2026-10-14 17:25:10.524+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": "2026-10-14T17:20:38.406Z",
+    "server_version": "902"
+  },
+  {
+    "dataset": "movimientos_equipos",
+    "destination_rows": 67,
+    "source_rows": 67,
+    "last_success_at": "2026-09-17 01:25:12.56013+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "movimientos_taller",
+    "destination_rows": 39,
+    "source_rows": 38,
+    "last_success_at": "2026-09-17 01:29:55.194923+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "pm",
+    "destination_rows": 144,
+    "source_rows": 144,
+    "last_success_at": "2026-09-17 01:30:03.040291+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "raba03",
+    "destination_rows": 748,
+    "source_rows": 748,
+    "last_success_at": "2026-09-17 01:25:15.408979+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "remitos_cargados",
+    "destination_rows": 1010,
+    "source_rows": 1010,
+    "last_success_at": "2026-09-17 01:29:56.083794+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "rma15_fs",
+    "destination_rows": 1378,
+    "source_rows": 1378,
+    "last_success_at": "2026-09-17 01:14:16.094329+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "rma15_jm",
+    "destination_rows": null,
+    "source_rows": null,
+    "last_success_at": "2026-09-17 00:59:32.671211+00",
+    "consecutive_failures": 1,
+    "has_error": true,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "rop05",
+    "destination_rows": null,
+    "source_rows": null,
+    "last_success_at": "2026-09-17 00:25:51.009123+00",
+    "consecutive_failures": 3,
+    "has_error": true,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "stock",
+    "destination_rows": 5616,
+    "source_rows": 5616,
+    "last_success_at": "2026-09-17 01:30:12.817369+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "user_configuraciones",
+    "destination_rows": 9,
+    "source_rows": 9,
+    "last_success_at": "2026-09-17 01:09:24.87733+00",
+    "consecutive_failures": 1,
+    "has_error": true,
+    "source_modified_at": null,
+    "server_version": null
+  },
+  {
+    "dataset": "usuarios",
+    "destination_rows": 16,
+    "source_rows": 16,
+    "last_success_at": "2026-09-17 01:25:02.216294+00",
+    "consecutive_failures": 0,
+    "has_error": false,
+    "source_modified_at": null,
+    "server_version": null
+  }
+]

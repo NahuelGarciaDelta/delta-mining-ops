@@ -1,0 +1,89 @@
+{
+  "retrievedFunction": "public.sync_typed_dataset",
+  "baselineSha256": "1d2896422edc4396f048eddd9e276e8be6835c194b65f308070c772805f11a8c",
+  "changedClauses": [
+    {
+      "table": "rop05",
+      "columns": [
+        "fecha",
+        "mes",
+        "ancho",
+        "largo",
+        "profundidad",
+        "tarea",
+        "proyecto",
+        "interno",
+        "supervisor",
+        "tipo_equipo",
+        "numero_parte",
+        "unidad",
+        "horas_productivas",
+        "cantidad_produccion",
+        "observaciones",
+        "raw_data"
+      ]
+    },
+    {
+      "table": "rma15",
+      "columns": [
+        "fecha_ot",
+        "proyecto",
+        "equipo",
+        "interno",
+        "km_hs",
+        "tipo_mantenimiento",
+        "equipo_operativo",
+        "turno",
+        "lugar",
+        "intervencion",
+        "observaciones",
+        "mail_avisado",
+        "raw_data"
+      ]
+    },
+    {
+      "table": "lista_equipos",
+      "columns": [
+        "codigo_nuevo",
+        "codigo_drusila",
+        "familia",
+        "marca",
+        "modelo",
+        "potencia",
+        "numero_serie",
+        "vida_util_hs_km",
+        "lugar_alquiler",
+        "horas",
+        "horas_trabajo_mes",
+        "tipo_combustible",
+        "anio_fabricacion",
+        "cantidad_neumaticos",
+        "horas_hombre_mecanico",
+        "consumo_combustible",
+        "capacidad",
+        "fecha_ingreso",
+        "costo_local_usd",
+        "tarifa_mensual_usd",
+        "costo_neumatico_unidad",
+        "propiedad",
+        "raw_data"
+      ]
+    },
+    {
+      "table": "insumos",
+      "columns": [
+        "codigo",
+        "descripcion",
+        "precio_unitario",
+        "descripcion_adicional",
+        "raw_data"
+      ]
+    }
+  ],
+  "changes": "Only skip unchanged conflict updates using null-safe comparisons; business values and existing deletion clauses preserved",
+  "executed": false,
+  "sqlIntegrationTested": false,
+  "sqlArtifactsLineEndings": "LF; baseline digest refers to retrieved mixed-line-ending definition",
+  "forwardArtifactSha256": "485c596e6dad90f5efec0b02bd706cb96ed0134e828500d654986c13287f7a17",
+  "rollbackArtifactSha256": "a2acafcdd85b886d027c6d3b8038b64f8013d8309c164cb551e7bfd212bd062a"
+}

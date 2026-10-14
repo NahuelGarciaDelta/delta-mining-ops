@@ -1,3 +1,7 @@
+# Actualización de acceso
+
+SUPABASE_ACCESS_TOKEN ya está habilitado. Se ejecutaron diagnósticos reales de proyecto/Edge/cron/SQL read-only y se prepararon correcciones adicionales: ver [ACCESO-Y-DIAGNOSTICOS.md](ACCESO-Y-DIAGNOSTICOS.md). Las limitaciones de acceso indicadas más abajo describen el estado anterior; ya no bloquean las lecturas de proyecto. Sigue faltando la serie de bytes facturados por servicio de 30 días.
+
 # Auditoría y reducción de consumo — 14/10/2026
 
 ## Estado y alcance

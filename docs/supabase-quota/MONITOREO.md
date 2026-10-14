@@ -38,3 +38,6 @@ Fuentes oficiales consultadas HTTP 200 el 14/10/2026:
 - https://supabase.com/docs/guides/platform/billing-faq#fair-use-policy : superar cuotas persistentemente puede causar restricciones; el aviso puede persistir tras bajar el uso y el período de gracia no se reinicia inmediatamente.
 
 Para el 10/11: reducir TODAS las cuotas excedidas y mantener los límites, no solo optimizar consultas. No puede prometerse desaparición inmediata del aviso ni impedir una restricción si el ciclo acumulado ya excedió la cuota. Si las métricas están dentro de límites pero el dashboard mantiene una restricción/fecha, consultar Support con organización, ciclo y exportación, sin cambiar el plan ni habilitar pagos. No se envió ningún mensaje a Support ni se realizó una acción administrativa. No consta hoy si falta una gestión adicional para esta organización.
+
+
+Actualización: acceso seguro probado HTTP 200. El colector scripts/collect-supabase-diagnostics.py ya se ejecutó y permite snapshot diario de counts, funciones y cron; ver ACCESO-Y-DIAGNOSTICOS.md. No devuelve egress facturado. El perfil de organización devuelve 403, pero proyecto/analytics/read-only SQL funcionan. No hace falta volver a proporcionar un token para estos diagnósticos.
