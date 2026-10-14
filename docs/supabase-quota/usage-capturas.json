@@ -1,0 +1,42 @@
+{
+  "source": "Capturas proporcionadas por el usuario; no consulta API",
+  "observedOn": "2026-10-14",
+  "selectedRange": "Last 30 days",
+  "newBillingCycleShown": {
+    "start": "2026-10-14",
+    "end": "2026-11-14"
+  },
+  "scope": "Organizaci\u00f3n NahuelGarciaDelta; filtro de proyecto truncado, inclusi\u00f3n de todos los proyectos no confirmada",
+  "metrics": {
+    "egressGB": 6.096,
+    "cachedEgressGB": 0,
+    "databaseSizeGB": 0.181,
+    "storageSizeGB": 0,
+    "monthlyActiveUsers": 0,
+    "thirdPartyMAU": 0,
+    "realtimePeakConnections": 0,
+    "realtimeMessages": 0,
+    "edgeFunctionInvocations": 8538,
+    "logIngestionGB": 0.584,
+    "logQueryGB": 50.234
+  },
+  "upcomingLabels": [
+    "Log Ingestion",
+    "Log Query"
+  ],
+  "calculationsNotNewMeasurements": {
+    "dailyAverageGB_assuming30Days": 0.2032,
+    "excessVsPublished5GB": 1.096,
+    "excessPercent": 21.920000000000005,
+    "reductionFor3_6GBPercent": 40.94488188976377,
+    "reductionFor3_9GBPercent": 36.023622047244096,
+    "projection31DaysGB_sameAverage": 6.2992
+  },
+  "notEstablished": [
+    "Desglose Egress por servicio",
+    "Acumulado del ciclo nuevo",
+    "Inclusi\u00f3n de todos los proyectos",
+    "Otras cuotas efectivas y estado de grace period",
+    "Ahorro de la versi\u00f3n optimizada en usuarios productivos"
+  ]
+}

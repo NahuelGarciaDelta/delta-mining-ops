@@ -4,7 +4,7 @@
 
 Código optimizado en rama independiente perf/supabase-quota-20261014. Base d7e91f9457f5f5315bc203d04ab2bdff565e4a4d. No se tocó main, proyecto productivo, Apps Script V9, datos/roles de Sheets/Supabase, dependencias o migraciones. La versión Preview es para revisión; no cambia el consumo de usuarios productivos hasta una publicación autorizada.
 
-**No se identificó aún la cuota exacta que provocó la advertencia.** Solo hay acceso público a lecturas y acceso Vercel; no hay Management API/Supabase dashboard habilitados. No se dispone de Usage de 30 días ni prueba de pertenencia/listado de todos los proyectos de la organización. El código usa el proyecto jwfocqaxlckuxoklwyxs; falta confirmar sus métricas y otros proyectos de prhrkgunfokkpopvvdsv. No se afirma que todo sea egress ni que se haya alcanzado la meta mensual.
+**Se confirmó un exceso visible de Egress en las capturas del usuario: 6,096 GB en Last 30 days, frente a la cuota publicada de 5 GB.** Es el principal exceso observado. No se conoce el desglose por servicio ni si existieron otros excesos en el ciclo anterior que originaron el banner. Hay capturas reales del dashboard, pero no acceso Management API habilitado ni exportación diaria/listado de todos los proyectos. El código usa el proyecto jwfocqaxlckuxoklwyxs; falta confirmar sus métricas y otros proyectos de prhrkgunfokkpopvvdsv. No se afirma que todo sea egress ni que se haya alcanzado la meta mensual.
 
 ## Hallazgos y optimizaciones
 
@@ -27,6 +27,14 @@ No se encontraron clientes Realtime/Storage/Auth nativo en los readers principal
 
 Las configuraciones y SQL de sincronización/cron remoto no están disponibles en el repo: no se puede verificar si reescribir synced_at sin cambios invalida versiones periódicamente. Es una hipótesis a investigar, no causa confirmada. Falta pg_stat_statements, índices, planes reales, conexiones y jobs. Se preparó DIAGNOSTICO-LECTURA.sql, sin ejecutar; no se prepararon índices/migraciones especulativos ni se borró nada. El RPC rop02_latest_by_equipment_project aparece en código legacy, pero no en la allowlist del proxy; no se amplió sin definición/permisos remotos. El inicio actual usa datos ya hidratados; revisar ese flujo si se reactiva el snapshot externo.
 
+## Usage real aportado por el usuario
+
+Las capturas muestran Egress 6,096 GB, Cached Egress 0, Database Size 0,181 GB, Storage 0, MAU 0, Realtime conexiones/mensajes 0 y Edge Function Invocations 8.538. Log Ingestion 0,584 GB y Log Query 50,234 GB aparecen marcados UPCOMING: no se atribuyó a ellos una restricción sin verificar sus límites efectivos. DB size visible está por debajo de 500 MB y las cuotas con cero no muestran exceso en esta captura. La página oficial de pricing consultada confirma 500.000 invocaciones Edge incluidas, 200 conexiones Realtime concurrentes y 2 millones de mensajes; los valores visibles están por debajo. Falta identificar funciones/jobs y verificar límites efectivos de la organización. No sumar los 50,234 GB de Log Query a los 6,096 GB de Egress: son conceptos diferentes. 8.538 invocaciones / 30 días son 284,6 por día; sería compatible con un job cercano a cada cinco minutos si fuera un único job continuo, pero su periodicidad no está demostrada. Pricing también publica 1 GB de Log Ingestion y 100 GB de Log Query; los valores de la captura están debajo y figuran UPCOMING, sin confirmar su aplicación efectiva. No se atribuyó el egress a PostgreSQL exclusivamente.
+
+Promedio calculado usando el filtro Last 30 days: 203,2 MB/día; exceso respecto de 5 GB: 1,096 GB / 21,92%. Proyección sin reducción a 30 días: 6,096 GB; a 31 días: 6,2992 GB. Para 3,9 GB hace falta ~36,02% de reducción; para 3,6 GB ~40,94%. Son cálculos sobre el agregado de la captura, NO una medición nueva. El gráfico incluye fechas 14/09–14/10 y el último día puede ser parcial. El ciclo que aparece arriba es nuevo (14/10–14/11): no interpretar el agregado Last 30 days como gasto acumulado de ese ciclo. El filtro de proyecto es truncado; falta confirmar si incluye todos los proyectos.
+
+La proyección ROP02 de una fila (~20%) por sí sola NO demuestra el objetivo 36–41%. La coalescencia puede reducir más en flujos duplicados, pero falta su frecuencia real y el aporte de Edge/sincronizadores. No se promete cumplimiento a partir del benchmark.
+
 ## Mediciones y comparación
 
 Muestra REAL acotada: dos GET consecutivos al proxy productivo, misma primera fila ordenada por source_key, limit=1. select=* devuelve 758 bytes JSON (26 columnas); proyección devuelve 606 bytes (21 columnas): 152 bytes, **20,05%** menos. No se publican valores de la fila. Son bytes de cuerpo observados en la aplicación, NO contadores facturados por Supabase, y una fila no representa toda la tabla. Columnas omitidas: id, created_at, updated_at, source_dataset, source_row; el adaptador usa source_key para identidad/posición, preservado. La muestra no tenía raw_data duplicado; no se atribuyó ahorro a un campo inexistente.
@@ -41,8 +49,8 @@ Benchmark reproducible: `node scripts/benchmark-supabase-quota.mjs`. Ejecuta có
 | Datos transferidos al abrir app fría | No medido | No medido | Fuentes iniciales sin recorte; no atribuir ahorro global |
 | Navegar 5 veces al mismo histórico sin cambios | 1 descarga de datos | 1 descarga de datos | Caché previa preservada; prueba simulada, manifiesto aparte |
 | Actualizar/guardar y cambiar versión | Nueva lectura | Nueva lectura | Consistencia preservada; prueba simulada |
-| Egress diario de organización | Desconocido | Desconocido | Requiere Usage |
-| Egress mensual de organización | Desconocido | Desconocido | Requiere Usage; no extrapolar una fila |
+| Egress diario del alcance de la captura | 203,2 MB/día calculados | No medido tras cambios | Promedio de 6,096 GB / 30; falta desglose |
+| Egress en Last 30 days | 6,096 GB reales del dashboard | No medido tras cambios | Captura del usuario; no extrapolar una fila |
 
 No se conoce frecuencia de duplicación ni participación ROP02 en el egress. Ahorro proyectado = ahorro por evento × eventos observados; no se puede dar GB/día real sin ese dato. Si el egress ROP02 histórico observado es H y las muestras representativas muestran 20%, su componente sería ~0,8H, más reducción de duplicados observados; no aplicar el 80% a toda la organización. El objetivo de 3,6 GB/ciclo sigue SIN CONFIRMAR.
 
@@ -56,6 +64,13 @@ Conservar resultados remotos y todos los campos legacy depende del esquema actua
 
 ## Estado Free y 10/11/2026
 
-Fuentes oficiales y procedimiento diario están en MONITOREO.md. Free publicado: 5 GB uncached + 5 GB cached separados, 500 MB DB, 1 GB Storage, 50.000 MAU, máximo 2 proyectos activos. Falta confirmar límites y Usage efectivos por organización, Realtime/Edge y otros recursos. Reducir frontend solo reduce uso futuro: no borra cuotas ya consumidas. Un aviso puede persistir aunque se vuelva a límites; reincidencia puede restringir sin nueva gracia. No se habilitaron pagos ni cambió el plan.
+Fuentes oficiales y procedimiento diario están en MONITOREO.md. Free publicado: 5 GB uncached + 5 GB cached separados, 500 MB DB, 1 GB Storage, 50.000 MAU, máximo 2 proyectos activos. Falta confirmar límites y Usage efectivos por organización y el desglose de otros recursos. Realtime/Edge publicados: 200 conexiones / 2 millones de mensajes / 500.000 invocaciones. Reducir frontend solo reduce uso futuro: no borra cuotas ya consumidas. Un aviso puede persistir aunque se vuelva a límites; reincidencia puede restringir sin nueva gracia. No se habilitaron pagos ni cambió el plan.
 
-**Conclusiones:** se identificaron y corrigieron causas concretas de consumo redundante en el código, no la causa principal facturada del exceso. Ahorro comprobado: 20,05% de cuerpo JSON en una fila real y 80,16% en un escenario simulado de cuatro lecturas. No puede confirmarse cumplimiento mensual ni ausencia de restricciones el 10/11. Faltan Usage 30 días/ciclo actual/anterior de TODOS los proyectos, diagnósticos SQL y varios días de medición representativa después de una publicación productiva autorizada. El Preview no resuelve por sí solo el consumo en producción.
+**Conclusiones:** se identificaron y corrigieron causas concretas de consumo redundante en el código, la cuota Egress excedida está confirmada por captura; la distribución de sus causas facturadas aún no. Ahorro comprobado: 20,05% de cuerpo JSON en una fila real y 80,16% en un escenario simulado de cuatro lecturas. No puede confirmarse cumplimiento mensual ni ausencia de restricciones el 10/11. Faltan exportación diaria y desglose Usage por servicio/ciclo actual/anterior de TODOS los proyectos, diagnósticos SQL y varios días de medición representativa después de una publicación productiva autorizada. El Preview no resuelve por sí solo el consumo en producción.
+
+
+## Preview y conservación de producción
+
+Preview publicado: https://delta-mining-ops-audit-preview-90wko6qm3.vercel.app/ , proyecto delta-mining-ops-audit-preview, deployment dpl_FjPb4mydai4LLPLNGocttyzwY3uU, target staging (Preview), estado READY. Runtime del commit 90d6b41a7a8852ea86ec336152e5e2993ccadadf; la documentación de capturas se agregó posteriormente sin cambiar src/api/scripts. Login renderizado sin excepciones; Apps Script V9 y lectura Supabase acotada HTTP 200. Las funciones y variables del proyecto se conservaron; no hay secretos nuevos en el bundle.
+
+Producción sigue en dpl_BHcEaYdi4ZztSnrupo92D7gPp8LZ; main sigue d7e91f9457f5f5315bc203d04ab2bdff565e4a4d. No se hizo push ni merge a main. La rama y ambos commits locales están conservados en esta entrega.
