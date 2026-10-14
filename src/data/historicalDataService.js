@@ -4,7 +4,7 @@ import {fetchSupabaseRop02LatestByEquipmentProject} from "../services/supabaseRe
 import {readCachedSource,writeCachedSource} from "../services/appCache.js";
 import {DATA_REFRESH_INTERVAL_MS} from "../services/dataRefreshPolicy.js";
 import {buildDatasetQueryKey} from "./historicalQueryParams.js";
-import {historicalSnapshotMatchesManifest,historicalVersionsForDataset} from "./historicalVersionPolicy.js";
+import {sourceVersionsDiffer as versionsDiffer_,historicalSnapshotMatchesManifest,historicalVersionsForDataset} from "./historicalVersionPolicy.js";
 import {createPagedDatasetController as createPagedController} from "./pagedDatasetController.js";
 export {buildDatasetQueryKey,operationalMonthRange,yearsForRange} from "./historicalQueryParams.js";
 export {createPagedDatasetController} from "./pagedDatasetController.js";

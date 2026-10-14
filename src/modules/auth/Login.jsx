@@ -1,35 +1,9 @@
 import React from "react";
 import { buildAuthenticatedUser, saveAuthenticatedSession } from "../../services/authSession.js";
-import { authenticateSupabaseUser } from "../../services/supabaseAuthApi.js";
+import {requestAppsScript} from "../../services/confirmedWrites.js";
 import {applyAppearance,loadCentralAppearance,readLocalAppearance,writeLocalAppearance} from "../../services/userAppearance.js";
 
-const LEGACY_AUTH_TIMEOUT_MS=45000;
-
-async function authenticateLegacyAppsScript(url,email,password){
-  const controller=typeof AbortController!=="undefined"?new AbortController():null;
-  const timeoutId=controller?window.setTimeout(()=>controller.abort(),LEGACY_AUTH_TIMEOUT_MS):null;
-  try{
-    const response=await fetch(url,{
-      method:"POST",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:new URLSearchParams({payload:JSON.stringify({action:"authenticate_user",email,password})}),
-      cache:"no-store",
-      redirect:"follow",
-      signal:controller?.signal
-    });
-
-    if(!response.ok){
-      const err=new Error(`HTTP ${response.status}`);
-      err.status=response.status;
-      throw err;
-    }
-
-    try{return await response.json();}
-    catch(_){throw new Error("AUTH_RESPONSE_INVALID");}
-  }finally{
-    if(timeoutId!==null)window.clearTimeout(timeoutId);
-  }
-}
+export const authenticateLegacyAppsScript=(url,email,password)=>requestAppsScript(url,{action:"authenticate_user",email,password},{timeoutMs:45000});
 
 export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dmNormalizeAssignedProject}){
   const[usuario,setUsuario]=React.useState("");
@@ -79,18 +53,9 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
     setError("");
 
     try{
-      let json;
-      try{
-        // Camino principal: valida bcrypt directamente en Supabase. No abre Sheets,
-        // no pasa por Vercel / Apps Script y normalmente responde en milisegundos.
-        json=await authenticateSupabaseUser(mail,pass);
-      }catch(supabaseError){
-        // Fallback conservador: si Supabase tiene una falla de red/servicio, el login
-        // histórico sigue disponible. Un cambio de infraestructura no puede dejar
-        // afuera a los usuarios que ya podían entrar.
-        console.warn("Supabase auth no disponible; usando fallback legacy",supabaseError);
-        json=await authenticateLegacyAppsScript(APPS_SCRIPT_URL,mail,pass);
-      }
+      // Password updates and login share one authority. The unrelated Supabase bcrypt
+      // RPC has no synchronization contract with the Google Sheets password change.
+      const json=await authenticateLegacyAppsScript(APPS_SCRIPT_URL,mail,pass);
 
       if(!json?.ok){
         const code=String(json?.error?.code||"").toUpperCase();
@@ -100,6 +65,7 @@ export default function Login({onLogin,C,APPS_SCRIPT_URL,IMG_LOGIN_FONDO,LOGO,dm
         return;
       }
 
+      if(!json.capabilities?.passwordHashProfile){showError("El servicio de acceso requiere la actualización del backend antes de continuar.");return;}
       const authenticatedUser=buildAuthenticatedUser(json,mail);
       saveAuthenticatedSession(authenticatedUser,{
         mustChangePassword:!!json.mustChangePassword,

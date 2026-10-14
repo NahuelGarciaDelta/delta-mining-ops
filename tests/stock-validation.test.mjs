@@ -34,7 +34,7 @@ test("el flujo activo de Stock no usa Drive, Base64 ni hojas versionadas",{skip:
   const stockSection=backend.slice(backend.indexOf("function handleStockExcelUpload_"),backend.indexOf("function handleStockExcelClear_"));
   assert.doesNotMatch(stockSection,/DriveApp|STOCK_DATA_V|STOCK_DRIVE_FOLDER_ID|STOCK_ACTIVE_FILE_ID/);
   assert.doesNotMatch(service,/FileReader|fileToBase64|base64/i);
-  assert.match(backend,/STOCK_TEMP_SHEET_="STOCK_TEMP"/);
+  assert.match(backend,/STOCK_TEMP_SHEET_\s*=\s*"STOCK_TEMP"/);
   assert.match(backend,/lock\.tryLock\(30000\)/);
   assert.ok(backend.indexOf("temp.getRange(2")<backend.indexOf("temp.setName(STOCK_MAIN_SHEET_)"));
 });

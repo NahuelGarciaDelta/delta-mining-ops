@@ -1,0 +1,75 @@
+{
+  "generatedAt": "2026-10-14T13:11:33.813362-03:00",
+  "branch": "fix/auth-and-horometer-integrity",
+  "baseCommit": "ab06d65702525bccbe389ecec2649482cb91b137",
+  "backend": {
+    "file": "AppsScript_Delta_Mining_OPS_FINAL.txt",
+    "sha256BeforeValidation": "6e53019c95dd52ec7422fdf3aa2aa799e6c9fad776719bbdc65e36522987c59a",
+    "sha256AfterValidation": "6e53019c95dd52ec7422fdf3aa2aa799e6c9fad776719bbdc65e36522987c59a",
+    "bytes": 287664,
+    "lines": 6557,
+    "version": "2026-10-14-AUTH-METER-INTEGRITY-V9",
+    "gitBlob": "ecfd3850f74ff7d5329d8c27308248a2adc1fe17"
+  },
+  "functionComparison": {
+    "original": 231,
+    "final": 248,
+    "modified": 8,
+    "added": 17,
+    "removed": 0,
+    "unchangedBodies": 223,
+    "duplicateFunctions": 0,
+    "undefinedStaticReferences": 0
+  },
+  "validation": {
+    "npmRunValidate": {
+      "exitCode": 0,
+      "tests": 384,
+      "passed": 384,
+      "failed": 0,
+      "skipped": 0
+    },
+    "npmRunBuild": {
+      "exitCode": 0,
+      "note": "Existing progressive-rows footer-remitos warning remains."
+    },
+    "npmRunLint": {
+      "exitCode": 0,
+      "errors": 0,
+      "warnings": 823
+    },
+    "npmRunFormatCheck": {
+      "exitCode": 1,
+      "existingFilesWithStyleIssues": 229
+    },
+    "nodeSyntaxCheck": {
+      "exitCode": 0
+    },
+    "gitDiffCheck": {
+      "command": "git diff --cached --check",
+      "exitCode": 0,
+      "note": "Scoped attributes preserve the original CRLF and legitimate unified-diff context spaces; ordinary source whitespace checks remain enabled."
+    },
+    "browser": {
+      "exitCode": 0,
+      "mode": "Real Chromium; all external requests intercepted; mock Apps Script and mock Sheets",
+      "firstLogin": "passed",
+      "forcedPasswordChange": "passed",
+      "sessionReload": "passed",
+      "newPasswordAccepted": true,
+      "oldPasswordRejected": true,
+      "passwordWrites": 1,
+      "unhandledExceptions": [],
+      "externalRequests": "all intercepted; no production access"
+    }
+  },
+  "realServices": {
+    "executed": false,
+    "googleSheetsCopies": "pending",
+    "copyWebApp": "pending",
+    "frontendAgainstCopyWebApp": "pending",
+    "supabaseMigration": "not executed",
+    "production": "no deployment or data writes"
+  },
+  "commitNote": "The final commit is provided in the final response and ZIP COMMIT.txt. A tracked receipt cannot embed its own commit ID."
+}

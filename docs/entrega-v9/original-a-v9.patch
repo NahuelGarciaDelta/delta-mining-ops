@@ -1,0 +1,701 @@
+--- AppsScript original adjunto V8
++++ AppsScript_Delta_Mining_OPS_FINAL.txt
+@@ -1,4 +1,4 @@
+-var DELTA_BACKEND_VERSION_ = "2026-09-13-INSTANT-CACHE-V8";
++var DELTA_BACKEND_VERSION_ = "2026-10-14-AUTH-METER-INTEGRITY-V9";
+ 
+ var SHEETS_CONFIG = {
+   rop05: {
+@@ -428,8 +428,12 @@
+       return buildResponse(handleUpdateListaEquipo_(payload.originalKeys || {}, payload.row || {}));
+     }
+ 
++    if (action === "update_lista_horometros" || action === "verify_lista_horometros") {
++      return buildResponse(handleListaHorometros_(payload, action === "verify_lista_horometros"));
++    }
++
+     if (action === "bulk_update_lista_equipos_from_app") {
+-      return buildResponse(handleBulkUpdateListaEquiposFromApp_(payload.updates || []));
++      return buildResponse(handleBulkUpdateListaEquiposFromApp_(payload.updates || [], payload.operationId, payload.actor));
+     }
+ 
+     if (action === "update_rop02_row") {
+@@ -2461,14 +2465,7 @@
+   return {sheet:sheet,headerRow:headerRow,headers:headers,emailIdx:ensure("Email",["Email","Mail","Correo"]),rolIdx:ensure("Rol",["Rol","Role"]),proyectoIdx:ensure("Proyecto",["Proyecto","Obra"]),activoIdx:ensure("Activo",["Activo","Habilitado"]),nombreIdx:ensure("Nombre",["Nombre","Name"]),passwordIdx:ensure("Contraseña",["Contraseña","Contrasena","Password","Clave"]),areaIdx:ensure("Area",["Area","Área","Sector"])};
+ }
+ 
+-function findUsuarioRowByEmail_(info,email){
+-  var lastRow=info.sheet.getLastRow();
+-  if(lastRow<=info.headerRow)return -1;
+-  var vals=info.sheet.getRange(info.headerRow+1,info.emailIdx+1,lastRow-info.headerRow,1).getDisplayValues();
+-  var wanted=String(email||"").trim().toLowerCase();
+-  for(var i=0;i<vals.length;i++)if(String(vals[i][0]||"").trim().toLowerCase()===wanted)return info.headerRow+1+i;
+-  return -1;
+-}
++
+ 
+ function usuarioActivoValor_(v){
+   var a=String(v==null?"SI":v).trim().toUpperCase()||"SI";
+@@ -2488,99 +2485,13 @@
+   ).replace(/=+$/g,"");
+ }
+ 
+-function refreshAuthMirror_(){
+-  var info=getUsuariosSheetInfo_();
+-  var lastRow=info.sheet.getLastRow();
+-  var props=PropertiesService.getScriptProperties();
+-  var oldKeys=[];
+-  try{oldKeys=JSON.parse(props.getProperty("DM_AUTH_MIRROR_KEYS")||"[]");}catch(_){oldKeys=[];}
+-  var updates={};
+-  var newKeys=[];
+-  if(lastRow>info.headerRow){
+-    var rows=info.sheet.getRange(info.headerRow+1,1,lastRow-info.headerRow,info.headers.length).getDisplayValues();
+-    rows.forEach(function(row){
+-      var email=String(row[info.emailIdx]||"").trim().toLowerCase();
+-      if(!email)return;
+-      var stored=String(row[info.passwordIdx]||"");
+-      var expected=stored||"DELTA.MINING.APP";
+-      var key=authUserPropertyKey_(email);
+-      newKeys.push(key);
+-      updates[key]=JSON.stringify({
+-        email:email,
+-        rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),
+-        proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),
+-        nombre:String(row[info.nombreIdx]||"").trim(),
+-        area:String(row[info.areaIdx]||"").trim(),
+-        activo:usuarioActivoValor_(row[info.activoIdx]),
+-        mustChangePassword:!stored,
+-        passwordHash:authPasswordHash_(email,expected)
+-      });
+-    });
+-  }
+-  // Eliminar entradas antiguas sin tocar otras propiedades del backend.
+-  oldKeys.forEach(function(key){if(newKeys.indexOf(key)<0){try{props.deleteProperty(key);}catch(_){}}});
+-  updates.DM_AUTH_MIRROR_KEYS=JSON.stringify(newKeys);
+-  updates.DM_AUTH_MIRROR_UPDATED_AT=new Date().toISOString();
+-  props.setProperties(updates,false);
+-  return {ok:true,count:newKeys.length,updatedAt:updates.DM_AUTH_MIRROR_UPDATED_AT};
+-}
+-
+-function getAuthMirrorUser_(email){
+-  var normalized=String(email||"").trim().toLowerCase();
+-  if(!normalized)return null;
+-  var props=PropertiesService.getScriptProperties();
+-  var raw=props.getProperty(authUserPropertyKey_(normalized));
+-  if(!raw){
+-    // Sólo en el primer acceso después de instalar/editar el backend se toca Sheets.
+-    // Los accesos normales se resuelven exclusivamente desde ScriptProperties.
+-    refreshAuthMirror_();
+-    raw=props.getProperty(authUserPropertyKey_(normalized));
+-  }
+-  if(!raw)return null;
+-  try{return JSON.parse(raw);}catch(_){return null;}
+-}
+-
+-function handleAuthenticateUser_(email,password){
+-  var normalized=String(email||"").trim().toLowerCase();
+-  var auth=getAuthMirrorUser_(normalized);
+-  if(!auth)return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
+-  if(auth.activo===false)return {ok:false,error:{code:"AUTH_INACTIVE",message:"El usuario no está habilitado."}};
+-  if(authPasswordHash_(normalized,password)!==String(auth.passwordHash||""))return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
+-  var user={email:auth.email,rol:auth.rol||"USUARIO",proyecto:auth.proyecto||"TODOS",nombre:auth.nombre||"",area:auth.area||""};
+-  return {ok:true,user:user,mustChangePassword:!!auth.mustChangePassword,authToken:stockExcelIssueAuthToken_(user.email),backendVersion:DELTA_BACKEND_VERSION_};
+-}
+-
+-function handleUpdateUserProfile_(payload){
+-  var lock=LockService.getScriptLock();
+-  lock.waitLock(20000);
+-  try{
+-    var info=getUsuariosSheetInfo_();
+-    var rowNum=findUsuarioRowByEmail_(info,payload.email);
+-    if(rowNum<0)return {ok:false,error:{code:"USER_NOT_FOUND",message:"No se encontró el usuario."}};
+-    var row=info.sheet.getRange(rowNum,1,1,info.headers.length).getDisplayValues()[0];
+-    if(!usuarioActivoValor_(row[info.activoIdx]))return {ok:false,error:{code:"USER_INACTIVE",message:"El usuario no está habilitado."}};
+-    var stored=String(row[info.passwordIdx]||"");
+-    var newPassword=String(payload.newPassword||"");
+-    if(newPassword){
+-      var expected=stored||"DELTA.MINING.APP";
+-      if(String(payload.currentPassword||"")!==expected)return {ok:false,error:{code:"CURRENT_PASSWORD_INVALID",message:"La contraseña actual es incorrecta."}};
+-      info.sheet.getRange(rowNum,info.passwordIdx+1).setNumberFormat("@").setValue(newPassword);
+-    } else if(!stored) {
+-      return {ok:false,error:{code:"PASSWORD_REQUIRED",message:"Debe crear una contraseña personal para continuar."}};
+-    }
+-    var nombre=String(payload.nombre||"").trim();
+-    var currentRole=String(row[info.rolIdx]||"USUARIO").trim().toUpperCase();
+-    var currentArea=String(row[info.areaIdx]||"").trim().toUpperCase();
+-    var requestedArea=String(payload.area||"").trim().toUpperCase();
+-    var canChangeArea=(currentRole==="ADMIN"||currentRole==="ADMINISTRADOR");
+-    var area=canChangeArea?requestedArea:currentArea;
+-    if(nombre)info.sheet.getRange(rowNum,info.nombreIdx+1).setValue(nombre);
+-    if(canChangeArea)info.sheet.getRange(rowNum,info.areaIdx+1).setValue(area);
+-    SpreadsheetApp.flush();
+-    try{refreshAuthMirror_();}catch(_){ }
+-    return {ok:true,user:{email:String(row[info.emailIdx]||"").trim().toLowerCase(),rol:String(row[info.rolIdx]||"USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx]||"TODOS").trim().toUpperCase(),nombre:nombre||String(row[info.nombreIdx]||"").trim(),area:area}};
+-  } finally { lock.releaseLock(); }
+-}
++
++
++
++
++
++
++
+ 
+ function handleUsuariosAutorizados_() {
+   var VERSION = "USUARIOS_AUTORIZADOS_V34";
+@@ -2773,207 +2684,10 @@
+   };
+ }
+ 
+-function handleUpdateListaEquipo_(originalKeys, rowObj) {
+-  var config = SHEETS_CONFIG.lista_equipos;
+-  var ss = SpreadsheetApp.openById(config.id);
+-  var sheet = findSheetByGidOrName(ss, config.gid, config.sheet);
+-  if (!sheet) {
+-    return { ok: false, error: { code: "SHEET_NOT_FOUND", message: "No se encontró la hoja de Lista Maestra de Equipos." } };
+-  }
+-
+-  var lastRow = sheet.getLastRow();
+-  var lastCol = sheet.getLastColumn();
+-  if (lastRow <= config.headerRow) {
+-    return { ok: false, error: { code: "EMPTY_SHEET", message: "La Lista Maestra no tiene datos para actualizar." } };
+-  }
+-
+-  var headers = getHeaders_(sheet, config.headerRow);
+-  var data = sheet.getRange(config.headerRow + 1, 1, lastRow - config.headerRow, lastCol).getValues();
+-
+-  // Encabezados reales según tu Excel Lista de Equipos:
+-  // A: Código de Drusila | B: Codigo nuevo | C: Familia | D: Marca | E: Modelo | ...
+-  var drusilaHeader = originalKeys.codigoDrusilaHeader || findHeader_(headers, [
+-    "Código de Drusila", "Codigo de Drusila", "Código Drusila", "Codigo Drusila", "Cod Drusila", "Cod. Drusila", "Interno Drusila"
+-  ]);
+-  var nuevoHeader = originalKeys.codigoNuevoHeader || findHeader_(headers, [
+-    "Codigo nuevo", "Código nuevo", "Código Nuevo", "Codigo Nuevo", "Cod Nuevo", "Cod. Nuevo"
+-  ]);
+-
+-  var drusilaIdx = headerIndex_(headers, drusilaHeader);
+-  var nuevoIdx = headerIndex_(headers, nuevoHeader);
+-
+-  // La búsqueda se arma con TODO lo que puede identificar al equipo:
+-  // - claves originales enviadas por React
+-  // - valores editados del formulario
+-  // - variantes tipo "MNC-0015 — C338"
+-  var lookupRaw = [];
+-  function pushLookup_(v) {
+-    if (v === null || v === undefined) return;
+-    var t = String(v).trim();
+-    if (!t) return;
+-    lookupRaw.push(t);
+-    // Si viene "MNC-0015 — C338" o "MNC-0015 / C338", probar partes separadas.
+-    t.split(/[\/|,;–—]+/).forEach(function (part) {
+-      part = String(part || "").trim();
+-      if (part) lookupRaw.push(part);
+-    });
+-  }
+-
+-  pushLookup_(originalKeys.codigoDrusila);
+-  pushLookup_(originalKeys.codigoNuevo);
+-  pushLookup_(originalKeys.codigoPrincipal);
+-  pushLookup_(originalKeys.codigoDrusilaNorm);
+-  pushLookup_(originalKeys.codigoNuevoNorm);
+-  (originalKeys.lookupKeys || []).forEach(pushLookup_);
+-
+-  // Respaldo: también mirar los campos enviados en la fila editada.
+-  Object.keys(rowObj || {}).forEach(function (k) {
+-    var nk = normalizeText_(k);
+-    if (
+-      nk.indexOf("codigo") !== -1 ||
+-      nk.indexOf("cod ") !== -1 ||
+-      nk.indexOf("drusila") !== -1 ||
+-      nk.indexOf("interno") !== -1 ||
+-      nk.indexOf("nuevo") !== -1 ||
+-      nk.indexOf("modelo") !== -1
+-    ) {
+-      pushLookup_(rowObj[k]);
+-    }
+-  });
+-
+-  var lookupNorm = uniqueArray_(lookupRaw.map(normalizeMachineCode_).filter(Boolean));
+-
+-  if (!lookupNorm.length) {
+-    return { ok: false, error: { code: "NO_LOOKUP_KEY", message: "No llegó ningún código para buscar el equipo." } };
+-  }
+-
+-  var foundIndex = -1;
+-  var matchedBy = "";
+-
+-  for (var i = 0; i < data.length; i++) {
+-    var row = data[i];
+-    var candidates = [];
+-
+-    // Prioridad: columnas correctas de la Lista Maestra.
+-    if (drusilaIdx !== -1) candidates.push(row[drusilaIdx]);
+-    if (nuevoIdx !== -1) candidates.push(row[nuevoIdx]);
+-
+-    // Respaldo definitivo: recorrer toda la fila. Esto evita que falle si el encabezado cambia.
+-    for (var c = 0; c < row.length; c++) candidates.push(row[c]);
+-
+-    for (var j = 0; j < candidates.length; j++) {
+-      var candRaw = candidates[j];
+-      var candNorm = normalizeMachineCode_(candRaw);
+-      if (!candNorm) continue;
+-
+-      // Coincidencia exacta normalizada: MNC-0015 == MNC0015.
+-      if (lookupNorm.indexOf(candNorm) !== -1) {
+-        foundIndex = i;
+-        matchedBy = String(candRaw || "");
+-        break;
+-      }
+-    }
+-
+-    if (foundIndex !== -1) break;
+-  }
+-
+-  if (foundIndex === -1) {
+-    return {
+-      ok: false,
+-      error: {
+-        code: "EQUIPO_NOT_FOUND",
+-        message: "No se encontró el equipo en lista equipos. Buscado: " + lookupRaw.join(" / ")
+-      }
+-    };
+-  }
+-
+-  var targetRowNumber = config.headerRow + 1 + foundIndex;
+-  var currentValues = sheet.getRange(targetRowNumber, 1, 1, lastCol).getValues()[0];
+-  var newValues = currentValues.slice();
+-
+-  // Actualizar usando coincidencia flexible contra los encabezados reales.
+-  Object.keys(rowObj || {}).forEach(function (key) {
+-    var idx = headerIndex_(headers, key);
+-    if (idx === -1) idx = findHeaderIndexFlexible_(headers, key);
+-    if (idx !== -1) newValues[idx] = normalizeWriteValue_(rowObj[key]);
+-  });
+-
+-  sheet.getRange(targetRowNumber, 1, 1, lastCol).setValues([newValues]);
+-
+-  try { clearAllCache_(); bumpDatasetVersion_("lista_equipos"); } catch (e) {}
+-
+-  return {
+-    ok: true,
+-    action: "update_lista_equipo",
+-    rowNumber: targetRowNumber,
+-    matchedBy: matchedBy,
+-    message: "Equipo actualizado correctamente."
+-  };
+-}
+-
+-
+-function handleBulkUpdateListaEquiposFromApp_(updates) {
+-  var VERSION = "LISTA_EQUIPOS_BULK_APP_V1";
+-  updates = updates || [];
+-
+-  if (!Array.isArray(updates) || updates.length === 0) {
+-    return {
+-      ok: false,
+-      version: VERSION,
+-      error: { code: "NO_UPDATES", message: "No llegaron diferencias para actualizar." }
+-    };
+-  }
+-
+-  var updatedRows = 0;
+-  var skippedRows = 0;
+-  var failedRows = 0;
+-  var errors = [];
+-
+-  updates.forEach(function (item, index) {
+-    try {
+-      var originalKeys = item.originalKeys || {};
+-      var row = item.row || {};
+-      var hasValues = Object.keys(row).some(function (k) {
+-        return row[k] !== null && row[k] !== undefined && String(row[k]).trim() !== "";
+-      });
+-
+-      if (!hasValues) {
+-        skippedRows++;
+-        return;
+-      }
+-
+-      var res = handleUpdateListaEquipo_(originalKeys, row);
+-      if (res && res.ok) {
+-        updatedRows++;
+-      } else {
+-        failedRows++;
+-        errors.push({
+-          index: index,
+-          code: res && res.error ? res.error.code : "UNKNOWN_ERROR",
+-          message: res && res.error ? res.error.message : "No se pudo actualizar la fila."
+-        });
+-      }
+-    } catch (err) {
+-      failedRows++;
+-      errors.push({ index: index, code: "EXCEPTION", message: err.message });
+-    }
+-  });
+-
+-  try { clearAllCache_(); bumpDatasetVersion_("lista_equipos"); } catch (e) {}
+-
+-  return {
+-    ok: failedRows === 0,
+-    version: VERSION,
+-    action: "bulk_update_lista_equipos_from_app",
+-    updatedRows: updatedRows,
+-    skippedRows: skippedRows,
+-    failedRows: failedRows,
+-    errors: errors.slice(0, 20),
+-    message: failedRows === 0
+-      ? (updatedRows + " equipos actualizados correctamente en Lista Maestra.")
+-      : (updatedRows + " equipos actualizados, " + failedRows + " con error.")
+-  };
+-}
++
++
++
++
+ 
+ function findHeaderIndexFlexible_(headers, key) {
+   var wanted = normalizeText_(key);
+@@ -6501,3 +6215,343 @@
+ if (action === "upload_user_background") return buildResponse(handleUploadUserBackground_(payload));
+ */
+ 
++
++// Separate meter-only operation: never write a row, insert a row or guess an identity.
++function listaMutationError_(code, message) {
++  var error = new Error(message); error.code = code; throw error;
++}
++function listaExactHeader_(headers, candidates, required) {
++  var matches = [];
++  headers.forEach(function(h, i) { if (candidates.indexOf(normUsuarioHeader_(h)) >= 0) matches.push(i); });
++  if (matches.length > 1) listaMutationError_("AMBIGUOUS_HEADER", "Hay encabezados duplicados para identificar el equipo o su lectura.");
++  if (!matches.length && required) listaMutationError_("HEADER_NOT_FOUND", "Falta una columna obligatoria en Lista Maestra.");
++  return matches.length ? matches[0] : -1;
++}
++function listaMeterContext_() {
++  var config = SHEETS_CONFIG.lista_equipos;
++  var sheet = findSheetByGidOrName(SpreadsheetApp.openById(config.id), config.gid, config.sheet);
++  if (!sheet) listaMutationError_("SHEET_NOT_FOUND", "No se encontró Lista Maestra.");
++  var headers = getHeaders_(sheet, config.headerRow);
++  var drusila = listaExactHeader_(headers, ["codigo de drusila", "codigo drusila", "cod drusila", "interno drusila"], false);
++  var nuevo = listaExactHeader_(headers, ["codigo nuevo", "codigo interno", "codigo n interno", "interno"], false);
++  if (drusila < 0 && nuevo < 0) listaMutationError_("HEADER_NOT_FOUND", "Faltan las columnas de identificación.");
++  var meter = listaExactHeader_(headers, ["horas"], false);
++  if (meter < 0) meter = listaExactHeader_(headers, ["horometro", "kilometraje", "horometro actual", "kilometraje actual"], true);
++  var count = Math.max(0, sheet.getLastRow() - config.headerRow);
++  function column(index) { return index < 0 || !count ? [] : sheet.getRange(config.headerRow + 1, index + 1, count, 1).getDisplayValues(); }
++  return {sheet:sheet, headers:headers, headerRow:config.headerRow, drusila:drusila, nuevo:nuevo, meter:meter, d:column(drusila), n:column(nuevo), count:count};
++}
++function listaMeterCode_(value) { return String(value == null ? "" : value).trim().toUpperCase().replace(/[\s-]/g, ""); }
++function listaMeterRow_(context, identity) {
++  identity = identity || {};
++  if (Object.keys(identity).some(function(k) { return ["codigoDrusila", "codigoNuevo"].indexOf(k) < 0; })) listaMutationError_("INVALID_FIELDS", "El identificador sólo admite códigos Drusila y nuevo.");
++  if(Object.keys(identity).some(function(k) { return identity[k] != null && ["string","number"].indexOf(typeof identity[k]) < 0; })) listaMutationError_("INVALID_FIELDS", "Los códigos deben ser texto o números.");
++  var d = listaMeterCode_(identity.codigoDrusila), n = listaMeterCode_(identity.codigoNuevo);
++  if (!d && !n) listaMutationError_("NO_LOOKUP_KEY", "Falta el identificador del equipo.");
++  if ((d && context.drusila < 0) || (n && context.nuevo < 0)) listaMutationError_("HEADER_NOT_FOUND", "No se encontró la columna del código enviado.");
++  // Each provided identifier must independently be unique, and both must identify the same row.
++  function locate(code, column) {
++    if (!code) return -1;
++    var found = [];
++    column.forEach(function(row, i) { if (listaMeterCode_(row[0]) === code) found.push(i); });
++    if (found.length !== 1) listaMutationError_(found.length ? "AMBIGUOUS_EQUIPMENT" : "EQUIPO_NOT_FOUND", found.length ? "Código duplicado: no se escribió ninguna celda." : "No se encontró el equipo.");
++    return found[0];
++  }
++  var di = locate(d, context.d), ni = locate(n, context.n);
++  if (di >= 0 && ni >= 0 && di !== ni) listaMutationError_("IDENTITY_CONFLICT", "Los códigos identifican equipos diferentes.");
++  return context.headerRow + 1 + (di >= 0 ? di : ni);
++}
++function listaMeterValidateRow_(context, row, identity) {
++  // Sheet users may reorder rows without taking the script lock. Recheck live cells,
++  // not only the batch's original index, immediately before the meter write.
++  [[context.drusila, identity.codigoDrusila], [context.nuevo, identity.codigoNuevo]].forEach(function(entry) {
++    if(!entry[1] || entry[0] < 0) return;
++    if(listaMeterCode_(context.sheet.getRange(row, entry[0] + 1).getValue()) !== listaMeterCode_(entry[1]))
++      listaMutationError_("ROW_MOVED", "El equipo cambió de fila o código durante la operación. No se escribió su lectura.");
++  });
++}
++function listaMeterNumber_(value, blank) {
++  if(value !== null && typeof value !== "number" && typeof value !== "string") listaMutationError_("INVALID_VALUE", "La lectura debe ser un número o texto numérico.");
++  if (value === null || (typeof value === "string" && !value.trim())) { if (blank) return null; listaMutationError_("INVALID_VALUE", "La lectura no puede estar vacía."); }
++  var n = typeof value === "number" ? value : Number(String(value).trim().replace(",", "."));
++  if (!isFinite(n) || n < 0 || typeof value === "boolean" || value === undefined) listaMutationError_("INVALID_VALUE", "La lectura debe ser un número no negativo.");
++  return n;
++}
++function listaMeterReceiptKey_(operationId, index) { return "DM_METER_OP_" + deltaShortHash_(operationId + ":" + index); }
++function listaMeterPrune_(props) {
++  var all = props.getProperties(), now = Date.now(), live = [];
++  Object.keys(all).forEach(function(key) {
++    if (key.indexOf("DM_METER_OP_") !== 0) return;
++    var receipt; try { receipt = JSON.parse(all[key]); } catch (_) { receipt = {}; }
++    if (Number(receipt.expires || 0) <= now) props.deleteProperty(key); else live.push(key);
++  });
++  if (live.length > 500) listaMutationError_("RECEIPT_CAPACITY", "Hay demasiadas operaciones recientes. No se escribió; intentá más tarde.");
++}
++function authorizeListaMeters_(payload) {
++  var actor = payload.actor || {}, email = stockExcelVerifyAuthToken_(actor.token || actor.authToken);
++  if(!email || email !== String(actor.email || "").trim().toLowerCase()) listaMutationError_("AUTH_REQUIRED", "La sesión expiró. Volvé a iniciar sesión.");
++  var user = getAuthMirrorUser_(email);
++  if(!user || !user.activo || user.mustChangePassword) listaMutationError_("AUTH_REQUIRED", "Se requiere una sesión activa con contraseña personal.");
++  if(["ADMIN","ADMINISTRADOR"].indexOf(user.rol) < 0 && ["taller central","oficina tecnica"].indexOf(normUsuarioHeader_(user.area)) < 0) listaMutationError_("FORBIDDEN", "Sólo Taller Central puede actualizar estas lecturas.");
++}
++function handleListaHorometros_(payload, verifyOnly) {
++  var lock = LockService.getScriptLock();
++  if (!lock.tryLock(20000)) return {ok:false,status:"pending",error:{code:"BUSY",message:"Otra operación está en curso. Verificá antes de reenviar."}};
++  try {
++    authorizeListaMeters_(payload);
++    var operationId = String(payload.operationId || "");
++    if (!/^[A-Za-z0-9_-]{16,100}$/.test(operationId)) listaMutationError_("INVALID_OPERATION_ID", "Falta un identificador válido de operación.");
++    var updates = payload.updates;
++    if (!Array.isArray(updates) || !updates.length || updates.length > 100) listaMutationError_("INVALID_UPDATES", "Enviá entre 1 y 100 lecturas por operación.");
++    var props = PropertiesService.getScriptProperties();
++    if (!verifyOnly) listaMeterPrune_(props);
++    var context = listaMeterContext_(), results = [], wrote = false;
++    updates.forEach(function(item, index) {
++      var result = {index:index, identity:item && item.identity || {}, status:"failed"};
++      var key = listaMeterReceiptKey_(operationId, index), receipt = null, writeAttempted = false;
++      try {
++        if (!item || Object.keys(item).some(function(k) { return ["identity", "value", "expectedValue"].indexOf(k) < 0; }) || !Object.prototype.hasOwnProperty.call(item,"expectedValue")) listaMutationError_("INVALID_FIELDS", "La operación sólo admite identidad, lectura y valor esperado.");
++        var value = listaMeterNumber_(item.value, false), expected = listaMeterNumber_(item.expectedValue, true);
++        var fingerprint = authPasswordHash_("meter-operation", JSON.stringify({identity:item.identity,value:value,expectedValue:expected}));
++        var raw = props.getProperty(key); if (raw) receipt = JSON.parse(raw);
++        if (receipt && receipt.fingerprint !== fingerprint) listaMutationError_("OPERATION_REUSED", "El identificador de operación ya tiene otro contenido.");
++        if (receipt && receipt.status === "confirmed") {
++          result = receipt.result;
++          try {
++            var replayRow = listaMeterRow_(context, item.identity);
++            listaMeterValidateRow_(context, replayRow, item.identity);
++            result.currentValue = listaMeterNumber_(context.sheet.getRange(replayRow, context.meter + 1).getValue(), true);
++            result.rowNumber = replayRow;
++          } catch (_) { result.verificationWarning = "La escritura original se confirmó; no se pudo verificar la lectura actual."; }
++          results.push(result); return;
++        }
++        var row = listaMeterRow_(context, item.identity);
++        listaMeterValidateRow_(context, row, item.identity);
++        var cell = context.sheet.getRange(row, context.meter + 1);
++        if (cell.getFormula()) listaMutationError_("FORMULA_PROTECTED", "La celda de lectura contiene una fórmula y no se puede sobrescribir.");
++        var current = listaMeterNumber_(cell.getValue(), true);
++        result.rowNumber = row; result.column = context.headers[context.meter]; result.value = value;
++        if (receipt && current === value) {
++          result.status = "confirmed"; result.changed = !!receipt.changed;
++        } else if (receipt && current !== expected) {
++          listaMutationError_("CONFLICT", "La lectura cambió durante la operación; no se sobrescribió.");
++        } else if (verifyOnly) {
++          result.status = "pending"; result.code = "NOT_CONFIRMED";
++          results.push(result); return;
++        } else if (current === value) {
++          result.status = "confirmed"; result.changed = false;
++        } else {
++          if (current !== expected) listaMutationError_("CONFLICT", "Otro usuario cambió la lectura. Revisá el valor actual antes de actualizar.");
++          // Persist the intent BEFORE touching Sheets. A retry can reconcile a lost response.
++          receipt = {fingerprint:fingerprint,status:"pending",changed:true,expires:Date.now()+86400000};
++          try {
++            props.setProperty(key, JSON.stringify(receipt));
++            if(!wrote) props.setProperty("DM_LISTA_METER_DIRTY", "1");
++          }
++          catch (_) { listaMutationError_("RECEIPT_UNAVAILABLE", "No se pudo registrar la operación; no se escribió la celda."); }
++          listaMeterValidateRow_(context, row, item.identity);
++          writeAttempted = true; wrote = true;
++          cell.setValue(value);
++          SpreadsheetApp.flush();
++          if (listaMeterNumber_(cell.getValue(), true) !== value) listaMutationError_("WRITE_NOT_CONFIRMED", "La escritura quedó pendiente de confirmación.");
++          result.status = "confirmed"; result.changed = true;
++        }
++        // Read-only verification does not require a receipt write to confirm actual persistence.
++        if (!verifyOnly) props.setProperty(key, JSON.stringify({fingerprint:fingerprint,status:"confirmed",result:result,expires:Date.now()+86400000}));
++      } catch (error) {
++        // A receipt/storage failure AFTER confirmation must never turn a committed write into failure.
++        if (result.status !== "confirmed") {
++          result.status = writeAttempted || (receipt && receipt.status === "pending" && !error.code) ? "pending" : "failed";
++          result.code = error.code || "CONFIRMATION_UNAVAILABLE";
++          result.message = error.code ? error.message : "No se pudo confirmar el resultado. Verificá la operación antes de reenviar.";
++        }
++      }
++      results.push(result);
++    });
++    var version = null, cacheWarning = null;
++    var dirty = wrote;
++    try { dirty = dirty || !!props.getProperty("DM_LISTA_METER_DIRTY"); }
++    catch (_) { cacheWarning = "No se pudo verificar la versión de caché."; }
++    if (dirty) {
++      try { version = bumpDatasetVersion_("lista_equipos", true); props.deleteProperty("DM_LISTA_METER_DIRTY"); }
++      catch (_) { cacheWarning = "La escritura se procesó, pero quedó pendiente la versión de caché. Verificá la operación nuevamente."; }
++    }
++    var confirmed = results.filter(function(r) { return r.status === "confirmed"; });
++    var failed = results.filter(function(r) { return r.status === "failed"; });
++    var pending = results.filter(function(r) { return r.status === "pending"; });
++    return {ok:confirmed.length === results.length,action:"update_lista_horometros",operationId:operationId,
++      status:pending.length ? "pending" : failed.length ? (confirmed.length ? "partial" : "failed") : "complete",
++      updatedRows:confirmed.filter(function(r) { return r.changed; }).length,skippedRows:confirmed.filter(function(r) { return !r.changed; }).length,
++      failedRows:failed.length,pendingRows:pending.length,results:results,version:version,cacheWarning:cacheWarning};
++  } catch(error) {
++    return {ok:false,status:"failed",error:{code:error.code || "VALIDATION_UNAVAILABLE",message:error.code ? error.message : "No se pudo preparar la operación; no se escribió ninguna celda."}};
++  } finally { lock.releaseLock(); }
++}
++function handleBulkUpdateListaEquiposFromApp_(updates, operationId, actor) {
++  // Old clients must not silently invoke a broad equipment update.
++  return handleListaHorometros_({operationId:operationId,updates:updates,actor:actor}, false);
++}
++function handleUpdateListaEquipo_(originalKeys, rowObj) {
++  var lock = LockService.getScriptLock(); lock.waitLock(20000);
++  try {
++    var context = listaMeterContext_();
++    var row = listaMeterRow_(context, {codigoDrusila:originalKeys.codigoDrusila || "",codigoNuevo:originalKeys.codigoNuevo || ""});
++    var keys = Object.keys(rowObj || {}), changes = [];
++    keys.forEach(function(key) {
++      var indices = []; context.headers.forEach(function(h,i) { if(h === key) indices.push(i); });
++      if(indices.length !== 1) listaMutationError_("INVALID_FIELDS", "Campo desconocido o ambiguo: " + key);
++      var cell = context.sheet.getRange(row, indices[0] + 1), value = normalizeWriteValue_(rowObj[key]);
++      if (cell.getValue() !== value) changes.push({cell:cell,value:value});
++    });
++    // Explicit equipment editing also preserves every cell the user did not request.
++    changes.forEach(function(change) { change.cell.setValue(change.value); });
++    SpreadsheetApp.flush();
++    var version = changes.length ? bumpDatasetVersion_("lista_equipos", true) : getDatasetVersion_("lista_equipos");
++    return {ok:true,action:"update_lista_equipo",rowNumber:row,version:version};
++  } catch(error) { return {ok:false,error:{code:error.code || "UPDATE_FAILED",message:error.code ? error.message : "No se pudo confirmar la edición del equipo."}}; }
++  finally { lock.releaseLock(); }
++}
++
++function authDirtyKey_(email) { return authUserPropertyKey_(email) + "_DIRTY"; }
++function authCredential_(email, stored) {
++  stored = String(stored || "");
++  var prefix = "dm-hmac-v1:";
++  return {passwordHash:stored.indexOf(prefix) === 0 ? stored.slice(prefix.length) : authPasswordHash_(email, stored || "DELTA.MINING.APP"),
++    mustChangePassword:!stored || stored === "DELTA.MINING.APP"};
++}
++function authRecord_(info, row) {
++  var email = String(row[info.emailIdx] || "").trim().toLowerCase(), credential = authCredential_(email, row[info.passwordIdx]);
++  return {schemaVersion:2,email:email,rol:String(row[info.rolIdx] || "USUARIO").trim().toUpperCase(),proyecto:String(row[info.proyectoIdx] || "TODOS").trim().toUpperCase(),
++    nombre:String(row[info.nombreIdx] || "").trim(),area:String(row[info.areaIdx] || "").trim(),activo:usuarioActivoValor_(row[info.activoIdx]),
++    passwordHash:credential.passwordHash,mustChangePassword:credential.mustChangePassword};
++}
++function authPublicResult_(auth) {
++  return {ok:true,user:{email:auth.email,rol:auth.rol,proyecto:auth.proyecto,nombre:auth.nombre,area:auth.area},mustChangePassword:auth.mustChangePassword,
++    authToken:stockExcelIssueAuthToken_(auth.email),backendVersion:DELTA_BACKEND_VERSION_,capabilities:{passwordHashProfile:true,meterCellWrites:true}};
++}
++function authMirrorWrite_(auth) {
++  var props = PropertiesService.getScriptProperties();
++  var key = authUserPropertyKey_(auth.email);
++  var keys = JSON.parse(props.getProperty("DM_AUTH_MIRROR_KEYS") || "[]");
++  if(keys.indexOf(key) < 0) { keys.push(key); props.setProperty("DM_AUTH_MIRROR_KEYS", JSON.stringify(keys)); }
++  props.setProperty(key, JSON.stringify(auth));
++  props.deleteProperty(authDirtyKey_(auth.email));
++}
++function refreshAuthMirror_() {
++  // Serializes refreshes with password changes. Never publish a stale pre-write snapshot.
++  var lock = LockService.getScriptLock(); lock.waitLock(20000);
++  try {
++    var info = getUsuariosSheetInfo_(), props = PropertiesService.getScriptProperties(), newKeys = [], updates = {};
++    var lastRow = info.sheet.getLastRow();
++    var rows = lastRow > info.headerRow ? info.sheet.getRange(info.headerRow + 1, 1, lastRow - info.headerRow, info.headers.length).getDisplayValues() : [];
++    rows.forEach(function(row) {
++      var auth = authRecord_(info, row); if (!auth.email) return;
++      var key = authUserPropertyKey_(auth.email);
++      if (newKeys.indexOf(key) >= 0) throw new Error("Hay correos duplicados en Usuarios; no se publicó el espejo.");
++      newKeys.push(key); updates[key] = JSON.stringify(auth);
++    });
++    var oldKeys = JSON.parse(props.getProperty("DM_AUTH_MIRROR_KEYS") || "[]");
++    updates.DM_AUTH_MIRROR_KEYS = JSON.stringify(newKeys); updates.DM_AUTH_MIRROR_UPDATED_AT = new Date().toISOString();
++    // Invalidate before publishing. If storage fails midway, logins fall back to the canonical row.
++    oldKeys.concat(newKeys).forEach(function(key) { props.setProperty(key + "_DIRTY", "1"); });
++    props.setProperties(updates, false);
++    oldKeys.forEach(function(key) { if (newKeys.indexOf(key) < 0) props.deleteProperty(key); });
++    newKeys.forEach(function(key) { props.deleteProperty(key + "_DIRTY"); });
++    return {ok:true,count:newKeys.length,updatedAt:updates.DM_AUTH_MIRROR_UPDATED_AT};
++  } finally { lock.releaseLock(); }
++}
++function authCanonicalUser_(email) {
++  var info = getUsuariosSheetInfo_(), rowNumber = findUsuarioRowByEmail_(info, email);
++  if (rowNumber < 0) return null;
++  return authRecord_(info, info.sheet.getRange(rowNumber, 1, 1, info.headers.length).getDisplayValues()[0]);
++}
++function getAuthMirrorUser_(email) {
++  // Called while holding the same script lock as profile updates.
++  email = String(email || "").trim().toLowerCase();
++  if (!email) return null;
++  var props = PropertiesService.getScriptProperties(), raw = props.getProperty(authUserPropertyKey_(email));
++  var record = null; if(raw) { try { record = JSON.parse(raw); } catch (_) {} }
++  if (!record || record.schemaVersion !== 2 || props.getProperty(authDirtyKey_(email))) {
++    record = authCanonicalUser_(email);
++    if (record) { try { authMirrorWrite_(record); } catch (_) {} }
++    else { props.deleteProperty(authUserPropertyKey_(email)); }
++  }
++  return record;
++}
++function handleAuthenticateUser_(email, password) {
++  var lock = LockService.getScriptLock();
++  if (!lock.tryLock(20000)) return {ok:false,error:{code:"AUTH_BUSY",message:"El acceso está ocupado. Intentá nuevamente."}};
++  try {
++    var normalized = String(email || "").trim().toLowerCase(), auth = getAuthMirrorUser_(normalized);
++    if(!auth) return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
++    if(auth.activo === false) return {ok:false,error:{code:"AUTH_INACTIVE",message:"El usuario no está habilitado."}};
++    if(authPasswordHash_(normalized,password) !== String(auth.passwordHash || "")) return {ok:false,error:{code:"AUTH_INVALID",message:"Usuario o contraseña incorrectos."}};
++    return authPublicResult_(auth);
++  } finally { lock.releaseLock(); }
++}
++function findUsuarioRowByEmail_(info, email) {
++  var wanted = String(email || "").trim().toLowerCase(), found = [];
++  if (!wanted) return -1;
++  var count = info.sheet.getLastRow() - info.headerRow;
++  var vals = count > 0 ? info.sheet.getRange(info.headerRow + 1, info.emailIdx + 1, count, 1).getDisplayValues() : [];
++  vals.forEach(function(row, index) { if(String(row[0] || "").trim().toLowerCase() === wanted) found.push(info.headerRow + 1 + index); });
++  if (found.length > 1) throw new Error("Hay correos duplicados en Usuarios. Se requiere corregir la identificación.");
++  return found.length ? found[0] : -1;
++}
++function handleUpdateUserProfile_(payload) {
++  var lock = LockService.getScriptLock();
++  if (!lock.tryLock(20000)) return {ok:false,status:"pending",error:{code:"PROFILE_BUSY",message:"Otra actualización está en curso. Reintentá con la misma operación."}};
++  var committed = false;
++  try {
++    var info = getUsuariosSheetInfo_(), email = String(payload.email || "").trim().toLowerCase(), rowNum = findUsuarioRowByEmail_(info, email);
++    if(rowNum < 0) return {ok:false,error:{code:"USER_NOT_FOUND",message:"No se encontró el usuario."}};
++    var row = info.sheet.getRange(rowNum,1,1,info.headers.length).getDisplayValues()[0], auth = authRecord_(info,row);
++    if(!auth.activo) return {ok:false,error:{code:"USER_INACTIVE",message:"El usuario no está habilitado."}};
++    if(auth.email !== email) return {ok:false,error:{code:"PROFILE_CONFLICT",message:"El usuario cambió de fila. Volvé a verificar el perfil."}};
++    var newPassword = String(payload.newPassword || ""), operationId = String(payload.operationId || "");
++    if(!/^[A-Za-z0-9_-]{16,100}$/.test(operationId)) return {ok:false,error:{code:"INVALID_OPERATION_ID",message:"Actualizá la aplicación antes de guardar el perfil."}};
++    if(newPassword && (newPassword.length < 4 || newPassword === "DELTA.MINING.APP")) return {ok:false,error:{code:"INVALID_NEW_PASSWORD",message:"Elegí una contraseña personal de al menos 4 caracteres."}};
++    var props = PropertiesService.getScriptProperties(), receiptKey = authUserPropertyKey_(email) + "_PROFILE";
++    var fingerprint = authPasswordHash_(email, JSON.stringify({operationId:operationId,currentPassword:String(payload.currentPassword || ""),newPassword:newPassword,nombre:String(payload.nombre || "").trim(),area:String(payload.area || "").trim()}));
++    var oldReceipt = null, raw = props.getProperty(receiptKey); if(raw) { try { oldReceipt = JSON.parse(raw); } catch (_) {} }
++    var sameOperation = oldReceipt && oldReceipt.operationId === operationId;
++    if(sameOperation && oldReceipt.fingerprint !== fingerprint) return {ok:false,error:{code:"OPERATION_REUSED",message:"La operación ya tiene otro contenido."}};
++    if(sameOperation && Date.now() > oldReceipt.expires) return {ok:false,error:{code:"OPERATION_EXPIRED",message:"La operación expiró. Iniciá sesión y verificá el perfil."}};
++    if(sameOperation && oldReceipt.status === "confirmed") {
++      if(auth.passwordHash !== oldReceipt.passwordHash) return {ok:false,error:{code:"PROFILE_CONFLICT",message:"La contraseña cambió después de esa operación."}};
++      return Object.assign(authPublicResult_(auth),{status:"complete",authSync:"synced",deduplicated:true});
++    }
++    var targetHash = newPassword ? authPasswordHash_(email,newPassword) : auth.passwordHash;
++    var passwordAlreadyWritten = sameOperation && auth.passwordHash === oldReceipt.passwordHash;
++    if(!passwordAlreadyWritten) {
++      var token = payload.actor && (payload.actor.token || payload.actor.authToken);
++      var authorizedProfile = !newPassword && stockExcelVerifyAuthToken_(token) === email;
++      if(!authorizedProfile && authPasswordHash_(email,payload.currentPassword || "") !== auth.passwordHash) return {ok:false,error:{code:"CURRENT_PASSWORD_INVALID",message:"La contraseña actual es incorrecta."}};
++      if(auth.mustChangePassword && !newPassword) return {ok:false,error:{code:"PASSWORD_REQUIRED",message:"Debe crear una contraseña personal para continuar."}};
++    }
++    var isAdmin = auth.rol === "ADMIN" || auth.rol === "ADMINISTRADOR";
++    var nombre = String(payload.nombre || "").trim() || auth.nombre, area = isAdmin ? String(payload.area || "").trim().toUpperCase() : auth.area;
++    if(!sameOperation) {
++      props.setProperty(receiptKey,JSON.stringify({operationId:operationId,fingerprint:fingerprint,passwordHash:targetHash,status:"pending",expires:Date.now()+86400000}));
++    }
++    // A failed mirror update can never keep the previous password valid: invalidate BEFORE committing.
++    props.setProperty(authDirtyKey_(email), "1");
++    if(String(info.sheet.getRange(rowNum,info.emailIdx+1).getValue() || "").trim().toLowerCase() !== email)
++      return {ok:false,error:{code:"PROFILE_CONFLICT",message:"El usuario cambió de fila durante la operación. No se escribió el perfil."}};
++    if(newPassword && !passwordAlreadyWritten) info.sheet.getRange(rowNum,info.passwordIdx+1).setNumberFormat("@").setValue("dm-hmac-v1:" + targetHash);
++    if(nombre !== auth.nombre) info.sheet.getRange(rowNum,info.nombreIdx+1).setValue(nombre);
++    if(area !== auth.area) info.sheet.getRange(rowNum,info.areaIdx+1).setValue(area);
++    SpreadsheetApp.flush();
++    var saved = authRecord_(info, info.sheet.getRange(rowNum,1,1,info.headers.length).getDisplayValues()[0]);
++    if(saved.passwordHash !== targetHash || saved.nombre !== nombre || saved.area !== area) throw new Error("PROFILE_PERSISTENCE_UNCONFIRMED");
++    committed = true;
++    var sync = "synced";
++    try {
++      authMirrorWrite_(saved);
++      props.setProperty(receiptKey,JSON.stringify({operationId:operationId,fingerprint:fingerprint,passwordHash:targetHash,status:"confirmed",expires:Date.now()+86400000}));
++    } catch (_) { sync = "pending"; }
++    return Object.assign(authPublicResult_(saved),{status:"complete",authSync:sync,operationId:operationId});
++  } catch(error) {
++    return {ok:false,status:"pending",committed:committed,error:{code:"PROFILE_CONFIRMATION_PENDING",message:"No se pudo confirmar toda la operación. Reintentá con los mismos datos; no se repetirá una contraseña ya guardada."}};
++  } finally { lock.releaseLock(); }
++}

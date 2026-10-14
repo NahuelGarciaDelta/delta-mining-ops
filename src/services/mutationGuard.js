@@ -113,7 +113,9 @@ export function prepareMutationPayload(payload={}){
 
 export function isProtectedMutationAction(action){
   const normalized=lower(action);
-  return Boolean(normalized&&normalized!=="authenticate_user");
+  // These operations have durable backend receipts. A synthetic success here would
+  // lose per-equipment results, auth tokens and the mandatory password-change flag.
+  return Boolean(normalized&&!new Set(["authenticate_user","update_user_profile","update_lista_horometros","verify_lista_horometros"]).has(normalized));
 }
 
 function parseLedgerStorage(){

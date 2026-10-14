@@ -1,0 +1,7 @@
+{
+  "DELTA_TEST_ONLY": "1",
+  "DELTA_TEST_ACCESS_KEY": "GENERAR_UNA_CLAVE_ALEATORIA_DE_AL_MENOS_32_CARACTERES",
+  "DELTA_TEST_ACK": "COPIES_ONLY_NO_PRODUCTION",
+  "DELTA_TEST_SCRIPT_ID": "REEMPLAZAR_CON_ID_DEL_NUEVO_PROYECTO_DE_APPS_SCRIPT",
+  "DELTA_TEST_COPY_CONFIG": "{\"usuarios\": {\"id\": \"REEMPLAZAR_CON_ID_DE_COPIA_USUARIOS\", \"sheet\": \"Usuarios autorizados\", \"headerRow\": 1}, \"lista_equipos\": {\"id\": \"REEMPLAZAR_CON_ID_DE_COPIA_LISTA\", \"sheet\": \"lista equipos\", \"headerRow\": 5}}"
+}

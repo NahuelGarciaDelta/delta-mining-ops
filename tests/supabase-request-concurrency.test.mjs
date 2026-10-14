@@ -1,3 +1,4 @@
+import {setImmediate} from "node:timers";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createRequestLimiter} from "../src/services/requestConcurrency.js";

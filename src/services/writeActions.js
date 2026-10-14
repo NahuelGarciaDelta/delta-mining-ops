@@ -1,3 +1,4 @@
+import {createHorometerOperation,submitHorometerOperation} from "./horometerUpdates.js";
 import {APPS_SCRIPT_URL} from "../config/app.js";
 import {appAlert} from "./dialogService.js";
 import {dmCanEditArea} from "../shared/access.js";
@@ -12,5 +13,8 @@ export async function postToAppsScript(payloadObj){
 }
 export const postAddListaEquipo=row=>postToAppsScript({action:"add_lista_equipo",row});
 export const postUpdateListaEquipo=(originalKeys,row)=>postToAppsScript({action:"update_lista_equipo",originalKeys,row});
-export const postBulkUpdateListaEquipos=updates=>postToAppsScript({action:"bulk_update_lista_equipos_from_app",updates});
+export const postBulkUpdateListaEquipos=updates=>{
+ if(!dmCanEditArea("TALLER CENTRAL"))throw new Error("Sólo Taller Central puede actualizar estas lecturas.");
+ return submitHorometerOperation(APPS_SCRIPT_URL,createHorometerOperation(updates));
+};
 export const postUpdateROP02Row=(target,rowKey,fields)=>postToAppsScript({action:"update_rop02_row",target,rowKey,fields});

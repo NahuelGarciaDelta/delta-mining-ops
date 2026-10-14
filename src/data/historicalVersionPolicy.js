@@ -27,3 +27,11 @@ export function historicalSnapshotMatchesManifest(dataset,cached,manifest){
   if(!remote)return false;
   return Object.entries(remote).every(([key,version])=>Number(local[key])===version);
 }
+
+// Special-action snapshots publish only their own source versions. Unrelated
+// manifest changes must not invalidate them or download a complete dataset.
+export function sourceVersionsDiffer(local, remote) {
+  const entries=Object.entries(local||{});
+  if(!entries.length)return true;
+  return entries.some(([key,value])=>!Number.isFinite(Number(value))||Number(value)<=0||Number(remote?.[key])!==Number(value));
+}

@@ -2,6 +2,8 @@ import { C } from "./userAppearance.js";
 import { applyAppearance, readLocalAppearance } from "./userAppearance.js";
 
 export const AUTHENTICATED_USER_KEY = "dm_authenticated_user";
+let sessionRevision = 0;
+export const getAuthenticatedSessionRevision = () => sessionRevision;
 
 function applyCurrentUserAppearance_(email=""){
   try{applyAppearance(readLocalAppearance(email||sessionStorage.getItem("dm_user")||""),C);}catch(_){}
@@ -18,6 +20,8 @@ export function buildAuthenticatedUser(response, fallbackEmail = "") {
   const authToken = response?.authToken || response?.token || response?.user?.authToken || response?.user?.token || "";
   return {
     ...(response?.user || {}),
+    ...(response?.capabilities ? {authCapabilities:response.capabilities} : {}),
+    ...(response?.backendVersion ? {authBackendVersion:response.backendVersion} : {}),
     email: response?.user?.email || fallbackEmail,
     authToken,
     token: authToken,
@@ -34,6 +38,7 @@ export function getAuthenticatedUser() {
 }
 
 export function saveAuthenticatedSession(user, { mustChangePassword = false, normalizeProject = value => value || "TODO" } = {}) {
+  sessionRevision += 1;
   const authenticatedUser = { ...user };
   const email = String(authenticatedUser.email || "").trim().toLowerCase();
   const authToken = String(authenticatedUser.authToken || authenticatedUser.token || "");
@@ -62,6 +67,7 @@ export function updateAuthenticatedUser(patch) {
 }
 
 export function clearAuthenticatedSession() {
+  sessionRevision += 1;
   ["dm_auth","dm_user","dm_role","dm_project","dm_name","dm_area","dm_must_change_password","dm_auth_token",AUTHENTICATED_USER_KEY]
     .forEach(key => sessionStorage.removeItem(key));
 }

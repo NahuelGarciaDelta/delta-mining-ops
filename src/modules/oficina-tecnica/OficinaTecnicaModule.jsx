@@ -1,5 +1,8 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import ReactDOM from "react-dom";
+import {APPS_SCRIPT_URL as METER_API_URL} from "../../config/app.js";
+import {createHorometerOperation,listaIdentityFromRow,meterNumber,submitHorometerOperation} from "../../services/horometerUpdates.js";
+import {dmCanEditArea} from "../../shared/access.js";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
 import ComparisonStrip from "../../components/ComparisonStrip.jsx";
@@ -31,7 +34,7 @@ function applyDeps(deps={}){
   C={...DEFAULT_COLORS,...(previousC||{}),...(deps.C||{})};
 }
 
-function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista}){
+function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista,onMetersConfirmed}){
   const LISTA_MAESTRA_STORAGE_KEY="delta_lista_maestra_equipos_filters_v1";
   const readListaMaestraSaved=(key,def="")=>{
     try{return localStorage.getItem(`${LISTA_MAESTRA_STORAGE_KEY}_${key}`)??def;}
@@ -52,6 +55,7 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista}
   const[editMsg,setEditMsg]=useState(null);
   const[syncingListaExcel,setSyncingListaExcel]=useState(false);
   const[syncMsg,setSyncMsg]=useState(null);
+  const meterOperationRef=useRef(null),meterInFlightRef=useRef(false);
   const[listaTab,setListaTab]=useState("maestra");
 
   useEffect(()=>{
@@ -72,7 +76,7 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista}
   const data=useMemo(()=>rows||[],[rows]);
   const allKeys=useMemo(()=>{
     const set=new Set();
-    data.slice(0,200).forEach(r=>Object.keys(r||{}).forEach(k=>{if(k&&String(k).trim())set.add(k);}));
+    data.slice(0,200).forEach(r=>Object.keys(r||{}).forEach(k=>{if(k&&String(k).trim()&&!k.startsWith("_"))set.add(k);}));
     return Array.from(set);
   },[data]);
 
@@ -447,62 +451,41 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista}
 
   const buildListaExcelUpdates=useCallback(()=>{
     const updates=[];
-    const horasField=horasKey||formFields.find(f=>f.special==="horometro")?.key||"HORAS";
-    const toNum=(v)=>{
-      if(v===null||v===undefined||v==="")return NaN;
-      const n=Number(String(v).replace(/\./g,"").replace(",",".").replace(/[^0-9.\-]/g,""));
-      return Number.isFinite(n)?n:NaN;
-    };
+    if(!horasKey)return updates;
     dataWithKey.forEach(row=>{
-      if(!row||!row._ropInfo||row._horometroValue==null)return;
-      const codigoDrusila=drusilaKey?String(row[drusilaKey]||"").trim():"";
-      const codigoNuevo=codigoNuevoKey?String(row[codigoNuevoKey]||"").trim():"";
-      if(!codigoDrusila&&!codigoNuevo)return;
-      const appNum=toNum(row._horometroValue);
-      const excelNum=toNum(row[horasField]);
-      if(!Number.isFinite(appNum))return;
-      if(Number.isFinite(excelNum)&&Math.abs(appNum-excelNum)<0.0001)return;
-      updates.push({
-        originalKeys:{
-          codigoDrusila,
-          codigoNuevo,
-          codigoPrincipal:mainMachineCode(codigoDrusila||codigoNuevo),
-          codigoDrusilaNorm:normalizeMachineCode(codigoDrusila),
-          codigoNuevoNorm:normalizeMachineCode(codigoNuevo),
-          lookupKeys:machineLookupVariants(codigoDrusila,codigoNuevo),
-          codigoDrusilaHeader:drusilaKey||"",
-          codigoNuevoHeader:codigoNuevoKey||"",
-          useRowNumber:false,
-        },
-        row:{[horasField]:String(Math.round(appNum*100)/100)}
-      });
+      if(!row?._ropInfo||row._horometroValue==null)return;
+      const identity=row._listaIdentity||listaIdentityFromRow(row);
+      if(!identity.codigoDrusila&&!identity.codigoNuevo)return;
+      const value=meterNumber(row._horometroValue),expectedValue=meterNumber(row[horasKey]);
+      if(!Number.isFinite(value)||(!Number.isFinite(expectedValue)&&expectedValue!==null))return;
+      if(value===expectedValue)return;
+      updates.push({identity,value:Math.round(value*100)/100,expectedValue});
     });
     return updates;
-  },[dataWithKey,drusilaKey,codigoNuevoKey,horasKey,formFields]);
+  },[dataWithKey,horasKey]);
 
   const actualizarListaEnExcel=useCallback(async()=>{
-    const updates=buildListaExcelUpdates();
-    if(!updates.length){
-      setSyncMsg({type:"success",text:"No hay diferencias para actualizar. Los horómetros ya coinciden con la app."});
-      return;
-    }
-    const ok=await appConfirm(`Se actualizarán ${updates.length} horómetros en la planilla base Lista Maestra de Equipos. ¿Continuar?`);
-    if(!ok)return;
-    setSyncingListaExcel(true);
-    setSyncMsg({type:"info",text:`Actualizando ${updates.length} equipos en Google Sheets...`});
+    if(meterInFlightRef.current)return;
+    if(!dmCanEditArea("TALLER CENTRAL")){setSyncMsg({type:"error",text:"Sólo Taller Central puede actualizar estas lecturas."});return;}
+    meterInFlightRef.current=true;
     try{
-      const res=await postBulkUpdateListaEquipos(updates);
-      const updated=res.updatedRows??res.updated??updates.length;
-      const skipped=res.skippedRows??0;
-      const failed=res.failedRows??0;
-      setSyncMsg({type:failed?"error":"success",text:failed?`Se actualizaron ${updated}, fallaron ${failed} y se omitieron ${skipped}. Revisá permisos o códigos no encontrados.`:`${updated} equipos actualizados en Excel${skipped?` (${skipped} omitidos)`:""}.`});
-      if(onReloadLista)Promise.resolve().then(()=>onReloadLista()).catch(err=>console.warn("La escritura se confirmó, pero falló la recarga de Lista Maestra:",err));
-    }catch(err){
-      setSyncMsg({type:"error",text:err.message||"No se pudo actualizar la Lista Maestra."});
-    }finally{
-      setSyncingListaExcel(false);
-    }
-  },[buildListaExcelUpdates,onReloadLista]);
+      let operation=meterOperationRef.current;
+      if(!operation){
+        const updates=buildListaExcelUpdates();
+        if(!updates.length){setSyncMsg({type:"success",text:horasKey?"No hay diferencias para actualizar.":"No se encontró la columna HORAS. No se enviaron escrituras."});return;}
+        if(!await appConfirm(`Se actualizarán ${updates.length} horómetros en Lista Maestra. Sólo se modificarán las celdas HORAS. ¿Continuar?`))return;
+        operation=createHorometerOperation(updates);meterOperationRef.current=operation;
+      }
+      setSyncingListaExcel(true);setSyncMsg({type:"info",text:"Verificando y actualizando las lecturas..."});
+      // Retries retain the operation ID. The backend replays receipts instead of writing confirmed cells.
+      const res=await submitHorometerOperation(METER_API_URL,operation);
+      const details=res.results.filter(r=>r.status!=="confirmed").map(r=>`${r.identity?.codigoNuevo||r.identity?.codigoDrusila||"Equipo"}: ${r.code||r.status}`).join("; ");
+      setSyncMsg({type:res.pendingRows?"info":res.failedRows?"error":"success",text:`${res.updatedRows} actualizados, ${res.skippedRows} sin cambios, ${res.failedRows} fallidos, ${res.pendingRows} pendientes de verificación.${details?` ${details}`:""}${res.pendingRows?" Volvé a presionar para verificar con la misma operación.":""}${res.cacheWarning?` ${res.cacheWarning}`:""}`});
+      onMetersConfirmed?.(res);
+      if(!res.pendingRows&&!res.cacheWarning)meterOperationRef.current=null;
+    }catch(err){setSyncMsg({type:"info",text:err.message||"Resultado pendiente de verificación. No se confirmó un fallo de escritura."});}
+    finally{meterInFlightRef.current=false;setSyncingListaExcel(false);}
+  },[buildListaExcelUpdates,horasKey,onMetersConfirmed]);
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -6081,7 +6064,7 @@ export function OficinaTecnicaModule({
   rawSources={},
   sourceHasData=()=>false,
   listaEquipos=[],rop02All=[],rop02ControlAll=[],rop05=[],rma15=[],control={},dashSt,setDashSt,
-  onReloadLista,
+  onReloadLista,onMetersConfirmed,
   st02,setSt02,stHorometros,setStHorometros,stVeh,setStVeh,
   stControlROP02,setStControlROP02,stControlErrores,setStControlErrores,
   stCtrlEquipo,setStCtrlEquipo,stComb,setStComb,st05,setSt05,
@@ -6230,7 +6213,7 @@ export function OficinaTecnicaModule({
     return <ViewDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} control={control} dashSt={dashSt} setDashSt={setDashSt}/>;
   }
   if(view==="tallerCentral")return dataHydrated&&sourceHasData("lista_equipos")?<ViewTallerCentral listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={onReloadLista}/>:<Loader label="Cargando Taller Central..."/>;
-  if(view==="listaEquipos")return dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={onReloadLista}/>:<Loader label="Cargando Lista de Equipos..."/>;
+  if(view==="listaEquipos")return dataHydrated&&sourceHasData("lista_equipos")?<ViewListaMaestraEquipos rows={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} onReloadLista={onReloadLista} onMetersConfirmed={onMetersConfirmed}/>:<Loader label="Cargando Lista de Equipos..."/>;
   if(view==="rop02"){
     // Equipos y Vehículos parten del mismo ROP02 ya hidratado. No se hace una
     // segunda consulta histórica completa: podía quedar pendiente aunque los

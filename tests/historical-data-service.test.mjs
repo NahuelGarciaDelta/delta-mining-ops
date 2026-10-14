@@ -1,3 +1,4 @@
+import {sourceVersionsDiffer} from "../src/data/historicalVersionPolicy.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {buildDatasetQueryKey,operationalMonthRange,yearsForRange} from "../src/data/historicalQueryParams.js";
@@ -82,4 +83,11 @@ test("error de consulta inicial no deja indicador loading permanente",async()=>{
   const controller=createPagedDatasetController(async()=>{throw new Error("sin conexión");});
   await assert.rejects(controller.loadFirst("rop05",{}),/sin conexión/);
   assert.equal(controller.snapshot().loading,false);
+});
+
+test("special-action cache compares its own versions without crashing or invalidating unrelated sources",()=>{
+ assert.equal(sourceVersionsDiffer({rop02_jm:2},{rop02_jm:2,insumos:100}),false);
+ assert.equal(sourceVersionsDiffer({rop02_jm:2},{rop02_jm:3}),true);
+ assert.equal(sourceVersionsDiffer({rop02_jm:2},{}),true);
+ assert.equal(sourceVersionsDiffer({},{}),true);
 });

@@ -1,0 +1,6 @@
+# Keep the delivered backend checksum stable across Windows and Linux checkouts.
+/AppsScript_Delta_Mining_OPS_FINAL.txt text eol=lf
+# Preserve the upload byte for byte; CRLF and its original final blank line are intentional.
+/audit/apps-script-original-v8.txt -text whitespace=cr-at-eol,-blank-at-eof
+# Unified-diff context for an empty line is a literal space, not a source-code defect.
+/docs/entrega-v9/original-a-v9.patch whitespace=-blank-at-eol

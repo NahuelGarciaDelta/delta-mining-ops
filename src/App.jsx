@@ -1,3 +1,4 @@
+import {listaIdentityFromRow,patchConfirmedMeters} from "./services/horometerUpdates.js";
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import { C, STYLES, Icon, LoadingMotoniveladora, PageLoadingMotoniveladora, Spinner, Badge, StatCard, Card, Table, tableSortValue, compareTableValues, sortRowsForTable, SortableTH, Sel, multiDefault, normalizeMultiValue, multiIsAll, multiIncludes, matchMulti, multiSummary, multiSelectedLabels, dmNormalizeAssignedProject, dmAssignedProject, dmProjectMatches, MultiSel, DateIn, MONTH_OPTIONS, YEAR_OPTIONS, PeriodMonthYear, ChartTip, TabBtn, SubTab, AlertBanner, HelpTip } from "./components/ui/index.jsx";
 import { InformeCostosRoute } from "./modules/informe-costos/index.js";
@@ -433,12 +434,12 @@ export default function App(){
     }
 
     if(rebuild.listaEquipos&&src.lista_equipos?.ok&&src.lista_equipos.data){
-      setListaEquipos(src.lista_equipos.data.map(row=>Object.fromEntries(
-        Object.entries(row||{}).map(([key,value])=>[
-          key,
-          /codigo|código|interno|equipo/i.test(key)?resolveEquipmentCodeAlias(value):value
-        ])
-      )));
+      setListaEquipos(src.lista_equipos.data.map(row=>({
+        ...Object.fromEntries(Object.entries(row||{}).map(([key,value])=>[
+          key,/codigo|código|interno|equipo/i.test(key)?resolveEquipmentCodeAlias(value):value
+        ])),
+        _listaIdentity:listaIdentityFromRow(row)
+      })));
     }else if(src.lista_equipos&&!src.lista_equipos.ok){
       errs.push({source:"Lista Maestra de Equipos",...src.lista_equipos.error});
       if(rebuild.listaEquipos)setListaEquipos([]);
@@ -643,6 +644,18 @@ export default function App(){
       if(background||hasVisible)endBackgroundSync();
     }
   },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
+
+  const onMetersConfirmed=useCallback(result=>{
+    const source=rawSourcesRef.current.lista_equipos;
+    if(!result.results?.some(item=>item.status==="confirmed"))return;
+    if(!source?.ok||!Array.isArray(source.data))return;
+    const nextSource={...source,data:patchConfirmedMeters(source.data,result.results),meta:{...source.meta}};
+    if(result.version)nextSource.meta.serverVersion=result.version;
+    const next={...rawSourcesRef.current,lista_equipos:nextSource};
+    rawSourcesRef.current=next;setRawSources(next);
+    setListaEquipos(previous=>patchConfirmedMeters(previous,result.results));
+    writeCachedSource("lista_equipos",nextSource).catch(()=>{});
+  },[]);
 
   const refreshCurrentView=useCallback(async({background=false,reason="manual"}={})=>{
     const refreshedAt=Date.now();
@@ -963,7 +976,7 @@ export default function App(){
         open={settingsOpen||forcePasswordChange}
         forced={forcePasswordChange}
         onClose={()=>setSettingsOpen(false)}
-        onSaved={()=>{setSettingsOpen(false);setForcePasswordChange(false);setProfileRevision(v=>v+1);}}
+        onSaved={result=>{setSettingsOpen(false);setForcePasswordChange(false);setProfileRevision(v=>v+1);if(result?.appearanceWarning)appAlert(result.appearanceWarning,"Perfil guardado");}}
       />
       {appDialog&&ReactDOM.createPortal(
         <div role="dialog" aria-modal="true" style={{position:"fixed",inset:0,zIndex:2147483647,background:"rgba(0,0,0,.62)",backdropFilter:"blur(4px)",WebkitBackdropFilter:"blur(4px)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onMouseDown={e=>{if(e.target===e.currentTarget&&appDialog.type!=="confirm")closeAppDialog(true);}}>
@@ -1112,6 +1125,7 @@ export default function App(){
                   control={control} dashSt={dashSt} setDashSt={setDashSt} health={health} loading={loading}
                   onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"])}
                   onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}
+                  onMetersConfirmed={onMetersConfirmed}
                   st02={st02} setSt02={setSt02} stHorometros={stHorometros} setStHorometros={setStHorometros}
                   stVeh={stVeh} setStVeh={setStVeh} stControlROP02={stControlROP02} setStControlROP02={setStControlROP02}
                   stControlErrores={stControlErrores} setStControlErrores={setStControlErrores} stCtrlEquipo={stCtrlEquipo} setStCtrlEquipo={setStCtrlEquipo}
