@@ -104,6 +104,7 @@ export function normalizeRop02Project(value){
   if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw==="FILO DE SOL"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";
   if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";
   if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";
+  if(raw==="FIERRO"||raw.includes("EL FIERRO"))return "EL FIERRO";
   if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";
   return raw;
 }
