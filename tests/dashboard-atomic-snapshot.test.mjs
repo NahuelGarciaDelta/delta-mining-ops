@@ -35,15 +35,15 @@ function response(rop02=completeRop){
       rma15:completeRma.length,
       rma15ConCodigos:2,
       rma15Valorizados:2,
-      rop02Fuentes:{rop02_jm:{rows:175},rop02_fs:{rows:175},rop02_filosur:{rows:1},rop02_zorro:{rows:1}},
+      rop02Fuentes:{rop02_jm:{rows:175},rop02_fs:{rows:175},rop02_filosur:{rows:1},rop02_zorro:{rows:1},rop02_fierro:{rows:0}},
     },
     coverage:{rop02Min:"2026-02-01",rop02Max:"2026-08-20",rma15Min:"2026-07-01",rma15Max:"2026-07-02"},
   };
 }
 
-test("alcance TODO exige los cuatro proyectos y un alcance restringido sólo los autorizados",()=>{
+test("alcance TODO incluye las cinco fuentes y un alcance restringido sólo los autorizados",()=>{
   const global=resolveDashboardScope("TODO");
-  assert.deepEqual(global.requiredSources,["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"]);
+  assert.deepEqual(global.requiredSources,["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop02_fierro"]);
   assert.deepEqual(scopeTwo.projects,["JOSE MARIA","FILO DEL SOL"]);
   assert.deepEqual(scopeTwo.requiredSources,["rop02_jm","rop02_fs"]);
 });
@@ -96,5 +96,5 @@ test("Dashboard no vuelve a depender de dashboard_snapshot ni de un loader bloqu
   assert.doesNotMatch(homeFilter,/Cargando snapshot completo/);
   assert.doesNotMatch(homeFilter,/dashboardGuard/);
   assert.match(homeFilter,/rop02All:Array\.isArray\(props\.rop02All\)\?props\.rop02All:\[\]/);
-  assert.match(sources,/dashboard:\[[^\]]*"rop02_fs"[^\]]*"rop02_jm"[^\]]*"rma15_fs"[^\]]*"rma15_jm"/);
+  assert.match(sources,/dashboard:\[\.\.\.ROP02_SOURCE_KEYS/);
 });
