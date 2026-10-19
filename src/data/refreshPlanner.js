@@ -12,6 +12,10 @@ export function planVersionedRefresh(sources, cachedSources, serverVersions, ser
     const remoteVersion = Number(serverVersions[key]);
     const rowCount = Number(serverRowCounts?.[key]);
     const hasRemoteCount = serverRowCounts?.[key] !== undefined && Number.isSafeInteger(rowCount) && rowCount >= 0;
+    // La versión 0 es válida únicamente cuando el manifiesto confirma 0 filas.
+    // Así no descargamos continuamente una fuente nueva pero aún vacía.
+    const verifiedEmpty=hasRemoteCount&&rowCount===0&&cached.data.length===0&&localVersion===0&&remoteVersion===0;
+    if(verifiedEmpty)return false;
     return !Number.isFinite(localVersion) || localVersion <= 0 ||
       !Number.isFinite(remoteVersion) || remoteVersion <= 0 ||
       localVersion !== remoteVersion ||
