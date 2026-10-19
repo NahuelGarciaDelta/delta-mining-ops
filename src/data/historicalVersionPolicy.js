@@ -1,8 +1,9 @@
+import {ROP02_SOURCE_KEYS} from "../config/rop02Sources.js";
 // Las consultas históricas deben invalidarse sólo cuando cambie SU dataset.
 // Comparar el manifiesto completo provoca descargas por cambios ajenos
 // (por ejemplo ROP05 vuelve a bajar por un cambio en insumos).
 const SOURCES=Object.freeze({
-  rop02:["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"],
+  rop02:ROP02_SOURCE_KEYS,
   rop05:["rop05"],
   rma15:["rma15_jm","rma15_fs"]
 });
