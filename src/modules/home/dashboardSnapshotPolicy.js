@@ -1,12 +1,8 @@
+import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 export const DASHBOARD_SNAPSHOT_CACHE_VERSION=8;
 export const DASHBOARD_SNAPSHOT_BACKEND_MARK="DASHBOARD-SNAPSHOT-V1";
 
-export const DASHBOARD_PROJECT_DEFS=Object.freeze([
-  {id:"JOSE MARIA",source:"rop02_jm"},
-  {id:"FILO DEL SOL",source:"rop02_fs"},
-  {id:"FILO SUR",source:"rop02_filosur"},
-  {id:"EL ZORRO",source:"rop02_zorro"},
-]);
+export const DASHBOARD_PROJECT_DEFS=Object.freeze(ROP02_SOURCES.map(({project, key})=>({id:project,source:key})));
 
 const safe=value=>Array.isArray(value)?value:[];
 const norm=value=>String(value??"")
@@ -41,6 +37,7 @@ export function dashboardProjectId(value){
   if(!text)return"";
   if(text.includes("FILO SUR")||text==="FILOSUR"||text==="FSUR"||text==="F SUR")return"FILO SUR";
   if(text.includes("EL ZORRO")||text==="ZORRO")return"EL ZORRO";
+  if(text.includes("EL FIERRO")||text==="FIERRO")return"EL FIERRO";
   if((text.includes("JOSE")&&text.includes("MARIA"))||text==="JM"||text==="J M")return"JOSE MARIA";
   if(text.includes("FILO DEL SOL")||text==="FDS"||text==="FS"||text==="FILO"||text.includes("VICUNA"))return"FILO DEL SOL";
   return text;
@@ -59,6 +56,7 @@ export function resolveDashboardScope(projectValue){
   if((raw.includes("JOSE")&&raw.includes("MARIA"))||/(^|\s)JM(\s|$)/.test(raw))addProject_(projects,"JOSE MARIA");
   if(raw.includes("FILO SUR")||raw.includes("FILOSUR")||/(^|\s)FSUR(\s|$)/.test(raw))addProject_(projects,"FILO SUR");
   if(raw.includes("EL ZORRO")||/(^|\s)ZORRO(\s|$)/.test(raw))addProject_(projects,"EL ZORRO");
+  if(raw.includes("EL FIERRO")||/(^|\s)FIERRO(\s|$)/.test(raw))addProject_(projects,"EL FIERRO");
   if(raw.includes("FILO DEL SOL")||/(^|\s)FDS(\s|$)/.test(raw)||/(^|\s)FS(\s|$)/.test(raw)||raw.includes("VICUNA"))addProject_(projects,"FILO DEL SOL");
 
   if(!projects.length)addProject_(projects,dashboardProjectId(raw));
@@ -135,6 +133,8 @@ function validateRequiredProjects_(rows,scope){
   const diagnostics=summarizeDashboardProjects(rows);
   for(const project of safe(scope?.projects)){
     const info=diagnostics[project];
+    // Una fuente nueva y aún vacía no equivale a un histórico incompleto.
+    if(project==="EL FIERRO"&&info?.rows===0)continue;
     if(!info||info.rows<=0)throw new Error(`ROP02_ATOMICO_INCOMPLETO: falta ${project}. Se conserva el último snapshot completo.`);
   }
   return diagnostics;
@@ -176,7 +176,7 @@ export function validateDashboardSnapshotResponse(response,year,scope){
   for(const source of safe(scope?.requiredSources)){
     if(!Object.prototype.hasOwnProperty.call(sourceStats,source))continue;
     const count=sourceRows_(sourceStats[source]);
-    if(count!==null&&count<=0)throw new Error(`ROP02_ATOMICO_INCOMPLETO: ${source} respondió vacío. Se conserva el snapshot anterior.`);
+    if(count!==null&&count<=0&&source!=="rop02_fierro")throw new Error(`ROP02_ATOMICO_INCOMPLETO: ${source} respondió vacío. Se conserva el snapshot anterior.`);
   }
 
   if(Number(year)===2026&&scope?.global&&scopedRop02.length<5000){
