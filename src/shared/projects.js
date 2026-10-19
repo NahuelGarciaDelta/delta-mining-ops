@@ -11,6 +11,7 @@ const ALIASES=new Map([
   ["FS","FILO DEL SOL"],["FDS","FILO DEL SOL"],["FILO","FILO DEL SOL"],["FILO DEL SOL","FILO DEL SOL"],["FILO DE SOL","FILO DEL SOL"],["VICUNA","FILO DEL SOL"],
   ["FILO SUR","FILO SUR"],["FILOSUR","FILO SUR"],["F SUR","FILO SUR"],["FSUR","FILO SUR"],
   ["EL ZORRO","EL ZORRO"],["ZORRO","EL ZORRO"],["PROYECTO EL ZORRO","EL ZORRO"],
+  ["EL FIERRO","EL FIERRO"],["FIERRO","EL FIERRO"],["PROYECTO EL FIERRO","EL FIERRO"],
 ]);
 
 export function normalizeProjectName(value,{empty="S/D"}={}){
@@ -45,6 +46,7 @@ export function projectLabel(value){
   if(p==="FILO DEL SOL")return "FDS";
   if(p==="FILO SUR")return "Filo Sur";
   if(p==="EL ZORRO")return "El Zorro";
+  if(p==="EL FIERRO")return "El Fierro";
   return String(p||value||"").replace(/\b\w/g,ch=>ch.toUpperCase()).replace(/\B\w/g,ch=>ch.toLowerCase());
 }
 
