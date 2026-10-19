@@ -1,6 +1,6 @@
 import {ROP02_SOURCE_KEYS} from "./rop02Sources.js";
 export const VIEW_SOURCES = Object.freeze({
-  // El inicio precarga primero las cuatro bases operativas principales. Concurrencia=4:
+  // El inicio prioriza las fuentes operativas registradas. Concurrencia=4:
   // FDS/JM + RMA15 FDS/JM salen en la primera tanda; el resto queda listo detrás.
   // ROP05 también se precarga para que Productividad/Control abran sin espera.
   bienvenida:[...ROP02_SOURCE_KEYS,"rma15_fs","rma15_jm","insumos","lista_equipos","rop05"],
