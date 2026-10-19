@@ -1001,7 +1001,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
   const setFechaDH=v=>setDashSt(s=>({...s,fechaDH:v}));
 
   // Proyectos disponibles
-  const proyectos=useMemo(()=>uniq(rop02All.map(r=>r.proyecto)),[rop02All]);
+  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02All.map(r=>r.proyecto)]),[rop02All]);
 
   // Base filtrada por proyecto Y fecha
   const r02f=useMemo(()=>rop02All.filter(r=>{
@@ -3611,7 +3611,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     return [...years].sort();
   },[rop02ControlRows]);
   const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(row=>dmMatchTipoMaquinaSeleccion(row.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
-  const proyectos=useMemo(()=>uniq(rop02ControlTipo.map(row=>row.proyecto).filter(Boolean)).sort(),[rop02ControlTipo]);
+  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02ControlTipo.map(row=>row.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
   const proyectosAutorizados=useMemo(()=>uniq(rop02Prod.map(row=>normalizeRop02Project(row.proyecto||"")).filter(Boolean)),[rop02Prod]);
   const rangoDesde=fechaDesde||periodo.fechaD;
   const rangoHasta=fechaHasta||periodo.fechaH;
@@ -3882,7 +3882,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   },[rop02ControlRows]);
 
   const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(r=>dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
-  const proyectos=useMemo(()=>uniq(rop02ControlTipo.map(r=>r.proyecto).filter(Boolean)).sort(),[rop02ControlTipo]);
+  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02ControlTipo.map(r=>r.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
   const maquinas=useMemo(()=>{
     const base=rop02ControlTipo.filter(r=>
       matchMulti(r.proyecto,proyecto,"todos")&&
@@ -4553,9 +4553,9 @@ function ViewAtrasoROP02({rop02All,onLegacyFallback}){
   },[tipoMaquinaFiltro,proyectoFiltro,maquinaFiltro]);
 
   const universoFiltros=useMemo(()=>[...data.atrasados,...data.saltos],[data.atrasados,data.saltos]);
-  const proyectosFiltro=useMemo(()=>uniq(universoFiltros
+  const proyectosFiltro=useMemo(()=>uniq(["EL FIERRO",...universoFiltros
     .filter(r=>multiIsAll(tipoMaquinaFiltro,"todas")||tipoMatchMachineROP05(tipoMaquinaFiltro,r.maquina))
-    .map(r=>r.proyecto).filter(Boolean)),[universoFiltros,tipoMaquinaFiltro]);
+    .map(r=>r.proyecto).filter(Boolean)]),[universoFiltros,tipoMaquinaFiltro]);
   const maquinasFiltro=useMemo(()=>uniq(universoFiltros
     .filter(r=>(multiIsAll(tipoMaquinaFiltro,"todas")||tipoMatchMachineROP05(tipoMaquinaFiltro,r.maquina))&&matchMulti(r.proyecto,proyectoFiltro,"todos"))
     .map(r=>r.maquina).filter(Boolean)),[universoFiltros,tipoMaquinaFiltro,proyectoFiltro]);
