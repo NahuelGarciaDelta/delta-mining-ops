@@ -1,3 +1,4 @@
+import {ROP02_SOURCE_KEYS} from "../config/rop02Sources.js";
 // Keep costly normalization scoped to the datasets it actually depends on.
 // Source identity changes when App receives a new snapshot; a project change
 // also invalidates all project-filtered derived collections.
@@ -9,7 +10,7 @@ export function planDerivedRefresh(previousSources, sources, previousProject, pr
 
   const rosterChanged = changed("lista_equipos");
   const rop05Changed = changed("rop05");
-  const rop02Changed = ["rop02_fs", "rop02_jm", "rop02_filosur", "rop02_zorro"].some(changed);
+  const rop02Changed = ROP02_SOURCE_KEYS.some(changed);
   const insumosChanged = changed("insumos");
   const rma15Changed = changed("rma15_fs") || changed("rma15_jm");
 
