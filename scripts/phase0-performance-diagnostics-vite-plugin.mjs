@@ -108,8 +108,8 @@ function transformSupabase(code){
   );
   code=replaceOnce(
     code,
-    '  return {ok:true,source:"supabase",data,meta:{source:String(source||""),rows:data.length,returnedRows:data.length,hasMore:false,serverVersion:latest||Date.now(),serverTime:new Date(latest||Date.now()).toISOString()}};\n}\n',
-    '  const result={ok:true,source:"supabase",data,meta:{source:dataset,rows:data.length,returnedRows:data.length,hasMore:false,serverVersion:latest||Date.now(),serverTime:new Date(latest||Date.now()).toISOString()}};\n  const pages=Math.max(1,Math.ceil(raw.length/PAGE_SIZE));\n  finishDatasetPerf({ok:true,table:config.table,rows:data.length,rawRows:raw.length,pages,requests:pages,estimatedBytes:estimatePerfBytes(raw)});\n  return result;\n}\n',
+    '  return {ok:true,source:"supabase",data,meta:{source:String(source||""),rows:data.length,returnedRows:data.length,hasMore:false,serverVersion:latest,serverTime:new Date(latest||Date.now()).toISOString()}};\n}\n',
+    '  const result={ok:true,source:"supabase",data,meta:{source:dataset,rows:data.length,returnedRows:data.length,hasMore:false,serverVersion:latest,serverTime:new Date(latest||Date.now()).toISOString()}};\n  const pages=Math.max(1,Math.ceil(raw.length/PAGE_SIZE));\n  finishDatasetPerf({ok:true,table:config.table,rows:data.length,rawRows:raw.length,pages,requests:pages,estimatedBytes:estimatePerfBytes(raw)});\n  return result;\n}\n',
     "fin de fetchSupabaseSource",
   );
   return code;
