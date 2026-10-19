@@ -25,9 +25,9 @@ test("Ranking de operarios ya no está dentro del grupo ROP05",()=>{
 });
 
 test("las vistas de Gestión Humana reutilizan fuentes existentes",()=>{
-  assert.match(sources,/gestionHumanaSitio:\["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"\]/);
-  assert.match(sources,/gestionHumanaHistorial:\["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"\]/);
-  assert.match(sources,/gestionHumanaRanking:\["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05"\]/);
+  assert.match(sources,/gestionHumanaSitio:\["lista_equipos",\.\.\.ROP02_SOURCE_KEYS\]/);
+  assert.match(sources,/gestionHumanaHistorial:\["lista_equipos",\.\.\.ROP02_SOURCE_KEYS\]/);
+  assert.match(sources,/gestionHumanaRanking:\[\.\.\.ROP02_SOURCE_KEYS,"rop05"\]/);
 });
 
 test("Gestión Humana usa el sistema de áreas existente",()=>{
