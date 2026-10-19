@@ -46,8 +46,8 @@ test('Oficina Técnica separa la vista y suma camiones al universo horario',()=>
 
 test('Camiones y camionetas cargan las mismas fuentes ROP02',()=>{
   const code=transform('src/config/viewSources.js');
-  assert.match(code,/camiones:\["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"\]/);
-  assert.match(code,/camionetas:\["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"\]/);
+  assert.match(code,/camiones:\[\.\.\.ROP02_SOURCE_KEYS,"lista_equipos"\]/);
+  assert.match(code,/camionetas:\[\.\.\.ROP02_SOURCE_KEYS,"lista_equipos"\]/);
 });
 
 test('Control de horas mensuales excluye camionetas pero incluye camiones',()=>{
