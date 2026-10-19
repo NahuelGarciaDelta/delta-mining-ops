@@ -1,5 +1,6 @@
 import {createRequestLimiter} from "./requestConcurrency.js";
 import {createInflightRead} from "./inflightRead.js";
+import {ROP02_SOURCE_KEYS,ROP02_PREFIX,rop02SourceFromKey} from "../config/rop02Sources.js";
 const env=(typeof import.meta!=="undefined"&&import.meta.env)?import.meta.env:{};
 const SUPABASE_URL=String(env.VITE_SUPABASE_URL||"https://jwfocqaxlckuxoklwyxs.supabase.co").replace(/\/+$/,"");
 const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2").trim();
@@ -11,16 +12,10 @@ const ADAPT_CHUNK_SIZE=1200;
 const limitSupabasePageRequest=createRequestLimiter(5);
 
 export const SUPABASE_TYPED_SOURCES=new Set([
-  "rop02_fs","rop02_jm","rop02_filosur","rop02_zorro",
+  ...ROP02_SOURCE_KEYS,
   "rop05","rma15_fs","rma15_jm","lista_equipos","insumos"
 ]);
 
-const ROP02_PREFIX=Object.freeze({
-  rop02_fs:"SRC|ROP02_FS|",
-  rop02_jm:"SRC|ROP02_JM|",
-  rop02_filosur:"SRC|ROP02_FILOSUR|",
-  rop02_zorro:"SRC|ROP02_ZORRO|",
-});
 
 function authHeaders(extra={}){
   return {apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,Accept:"application/json",...extra};
@@ -102,14 +97,6 @@ async function adaptRowsInChunks_(rows,adapt){
   return out;
 }
 
-function rop02SourceFromKey(value){
-  const key=String(value||"");
-  if(key.startsWith("SRC|ROP02_JM|"))return "rop02_jm";
-  if(key.startsWith("SRC|ROP02_FS|"))return "rop02_fs";
-  if(key.startsWith("SRC|ROP02_FILOSUR|"))return "rop02_filosur";
-  if(key.startsWith("SRC|ROP02_ZORRO|"))return "rop02_zorro";
-  return "";
-}
 
 function rop02Legacy(row={}){
   const sourceKey=String(row.source_key||"");
