@@ -169,7 +169,7 @@ export async function fetchSupabaseSource(source){
   const raw=await fetchAll(config.table,config.params);
   const data=await adaptRowsInChunks_(raw,config.adapt);
   const latest=raw.reduce((max,row)=>Math.max(max,new Date(row?.synced_at||0).getTime()||0),0);
-  return {ok:true,source:"supabase",data,meta:{source:String(source||""),rows:data.length,returnedRows:data.length,hasMore:false,serverVersion:latest||Date.now(),serverTime:new Date(latest||Date.now()).toISOString()}};
+  return {ok:true,source:"supabase",data,meta:{source:String(source||""),rows:data.length,returnedRows:data.length,hasMore:false,serverVersion:latest,serverTime:new Date(latest||Date.now()).toISOString()}};
 }
 
 // Si el RPC principal excede el tiempo de respuesta bajo carga, obtener las
