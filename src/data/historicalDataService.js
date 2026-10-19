@@ -1,6 +1,7 @@
 import {APPS_SCRIPT_URL} from "../config/app.js";
 import {fetchDatasetQuery,fetchSyncVersions,fetchSource} from "../services/appsScriptApi.js";
 import {fetchSupabaseRop02LatestByEquipmentProject} from "../services/supabaseReadApi.js";
+import {ROP02_SOURCE_MAP} from "../config/rop02Sources.js";
 import {readCachedSource,writeCachedSource} from "../services/appCache.js";
 import {DATA_REFRESH_INTERVAL_MS} from "../services/dataRefreshPolicy.js";
 import {buildDatasetQueryKey} from "./historicalQueryParams.js";
@@ -15,12 +16,6 @@ const lastRevalidatedAt=new Map();
 const MAX_MEMORY_QUERIES=8;
 const HISTORICAL_UPDATED_EVENT="dm-historical-dataset-updated";
 const COMMON_HISTORICAL_QUERY=Object.freeze({limit:"all",offset:0,sortBy:"fecha",sortDirection:"desc"});
-const ROP02_SOURCE_MAP=Object.freeze([
-  ["rop02_jm","JOSE MARIA"],
-  ["rop02_fs","FILO DEL SOL"],
-  ["rop02_filosur","FILO SUR"],
-  ["rop02_zorro","EL ZORRO"]
-]);
 const ROP02_HARD_TIMEOUT_MS=12000;
 
 function isLiveDataset_(dataset){return String(dataset||"").trim().toLowerCase()==="rop02";}
@@ -31,7 +26,7 @@ function withHardTimeout_(promise,ms,label="consulta"){
 }
 function remember_(key,value){memory.delete(key);memory.set(key,value);while(memory.size>MAX_MEMORY_QUERIES)memory.delete(memory.keys().next().value);}
 function notifyDatasetUpdated_(dataset,key,value,params){if(typeof window==="undefined"||typeof window.dispatchEvent!=="function")return;try{window.dispatchEvent(new CustomEvent(HISTORICAL_UPDATED_EVENT,{detail:{dataset,key,value,params:{...(params||{})}}}));}catch(_){}}
-function normalizeHomeProject_(value){const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");if(!raw||raw==="TODOS"||raw==="TODO")return "TODOS";if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";return raw;}
+function normalizeHomeProject_(value){const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");if(!raw||raw==="TODOS"||raw==="TODO")return "TODOS";if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";if(raw==="FIERRO"||raw.includes("EL FIERRO"))return "EL FIERRO";return raw;}
 function currentHomeProject_(){if(typeof window==="undefined")return "TODOS";return normalizeHomeProject_(window.__dmHomeSummaryProject||"TODOS");}
 function usesExternalHomeFilter_(){return typeof window!=="undefined"&&window.__dmHomeSummaryExternalFilter===true;}
 function rowProject_(row){return normalizeHomeProject_(row?.PROYECTO??row?.proyecto??row?.Proyecto??row?.LUGAR??row?.lugar??row?.Lugar??"");}
@@ -48,6 +43,7 @@ function assignedProjectsFromSession_(){
   if(normalized.includes("FILO DEL SOL")||/(^|[^A-Z])FDS([^A-Z]|$)/.test(normalized)||/(^|[^A-Z])FS([^A-Z]|$)/.test(normalized))add("FILO DEL SOL");
   if(normalized.includes("FILO SUR")||normalized.includes("FILOSUR")||/(^|[^A-Z])FSUR([^A-Z]|$)/.test(normalized))add("FILO SUR");
   if(normalized.includes("EL ZORRO")||/(^|[^A-Z])ZORRO([^A-Z]|$)/.test(normalized))add("EL ZORRO");
+  if(normalized.includes("EL FIERRO")||/(^|[^A-Z])FIERRO([^A-Z]|$)/.test(normalized))add("EL FIERRO");
   if(!projects.length){
     const single=normalizeHomeProject_(normalized);
     if(single&&single!=="TODOS")add(single);
