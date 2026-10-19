@@ -15,6 +15,7 @@ async function request(url,options={},timeoutMs=45000) {
     const response=await fetch(url,{...options,signal:controller.signal,redirect:"follow"});
     const body=await response.text();
     if(!response.ok)throw Error("UPSTREAM_HTTP_"+response.status);
+    if(!body.trim())return {response,data:null}; // HEAD/204/return=minimal
     try{return{response,data:JSON.parse(body)}}catch{throw Error("UPSTREAM_NOT_JSON")}
   }finally{clearTimeout(timer)}
 }
