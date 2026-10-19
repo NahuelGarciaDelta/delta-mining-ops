@@ -93,7 +93,7 @@ function transformViewSources(code){
   return requiredReplace(
     code,
     '  vehiculos:[...ROP02_SOURCE_KEYS,"lista_equipos"],',
-    '  vehiculos:[...ROP02_SOURCE_KEYS,"lista_equipos"],\\n  camiones:[...ROP02_SOURCE_KEYS,"lista_equipos"],\\n  camionetas:[...ROP02_SOURCE_KEYS,"lista_equipos"],',
+    '  vehiculos:[...ROP02_SOURCE_KEYS,"lista_equipos"],\n  camiones:[...ROP02_SOURCE_KEYS,"lista_equipos"],\n  camionetas:[...ROP02_SOURCE_KEYS,"lista_equipos"],',
     "fuentes Camiones/Camionetas"
   );
 }
