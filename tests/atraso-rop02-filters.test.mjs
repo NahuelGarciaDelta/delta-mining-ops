@@ -30,5 +30,5 @@ test("Atraso consulta snapshot y ventana reciente manteniendo fallback hidratado
   assert.match(source,/getRop02LatestByEquipmentProject\(\{\}\)/);
   assert.match(source,/getRop02\(\{desde,hasta:reference,limit:"all"/);
   assert.match(source,/ViewAtrasoROP02 rop02All=\{rop02ControlAll\} onLegacyFallback=\{onLoadAll\}/);
-  assert.match(viewSources,/atrasoROP02:\["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"\]/);
+  assert.match(viewSources,/atrasoROP02:\[\.\.\.ROP02_SOURCE_KEYS\]/);
 });
