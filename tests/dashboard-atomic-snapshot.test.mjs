@@ -45,7 +45,7 @@ test("alcance TODO incluye las cinco fuentes y un alcance restringido sólo los 
   const global=resolveDashboardScope("TODO");
   assert.deepEqual(global.requiredSources,["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop02_fierro"]);
   assert.deepEqual(scopeTwo.projects,["JOSE MARIA","FILO DEL SOL"]);
-  assert.deepEqual(scopeTwo.requiredSources,["rop02_jm","rop02_fs"]);
+  assert.deepEqual(scopeTwo.requiredSources,["rop02_fs","rop02_jm"]);
 });
 
 test("fechas del dashboard aceptan ISO, DD/MM/YYYY y timestamps",()=>{
@@ -96,5 +96,5 @@ test("Dashboard no vuelve a depender de dashboard_snapshot ni de un loader bloqu
   assert.doesNotMatch(homeFilter,/Cargando snapshot completo/);
   assert.doesNotMatch(homeFilter,/dashboardGuard/);
   assert.match(homeFilter,/rop02All:Array\.isArray\(props\.rop02All\)\?props\.rop02All:\[\]/);
-  assert.match(sources,/dashboard:\[\.\.\.ROP02_SOURCE_KEYS/);
+  assert.match(sources,/dashboard:\["rop02_fs","rop02_jm","rma15_fs","rma15_jm"/);
 });
