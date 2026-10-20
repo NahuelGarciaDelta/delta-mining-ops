@@ -9,6 +9,7 @@ import {installGlobalTableColumnFilters} from "./services/globalTableColumnFilte
 import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
+import {bootstrapRop02Catalog} from "./services/rop02Catalog.js";
 
 // Si una pestaña quedó abierta durante un deploy puede intentar cargar un chunk
 // con hash viejo. Vite emite vite:preloadError antes de que React muestre el
@@ -112,7 +113,9 @@ function mountApp(){
   );
   preloadFrequentModules();
 }
-mountApp();
+// Descubre nuevos ROP02 con una consulta liviana y un tiempo límite breve.
+// Se monta igual con la configuración conocida si la red no responde.
+bootstrapRop02Catalog().then(()=>mountApp(),()=>mountApp());
 
 // Solo dispara la política de actualización. Ya NO vuelve a descargar por la fuerza
 // ROP02 + ROP05 + RMA15 completos cada 5 minutos: esa precarga competía con la vista
