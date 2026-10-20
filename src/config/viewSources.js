@@ -48,3 +48,17 @@ export const VIEW_SOURCES = Object.freeze({
   licitacionesEquipos:["lista_equipos","rma15_fs","rma15_jm","insumos"],
   licitacionesDatosEquipos:["lista_equipos",...ROP02_SOURCE_KEYS,"rma15_fs","rma15_jm","insumos"],
 });
+
+// Agrega una fuente nueva a las vistas que ya consumen partes ROP02.
+// VIEW_SOURCES es un objeto estable; sus arrays internos son mutables.
+export function attachRop02SourceToViews(dataset){
+  const key=String(dataset||"");
+  if(!/^rop02_[a-z0-9_]+$/.test(key))return 0;
+  let added=0;
+  for(const values of Object.values(VIEW_SOURCES)){
+    if(!Array.isArray(values)||!values.some(v=>/^rop02_[a-z0-9_]+$/.test(v))||values.includes(key))continue;
+    values.push(key);
+    added++;
+  }
+  return added;
+}
