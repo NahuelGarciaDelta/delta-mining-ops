@@ -38,8 +38,9 @@ test('Equipos excluye camiones pero los controles horarios los conservan',()=>{
 test('camiones no generan controles históricos entre mayo y agosto de 2026',()=>{
   const code=transform('src/modules/oficina-tecnica/OficinaTecnicaModule.jsx');
   assert.match(code,/fecha>="2026-05-01"&&fecha<="2026-08-31"/);
-  const filteredControls=(code.match(/calcularErroresControlEquipo\(filtered\.filter\(isRop02TruckControlEligible\)\)/g)||[]).length;
+  const filteredControls=(code.match(/calcularErroresControlEquipo\\(selectRop02PeriodContinuityRows\\(controlScope\\.filter\\(isRop02TruckControlEligible\\)/g)||[]).length;
   assert.equal(filteredControls,2);
+  assert.match(code,/limitRop02ErrorsToPeriod\\(/);
   assert.match(code,/atrasoSource\.filter\(r=>isRop02HourlyEquipment\(r\)&&isRop02TruckControlEligible\(r\)&&r\.fecha\)/);
   assert.match(code,/erroresAceptados\.filter\(error=>\{\s*if\(!isRop02TruckControlEligible\(error\)\)return false;/s);
 });

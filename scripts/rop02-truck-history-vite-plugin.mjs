@@ -33,15 +33,15 @@ function transformOffice(code){
 
   out=requiredReplace(
     out,
-    '  const control=useMemo(()=>calcularErroresControlEquipo(filtered),[filtered]);',
-    '  const control=useMemo(()=>calcularErroresControlEquipo(filtered.filter(isRop02TruckControlEligible)),[filtered]);',
+    '    calcularErroresControlEquipo(selectRop02PeriodContinuityRows(controlScope,rangoDesde,rangoHasta)),',
+    '    calcularErroresControlEquipo(selectRop02PeriodContinuityRows(controlScope.filter(isRop02TruckControlEligible),rangoDesde,rangoHasta)),',
     "errores históricos de camiones"
   );
 
   out=requiredReplace(
     out,
-    '  const controlIntegridad=useMemo(()=>calcularErroresControlEquipo(filtered),[filtered]);',
-    '  const controlIntegridad=useMemo(()=>calcularErroresControlEquipo(filtered.filter(isRop02TruckControlEligible)),[filtered]);',
+    '    calcularErroresControlEquipo(selectRop02PeriodContinuityRows(controlScope,periodo.fechaD,periodo.fechaH)),',
+    '    calcularErroresControlEquipo(selectRop02PeriodContinuityRows(controlScope.filter(isRop02TruckControlEligible),periodo.fechaD,periodo.fechaH)),',
     "control por equipo histórico de camiones"
   );
 
@@ -59,7 +59,7 @@ function transformOffice(code){
     "aceptaciones históricas de camiones"
   );
 
-  if(!out.includes('filtered.filter(isRop02TruckControlEligible)')||!out.includes('isRop02HourlyEquipment(r)&&!isRop02TruckRow(r)')){
+  if(!out.includes('controlScope.filter(isRop02TruckControlEligible)')||!out.includes('isRop02HourlyEquipment(r)&&!isRop02TruckRow(r)')){
     throw new Error("[delta-rop02-truck-history] Integración incompleta");
   }
   return out;
