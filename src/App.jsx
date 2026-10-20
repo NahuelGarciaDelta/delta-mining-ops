@@ -1,3 +1,4 @@
+import {ROP02_SOURCES,ROP02_SOURCE_KEYS} from "./config/rop02Sources.js";
 import {listaIdentityFromRow,patchConfirmedMeters} from "./services/horometerUpdates.js";
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import { C, STYLES, Icon, LoadingMotoniveladora, PageLoadingMotoniveladora, Spinner, Badge, StatCard, Card, Table, tableSortValue, compareTableValues, sortRowsForTable, SortableTH, Sel, multiDefault, normalizeMultiValue, multiIsAll, multiIncludes, matchMulti, multiSummary, multiSelectedLabels, dmNormalizeAssignedProject, dmAssignedProject, dmProjectMatches, MultiSel, DateIn, MONTH_OPTIONS, YEAR_OPTIONS, PeriodMonthYear, ChartTip, TabBtn, SubTab, AlertBanner, HelpTip } from "./components/ui/index.jsx";
@@ -280,11 +281,11 @@ export default function App(){
 
   const viewDataReady=useMemo(()=>{
     if(view==="rop05"||view==="rop05Discriminacion")return sourceHasData("rop05");
-    if(view==="rop02")return sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur")||sourceHasData("rop02_zorro");
+    if(view==="rop02")return ROP02_SOURCE_KEYS.some(sourceHasData);
     if(view==="rma15")return sourceHasData("rma15_jm")||sourceHasData("rma15_fs");
     if(view==="insumos")return sourceHasData("insumos")||sourceHasData("rma15_jm")||sourceHasData("rma15_fs");
     if(view==="listaEquipos")return sourceHasData("lista_equipos");
-    if(view==="control")return sourceHasData("rop05")&&(sourceHasData("rop02_jm")||sourceHasData("rop02_fs")||sourceHasData("rop02_filosur")||sourceHasData("rop02_zorro"));
+    if(view==="control")return sourceHasData("rop05")&&(ROP02_SOURCE_KEYS.some(sourceHasData));
     return Object.keys(rawSources||{}).some(sourceHasData);
   },[view,sourceHasData,rawSources]);
 
@@ -387,17 +388,14 @@ export default function App(){
       setRop05([]);
     }
 
-    const rFS=rebuild.rop02&&src.rop02_fs?.ok&&src.rop02_fs.data?normalizeROP02(src.rop02_fs.data,"FILO DEL SOL"):[];
-    const rJM=rebuild.rop02&&src.rop02_jm?.ok&&src.rop02_jm.data?normalizeROP02(src.rop02_jm.data,"JOSE MARIA"):[];
-    const rFSur=rebuild.rop02&&src.rop02_filosur?.ok&&src.rop02_filosur.data?normalizeROP02(src.rop02_filosur.data,"FILO SUR"):[];
-    const rZorro=rebuild.rop02&&src.rop02_zorro?.ok&&src.rop02_zorro.data?normalizeROP02(src.rop02_zorro.data,"EL ZORRO"):[];
-    if(src.rop02_fs&&!src.rop02_fs.ok)errs.push({source:"ROP02 — Filo del Sol",...src.rop02_fs.error});
-    if(src.rop02_jm&&!src.rop02_jm.ok)errs.push({source:"ROP02 — José María",...src.rop02_jm.error});
-    if(src.rop02_filosur&&!src.rop02_filosur.ok)errs.push({source:"ROP02 — Filo Sur",...src.rop02_filosur.error});
-    if(src.rop02_zorro&&!src.rop02_zorro.ok)errs.push({source:"ROP02 — El Zorro",...src.rop02_zorro.error});
-
-    const allRop02=[...rFS,...rJM,...rFSur,...rZorro];
-    if(rebuild.rop02&&(allRop02.length || src.rop02_fs || src.rop02_jm || src.rop02_filosur || src.rop02_zorro)){
+    // Catálogo ROP02 único: todas las vistas reciben cada proyecto registrado.
+    const rop02Batches=ROP02_SOURCES.map(({key,project,label})=>{
+      const source=src[key];
+      if(source&&!source.ok)errs.push({source:`ROP02 — ${label}`,...source.error});
+      return rebuild.rop02&&source?.ok&&Array.isArray(source.data)?normalizeROP02(source.data,project):[];
+    });
+    const allRop02=rop02Batches.flat();
+    if(rebuild.rop02&&(allRop02.length || ROP02_SOURCE_KEYS.some(key=>Boolean(src[key])))){
       const allNames=[...allRop02.map(r=>r.supervisor),...allRop02.map(r=>r.operario),...rop05Raw.map(r=>r.supervisor)].filter(Boolean);
       buildCanonicalMap(allNames);
       const normalizedRop02=allRop02.map(r=>({...r,maquina:resolveEquipmentCodeAlias(r.maquina),supervisor:normName(r.supervisor),operario:normName(r.operario)}));
@@ -1123,7 +1121,7 @@ export default function App(){
                   view={view} deps={createOficinaTecnicaDeps(BlockingDataLoader)} dataHydrated={dataHydrated} rawSources={rawSources}
                   sourceHasData={sourceHasData} listaEquipos={listaEquipos} rop02All={rop02All} rop02ControlAll={rop02ControlAll} rop05={rop05} rma15={rma15}
                   control={control} dashSt={dashSt} setDashSt={setDashSt} health={health} loading={loading}
-                  onLoadAll={()=>loadSources(["lista_equipos","rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop05","rma15_fs","rma15_jm","insumos"])}
+                  onLoadAll={()=>loadSources(["lista_equipos",...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","insumos"])}
                   onReloadLista={()=>loadSources(["lista_equipos"],{force:true})}
                   onMetersConfirmed={onMetersConfirmed}
                   st02={st02} setSt02={setSt02} stHorometros={stHorometros} setStHorometros={setStHorometros}

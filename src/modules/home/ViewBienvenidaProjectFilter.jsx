@@ -2,6 +2,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import ViewBienvenida from "./ViewBienvenida.jsx";
 import { collectProjects, projectFromRow, projectLabel } from "../../shared/projects.js";
+import { ROP02_SOURCES } from "../../config/rop02Sources.js";
 
 const STORAGE_KEY="dm_home_summary_project_v3";
 const LEGACY_PROJECTS=new Set(["JOSE MARIA","FILO DEL SOL","FILO SUR","EL ZORRO"]);
@@ -59,7 +60,7 @@ export default function ViewBienvenidaProjectFilter(props){
   const controlRef=React.useRef(null);
   const dashboardVisible=Boolean(dashboardHost);
 
-  const projectValues=React.useMemo(()=>collectProjects(props.rop02All,props.rop05,props.rma15),[props.rop02All,props.rop05,props.rma15]);
+  const projectValues=React.useMemo(()=>[...new Set([...ROP02_SOURCES.map(s=>s.project),...collectProjects(props.rop02All,props.rop05,props.rma15)])].sort((a,b)=>a.localeCompare(b,"es")),[props.rop02All,props.rop05,props.rma15]);
   const projectItems=React.useMemo(()=>[{value:"TODOS",label:"Todos"},...projectValues.map(value=>({value,label:projectLabel(value)}))],[projectValues]);
   const selectedValues=React.useMemo(()=>{
     if(selection===null)return projectValues;

@@ -88,10 +88,12 @@ function transformApp(code){
 }
 
 function transformViewSources(code){
+  // Insertar vistas de camiones/camionetas usando el catálogo ROP02
+  // centralizado. Todos los proyectos, incluido EL FIERRO, comparten fuentes.
   return requiredReplace(
     code,
-    '  vehiculos:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],',
-    '  vehiculos:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],\n  camiones:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],\n  camionetas:["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","lista_equipos"],',
+    '  vehiculos:[...ROP02_SOURCE_KEYS,"lista_equipos"],',
+    '  vehiculos:[...ROP02_SOURCE_KEYS,"lista_equipos"],\n  camiones:[...ROP02_SOURCE_KEYS,"lista_equipos"],\n  camionetas:[...ROP02_SOURCE_KEYS,"lista_equipos"],',
     "fuentes Camiones/Camionetas"
   );
 }

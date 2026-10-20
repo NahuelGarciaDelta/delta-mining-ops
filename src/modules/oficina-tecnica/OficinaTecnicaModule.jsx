@@ -1001,7 +1001,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
   const setFechaDH=v=>setDashSt(s=>({...s,fechaDH:v}));
 
   // Proyectos disponibles
-  const proyectos=useMemo(()=>uniq(rop02All.map(r=>r.proyecto)),[rop02All]);
+  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02All.map(r=>r.proyecto)]),[rop02All]);
 
   // Base filtrada por proyecto Y fecha
   const r02f=useMemo(()=>rop02All.filter(r=>{
@@ -3611,7 +3611,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     return [...years].sort();
   },[rop02ControlRows]);
   const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(row=>dmMatchTipoMaquinaSeleccion(row.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
-  const proyectos=useMemo(()=>uniq(rop02ControlTipo.map(row=>row.proyecto).filter(Boolean)).sort(),[rop02ControlTipo]);
+  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02ControlTipo.map(row=>row.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
   const proyectosAutorizados=useMemo(()=>uniq(rop02Prod.map(row=>normalizeRop02Project(row.proyecto||"")).filter(Boolean)),[rop02Prod]);
   const rangoDesde=fechaDesde||periodo.fechaD;
   const rangoHasta=fechaHasta||periodo.fechaH;
@@ -3882,7 +3882,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   },[rop02ControlRows]);
 
   const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(r=>dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
-  const proyectos=useMemo(()=>uniq(rop02ControlTipo.map(r=>r.proyecto).filter(Boolean)).sort(),[rop02ControlTipo]);
+  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02ControlTipo.map(r=>r.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
   const maquinas=useMemo(()=>{
     const base=rop02ControlTipo.filter(r=>
       matchMulti(r.proyecto,proyecto,"todos")&&
@@ -3980,7 +3980,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     setEditDraft({TD:mk(fichaActual.TD),TN:mk(fichaActual.TN)});
     setEditError(null);setEditSuccess(false);
   },[fichaActual,editMode]);// eslint-disable-line
-  const getTarget=(r)=>{const p=String(r?.proyecto||"").toUpperCase();if(p.includes("EL ZORRO")||p==="ZORRO")return"rop02_zorro";if(p.includes("FILO SUR")||p.includes("FILOSUR"))return"rop02_filosur";if(p.includes("FILO DEL SOL")||p.includes("FDS")||p.includes("FILO"))return"rop02_fs";if(p.includes("JOSE MARIA")||p.includes("JM"))return"rop02_jm";const proj=Array.isArray(proyecto)?proyecto[0]:proyecto;const ps=String(proj||"").toUpperCase();if(ps.includes("EL ZORRO")||ps==="ZORRO")return"rop02_zorro";if(ps.includes("FILO SUR")||ps.includes("FILOSUR"))return"rop02_filosur";if(ps.includes("FILO DEL SOL")||ps.includes("FDS")||ps.includes("FILO"))return"rop02_fs";return"rop02_jm";};
+  const getTarget=(r)=>{const p=String(r?.proyecto||"").toUpperCase();if(p.includes("EL ZORRO")||p==="ZORRO")return"rop02_zorro";if(p.includes("EL FIERRO")||p==="FIERRO")return"rop02_fierro";if(p.includes("FILO SUR")||p.includes("FILOSUR"))return"rop02_filosur";if(p.includes("FILO DEL SOL")||p.includes("FDS")||p.includes("FILO"))return"rop02_fs";if(p.includes("JOSE MARIA")||p.includes("JM"))return"rop02_jm";const proj=Array.isArray(proyecto)?proyecto[0]:proyecto;const ps=String(proj||"").toUpperCase();if(ps.includes("EL ZORRO")||ps==="ZORRO")return"rop02_zorro";if(ps.includes("EL FIERRO")||ps==="FIERRO")return"rop02_fierro";if(ps.includes("FILO SUR")||ps.includes("FILOSUR"))return"rop02_filosur";if(ps.includes("FILO DEL SOL")||ps.includes("FDS")||ps.includes("FILO"))return"rop02_fs";return"rop02_jm";};
   const handleSaveEdit=async()=>{
     if(!fichaActual||editSaving)return;
     setEditSaving(true);setEditError(null);setEditSuccess(false);
@@ -4553,9 +4553,9 @@ function ViewAtrasoROP02({rop02All,onLegacyFallback}){
   },[tipoMaquinaFiltro,proyectoFiltro,maquinaFiltro]);
 
   const universoFiltros=useMemo(()=>[...data.atrasados,...data.saltos],[data.atrasados,data.saltos]);
-  const proyectosFiltro=useMemo(()=>uniq(universoFiltros
+  const proyectosFiltro=useMemo(()=>uniq(["EL FIERRO",...universoFiltros
     .filter(r=>multiIsAll(tipoMaquinaFiltro,"todas")||tipoMatchMachineROP05(tipoMaquinaFiltro,r.maquina))
-    .map(r=>r.proyecto).filter(Boolean)),[universoFiltros,tipoMaquinaFiltro]);
+    .map(r=>r.proyecto).filter(Boolean)]),[universoFiltros,tipoMaquinaFiltro]);
   const maquinasFiltro=useMemo(()=>uniq(universoFiltros
     .filter(r=>(multiIsAll(tipoMaquinaFiltro,"todas")||tipoMatchMachineROP05(tipoMaquinaFiltro,r.maquina))&&matchMulti(r.proyecto,proyectoFiltro,"todos"))
     .map(r=>r.maquina).filter(Boolean)),[universoFiltros,tipoMaquinaFiltro,proyectoFiltro]);
@@ -4721,7 +4721,7 @@ function ViewAtrasoROP02({rop02All,onLegacyFallback}){
               <option>Otro</option>
             </select>
           </label>
-          {motivoTipo==="Cambio de proyecto"&&<label style={{display:"flex",flexDirection:"column",gap:7,fontSize:12,fontWeight:800,color:C.textSub}}>Proyecto destino<select value={proyectoDestino} onChange={e=>setProyectoDestino(e.target.value)} style={{background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px"}}><option value="">Seleccionar...</option>{uniq(["JOSE MARIA","FILO DEL SOL","FILO SUR","EL ZORRO",...proyectosFiltro]).map(p=><option key={p} value={p}>{p}</option>)}</select></label>}
+          {motivoTipo==="Cambio de proyecto"&&<label style={{display:"flex",flexDirection:"column",gap:7,fontSize:12,fontWeight:800,color:C.textSub}}>Proyecto destino<select value={proyectoDestino} onChange={e=>setProyectoDestino(e.target.value)} style={{background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px"}}><option value="">Seleccionar...</option>{uniq(["JOSE MARIA","FILO DEL SOL","FILO SUR","EL ZORRO","EL FIERRO",...proyectosFiltro]).map(p=><option key={p} value={p}>{p}</option>)}</select></label>}
           {motivoTipo==="Otro"&&<textarea value={motivoOtro} onChange={e=>setMotivoOtro(e.target.value)} placeholder="Escribí el motivo..." rows={3} style={{background:C.bg,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"10px 12px",resize:"vertical"}}/>}
           {movimientoMsg&&<div style={{fontSize:12,fontWeight:800,color:movimientoMsg.includes("correctamente")?C.green:C.red}}>{movimientoMsg}</div>}
           <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>

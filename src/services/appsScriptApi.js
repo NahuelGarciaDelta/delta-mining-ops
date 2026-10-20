@@ -1,7 +1,8 @@
 import {SUPABASE_TYPED_SOURCES,fetchSupabaseDatasetQuery,fetchSupabaseHealth,fetchSupabasePmSnapshot,fetchSupabaseSource,fetchSupabaseVersions} from "./supabaseReadApi.js";
+import {ROP02_SOURCE_KEYS} from "../config/rop02Sources.js";
 import {appsScriptRequestKey,resetAppsScriptInflightForTests,shareAppsScriptRequest} from "./appsScriptRequestCoordinator.js";
 
-const ROP02_BUNDLE_SOURCES=Object.freeze(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro"]);
+const ROP02_BUNDLE_SOURCES=ROP02_SOURCE_KEYS;
 let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
 let syncVersionsMemo_={value:null,at:0,promise:null};
 const typedSourceInflight_=new Map();

@@ -132,7 +132,8 @@ const DM_ALIAS_MAPS={
     "JM":"JOSE MARIA","J M":"JOSE MARIA","JOSE MARIA":"JOSE MARIA","JOSÉ MARÍA":"JOSE MARIA","PROYECTO JOSE MARIA":"JOSE MARIA",
     "FS":"FILO DEL SOL","FDS":"FILO DEL SOL","FILO":"FILO DEL SOL","FILO DEL SOL":"FILO DEL SOL","FILO DE SOL":"FILO DEL SOL","VICUNA":"FILO DEL SOL","VICUÑA":"FILO DEL SOL",
     "FILO SUR":"FILO SUR","FILOSUR":"FILO SUR","F SUR":"FILO SUR","FSUR":"FILO SUR",
-    "EL ZORRO":"EL ZORRO","ZORRO":"EL ZORRO","PROYECTO EL ZORRO":"EL ZORRO"
+    "EL ZORRO":"EL ZORRO","ZORRO":"EL ZORRO","PROYECTO EL ZORRO":"EL ZORRO",
+    "EL FIERRO":"EL FIERRO","FIERRO":"EL FIERRO"
   },
   tipoEquipo:{
     "CARGADOR FRONTAL":"CARGADORA FRONTAL","CARGADORA":"CARGADORA FRONTAL","CARGADORA FRONTAL":"CARGADORA FRONTAL","PALA CARGADORA":"CARGADORA FRONTAL",
@@ -179,6 +180,7 @@ function dmNormalizeProject(v){
   if(!key)return "S/D";
   if(key.includes("FILO SUR")||key==="FSUR"||key==="F SUR")return "FILO SUR";
   if(key.includes("EL ZORRO")||key==="ZORRO")return "EL ZORRO";
+  if(key.includes("EL FIERRO")||key==="FIERRO")return "EL FIERRO";
   if(key.includes("JOSE")||key.includes("MARIA")||key==="JM"||key==="J M")return "JOSE MARIA";
   if(key.includes("FILO")||key.includes("VICU")||key==="FS"||key==="FDS")return "FILO DEL SOL";
   return dmApplyAlias("proyecto",v,"S/D");

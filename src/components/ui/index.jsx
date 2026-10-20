@@ -629,6 +629,7 @@ export function dmNormalizeAssignedProject(v){
   if(!raw||raw==="TODO"||raw==="TODOS"||raw==="ALL")return "TODO";
   if(raw==="FS"||raw==="FDS"||raw.includes("FILO DEL SOL"))return "FILO DEL SOL";
   if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";
+  if(raw==="FIERRO"||raw.includes("EL FIERRO"))return "EL FIERRO";
   return raw;
 }
 export function dmAssignedProject(){

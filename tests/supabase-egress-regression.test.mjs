@@ -4,14 +4,14 @@ import fs from "node:fs";
 import {historicalVersionsForDataset,historicalSnapshotMatchesManifest} from "../src/data/historicalVersionPolicy.js";
 
 const manifest={ok:true,versions:{
-  rop02_jm:101,rop02_fs:202,rop02_filosur:303,rop02_zorro:404,
+  rop02_jm:101,rop02_fs:202,rop02_filosur:303,rop02_zorro:404,rop02_fierro:909,
   rop05:505,rma15_fs:606,rma15_jm:707,insumos:808
 }};
 const saved=(versions)=>({ok:true,data:[{id:1}],versions});
 
-test("ROP02 historico utiliza solamente sus cuatro fuentes",()=>{
+test("ROP02 historico utiliza sus cinco fuentes",()=>{
   const versions=historicalVersionsForDataset("rop02",manifest);
-  assert.deepEqual(Object.keys(versions).sort(),["rop02_fs","rop02_filosur","rop02_jm","rop02_zorro"].sort());
+  assert.deepEqual(Object.keys(versions).sort(),["rop02_fs","rop02_filosur","rop02_jm","rop02_zorro","rop02_fierro"].sort());
   assert.equal(historicalSnapshotMatchesManifest("rop02",saved(versions),manifest),true);
   const unrelated={ok:true,versions:{...manifest.versions,rop05:99999}};
   assert.equal(historicalSnapshotMatchesManifest("rop02",saved(versions),unrelated),true);

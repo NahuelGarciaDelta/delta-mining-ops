@@ -47,3 +47,11 @@ test("matching row count keeps the unchanged local snapshot", () => {
   assert.deepEqual(planVersionedRefresh(["rop02_jm"],current,{rop02_jm:120},{rop02_jm:2}),[]);
   assert.deepEqual(planVersionedRefresh(["rop02_jm"],current,{rop02_jm:120}),[]);
 });
+
+
+test("El Fierro vacío confirmado no dispara relecturas innecesarias", () => {
+  const cached={rop02_fierro:{ok:true,data:[],meta:{serverVersion:0}}};
+  assert.deepEqual(planVersionedRefresh(["rop02_fierro"],cached,{rop02_fierro:0},{rop02_fierro:0}),[]);
+  assert.deepEqual(planVersionedRefresh(["rop02_fierro"],cached,{rop02_fierro:0}),["rop02_fierro"]);
+  assert.deepEqual(planVersionedRefresh(["rop02_fierro"],cached,{rop02_fierro:100},{rop02_fierro:1}),["rop02_fierro"]);
+});

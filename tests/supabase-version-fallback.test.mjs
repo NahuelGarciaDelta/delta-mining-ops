@@ -4,7 +4,7 @@ import {fetchSupabaseVersions,fetchSupabaseVersionsLightweight} from "../src/ser
 import {historicalVersionsForDataset,historicalSnapshotMatchesManifest} from "../src/data/historicalVersionPolicy.js";
 import {planVersionedRefresh} from "../src/data/refreshPlanner.js";
 
-const sourceKeys=["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro",
+const sourceKeys=["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro","rop02_fierro",
                   "rop05","rma15_fs","rma15_jm","lista_equipos","insumos"];
 
 function fakeResponse(rows,status=200){
@@ -33,8 +33,8 @@ test("fallback de manifiesto: 500 de RPC no causa descargar tablas completas",as
   const manifest=await fetchSupabaseVersions();
   assert.equal(manifest.ok,true);
   assert.equal(manifest.source,"supabase-lightweight");
-  assert.equal(calls.length,10,"1 RPC + 9 probes ligeros");
-  assert.equal(Object.keys(manifest.versions).length,9);
+  assert.equal(calls.length,11,"1 RPC + 10 probes ligeros");
+  assert.equal(Object.keys(manifest.versions).length,10);
   for(const key of sourceKeys){
     assert.equal(manifest.rowCounts[key],12);
     assert.equal(manifest.versions[key],Date.parse("2026-10-13T12:34:56.123Z"));

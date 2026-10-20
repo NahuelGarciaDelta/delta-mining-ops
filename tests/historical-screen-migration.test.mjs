@@ -16,7 +16,7 @@ test("Bienvenida recibe ROP02 y RMA15 hidratados sin snapshot bloqueante",()=>{
 
 test("Dashboard reutiliza fuentes normalizadas del estado global",()=>{
   const view=read("../src/modules/home/ExecutiveDashboard.jsx");
-  assert.match(sources,/dashboard:\[[^\]]*"rop02_fs"[^\]]*"rop02_jm"[^\]]*"rma15_fs"[^\]]*"rma15_jm"/);
+  assert.match(sources,/dashboard:\["rop02_fs","rop02_jm","rma15_fs","rma15_jm"/);
   assert.match(view,/rop02/);
   assert.match(app,/rawSourcesRef/);
   assert.match(app,/planVersionedRefresh/);
@@ -31,7 +31,7 @@ test("Informe de Costos está aislado y recibe el snapshot hidratado",()=>{
 });
 
 test("ROP02, ROP05 y RMA15 conservan sus fuentes en el planificador",()=>{
-  assert.match(sources,/rop02:\["rop02_fs","rop02_jm","rop02_filosur","rop02_zorro"\]/);
+  assert.match(sources,/rop02:\[\.\.\.ROP02_SOURCE_KEYS\]/);
   assert.match(sources,/rop05:\["rop05"\]/);
   assert.match(sources,/mant:\["insumos","rma15_fs","rma15_jm"\]/);
   assert.match(app,/loadSources/);
