@@ -3984,9 +3984,9 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   const getTarget=(r)=>{
     const findSource=value=>{
       const normalized=String(value||"").trim().toUpperCase()
-        .normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").replace(/\\s+/g," ");
+        .normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
       const registered=ROP02_SOURCES.find(entry=>entry.project
-        .normalize("NFD").replace(/[\\u0300-\\u036f]/g,"")===normalized);
+        .normalize("NFD").replace(/[\u0300-\u036f]/g,"")===normalized);
       if(registered)return registered.key;
       // Sólo los alias preexistentes; nunca convertir un proyecto desconocido en JM.
       if(normalized==="ZORRO")return"rop02_zorro";
