@@ -14,6 +14,7 @@ import {cancelErrorAcceptance,errorAcceptanceKey,saveErrorAcceptance,useErrorAcc
 import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/index.jsx";
 import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";
+import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
@@ -1001,7 +1002,7 @@ function ViewDashboard({rop02All,rop05,rma15,control,dashSt,setDashSt}){
   const setFechaDH=v=>setDashSt(s=>({...s,fechaDH:v}));
 
   // Proyectos disponibles
-  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02All.map(r=>r.proyecto)]),[rop02All]);
+  const proyectos=useMemo(()=>uniq([...ROP02_SOURCES.map(source=>source.project),...rop02All.map(r=>r.proyecto)]),[rop02All]);
 
   // Base filtrada por proyecto Y fecha
   const r02f=useMemo(()=>rop02All.filter(r=>{
@@ -3611,7 +3612,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     return [...years].sort();
   },[rop02ControlRows]);
   const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(row=>dmMatchTipoMaquinaSeleccion(row.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
-  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02ControlTipo.map(row=>row.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
+  const proyectos=useMemo(()=>uniq([...ROP02_SOURCES.map(source=>source.project),...rop02ControlTipo.map(row=>row.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
   const proyectosAutorizados=useMemo(()=>uniq(rop02Prod.map(row=>normalizeRop02Project(row.proyecto||"")).filter(Boolean)),[rop02Prod]);
   const rangoDesde=fechaDesde||periodo.fechaD;
   const rangoHasta=fechaHasta||periodo.fechaH;
@@ -3882,7 +3883,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
   },[rop02ControlRows]);
 
   const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(r=>dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
-  const proyectos=useMemo(()=>uniq(["EL FIERRO",...rop02ControlTipo.map(r=>r.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
+  const proyectos=useMemo(()=>uniq([...ROP02_SOURCES.map(source=>source.project),...rop02ControlTipo.map(r=>r.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
   const maquinas=useMemo(()=>{
     const base=rop02ControlTipo.filter(r=>
       matchMulti(r.proyecto,proyecto,"todos")&&
@@ -3980,7 +3981,25 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     setEditDraft({TD:mk(fichaActual.TD),TN:mk(fichaActual.TN)});
     setEditError(null);setEditSuccess(false);
   },[fichaActual,editMode]);// eslint-disable-line
-  const getTarget=(r)=>{const p=String(r?.proyecto||"").toUpperCase();if(p.includes("EL ZORRO")||p==="ZORRO")return"rop02_zorro";if(p.includes("EL FIERRO")||p==="FIERRO")return"rop02_fierro";if(p.includes("FILO SUR")||p.includes("FILOSUR"))return"rop02_filosur";if(p.includes("FILO DEL SOL")||p.includes("FDS")||p.includes("FILO"))return"rop02_fs";if(p.includes("JOSE MARIA")||p.includes("JM"))return"rop02_jm";const proj=Array.isArray(proyecto)?proyecto[0]:proyecto;const ps=String(proj||"").toUpperCase();if(ps.includes("EL ZORRO")||ps==="ZORRO")return"rop02_zorro";if(ps.includes("EL FIERRO")||ps==="FIERRO")return"rop02_fierro";if(ps.includes("FILO SUR")||ps.includes("FILOSUR"))return"rop02_filosur";if(ps.includes("FILO DEL SOL")||ps.includes("FDS")||ps.includes("FILO"))return"rop02_fs";return"rop02_jm";};
+  const getTarget=(r)=>{
+    const findSource=value=>{
+      const normalized=String(value||"").trim().toUpperCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");
+      const registered=ROP02_SOURCES.find(entry=>entry.project
+        .normalize("NFD").replace(/[\u0300-\u036f]/g,"")===normalized);
+      if(registered)return registered.key;
+      // Sólo los alias preexistentes; nunca convertir un proyecto desconocido en JM.
+      if(normalized==="ZORRO")return"rop02_zorro";
+      if(normalized==="FIERRO")return"rop02_fierro";
+      if(normalized==="FILOSUR"||normalized==="FSUR")return"rop02_filosur";
+      if(normalized==="FDS"||normalized==="FS")return"rop02_fs";
+      if(normalized==="JM")return"rop02_jm";
+      return"";
+    };
+    const fromRow=findSource(r?.proyecto);
+    const fromSelected=findSource(Array.isArray(proyecto)?proyecto[0]:proyecto);
+    return fromRow||fromSelected||null;
+  };
   const handleSaveEdit=async()=>{
     if(!fichaActual||editSaving)return;
     setEditSaving(true);setEditError(null);setEditSuccess(false);
@@ -4553,7 +4572,7 @@ function ViewAtrasoROP02({rop02All,onLegacyFallback}){
   },[tipoMaquinaFiltro,proyectoFiltro,maquinaFiltro]);
 
   const universoFiltros=useMemo(()=>[...data.atrasados,...data.saltos],[data.atrasados,data.saltos]);
-  const proyectosFiltro=useMemo(()=>uniq(["EL FIERRO",...universoFiltros
+  const proyectosFiltro=useMemo(()=>uniq([...ROP02_SOURCES.map(source=>source.project),...universoFiltros
     .filter(r=>multiIsAll(tipoMaquinaFiltro,"todas")||tipoMatchMachineROP05(tipoMaquinaFiltro,r.maquina))
     .map(r=>r.proyecto).filter(Boolean)]),[universoFiltros,tipoMaquinaFiltro]);
   const maquinasFiltro=useMemo(()=>uniq(universoFiltros

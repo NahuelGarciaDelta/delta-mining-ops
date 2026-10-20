@@ -27,8 +27,8 @@ function transformMain(code){
   );
   code=replaceOnce(
     code,
-    '  );\n  preloadFrequentModules();\n}\nmountApp();\n',
-    '  );\n  markPerf("app:mount-rendered");\n  preloadFrequentModules();\n}\nmountApp();\n',
+    '  );\n  preloadFrequentModules();\n}\nbootstrapRop02Catalog().then(()=>mountApp(),()=>mountApp());\n',
+    '  );\n  markPerf("app:mount-rendered");\n  preloadFrequentModules();\n}\nbootstrapRop02Catalog().then(()=>mountApp(),()=>mountApp());\n',
     "fin de mountApp",
   );
   return code;

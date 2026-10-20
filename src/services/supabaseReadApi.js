@@ -177,10 +177,10 @@ export async function fetchSupabaseSource(source){
 // la invalidación de los snapshots sin transferir ROP02/ROP05/RMA15 completos.
 // El manifiesto alternativo puede ser parcial: una fuente fallida se revalida
 // con la descarga habitual, nunca se declara fresca sin pruebas.
-const LIGHTWEIGHT_VERSION_SOURCES=Object.freeze([
-  ...Object.keys(ROP02_PREFIX),
+const LIGHTWEIGHT_VERSION_SOURCES=()=>[
+  ...ROP02_SOURCE_KEYS,
   "rop05","rma15_fs","rma15_jm","lista_equipos","insumos"
-]);
+];
 
 function lightweightVersionQuery_(source){
   if(ROP02_PREFIX[source])return{table:"rop02",params:{
@@ -191,7 +191,7 @@ function lightweightVersionQuery_(source){
 }
 
 export async function fetchSupabaseVersionsLightweight(){
-  const results=await Promise.allSettled(LIGHTWEIGHT_VERSION_SOURCES.map(async source=>{
+  const results=await Promise.allSettled(LIGHTWEIGHT_VERSION_SOURCES().map(async source=>{
     const {table,params}=lightweightVersionQuery_(source);
     const {data,response}=await limitSupabasePageRequest(()=>
       request(`/rest/v1/${table}?${queryString(params)}`,{prefer:"count=exact",timeoutMs:8000}));
@@ -304,4 +304,13 @@ export async function fetchSupabaseDatasetQuery(params={}){
   }
   const data=await adaptRowsInChunks_(raw,config.adapt);
   return {ok:true,source:"supabase",data,rows:data.length,total,hasMore,nextOffset,offset:Number(params.offset||0),limit:params.limit||250};
+}
+
+/** Lectura liviana: sólo dataset y nombre, sin IDs de Google Sheets. */
+export async function fetchSupabaseRop02Catalog(){
+  const result=await request("/rest/v1/rpc/rop02_public_catalog",{
+    method:"POST",body:{},timeoutMs:2600
+  });
+  if(!Array.isArray(result.data))throw new Error("Catálogo ROP02 inválido");
+  return result.data;
 }
