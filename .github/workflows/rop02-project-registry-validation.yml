@@ -6,6 +6,7 @@ on:
       - feat/rop02-dynamic-catalog-20261020
       - feat/control-rop02-rop05-proyectos-a-considerar-20261020
       - feat/calidad-ichc-proyectos-dinamicos-20261020
+      - fix/rop02-control-errores-corte-26-25-20261020
   workflow_dispatch:
 permissions:
   contents: read

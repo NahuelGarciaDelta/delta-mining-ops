@@ -18,6 +18,7 @@ import {availableControlProjects,filterControlProjects,noControlProjectsSelected
 import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 import {qualityProjectsFromSources,selectedQualityProject,qualityMonthPeriod,qualityRowsForProject} from "./chcQualityProjects.js";
 import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
+import {getMonthlyCutoffRange} from "../analytics/monthlyCutoffRange.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -3601,12 +3602,10 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   const hoy=new Date();
   const {proyecto,maquina,año,mesIdx,tipo,tipoMaquina="todas",fechaDesde="",fechaHasta=""}=extState;
   const set=(key,value)=>setExtState(state=>({...state,[key]:value}));
+  // Corte operativo: cada mes abarca del 26 anterior al 25 elegido.
   const periodo=useMemo(()=>{
-    const year=parseFloat(año,10);
-    const month=Number(mesIdx);
-    const monthText=String(month+1).padStart(2,"0");
-    const lastDay=new Date(year,month+1,0).getDate();
-    return {fechaD:String(year)+"-"+monthText+"-01",fechaH:String(year)+"-"+monthText+"-"+String(lastDay).padStart(2,"0")};
+    const {startISO,endISO}=getMonthlyCutoffRange(mesIdx,año);
+    return{fechaD:startISO,fechaH:endISO};
   },[año,mesIdx]);
   const años=useMemo(()=>{
     const years=new Set(["2026","2027","2028"]);
@@ -3744,15 +3743,15 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       <Card>
         <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
-          <Sel label="Mes" value={String(mesIdx)} onChange={value=>set("mesIdx",Number(value))} options={MESES.map((month,index)=>({value:String(index),label:month}))}/>
-          <Sel label="Año" value={año} onChange={value=>set("año",value)} options={años.map(year=>({value:year,label:year}))}/>
+          <Sel label="Mes" value={String(mesIdx)} onChange={value=>setExtState(state=>({...state,mesIdx:Number(value),fechaDesde:"",fechaHasta:""}))} options={MESES.map((month,index)=>({value:String(index),label:month}))}/>
+          <Sel label="Año" value={año} onChange={value=>setExtState(state=>({...state,año:value,fechaDesde:"",fechaHasta:""}))} options={años.map(year=>({value:year,label:year}))}/>
           <DateIn label="Desde" value={rangoDesde} onChange={value=>set("fechaDesde",value)} max={rangoHasta||undefined}/>
           <DateIn label="Hasta" value={rangoHasta} onChange={value=>set("fechaHasta",value)} min={rangoDesde||undefined} warn={rangoHasta&&rangoDesde&&rangoHasta<rangoDesde?"≥ Desde":null}/>
           <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={value=>{set("tipoMaquina",value);set("maquina","todas");}} options={dmTipoMaquinaOptions()}/>
           <MultiSel label="Proyecto" value={proyecto} onChange={value=>{set("proyecto",value);set("maquina","todas");}} options={[{value:"todos",label:"Todos"},...proyectos.map(value=>({value,label:value}))]}/>
           <MultiSel label="Máquina" value={maquina} onChange={value=>set("maquina",value)} options={[{value:"todas",label:"Todas"},...maquinas.map(value=>({value,label:value}))]}/>
           <Sel label="Tipo de error" value={tipo} onChange={value=>set("tipo",value)} options={[{value:"todos",label:"Todos"},{value:"numeracion",label:"Numeración"},{value:"horometros",label:"Horómetros"},{value:"duplicadas",label:"Cargas duplicadas"}]}/>
-          <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:"1px solid "+C.border,borderRadius:7,background:C.surface}}>Período: <strong style={{color:C.text}}>{fmtFecha(rangoDesde)} → {fmtFecha(rangoHasta)}</strong></div>
+          <div style={{fontSize:11,color:C.textSub,padding:"7px 10px",border:"1px solid "+C.border,borderRadius:7,background:C.surface}}>{fechaDesde||fechaHasta?"Período personalizado: ":"Período operativo (26–25): "}<strong style={{color:C.text}}>{fmtFecha(rangoDesde)} → {fmtFecha(rangoHasta)}</strong></div>
           <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:"1px solid "+C.red+"44",background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}>
             <Icon name="close" size={11} color={C.red}/>Limpiar filtros
           </button>
