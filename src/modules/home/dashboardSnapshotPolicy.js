@@ -2,7 +2,14 @@ import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 export const DASHBOARD_SNAPSHOT_CACHE_VERSION=8;
 export const DASHBOARD_SNAPSHOT_BACKEND_MARK="DASHBOARD-SNAPSHOT-V1";
 
-export const DASHBOARD_PROJECT_DEFS=Object.freeze(ROP02_SOURCES.map(({project, key})=>({id:project,source:key})));
+export const DASHBOARD_PROJECT_DEFS=ROP02_SOURCES.map(({project,key})=>({id:project,source:key}));
+export function attachRop02SourceToDashboard({dataset,project}={}){
+  const source=String(dataset??"").trim();
+  const id=String(project??"").trim().toUpperCase();
+  if(!/^rop02_[a-z0-9_]+$/.test(source)||!id||DASHBOARD_PROJECT_DEFS.some(p=>p.source===source))return false;
+  DASHBOARD_PROJECT_DEFS.push({id,source});
+  return true;
+}
 
 const safe=value=>Array.isArray(value)?value:[];
 const norm=value=>String(value??"")
