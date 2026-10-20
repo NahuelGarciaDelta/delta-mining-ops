@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feat/rop02-el-fierro-20261019
+      - feat/rop02-dynamic-catalog-20261020
   workflow_dispatch:
 permissions:
   contents: read
