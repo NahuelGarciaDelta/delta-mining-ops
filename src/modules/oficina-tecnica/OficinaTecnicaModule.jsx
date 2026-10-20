@@ -18,6 +18,7 @@ import {availableControlProjects,filterControlProjects,noControlProjectsSelected
 import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 import {qualityProjectsFromSources,selectedQualityProject,qualityMonthPeriod,qualityRowsForProject} from "./chcQualityProjects.js";
 import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
+import {selectRop02PeriodContinuityRows,limitRop02ErrorsToPeriod} from "../../shared/rop02PeriodContinuity.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -3631,7 +3632,18 @@ function ControlDeErrores({rop02All,extState,setExtState}){
     if(!matchMulti(row.maquina,maquina,"todas"))return false;
     return row.fecha>=rangoDesde&&row.fecha<=rangoHasta;
   }),[rop02ControlTipo,proyecto,maquina,rangoDesde,rangoHasta]);
-  const control=useMemo(()=>calcularErroresControlEquipo(filtered),[filtered]);
+  // Para detectar cortes en el primer día del rango, conservar únicamente el
+  // último día anterior de cada máquina/proyecto como referencia. No se muestra
+  // ningún error con fecha anterior al rango que el usuario seleccionó.
+  const controlScope=useMemo(()=>rop02ControlTipo.filter(row=>
+    matchMulti(row.proyecto,proyecto,"todos")&&
+    !isRop02ControlMachineExcluded(row.maquina)&&
+    matchMulti(row.maquina,maquina,"todas")
+  ),[rop02ControlTipo,proyecto,maquina]);
+  const control=useMemo(()=>limitRop02ErrorsToPeriod(
+    calcularErroresControlEquipo(selectRop02PeriodContinuityRows(controlScope,rangoDesde,rangoHasta)),
+    rangoDesde,rangoHasta
+  ),[controlScope,rangoDesde,rangoHasta]);
   const todosErrores=useMemo(()=>[
     ...control.erroresPartes.map(error=>({...error,_tipo:"Numeración"})),
     ...control.erroresHoro.map(error=>({...error,_tipo:"Horómetro"})),
@@ -4062,7 +4074,24 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
     color:C.text,fontSize:12,fontWeight:600,padding:"5px 10px",fontFamily:"Inter",cursor:"pointer",outline:"none",
   };
 
-  const controlIntegridad=useMemo(()=>calcularErroresControlEquipo(filtered),[filtered]);
+  // La ficha muestra sólo el mes elegido, pero valida el 1.º contra la
+  // última fecha registrada del mes anterior (mismo equipo y proyecto).
+  const controlScope=useMemo(()=>rop02ControlTipo.filter(row=>
+    matchMulti(row.proyecto,proyecto,"todos")&&
+    !isRop02ControlMachineExcluded(row.maquina)&&
+    matchMulti(row.maquina,maquina,"todas")
+  ),[rop02ControlTipo,proyecto,maquina]);
+  const controlIntegridad=useMemo(()=>limitRop02ErrorsToPeriod(
+    calcularErroresControlEquipo(selectRop02PeriodContinuityRows(controlScope,periodo.fechaD,periodo.fechaH)),
+    periodo.fechaD,periodo.fechaH
+  ),[controlScope,periodo.fechaD,periodo.fechaH]);
+  const fichaErrorEntreDias=useMemo(()=>controlIntegridad.erroresHoro.find(error=>
+    error.tipo!=="TD_TN_HOROMETRO"&&
+    error.fecha===fichaActual?.fecha&&
+    error.maquina===fichaMaquina&&
+    [fichaActual?.TD?.proyecto,fichaActual?.TN?.proyecto].includes(error.proyecto)&&
+    String(fichaActual?.[error.turno]?.parte||"")===String(error.parte||"")
+  )||null,[controlIntegridad,fichaActual,fichaMaquina]);
 
   const ErrorDato=({label,children,color=C.text})=>(
     <div style={{display:"flex",flexDirection:"column",gap:3,minWidth:120}}>
@@ -4184,6 +4213,15 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
               {editMode&&<><button onClick={handleSaveEdit} disabled={editSaving} style={{padding:"7px 20px",borderRadius:7,border:"none",background:"#22c55e",color:"#fff",cursor:editSaving?"not-allowed":"pointer",fontSize:13,fontWeight:800,fontFamily:"Inter",opacity:editSaving?0.6:1}}>{editSaving?"Guardando…":"💾 Guardar"}</button><button onClick={()=>{setEditMode(false);setEditError(null);}} disabled={editSaving} style={{padding:"7px 14px",borderRadius:7,border:`1px solid ${C.border}`,background:C.surface,color:C.textSub,cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"Inter"}}>Cancelar</button></>}
             </div>
           </div>
+          {fichaErrorEntreDias&&<div style={{padding:"10px 14px",borderBottom:`1px solid ${C.red}55`}}>
+            <AlertBanner type="error">
+              ⚠️ Corte de continuidad de horómetro: el ${fmtFecha(fichaErrorEntreDias.fechaAnterior)}
+              (parte ${fichaErrorEntreDias.parteAnterior}, ${fichaErrorEntreDias.turnoAnterior}) terminó con HF ${fmtNum(fichaErrorEntreDias.hfAnterior)},
+              pero el ${fmtFecha(fichaErrorEntreDias.fecha)} (parte ${fichaErrorEntreDias.parte}, ${fichaErrorEntreDias.turno})
+              comienza con HI ${fmtNum(fichaErrorEntreDias.hiActual)}. Diferencia: ${fichaErrorEntreDias.diff>0?"+":""}${fmtNum(fichaErrorEntreDias.diff)} h.
+              Revisar los partes originales antes de corregir.
+            </AlertBanner>
+          </div>}
           {editError&&<div style={{padding:"8px 14px",background:"rgba(220,38,38,0.18)",color:"#f87171",fontSize:12,fontWeight:600}}>{editError}</div>}
           {(()=>{
             const inpStyle={width:"100%",background:"rgba(255,255,255,0.06)",border:`1px solid ${C.accent}66`,borderRadius:6,color:C.text,fontSize:14,padding:"5px 8px",fontFamily:"Inter",outline:"none",boxSizing:"border-box"};
@@ -4196,7 +4234,7 @@ function ControlPorEquipo({rop02All,extState,setExtState}){
                   <tbody>
                     {FILAS.map(({key,label,render})=>{
                       const rTD=fichaActual.TD; const rTN=fichaActual.TN;
-                      const renderCell=(turno,r)=>{if(!editMode){const value=render(r);const mismatch=fichaHoroError&&((key==="hf"&&turno==="TD")||(key==="hi"&&turno==="TN"));return mismatch?<PinkBox>{value}</PinkBox>:value;}if(!r)return <span style={{color:C.textMuted}}>—</span>;const val=editDraft[turno]?.[key]??"";return<input type={FIELD_CFG[key]?.type||"text"} value={val} onChange={e=>setEditDraft(d=>({...d,[turno]:{...d[turno],[key]:e.target.value}}))} style={inpStyle}/>;};
+                      const renderCell=(turno,r)=>{if(!editMode){const value=render(r);const mismatch=(fichaHoroError&&((key==="hf"&&turno==="TD")||(key==="hi"&&turno==="TN")))||(fichaErrorEntreDias&&key==="hi"&&turno===fichaErrorEntreDias.turno&&String(r?.parte||"")===String(fichaErrorEntreDias.parte||""));return mismatch?<PinkBox>{value}</PinkBox>:value;}if(!r)return <span style={{color:C.textMuted}}>—</span>;const val=editDraft[turno]?.[key]??"";return<input type={FIELD_CFG[key]?.type||"text"} value={val} onChange={e=>setEditDraft(d=>({...d,[turno]:{...d[turno],[key]:e.target.value}}))} style={inpStyle}/>;};
                       return(<tr key={key}><td style={{padding:"11px 16px",fontWeight:900,fontSize:14,color:C.textSub,background:C.surface+"55",borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`}}>{label}</td><td style={{padding:editMode?"8px 10px":"13px 18px",fontSize:16,color:cellColor(rTD),background:cellBg(rTD),borderBottom:`1px solid ${C.border}22`,borderRight:`1px solid ${C.border}22`,verticalAlign:"middle",lineHeight:1.5,fontWeight:800}}>{renderCell("TD",rTD)}</td><td style={{padding:editMode?"8px 10px":"13px 18px",fontSize:16,color:cellColor(rTN),background:cellBg(rTN),borderBottom:`1px solid ${C.border}22`,verticalAlign:"middle",lineHeight:1.5,fontWeight:800}}>{renderCell("TN",rTN)}</td></tr>);
                     })}
                   </tbody>
