@@ -5491,7 +5491,7 @@ function ViewCombustible({rop02All,extState,setExtState}){
 function ViewCHC({rop02All,extState,setExtState}){
   // Una pestaña por proyecto: incluye fuentes del catálogo Supabase aunque
   // todavía no tengan partes y evita mezclas entre equipos de proyectos.
-  const proyectosDisponibles=qualityProjectsFromSources(ROP02_SOURCES,rop02All);
+  const proyectosDisponibles=useMemo(()=>qualityProjectsFromSources(ROP02_SOURCES,rop02All),[rop02All,ROP02_SOURCES.length]);
   const proyectoActual=selectedQualityProject(extState,proyectosDisponibles);
   const setProyectoActual=value=>setExtState(st=>({...st,chcProject:value,proyecto:"todos"}));
   const tipoMaquina=extState?.tipoMaquina??"todas";
@@ -5715,7 +5715,7 @@ function ViewCHC({rop02All,extState,setExtState}){
       <Card title="Cumplimiento General — % CHC">
         <div style={{padding:"20px 16px",display:"flex",alignItems:"center",gap:24,flexWrap:"wrap",justifyContent:"center"}}>
           {(()=>{
-            const sem=semPct(totales.pct);
+            const sem=rows.length?semPct(totales.pct):{color:C.textMuted,bg:C.surface};
             return(<>
               <div style={{width:130,height:130,borderRadius:"50%",border:`8px solid ${sem.color}`,background:sem.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",boxShadow:`0 0 40px ${sem.color}44`,flexShrink:0}}>
                 <span style={{fontFamily:"Inter",fontSize:34,fontWeight:800,color:sem.color,lineHeight:1}}>{rows.length?`${totales.pct}%`:"—"}</span>
