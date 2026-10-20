@@ -305,3 +305,12 @@ export async function fetchSupabaseDatasetQuery(params={}){
   const data=await adaptRowsInChunks_(raw,config.adapt);
   return {ok:true,source:"supabase",data,rows:data.length,total,hasMore,nextOffset,offset:Number(params.offset||0),limit:params.limit||250};
 }
+
+/** Lectura liviana: sólo dataset y nombre, sin IDs de Google Sheets. */
+export async function fetchSupabaseRop02Catalog(){
+  const result=await request("/rest/v1/rpc/rop02_public_catalog",{
+    method:"POST",body:{},timeoutMs:2600
+  });
+  if(!Array.isArray(result.data))throw new Error("Catálogo ROP02 inválido");
+  return result.data;
+}
