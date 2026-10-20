@@ -113,8 +113,6 @@ function mountApp(){
   );
   preloadFrequentModules();
 }
-// Descubre nuevos ROP02 con una consulta liviana y un tiempo límite breve.
-// Se monta igual con la configuración conocida si la red no responde.
 bootstrapRop02Catalog().then(()=>mountApp(),()=>mountApp());
 
 // Solo dispara la política de actualización. Ya NO vuelve a descargar por la fuerza
