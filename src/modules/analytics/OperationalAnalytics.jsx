@@ -3,7 +3,8 @@ import * as XLSX from "xlsx";
 import { C as UI_C } from "../../components/ui/index.jsx";
 import { getHoursExtremes } from "./hoursExtremes.js";
 import { getMonthlyCutoffRange } from "./monthlyCutoffRange.js";
-import { gestionHumanaMatchTipoMaquina, gestionHumanaTipoMaquinaOptions, isOperatingRecord, titleCaseDisplay } from "../gestion-humana/gestionHumanaData.js";
+import { gestionHumanaMatchTipoMaquina, gestionHumanaTipoMaquinaOptions } from "../gestion-humana/gestionHumanaData.js";
+import { isHourlyRankingRecord, buildHourlyOperatorRanking } from "../gestion-humana/operatorHoursRanking.js";
 
 let C=UI_C, Icon, Spinner, Badge, StatCard, Card, Table, Sel, MultiSel, DateIn, PeriodMonthYear, TabBtn, AlertBanner, HelpTip;
 let fmtNum, fmtFecha, uniq, normDate, cleanMachine, canonicalEquivalentMachineCode, isRop02ControlMachineExcluded, dmMatchTipoMaquinaSeleccion, dmTipoMaquinaOptions, matchMulti, multiIsAll, multiIncludes, normalizeMachineCode, getMachineType, isExcluded, excelFromCols, proyColor, semaforo, appAlert;
@@ -18,7 +19,7 @@ function BtnExcel({onClick}){
   );
 }
 function ViewRankingOperariosInner({rop02All,rop05,extState,setExtState}){
-  const rop02Prod=useMemo(()=>rop02All.filter(isOperatingRecord),[rop02All]);
+  const rop02Prod=useMemo(()=>(rop02All||[]).filter(isHourlyRankingRecord),[rop02All]);
   const proyecto=extState?.proyecto??"todos";
   const setProyecto=v=>setExtState(s=>({...s,proyecto:v}));
   const tipoMaquina=extState?.tipoMaquina??"todas";
@@ -44,24 +45,7 @@ function ViewRankingOperariosInner({rop02All,rop05,extState,setExtState}){
   const hayFiltros=!multiIsAll(tipoMaquina,"todas")||!multiIsAll(proyecto,"todos")||(modeR==="dia"&&!!fecha)||(modeR==="periodo"&&(!!fechaD||!!fechaH));
   const reset=()=>{setModeR("periodo");setTipoMaquina("todas");setProyecto("todos");setFecha("");setFechaD("");setFechaH("");};
 
-  const ranking=useMemo(()=>{
-    const m={};
-    filtered.forEach(r=>{
-      if(!r.operario)return;
-      if(!m[r.operario])m[r.operario]={operario:r.operario,horas:0,proyectos:new Set(),maquinas:new Set(),dias:new Set()};
-      m[r.operario].horas+=r.horas;
-      if(r.proyecto)m[r.operario].proyectos.add(r.proyecto);
-      if(r.maquina)m[r.operario].maquinas.add(r.maquina);
-      if(r.fecha)m[r.operario].dias.add(r.fecha);
-    });
-    return Object.values(m).map(op=>({
-      ...op,
-      proyectos:[...op.proyectos].join(" / "),
-      maquinas:[...op.maquinas].sort().join(", "),
-      diasTrabajados:op.dias.size,
-      promHsDia:op.dias.size>0?Math.round((op.horas/op.dias.size)*10)/10:0,
-    })).sort((a,b)=>b.horas-a.horas);
-  },[filtered]);
+  const ranking=useMemo(()=>buildHourlyOperatorRanking(filtered),[filtered]);
 
   const maxHoras=ranking[0]?.horas||1;
 
@@ -87,12 +71,13 @@ function ViewRankingOperariosInner({rop02All,rop05,extState,setExtState}){
           <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-end"}}>
             {modeR==="dia"&&<DateIn label="Fecha" value={fecha} onChange={setFecha}/>}
             {modeR==="periodo"&&<><PeriodMonthYear fechaD={fechaD} fechaH={fechaH} setFechaD={setFechaD} setFechaH={setFechaH}/><DateIn label="Desde" value={fechaD} onChange={setFechaD} max={fechaH||undefined}/><DateIn label="Hasta" value={fechaH} onChange={setFechaH} min={fechaD||undefined} warn={fechaH&&fechaD&&fechaH<fechaD?"≥ Desde":null}/></>}
-            <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={setTipoMaquina} options={gestionHumanaTipoMaquinaOptions(dmTipoMaquinaOptions())}/>
+            <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={setTipoMaquina} options={gestionHumanaTipoMaquinaOptions(dmTipoMaquinaOptions()).filter(option=>!/CAMIONETAS?|PICK.?UP|UTILITARIO/i.test(String(option.value)+" "+String(option.label)))}/>
             <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto} options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
             <button onClick={reset} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.red}44`,background:C.redDim,color:C.red,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter",opacity:hayFiltros?1:0.3,pointerEvents:hayFiltros?"auto":"none"}}><Icon name="close" size={11} color={C.red}/>Limpiar filtros</button>
           </div>
         </div>
       </Card>
+      <div style={{fontSize:11,color:C.textSub,padding:"0 4px"}}>Ranking calculado únicamente con horas de camiones y equipos viales. Se excluyen camionetas y registros medidos en kilómetros.</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10}}>
         <StatCard icon="consist" label="Operarios" value={ranking.length} color={C.purple} small/>
         <StatCard icon="hours" label="Horas totales" value={fmtNum(ranking.reduce((s,r)=>s+r.horas,0))} color={C.accent} small/>
