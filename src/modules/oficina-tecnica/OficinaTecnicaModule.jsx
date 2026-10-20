@@ -16,6 +16,7 @@ import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/ind
 import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";
 import {availableControlProjects,filterControlProjects,noControlProjectsSelected} from "./controlProjectScope.js";
 import {ROP02_SOURCES} from "../../config/rop02Sources.js";
+import {qualityProjectsFromSources,selectedQualityProject,qualityMonthPeriod,qualityRowsForProject} from "./chcQualityProjects.js";
 import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
@@ -5488,74 +5489,36 @@ function ViewCombustible({rop02All,extState,setExtState}){
 
 // ─── ViewCHC — Indicador Control de Horas Contratadas ────────────────────────
 function ViewCHC({rop02All,extState,setExtState}){
-  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
-  const proyecto=extState?.proyecto??"todos";
-  const setProyecto=v=>setExtState(s=>({...s,proyecto:v}));
+  // Una pestaña por proyecto: incluye fuentes del catálogo Supabase aunque
+  // todavía no tengan partes y evita mezclas entre equipos de proyectos.
+  const proyectosDisponibles=useMemo(()=>qualityProjectsFromSources(ROP02_SOURCES,rop02All),[rop02All,ROP02_SOURCES.length]);
+  const proyectoActual=selectedQualityProject(extState,proyectosDisponibles);
+  const setProyectoActual=value=>setExtState(st=>({...st,chcProject:value,proyecto:"todos"}));
   const tipoMaquina=extState?.tipoMaquina??"todas";
-  const setTipoMaquina=v=>setExtState(s=>({...s,tipoMaquina:v}));
+  const setTipoMaquina=v=>setExtState(st=>({...st,tipoMaquina:v}));
   const HS_MES=180;
 
-  // Meses disponibles: lista fija de nombres
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-
-  // Años disponibles a partir de los datos
   const años=useMemo(()=>{
-    const ys=new Set(["2025","2026","2027","2028"]); // años mínimos garantizados
+    const ys=new Set(["2025","2026","2027","2028"]);
     rop02All.forEach(r=>{if(r.fecha)ys.add(r.fecha.slice(0,4));});
     return [...ys].sort();
   },[rop02All]);
-
   const añoSelec=extState?.añoSelec??String(new Date().getFullYear());
-  const setAñoSelec=v=>setExtState(s=>({...s,añoSelec:v}));
-  const mesIdx=extState?.mesIdx??new Date().getMonth(); // 0=Enero
-  const setMesIdx=v=>setExtState(s=>({...s,mesIdx:v}));
+  const setAñoSelec=v=>setExtState(st=>({...st,añoSelec:v}));
+  const mesIdx=extState?.mesIdx??new Date().getMonth();
+  const setMesIdx=v=>setExtState(st=>({...st,mesIdx:v}));
 
-  const proyectos=useMemo(()=>uniq(rop02All.filter(r=>!r._excluded&&!(["FILO SUR","EL ZORRO"].includes(r.proyecto))).map(r=>r.proyecto)),[rop02All]);
-
-  // Sub-pestaña: período "26-25" (José María / Filo del Sol) vs período de
-  // mes calendario (Filo Sur, donde el mes coincide con el período 1-fin de mes)
-  const chcTab=extState?.chcTab??"principal";
-  const setChcTab=v=>setExtState(s=>({...s,chcTab:v}));
-
-  // Calcular fechaD y fechaH a partir del mes/año seleccionado
-  // - "principal": del 26 del mes anterior al 25 del mes seleccionado
-  //   Ej: Mayo = del 26/04 al 25/05
-  // - "filosur": mes calendario completo (1 al último día del mes)
-  const{fechaD,fechaH,diasPeriodo}=useMemo(()=>{
-    const y=parseFloat(añoSelec);
-    const m=mesIdx; // 0=Enero
-    if(chcTab==="filosur"||chcTab==="zorro"){
-      const dD=`${y}-${String(m+1).padStart(2,"0")}-01`;
-      const lastDay=new Date(y,m+1,0).getDate();
-      const dH=`${y}-${String(m+1).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
-      return{fechaD:dD,fechaH:dH,diasPeriodo:lastDay};
-    }
-    // Inicio: 26 del mes anterior al mes seleccionado
-    // Si enero (m=0): inicio = 26/12 del año anterior
-    const mesAnteriorNum=m===0?12:m;          // número de mes (1-12) del mes anterior
-    const añoInicio=m===0?y-1:y;             // año del inicio
-    const dD=`${añoInicio}-${String(mesAnteriorNum).padStart(2,"0")}-26`;
-    // Fin: 25 del mes seleccionado en el año seleccionado
-    const dH=`${y}-${String(m+1).padStart(2,"0")}-25`;
-    const dias=Math.round((new Date(dH)-new Date(dD))/(1000*60*60*24))+1;
-    return{fechaD:dD,fechaH:dH,diasPeriodo:dias};
-  },[añoSelec,mesIdx,chcTab]);
-
-  // Base: solo equipos productivos filtrados por proyecto y período
-  const base=useMemo(()=>rop02All.filter(r=>{
-    if(r._excluded)return false;
-    if(chcTab==="filosur"){
-      if(r.proyecto!=="FILO SUR")return false;
-    }else if(chcTab==="zorro"){
-      if(r.proyecto!=="EL ZORRO")return false;
-    }else{
-      if(r.proyecto==="FILO SUR"||r.proyecto==="EL ZORRO")return false;
-      if(!matchMulti(r.proyecto,proyecto,"todos"))return false;
-    }
-    if(!dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina))return false;
-    if(r.fecha<fechaD||r.fecha>fechaH)return false;
-    return true;
-  }),[rop02All,proyecto,fechaD,fechaH,chcTab,tipoMaquina]);
+  // Filo Sur y El Zorro conservan el mes calendario que ya usaban.
+  // JM, FDS y las fuentes nuevas mantienen el corte contractual 26–25.
+  const {fechaD,fechaH,diasPeriodo,mode:tipoPeriodo}=useMemo(
+    ()=>qualityMonthPeriod(proyectoActual,añoSelec,mesIdx),
+    [proyectoActual,añoSelec,mesIdx]
+  );
+  const base=useMemo(()=>qualityRowsForProject(rop02All,proyectoActual,fechaD,fechaH)
+    .filter(r=>dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina)),
+    [rop02All,proyectoActual,fechaD,fechaH,tipoMaquina]
+  );
 
   // Agrupar por máquina y calcular métricas
   const rows=useMemo(()=>{
@@ -5645,13 +5608,14 @@ function ViewCHC({rop02All,extState,setExtState}){
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
-      {/* Sub-pestañas de Calidad: principal 26-25 y proyectos especiales por mes calendario */}
-      <div style={{borderBottom:`1px solid ${C.border}`,paddingBottom:2}}>
-        <SubTab active={chcTab==="principal"} onClick={()=>setChcTab("principal")}>José María / Filo del Sol</SubTab>
-        <SubTab active={chcTab==="filosur"} onClick={()=>setChcTab("filosur")}>Filo Sur</SubTab>
-        <SubTab active={chcTab==="zorro"} onClick={()=>setChcTab("zorro")}>El Zorro</SubTab>
+      {/* Pestañas de Calidad: fuente dinámica y un único proyecto por vista. */}
+      <div role="tablist" aria-label="Proyectos de Calidad" style={{display:"flex",alignItems:"center",gap:3,borderBottom:`1px solid ${C.border}`,paddingBottom:2,overflowX:"auto",maxWidth:"100%",whiteSpace:"nowrap"}}>
+        {proyectosDisponibles.map(({project,label})=>(
+          <SubTab key={project} active={proyectoActual===project} onClick={()=>setProyectoActual(project)}>{label}</SubTab>
+        ))}
       </div>
-      {/* Filtros */}
+      {/* Filtros propios del proyecto seleccionado; todos los KPI y exportaciones
+          se calculan a partir de la misma base aislada. */}
       <Card>
         <div style={{padding:"12px 14px",display:"flex",flexWrap:"wrap",alignItems:"flex-end",gap:12}}>
           <Icon name="filter" size={14} color={C.textSub}/>
@@ -5660,25 +5624,21 @@ function ViewCHC({rop02All,extState,setExtState}){
           <Sel label="Año" value={añoSelec} onChange={setAñoSelec}
             options={años.map(y=>({value:y,label:y}))}/>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
-            <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Período</label>
+            <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Período {tipoPeriodo==="calendar"?"calendario":"26–25"}</label>
             <div style={{fontSize:12,color:C.textSub,padding:"7px 10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,whiteSpace:"nowrap"}}>
               {fmtFecha(fechaD)} → {fmtFecha(fechaH)}
             </div>
           </div>
           <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={setTipoMaquina} options={dmTipoMaquinaOptions()}/>
-          {chcTab==="principal"?(
-            <MultiSel label="Proyecto" value={proyecto} onChange={setProyecto}
-              options={[{value:"todos",label:"Todos"},...proyectos.map(p=>({value:p,label:p}))]}/>
-          ):(
-            <div style={{display:"flex",flexDirection:"column",gap:3}}>
-              <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Proyecto</label>
-              <div style={{fontSize:12,padding:"7px 10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7}}>
-                <Badge color={proyColor(chcTab==="zorro"?"EL ZORRO":"FILO SUR")}>{chcTab==="zorro"?"EL ZORRO":"FILO SUR"}</Badge>
-              </div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Proyecto</label>
+            <div style={{fontSize:12,padding:"7px 10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7}}>
+              <Badge color={proyColor(proyectoActual)}>{proyectoActual||"Sin proyectos"}</Badge>
             </div>
-          )}
+          </div>
         </div>
       </Card>
+      {rows.length===0&&<AlertBanner type="info">Sin partes ROP02 para {proyectoActual||"el proyecto seleccionado"} en este período. Los indicadores permanecen sin datos hasta recibir registros.</AlertBanner>}
 
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10}}>
@@ -5687,13 +5647,13 @@ function ViewCHC({rop02All,extState,setExtState}){
         <StatCard icon="hours" label="Hs Contratadas" value={fmtNum(totales.hsContratadas)} color={C.blue} small/>
         <StatCard icon="warn" label="Días FS Total" value={totales.diasFS} color={C.red} small/>
         <StatCard icon="parts" label="Días OD Total" value={totales.diasOD} color={C.yellow} small/>
-        <StatCard icon="prod" label="% Cumplimiento" value={`${totales.pct}%`} sub={totales.pct>=90?"ÓPTIMO":totales.pct>=70?"ATENCIÓN":"CRÍTICO"} color={semPct(totales.pct).color} small/>
+        <StatCard icon="prod" label="% Cumplimiento" value={rows.length?`${totales.pct}%`:"—"} sub={rows.length?(totales.pct>=90?"ÓPTIMO":totales.pct>=70?"ATENCIÓN":"CRÍTICO"):"SIN DATOS"} color={rows.length?semPct(totales.pct).color:C.textMuted} small/>
       </div>
 
 
       {/* Tabla */}
       <Card title={`Control de Horas Contratadas (${rows.length} equipos)`} action={
-        <button onClick={()=>{const label=`${MESES[mesIdx]}_${añoSelec}`;generarExcelICHC(rows,totales,label);}} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:7,border:`1px solid ${C.teal}44`,background:C.tealDim,color:C.teal,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter"}}>⬇ Excel</button>
+        <button onClick={()=>{const label=`${String(proyectoActual||"Proyecto").replace(/[^a-zA-Z0-9]+/g,"_")}_${MESES[mesIdx]}_${añoSelec}`;generarExcelICHC(rows,totales,label);}} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",borderRadius:7,border:`1px solid ${C.teal}44`,background:C.tealDim,color:C.teal,cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"Inter"}}>⬇ Excel</button>
       }>
         <div className="dm-table-scroll" style={{overflowX:"auto",overflowY:"auto",maxHeight:520,scrollbarGutter:"stable"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
@@ -5755,10 +5715,10 @@ function ViewCHC({rop02All,extState,setExtState}){
       <Card title="Cumplimiento General — % CHC">
         <div style={{padding:"20px 16px",display:"flex",alignItems:"center",gap:24,flexWrap:"wrap",justifyContent:"center"}}>
           {(()=>{
-            const sem=semPct(totales.pct);
+            const sem=rows.length?semPct(totales.pct):{color:C.textMuted,bg:C.surface};
             return(<>
               <div style={{width:130,height:130,borderRadius:"50%",border:`8px solid ${sem.color}`,background:sem.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",boxShadow:`0 0 40px ${sem.color}44`,flexShrink:0}}>
-                <span style={{fontFamily:"Inter",fontSize:34,fontWeight:800,color:sem.color,lineHeight:1}}>{totales.pct}%</span>
+                <span style={{fontFamily:"Inter",fontSize:34,fontWeight:800,color:sem.color,lineHeight:1}}>{rows.length?`${totales.pct}%`:"—"}</span>
                 <span style={{fontSize:10,color:sem.color,fontWeight:700,letterSpacing:".1em",marginTop:2}}>CHC</span>
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:8,minWidth:220}}>
