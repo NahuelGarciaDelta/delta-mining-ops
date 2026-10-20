@@ -14,6 +14,7 @@ import {cancelErrorAcceptance,errorAcceptanceKey,saveErrorAcceptance,useErrorAcc
 import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/index.jsx";
 import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";
+import {availableControlProjects,filterControlProjects,noControlProjectsSelected} from "./controlProjectScope.js";
 import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
 
@@ -4778,6 +4779,18 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
   const[sub,setSub]=useState("dashboard");
   const tipoMaquina=extState?.tipoMaquina||"todas";
   const setTipoMaquina=v=>setExtState(st=>({...st,tipoMaquina:v}));
+  // El selector superior define qué proyectos entran al análisis, tanto desde
+  // ROP02 como desde ROP05. Es independiente del filtro facetado "Proyecto".
+  // Se persiste en stCtrl junto con el resto de preferencias del módulo.
+  const proyectosConsiderados=extState?.proyectosConsiderar??"todos";
+  const sinProyectos=noControlProjectsSelected(proyectosConsiderados);
+  const proyectosDisponibles=useMemo(()=>availableControlProjects(rop02All,rop05),[rop02All,rop05]);
+  const productivosConsiderados=useMemo(()=>filterControlProjects(control.productivos,proyectosConsiderados),[control.productivos,proyectosConsiderados]);
+  const prod05Considerados=useMemo(()=>filterControlProjects(control.prod05,proyectosConsiderados),[control.prod05,proyectosConsiderados]);
+  const actualizarProyectosConsiderados=value=>setExtState(st=>({
+    ...st,proyectosConsiderar:value,
+    vals:{...(st?.vals||{}),proyecto:"todos",maquina:"todas",supervisor:"todos"}
+  }));
 
   // Filtros facetados sobre el universo productivo combinado (02+05)
   // Usamos el hook sobre productivos para ROP02; para ROP05 aplicamos manualmente los mismos filtros
@@ -4786,12 +4799,12 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
     {key:"maquina",defaultVal:"todas"},
     {key:"supervisor",defaultVal:"todos"},
   ],[]);
-  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,vals,set,reset,hayFiltros,byFecha:byFecha02,opts:opts02}=useFacetedFilters(control.productivos,fk,extState,setExtState);
+  const{mode,setMode,fecha,setFecha,fechaD,setFechaD,fechaH,setFechaH,vals,set,reset,hayFiltros,byFecha:byFecha02,opts:opts02}=useFacetedFilters(productivosConsiderados,fk,extState,setExtState);
 
   // Conjuntos para el CRUCE 02↔05: solo proyecto+máquina+fecha (sin supervisor),
   // así un registro que existe en ambos lados no se marca como "faltante" por
   // tener el campo Supervisor distinto o vacío entre ROP02 y ROP05.
-  const byFecha05=useMemo(()=>byDateFilter(control.prod05,mode,fecha,fechaD,fechaH),[control.prod05,mode,fecha,fechaD,fechaH]);
+  const byFecha05=useMemo(()=>byDateFilter(prod05Considerados,mode,fecha,fechaD,fechaH),[prod05Considerados,mode,fecha,fechaD,fechaH]);
   const filtered05Match=useMemo(()=>byFecha05.filter(r=>
     matchMulti(r.proyecto,vals.proyecto,"todos")&&
     (multiIsAll(tipoMaquina,"todas")||tipoMatchMachineROP05(tipoMaquina,r.maquina))&&
@@ -4861,8 +4874,8 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
     return{faltanEn05,faltanEn02,total,problemas,consistencia,prod02f:filtered02,prod05f:filtered05};
   },[filtered02Match,filtered05Match,filtered02,filtered05,vals]);
 
-  const resetAll=()=>{reset();setTipoMaquina("todas");};
-  const hayFiltrosControl=hayFiltros||!multiIsAll(tipoMaquina,"todas");
+  const resetAll=()=>{reset();setTipoMaquina("todas");actualizarProyectosConsiderados("todos");};
+  const hayFiltrosControl=hayFiltros||!multiIsAll(tipoMaquina,"todas")||!multiIsAll(proyectosConsiderados,"todos");
 
   const inconsistFecha=useMemo(()=>{
     const m={};
@@ -4871,7 +4884,7 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
     return Object.values(m).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   },[filteredData]);
 
-  const sem=semaforo(filteredData.consistencia);
+  const sem=sinProyectos?{label:"SIN PROYECTOS",color:C.textMuted,dim:"rgba(148,163,184,.12)"}:semaforo(filteredData.consistencia);
 
   const FilterPanel=(
     <Card>
@@ -4880,11 +4893,11 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
         <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>
           <TabBtn active={mode==="dia"} onClick={()=>setMode("dia")}>Por día</TabBtn>
           <TabBtn active={mode==="periodo"} onClick={()=>setMode("periodo")}>Por período</TabBtn>
-          <button onClick={()=>generarReporteControl(
+          <button disabled={sinProyectos} onClick={()=>generarReporteControl(
             (fecha&&mode==="dia"?fmtFecha(fecha):(fechaD||fechaH)?`${fmtFecha(fechaD)} → ${fmtFecha(fechaH)}`:"Todo el período"),
             filteredData.faltanEn05,
             filteredData.faltanEn02
-          )} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
+          )} style={{marginLeft:8,display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:7,border:`1px solid ${C.accent}`,background:C.accentDim,color:C.accent,cursor:sinProyectos?"not-allowed":"pointer",opacity:sinProyectos?0.5:1,fontSize:12,fontWeight:700,fontFamily:"Inter",letterSpacing:".04em"}}>
             📄 Guardar Reporte
           </button>
         </div>
@@ -4925,18 +4938,23 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
 
   return(
     <div className="fade-in" style={{display:"flex",flexDirection:"column",gap:14}}>
-      <div style={{borderBottom:`1px solid ${C.border}`,paddingBottom:2}}>
+      <div style={{borderBottom:`1px solid ${C.border}`,paddingBottom:6,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
         <SubTab active={sub==="dashboard"} onClick={()=>setSub("dashboard")}>Dashboard</SubTab>
         <SubTab active={sub==="sinprod"} onClick={()=>setSub("sinprod")}>Sin producción ({filteredData.faltanEn05.length})</SubTab>
         <SubTab active={sub==="sinparte"} onClick={()=>setSub("sinparte")}>Sin parte diario ({filteredData.faltanEn02.length})</SubTab>
+        <div style={{marginLeft:"auto",minWidth:210,width:"min(280px,100%)"}}>
+          <MultiSel label="Proyectos a considerar" value={proyectosConsiderados} onChange={actualizarProyectosConsiderados}
+            options={[{value:"todos",label:"Todos"},...proyectosDisponibles.map(p=>({value:p,label:p}))]}/>
+        </div>
       </div>
+      {sinProyectos&&<AlertBanner type="info">No hay proyectos seleccionados para evaluar productividad. Marcá al menos uno en “Proyectos a considerar”.</AlertBanner>}
       {FilterPanel}
       <AlertBanner type="info">Camionetas, camiones y equipos auxiliares están excluidos de este análisis.</AlertBanner>
 
       {sub==="dashboard"&&(
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10}}>
-            <StatCard icon="consist" label="Partes Consistentes" value={fmtPct(filteredData.consistencia)} sub={sem.label} color={sem.color} small/>
+            <StatCard icon="consist" label="Partes Consistentes" value={sinProyectos?"—":fmtPct(filteredData.consistencia)} sub={sem.label} color={sem.color} small/>
             <StatCard icon="alert" label="Problemas" value={filteredData.problemas} sub="registros" color={C.red} small/>
             <StatCard icon="warn" label="Supervisor c/ más faltas" value={(()=>{
               const m={};
@@ -4957,7 +4975,7 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
             <Card title="Índice de Consistencia">
               <div style={{padding:"20px 24px",display:"flex",alignItems:"center",gap:24}}>
                 <div style={{width:108,height:108,borderRadius:"50%",border:`5px solid ${sem.color}`,background:sem.dim,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",boxShadow:`0 0 32px ${sem.color}33`,flexShrink:0}}>
-                  <span style={{fontFamily:"Inter",fontSize:28,fontWeight:800,color:sem.color}}>{filteredData.consistencia}%</span>
+                  <span style={{fontFamily:"Inter",fontSize:28,fontWeight:800,color:sem.color}}>{sinProyectos?"—":`${filteredData.consistencia}%`}</span>
                   <span style={{fontSize:9,color:sem.color,fontWeight:700,letterSpacing:".1em"}}>{sem.label}</span>
                 </div>
                 <div style={{flex:1}}>
