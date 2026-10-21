@@ -1113,7 +1113,7 @@ export default function App(){
               </div>
             )}
             {fatalError&&view!=="ubicacionEquipos"&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
-            {!fatalError&&view!=="bienvenida"&&view!=="ubicacionEquipos"&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
+            {!fatalError&&view!=="ubicacionEquipos"&&view!=="bienvenida"&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <LoadingMotoniveladora size={340}/>
