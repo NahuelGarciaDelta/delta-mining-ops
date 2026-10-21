@@ -243,6 +243,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const quick=esAdministrativo?[
     {label:"Control",desc:"Errores, consistencia y solicitudes.",icon:"shieldCheck",color:"#3b82f6",module:"administrativoErrores",view:"controlErrores"},
     {label:"Solicitudes",desc:"Seguimiento operativo de abastecimiento.",icon:"clipboardList",color:"#f59e0b",module:"administrativoSolicitudes",view:"abastecimiento"},
+    {label:"Ubicación equipos",desc:"Mapa territorial de la flota, lugares y caminos.",icon:"mapPin",color:"#10b981",module:"ubicacionEquipos",view:"ubicacionEquipos"},
   ]:[
     {label:"Oficina Técnica",desc:"Planes, ROP, productividad y documentación técnica.",icon:"fileBarChart",color:"#2388ff",module:"oficina",view:"rop02"},
     {label:"Mantenimiento",desc:"OT, preventivos, costos y disponibilidad.",icon:"wrench",color:"#f2a500",module:"mantenimiento",view:"mant"},
@@ -251,6 +252,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     {label:"Abastecimiento",desc:"RABA, remitos, stock y abastecimiento.",icon:"package",color:"#a855f7",module:"abastecimiento",view:"abastecimiento"},
     {label:"Taller Central",desc:"Equipos, repuestos y servicios internos.",icon:"gear",color:"#f97316",module:"tallerCentral",view:"tallerCentral"},
     {label:"Licitaciones",desc:"Ofertas, proyectos y seguimiento.",icon:"fileSpreadsheet",color:"#22d3ee",module:"licitaciones",view:"licitaciones"},
+    {label:"Ubicación equipos",desc:"Mapa territorial de la flota, lugares y caminos.",icon:"mapPin",color:"#10b981",module:"ubicacionEquipos",view:"ubicacionEquipos"},
   ];
   const [sidebarCollapsed,setSidebarCollapsed]=useState(false);
   const [activeView,setActiveView]=useState(()=>{const requested=sessionStorage.getItem("dm_home_requested_view");sessionStorage.removeItem("dm_home_requested_view");return requested==="weather"?"weather":"home";});
