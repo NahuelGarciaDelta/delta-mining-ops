@@ -3,7 +3,7 @@ const HEAD_SCRIPT = '<style id="dm-geo-embedded-css">#login-modal,#auth-button{d
 const BRIDGE_SCRIPT = String.raw`<script>
 (()=> {
  if(window.parent===window)return;
- const ORIGIN=window.location.origin;
+ const ORIGIN="*";
  const overlay=document.createElement('div');
  overlay.id='geo-sso-overlay';
  overlay.style.cssText='position:fixed;inset:0;background:rgba(8,22,32,.90);z-index:9999999;display:flex;align-items:center;justify-content:center;padding:24px;font:600 16px Inter,Arial,sans-serif;color:#d8f7ee;text-align:center';
@@ -13,7 +13,7 @@ const BRIDGE_SCRIPT = String.raw`<script>
  const requestAccess=()=>{if(!finished)window.parent.postMessage({type:'DM_GEO_SSO_READY'},ORIGIN)};
  const timer=setInterval(requestAccess,1800); requestAccess();
  window.addEventListener('message',async ev=>{
-   if(ev.source!==window.parent || ev.origin!==ORIGIN || finished)return;
+   if(ev.source!==window.parent || !/^https:\/\//.test(ev.origin) || finished)return;
    if(ev.data?.type==='DM_GEO_SSO_FAILED'){
      finished=true;clearInterval(timer);overlay.textContent='No se pudo validar el acceso automático. Volvé a DELTA Mining OPS.';
      return;
