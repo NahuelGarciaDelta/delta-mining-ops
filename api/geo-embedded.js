@@ -1,6 +1,6 @@
 const GEO_SOURCE = "https://delta-geo.vercel.app/";
 const HEAD_SCRIPT = '<style id="dm-geo-embedded-css">#login-modal,#auth-button{display:none!important}</style>';
-const BRIDGE_SCRIPT = String.raw\`<script>
+const BRIDGE_SCRIPT = String.raw`<script>
 (()=> {
  if(window.parent===window)return;
  const ORIGIN=window.location.origin;
@@ -38,7 +38,7 @@ const BRIDGE_SCRIPT = String.raw\`<script>
    }
  });
 })();
-<\/script>\`;
+</script>`;
 export const config = { maxDuration: 25 };
 export default async function handler(req,res) {
  if(req.method!=="GET")return res.status(405).json({error:"method_not_allowed"});
