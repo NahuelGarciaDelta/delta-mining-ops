@@ -7,6 +7,7 @@ import { AbastecimientoRoute } from "./modules/abastecimiento/index.js";
 import { MantenimientoRoute } from "./modules/mantenimiento/index.js";
 import { LicitacionesRoute } from "./modules/licitaciones/index.js";
 import { OficinaTecnicaRoute } from "./modules/oficina-tecnica/index.js";
+import UbicacionEquiposView from "./modules/ubicacion-equipos/UbicacionEquiposView.jsx";
 import { GestionHumanaRoute } from "./modules/gestion-humana/index.js";
 import UserSettingsModal from "./components/UserSettingsModal.jsx";
 import GlobalSearch from "./components/GlobalSearch.jsx";
@@ -797,12 +798,14 @@ export default function App(){
     ]},
     {id:"control",icon:"clipboardCheck",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:(control.problemasPost31??0)>0?control.problemasPost31:null},
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
+    {id:"ubicacionEquipos",icon:"mapPin",label:"Ubicación equipos",type:"item",color:C.green},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
-  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",equipmentProfile:"Ficha única del equipo",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",gestionHumanaSitio:"Operadores en sitio",gestionHumanaHistorial:"Historial de operadores",gestionHumanaRanking:"Ranking de operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",pmProgramado:"Mantenimiento Programado",pmDashboard:"Mantenimiento Programado — Dashboard",pmPlanificador:"Mantenimiento Programado — Planificador",pmProgramacion:"Mantenimiento Programado — Programación",pmPanel:"Mantenimiento Programado — Panel de flota",pmRealizado:"Mantenimiento Programado — Registrar realizado",pmRepuestos:"Mantenimiento Programado — Repuestos",pmGestion:"Mantenimiento Programado — Gestión y alertas",pmConfig:"Mantenimiento Programado — Configuración",pmHistorial:"Mantenimiento Programado — Historial",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
+  const titles={bienvenida:"Bienvenida",dashboard:"Dashboard",ubicacionEquipos:"Ubicación equipos",equipmentProfile:"Ficha única del equipo",costosMant:"Informe de Costos de Mantenimiento",listaEquipos:"Lista Maestra de Equipos",tallerCentral:"Taller Central",rop02:"Equipos",horometros:"Horómetros",vehiculos:"Vehículos y Camionetas",controlErrores:"Control de errores",ctrlEquipo:"Control por Equipo",controlROP02:"Control de ROP02",atrasoROP02:"Atraso ROP02",combustible:"Análisis de Combustible",cambiosTurno:"Cambios de turno",rop05:"Productividad",rop05Discriminacion:"Discriminación por tarea",gestionHumanaSitio:"Operadores en sitio",gestionHumanaHistorial:"Historial de operadores",gestionHumanaRanking:"Ranking de operarios",chc:"ICHC — Indicador Control de Horas Contratadas",mant:"Mantenimiento",distMant:"Distribución de mantenimientos",pmProgramado:"Mantenimiento Programado",pmDashboard:"Mantenimiento Programado — Dashboard",pmPlanificador:"Mantenimiento Programado — Planificador",pmProgramacion:"Mantenimiento Programado — Programación",pmPanel:"Mantenimiento Programado — Panel de flota",pmRealizado:"Mantenimiento Programado — Registrar realizado",pmRepuestos:"Mantenimiento Programado — Repuestos",pmGestion:"Mantenimiento Programado — Gestión y alertas",pmConfig:"Mantenimiento Programado — Configuración",pmHistorial:"Mantenimiento Programado — Historial",rma15CtrlEquipo:"Control por Equipo",costosUnitarios:"Costos Unitarios",control:"Consistencia ROP02 vs ROP05",abastecimiento:"Solicitudes realizadas",abastecimientoDashboard:"Dashboard Abastecimiento",abastecimientoPendientes:"Pendientes",abastecimientoParciales:"Parciales",abastecimientoCerradas:"Cerradas",abastecimientoRechazadas:"Solicitudes rechazadas",abastecimientoEnviosSinSolicitud:"Envíos sin solicitud",abastecimientoRemito:"Remito",abastecimientoStock:"Control de stock",abastecimientoStockDashboard:"Dashboard Stock",abastecimientoRABA03:"RABA03",abastecimientoEditarCodigos:"Editar códigos",licitaciones:"Licitaciones",licitacionesNueva:"Nueva Licitación",licitacionesEquipos:"Costos de Equipos",licitacionesDatosEquipos:"Datos Equipos",licitacionesControl:"Control de Licitaciones",plan180hs:"180 hs",plan150hs:"150 HS",planSeguros:"Seguros y Garantías",planImpuestos:"Impuestos",planGastosGenerales:"Gastos Generales",planMovilizacion:"Movilización",planOperacionObrador:"Operación de Obrador",planHistograma:"Histograma",planCostosVarios:"Costos Varios",planResumenHsMaquina:"Resumen de hs maquina",planComparativaEquipos:"Comparativa Equipos",planHM:"HM",planMantenimiento:"Mantenimiento",planHombreVestido:"Hombre Vestido",planUOCRA:"UOCRA",planAOMA:"AOMA",planComparativaConvenios:"Comparativa UOCRA vs AOMA"};
   titles.cambiosTurno="Control de horas mensuales";
   const titleHelp={
     equipmentProfile:"Ficha transversal por interno: integra Lista Maestra, ROP02, ROP05, RMA15, PM, costos y estado operativo.",
+    ubicacionEquipos:"Mapa DELTA GEO integrado bajo demanda: posiciones, campamentos, plataformas y caminos. La autenticación de GEO es independiente.",
     dashboard:"Resumen general de la operación: KPIs y gráficos de Equipos, Productividad y Mantenimiento.",
     listaEquipos:"Listado maestro de equipos tomado desde la planilla nueva. Se carga bajo demanda para no demorar el inicio de la app.",
     tallerCentral:"Dashboard y Lista Maestra de Equipos para taller central: equipos por tipo, propiedad, marca, combustible y tabla completa.",
@@ -841,6 +844,7 @@ export default function App(){
   },[]);
   const displayedNavStructure=useMemo(()=>{
     if(esAdministrativo){
+      if(activeModule==="ubicacionEquipos")return [{id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},{id:"ubicacionEquipos",icon:"mapPin",label:"Ubicación equipos",type:"item",color:C.green}];
       if(activeModule==="administrativoSolicitudes"){
         return [
           {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
@@ -861,6 +865,12 @@ export default function App(){
           {id:"atrasoROP02",icon:"warn",label:"Atraso"},
         ]},
         {id:"control",icon:"clipboardCheck",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:(control.problemasPost31??0)>0?control.problemasPost31:null},
+      ];
+    }
+    if(activeModule==="ubicacionEquipos"){
+      return [
+        {id:"bienvenida",icon:"home",label:"Bienvenida",type:"item",color:C.accent},
+        {id:"ubicacionEquipos",icon:"mapPin",label:"Ubicación equipos",type:"item",color:C.green},
       ];
     }
     if(activeModule==="calidad"){
@@ -945,7 +955,7 @@ export default function App(){
     }
     return navStructure.filter(item=>!["dashboard","chc"].includes(item.id));
   },[activeModule,navStructure,costosUnitariosBadge,control.problemasPost31,esAdministrativo]);
-  const vistasAdministrativo=new Set(["bienvenida","controlErrores","ctrlEquipo","atrasoROP02","control","abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas"]);
+  const vistasAdministrativo=new Set(["bienvenida","ubicacionEquipos","controlErrores","ctrlEquipo","atrasoROP02","control","abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas"]);
   useEffect(()=>{
     if(esAdministrativo&&!vistasAdministrativo.has(view)){
       setView("bienvenida");
@@ -1102,8 +1112,8 @@ export default function App(){
                 ))}
               </div>
             )}
-            {fatalError&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
-            {!fatalError&&view!=="bienvenida"&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
+            {fatalError&&view!=="ubicacionEquipos"&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
+            {!fatalError&&view!=="bienvenida"&&view!=="ubicacionEquipos"&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
                   <LoadingMotoniveladora size={340}/>
@@ -1112,9 +1122,10 @@ export default function App(){
                 <div style={{color:C.textMuted,fontSize:13}}>Sincronizando información</div>
               </div>
             )}
-            {!fatalError&&(view==="bienvenida"||lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
+            {(!fatalError||view==="ubicacionEquipos")&&(view==="ubicacionEquipos"||view==="bienvenida"||lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
                 {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
+                {view==="ubicacionEquipos"&&<ModuleErrorBoundary name="Ubicación equipos"><UbicacionEquiposView /></ModuleErrorBoundary>}
                 {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
                 {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}
                 {["listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
