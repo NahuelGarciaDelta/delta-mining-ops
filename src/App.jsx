@@ -955,9 +955,9 @@ export default function App(){
     }
     return navStructure.filter(item=>!["dashboard","chc"].includes(item.id));
   },[activeModule,navStructure,costosUnitariosBadge,control.problemasPost31,esAdministrativo]);
-  const vistasAdministrativo=new Set(["bienvenida","ubicacionEquipos","controlErrores","ctrlEquipo","atrasoROP02","control","abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas"]);
+  const vistasAdministrativo=new Set(["bienvenida","controlErrores","ctrlEquipo","atrasoROP02","control","abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas"]);
   useEffect(()=>{
-    if(esAdministrativo&&!vistasAdministrativo.has(view)){
+    if(esAdministrativo&&view!=="ubicacionEquipos"&&!vistasAdministrativo.has(view)){
       setView("bienvenida");
       setActiveModule("home");
     }
