@@ -1,5 +1,6 @@
 // Rutas SVG compartidas por todos los módulos.
 export const ICON_PATHS = {
+  mapPin:"M12 2C7.59 2 4 5.59 4 10c0 5.25 8 12 8 12s8-6.75 8-12c0-4.41-3.59-8-8-8zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z",
   calendar:"M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11zM7 11h5v5H7v-5z",
   package:"M21 8l-9-5-9 5v8l9 5 9-5V8zm-9-2.7L17.74 8 12 10.7 6.26 8 12 5.3zM5 9.62l6 3.33v5.47l-6-3.33V9.62zm8 8.8v-5.47l6-3.33v5.47l-6 3.33z",
   barChart:"M5 9.2h3V19H5V9.2zM10.5 5h3v14h-3V5zM16 12h3v7h-3v-7z",
