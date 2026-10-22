@@ -63,6 +63,7 @@ function harness(){
  const context={
    Deno:{env:{get:(name)=>({SUPABASE_URL:"https://test.supabase.co",SUPABASE_SERVICE_ROLE_KEY:"sb_secret_dummy"})[name]??""},
      serve:(fn)=>{handler=fn}},
+   fetch:fetchMock,
    Request,Response,Headers,AbortController,URL,Date,JSON,Number,String,Array,Object,
    Boolean,RegExp,Promise,Set,Error,console,setTimeout,clearTimeout,encodeURIComponent
  };
