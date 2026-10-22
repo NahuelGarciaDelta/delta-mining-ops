@@ -73,7 +73,7 @@ function harness(){
 test("regresión El Fierro: origen pasó de 0 a 2 filas con versión de script 1",async()=>{
  const h=harness();
  const first=await h.call();
- assert.equal(first.status,200);
+ assert.equal(first.status,200,JSON.stringify(first.result));
  assert.equal(first.result.ok,true);
  assert.equal(first.result.rows,2);
  assert.equal(first.result.changed,true);
@@ -87,7 +87,7 @@ test("regresión El Fierro: origen pasó de 0 a 2 filas con versión de script 1
 test("misma marca de modificación: respuesta notModified sin reescrituras",async()=>{
  const h=harness();await h.call();
  const next=await h.call();
- assert.equal(next.status,200);
+ assert.equal(next.status,200,JSON.stringify(next.result));
  assert.equal(next.result.changed,false);
  assert.equal(h.state.syncCalls.length,1);
  assert.equal(h.state.sheetCalls[1].since,stamp1);
@@ -98,7 +98,7 @@ test("nueva fila con misma versión 1 y marca Drive posterior: se sincroniza",as
  h.state.modified=stamp2;
  h.state.rows.push({...example[1],_sourceRow:7,"N° Parte":"3",Fecha:"20/10/2026"});
  const third=await h.call();
- assert.equal(third.status,200);
+ assert.equal(third.status,200,JSON.stringify(third.result));
  assert.equal(third.result.rows,3);
  assert.equal(h.state.destinationRows,3);
  assert.equal(h.state.syncCalls.length,2);
