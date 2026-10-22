@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 // Sincronizador registrable de nuevos ROP02.
 // No se activa un cron hasta que el Apps Script publique el dataset correspondiente.
-const VERSION="2026-10-19-ROP02-REGISTRY-SYNC-V1";
+const VERSION="2026-10-22-ROP02-SOURCE-STAMP-V2";
 const SCRIPT_URL="https://script.google.com/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec";
 const text=(v)=>v===null||v===undefined?"":String(v).trim();
 const output=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
@@ -69,9 +69,15 @@ function transform(row,config) {
  observaciones:explicitState&&!new RegExp("(^|[^A-Z])"+explicitState+"([^A-Z]|$)").test(obs.toUpperCase())?(obs?obs+" | ":"")+"Estado ROP02: "+explicitState:obs
  };
 }
-async function source(action,timeoutMs=16000) {
+async function source(action,timeoutMs=16000,since="") {
  const uri=new URL(SCRIPT_URL);uri.searchParams.set("action",action);
- if(action!=="versions"){uri.searchParams.set("limit","all");uri.searchParams.set("compact","0");}
+ if(action!=="versions"){
+   uri.searchParams.set("limit","all");
+   uri.searchParams.set("compact","0");
+   // Apps Script compara against Drive lastModified del libro real. Esto detecta
+   // cambios aunque DM_VERSION_* siga en 1 porque no exista trigger.
+   if(since)uri.searchParams.set("since",since);
+ }
  const {data}=await request(uri.toString(),{headers:{Accept:"application/json"},cache:"no-store"},timeoutMs);
  if(!data?.ok)throw Error("SCRIPT_ACTION_FAILED:"+action);
  return data;
@@ -101,13 +107,24 @@ Deno.serve(async req=>{
   const {data:configs}=await rest("rop02_project_sources?dataset=eq."+encodeURIComponent(dataset)+"&enabled=eq.true&select=dataset,project,sheet_gid,sheet_name,header_row",{},12000);
   const config=Array.isArray(configs)?configs[0]:null;
   if(!config)return output({ok:false,error:"SOURCE_NOT_REGISTERED"},404);
-  const ver=await source("versions");
-  const serverVersion=Number(ver?.versions?.[dataset]??ver?.datasets?.[dataset]?.version);
-  if(!Number.isSafeInteger(serverVersion)||serverVersion<=0)throw Error("SOURCE_VERSION_INVALID");
+  // Nunca asumir "sin cambios" sólo porque el número de versión coincide:
+  // las altas dinámicas pueden carecer de trigger y conservar versión 1.
+  // Usar el timestamp de modificación del archivo para decidir si se lee.
+  // Esto evita también el GET global action=versions, costoso y con timeouts.
   const [health,count]=await Promise.all([getHealth(dataset),countRows(dataset)]);
-  if(Number(health?.details?.sourceVersion)===serverVersion&&health?.last_success_at&&Number(health.destination_rows)===count&&Number(health?.consecutive_failures||0)===0)
-    return output({ok:true,changed:false,dataset,sourceVersion:serverVersion,rows:count,version:VERSION,durationMs:Date.now()-begun});
-  const result=await source(dataset,55000);
+  const lastModified=text(health?.details?.sourceModifiedAt);
+  const consistent=Boolean(health?.last_success_at)&&
+    Number(health.destination_rows)===count&&
+    Number(health?.consecutive_failures||0)===0;
+  const result=await source(dataset,55000,consistent?lastModified:"");
+  if(result?.notModified||result?.meta?.notModified){
+    if(!consistent||!lastModified)throw Error("UNVERIFIED_NOT_MODIFIED");
+    return output({ok:true,changed:false,dataset,sourceVersion:Number(health?.details?.sourceVersion||0),rows:count,version:VERSION,durationMs:Date.now()-begun});
+  }
+  const serverVersion=Number(result?.meta?.serverVersion);
+  if(!Number.isSafeInteger(serverVersion)||serverVersion<=0)throw Error("SOURCE_VERSION_INVALID");
+  const sourceModifiedAt=text(result?.meta?.sourceModifiedAt);
+  if(!Number.isFinite(Date.parse(sourceModifiedAt)))throw Error("SOURCE_MODIFIED_AT_INVALID");
   if(Number(result?.meta?.sheetGidUsed)!==Number(config.sheet_gid)||Number(result?.meta?.headerRow)!==Number(config.header_row))
     throw Error("SOURCE_SHEET_IDENTITY_MISMATCH");
   const raw=result.data;
@@ -121,7 +138,7 @@ Deno.serve(async req=>{
   const actual=await countRows(dataset);
   if(actual!==transformed.length)throw Error("POST_SYNC_COUNT_MISMATCH");
   const now=new Date().toISOString();
-  await saveHealth(dataset,{last_attempt_at:now,last_success_at:now,last_error:"",consecutive_failures:0,source_rows:raw.length,destination_rows:actual,duration_ms:Date.now()-begun,details:{version:VERSION,sourceVersion:serverVersion,sheetName:config.sheet_name,changed:changes?.writtenUpserts??0,deleted:changes?.deleted??0}});
+  await saveHealth(dataset,{last_attempt_at:now,last_success_at:now,last_error:"",consecutive_failures:0,source_rows:raw.length,destination_rows:actual,duration_ms:Date.now()-begun,details:{version:VERSION,sourceVersion:serverVersion,sourceModifiedAt:sourceModifiedAt,sheetName:config.sheet_name,changed:changes?.writtenUpserts??0,deleted:changes?.deleted??0}});
   return output({ok:true,changed:Boolean((changes?.writtenUpserts??0)||(changes?.deleted??0)),dataset,sourceVersion:serverVersion,rows:actual,version:VERSION,durationMs:Date.now()-begun});
  }catch(e){
   const message=e instanceof Error?e.message:String(e);
