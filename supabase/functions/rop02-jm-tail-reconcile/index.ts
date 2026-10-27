@@ -168,7 +168,10 @@ async function reconcile(){
  const remain=sourceIds.filter(sourceRow=>!checked.has(sourceRow));
  if(remain.length)throw Error("RECOVERY_UNCONFIRMED_REMAINING_"+remain.length);
  const currentCount=await dbCount();
- const gapsInAllRows=Math.max(0,latestMeta.lastRow-HEADER_ROW-currentCount);
+ const gapsInAllRows=latestMeta.lastRow-HEADER_ROW-currentCount;
+ // No marcar como sana una sincronización parcial fuera de la ventana.
+ // No eliminar datos ante una diferencia, ni asumir que es una fila vacía.
+ if(gapsInAllRows!==0)throw Error("SOURCE_DESTINATION_COUNT_DRIFT_"+gapsInAllRows);
  const now=new Date().toISOString();
  const durationMs=Date.now()-startTime;
  await saveHealth({last_attempt_at:now,last_success_at:now,last_error:"",consecutive_failures:0,source_rows:latestMeta.allRows,destination_rows:currentCount,duration_ms:durationMs,details:{version:VERSION,scanned:pages.length,sourceFrom:first,sourceTo:last,foundMissing:missing.length,written,gapsInAllRows,sourceModifiedAt:latestMeta.stamp}});

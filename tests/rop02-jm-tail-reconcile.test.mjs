@@ -165,3 +165,14 @@ test("no altera camionetas ni estados OD/FS: solo completa filas que faltan",asy
  assert.equal(h.state.writes[0][1].cantidad_horas,null);
  assert.equal(h.state.writes[0][1].interno,"MOT-0091-JM");
 });
+
+
+test("hueco antiguo fuera de ventana se informa como incidente, no como éxito",async()=>{
+ const existing=Array.from({length:450},(_,i)=>i+5).filter(n=>n!==10);
+ const h=harness({total:450,present:existing});
+ const result=await h.run();
+ assert.equal(result.status,500);
+ assert.match(result.data.error,/SOURCE_DESTINATION_COUNT_DRIFT_1/);
+ assert.equal(h.state.writes.length,0);
+ assert.equal(h.state.health.at(-1).consecutive_failures,1);
+});
