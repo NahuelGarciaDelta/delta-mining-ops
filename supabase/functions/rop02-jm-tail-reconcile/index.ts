@@ -5,11 +5,10 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
  * Escanea únicamente la cola (320 filas físicas), compara source_row
  * y recupera sólo las ausentes. Nunca borra ni reescribe partes existentes.
  *
- * Apps Script V9 no devuelve _sourceRow en su endpoint público:
- * la posición sólo se infiere si la página no tiene NINGUNA fila vacía.
- * Si no se cumple, abortar y solicitar parche al script, sin adivinar índices.
+ * Exige _sourceRow físico opt-in de Apps Script V9 en cada parte.
+ * Tolera huecos físicos sin inventar filas. RPC solo INSERT, nunca UPDATE.
  */
-const VERSION="2026-10-27-ROP02-JM-TAIL-RECONCILE-V1";
+const VERSION="2026-10-27-ROP02-JM-TAIL-RECONCILE-V2-PHYSICAL-INSERT-ONLY";
 const DATASET="rop02_jm";
 const PROJECT="JOSE MARIA";
 const SHEET_NAME="R_OP02_JM";
@@ -55,13 +54,24 @@ function isoDate(raw){
  const m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
  return m?m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0"):"";
 }
+// Paridad exacta con numberValue del webhook productivo.
 function numeric(raw){
- let s=str(raw).replace(/\s+/g,"");
- if(!s||["OD","FS","EM","SIN CARGA"].includes(s.toUpperCase()))return null;
- s=s.replace(/[^0-9,.\-]/g,"");
- if(s.includes(",")&&s.includes("."))s=s.lastIndexOf(",")>s.lastIndexOf(".")?s.replace(/\./g,"").replace(",","."):s.replace(/,/g,"");
- else if(s.includes(","))s=s.replace(",",".");
- const n=Number(s);return Number.isFinite(n)?n:null;
+ if(raw===null||raw===undefined||raw==="")return 0;
+ if(typeof raw==="number")return Number.isFinite(raw)?raw:0;
+ let s=String(raw).trim().replace(/[^\d,.-]/g,"");
+ if(!s)return 0;
+ const comma=s.lastIndexOf(","),dot=s.lastIndexOf(".");
+ if(comma!==-1&&dot!==-1){
+  if(comma>dot)s=s.replace(/\./g,"").replace(",",".");
+  else s=s.replace(/,/g,"");
+ }else if(comma!==-1){
+  const decimals=s.length-comma-1;
+  s=decimals>0&&decimals<=2?s.replace(/\./g,"").replace(",","."):s.replace(/,/g,"");
+ }else if(dot!==-1){
+  const decimals=s.length-dot-1;
+  s=decimals>0&&decimals<=2?s.replace(/,/g,""):s.replace(/\./g,"");
+ }
+ const n=Number.parseFloat(s);return Number.isFinite(n)?n:0;
 }
 const norm=x=>str(x).normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Za-z0-9]/g,"").toUpperCase();
 function value(row,...names){
@@ -93,7 +103,7 @@ function mapPart(row,sourceRow){
 }
 async function getSheetPage(offset){
  const u=new URL(SOURCE_URL);
- for(const [key,v] of Object.entries({action:DATASET,offset:String(offset),limit:String(PAGE_SIZE),compact:"0",force:"1"}))u.searchParams.set(key,v);
+ for(const [key,v] of Object.entries({action:DATASET,offset:String(offset),limit:String(PAGE_SIZE),compact:"0",force:"1",include_source_row:"1"}))u.searchParams.set(key,v);
  const {data}=await fetchJson(u.toString(),{headers:{Accept:"application/json"},cache:"no-store"},45000);
  if(!data?.ok||!Array.isArray(data.data))throw Error("SHEET_UNAVAILABLE_OR_INVALID");
  const meta=data.meta||{};
@@ -101,15 +111,19 @@ async function getSheetPage(offset){
  if(meta.source!==DATASET||meta.sheetNameUsed!==SHEET_NAME||Number(meta.sheetGidUsed)!==SHEET_GID||Number(meta.headerRow)!==HEADER_ROW)throw Error("WRONG_SHEET_IDENTITY");
  if(!Number.isSafeInteger(physicalLast)||!Number.isSafeInteger(allRows)||allRows!==physicalLast-HEADER_ROW||start!==offset)throw Error("INVALID_SHEET_PAGINATION");
  const expected=Math.max(0,Math.min(PAGE_SIZE,allRows-offset));
- if(data.data.length!==expected)throw Error("PHYSICAL_BLANK_ROW_NEEDS_APPS_SCRIPT_SOURCE_ROW");
- // Respuestas actuales V9 NO incluyen _sourceRow. Sólo es seguro inferir el número
- // físico si el recuento confirma que no se ha omitido ninguna fila de esta página.
- const parts=data.data.map((row,i)=>{
-  const derivedRow=HEADER_ROW+1+offset+i;
-  if(row._sourceRow!==undefined&&Number(row._sourceRow)!==derivedRow)throw Error("SOURCE_ROW_DISAGREEMENT");
-  return mapPart(row,derivedRow);
+ if(data.data.length>expected)throw Error("SOURCE_RETURNED_TOO_MANY_PARTS");
+ let previousPhysicalRow=HEADER_ROW+offset;
+ const parts=data.data.map(row=>{
+  if(!row||typeof row!=="object"||!Number.isSafeInteger(Number(row._sourceRow)))
+   throw Error("PHYSICAL_SOURCE_ROW_MISSING");
+  const physicalRow=Number(row._sourceRow);
+  if(physicalRow<=previousPhysicalRow||physicalRow<HEADER_ROW+1+offset||physicalRow>=HEADER_ROW+1+offset+expected)
+   throw Error("PHYSICAL_SOURCE_ROW_OUTSIDE_PAGE");
+  previousPhysicalRow=physicalRow;
+  return mapPart(row,physicalRow);
  });
  if(Boolean(meta.hasMore)!==(offset+expected<allRows))throw Error("SHEET_PAGINATION_INCONSISTENT");
+ if(meta.hasMore===true&&Number(meta.nextOffset)!==offset+expected)throw Error("SHEET_NEXT_OFFSET_INCONSISTENT");
  return{parts,hasMore:Boolean(meta.hasMore),nextOffset:offset+expected,lastRow:physicalLast,stamp:str(meta.sourceModifiedAt),allRows};
 }
 async function lastStoredRow(){
@@ -156,12 +170,14 @@ async function reconcile(){
  if(new Set(sourceIds).size!==sourceIds.length)throw Error("DUPLICATE_SOURCE_ROWS");
  const existing=await getExistingRows(first,last);
  const missing=pages.filter(p=>!existing.has(p.source_row));
- let written=0,submitted=false;
+ let written=0;
  if(missing.length){
-  submitted=true;
-  const result=await rpc("apply_rop02_external_delta_v2",{p_dataset:DATASET,p_upserts:missing,p_delete_source_rows:[]});
-  if(result?.ok!==true||Number(result?.inputUpserts)!==missing.length||Number(result?.inputDeletes)!==0)throw Error("RECOVERY_RPC_UNCONFIRMED");
-  written=Number(result.writtenUpserts||0);
+  // En caso de carrera con webhook, la nueva RPC hace DO NOTHING.
+  const result=await rpc("rop02_jm_insert_missing_only_v1",{p_rows:missing});
+  if(result?.ok!==true||result?.insertOnly!==true||result?.dataset!==DATASET
+     ||Number(result?.inputUpserts)!==missing.length)throw Error("RECOVERY_INSERT_ONLY_UNCONFIRMED");
+  written=Number(result.insertedRows||0);
+  if(!Number.isSafeInteger(written)||written<0||written>missing.length)throw Error("RECOVERY_INSERT_COUNT_INVALID");
  }
  // Segunda comprobación independiente: jamás declarar OK si persiste un hueco.
  const checked=await getExistingRows(first,last);
