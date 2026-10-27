@@ -63,7 +63,7 @@ test("el contador lateral usa el mismo alcance y el resultado de la vista abiert
   assert.match(app,/filterControlMachines\(filterControlProjects\(control\.productivos,projects\),machines/);
   assert.match(app,/filterControlMachines\(filterControlProjects\(control\.prod05,projects\),machines/);
   assert.match(app,/badge:badgeControlVisible>0\?badgeControlVisible:null/);
-  assert.match(app,/onControlIssuesChange=\{setControlLiveIssues\}/);
+  assert.match(app,/onControlIssuesChange=\{reportControlIssues\}/);
   assert.match(view,/calculateControlIssueRows\(filtered02Match,filtered05Match/);
   assert.match(view,/label="Equipos a considerar"/);
   assert.match(view,/label="Proyectos a considerar"/);
