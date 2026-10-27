@@ -1,5 +1,5 @@
 // Scoped mobile design system. Desktop layout and stored datasets remain unchanged.
-export const MOBILE_STYLES = \`
+export const MOBILE_STYLES = `
 .dm-mobile{--mobile-bg:#0c121b;--mobile-panel:#19212c;--mobile-edge:rgba(201,215,236,.12);--mobile-muted:#99a9bb;font-family:Inter,Arial,sans-serif}
 .dm-mobile,.dm-mobile button,.dm-mobile input,.dm-mobile select{font-family:Inter,Arial,sans-serif}
 .dm-mobile button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -119,4 +119,4 @@ export const MOBILE_STYLES = \`
   .dm-mobile .dm-app-content [style*="grid-template-columns:2fr 3fr"]{grid-template-columns:minmax(0,1fr)!important}
 }
 @media(max-width:350px){.dm-mobile-shortcuts{grid-template-columns:1fr}.dm-mobile-brand-label small{max-width:130px}}
-\`;
+`;
