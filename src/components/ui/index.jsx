@@ -281,6 +281,8 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
   const[sortDir,setSortDir]=useState("asc");
   const[hoverTip,setHoverTip]=useState(null);
   const[pinnedTip,setPinnedTip]=useState(null);
+  // Renderizado de tarjetas acotado: nunca montar miles de filas en el celular.
+  const[mobileCardsCount,setMobileCardsCount]=useState(30);
   useEffect(()=>{const id=setTimeout(()=>setDebouncedTableSearch(tableSearch),250);return()=>clearTimeout(id)},[tableSearch]);
 
 
@@ -390,6 +392,7 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
     });
   },[searchedRows,visibleCols,sortKey,sortDir,colSortId,normalizeSortValue]);
 
+  useEffect(()=>{setMobileCardsCount(30);},[debouncedTableSearch,columnFilters,sortKey,sortDir,hiddenColumns]);
   const progressive=useProgressiveRows(sortedRows,{resetKey:`${debouncedTableSearch}|${JSON.stringify(columnFilters)}|${sortKey}|${sortDir}`});
   const visibleRows=progressive.visibleRows;
   const startIdx=0;
@@ -432,6 +435,54 @@ export function Table({cols,rows,maxH=380,emptyMsg="Sin datos",stickyFirst=false
         <button type="button" onClick={exportFiltered} style={{padding:"6px 9px",borderRadius:7,border:`1px solid ${C.green}55`,background:C.greenDim,color:C.green,cursor:"pointer",fontSize:11,fontWeight:700}}>Exportar filtrado</button>
         <span style={{marginLeft:"auto",fontSize:10,color:C.textMuted}}>{sortedRows.length.toLocaleString("es-AR")} filas</span>
       </div>}
+      <section className="dm-mobile-table-cards" aria-label={tableId||"Registros en tarjetas"}>
+        <div className="dm-mobile-table-count">{sortedRows.length.toLocaleString("es-AR")} registros {sortKey?"· ordenados":""}</div>
+        <div className="dm-mobile-table-sort">
+          <select aria-label="Ordenar registros por" value={sortKey||""} onChange={e=>{setSortKey(e.target.value||null);setSortDir("asc");}}>
+            <option value="">Orden original</option>
+            {visibleCols.map((col,i)=><option key={i} value={colSortId(col,i)}>{col.label||col.key||"Columna "+(i+1)}</option>)}
+          </select>
+          <button type="button" disabled={!sortKey} onClick={()=>setSortDir(v=>v==="asc"?"desc":"asc")} aria-label="Invertir orden">{sortDir==="asc"?"↑ Asc.":"↓ Desc."}</button>
+        </div>
+        {showColumnFilters&&<div className="dm-mobile-column-filters">
+          {visibleCols.map((col,i)=>{const key=col.key||col.label||String(i);return <label key={key}>
+            <span>{col.label||key}</span><input value={columnFilters[key]||""} onChange={e=>setColumnFilters(prev=>({...prev,[key]:e.target.value}))} placeholder="Filtrar..."/>
+          </label>;})}
+        </div>}
+        {sortedRows.slice(0,mobileCardsCount).map((r,i)=>{
+          const primary=visibleCols[0];
+          const firstValue=primary?.key?r?.[primary.key]:null;
+          const rawLabel=firstValue??r.codigo??r.interno??r.maquina??r.equipo??r.fecha??"Registro "+(i+1);
+          const rawSummary=visibleCols.slice(1,3).map(c=>c?.key?r?.[c.key]:undefined).filter(v=>v!=null&&v!==""&&typeof v!=="object").map(String).join(" · ");
+          return <details key={r._tooltipKey||r.id||i} className="dm-mobile-record">
+            <summary>
+              <span className="dm-mobile-record-number">{i+1}</span>
+              <div className="dm-mobile-record-head"><strong>{String(rawLabel).slice(0,100)}</strong>
+                <small>{rawSummary||"Tocá para ver todos los campos y acciones"}</small></div>
+              <Icon name="chevronDown" size={17} color={C.textMuted}/>
+            </summary>
+            <div className="dm-mobile-record-details">
+              {visibleCols.map((c,j)=>{
+                const raw=r?.[c.key];
+                const content=c.render?c.render(raw,r):(raw??"—");
+                const label=String(c.label||c.key||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+                const code=String(raw??"").trim();
+                const isCode=/^[A-Z]{2,6}[- ]?\d{3,6}(?:[- ][A-Z0-9]+)?$/i.test(code);
+                const isEquipment=!c.render&&isCode&&(label.includes("interno")||label.includes("codigo")||label.includes("equipo")||label.includes("maquina"));
+                return <div key={c.key||j} className="dm-mobile-record-field">
+                  <span>{c.label||c.key||"Dato"}</span>
+                  <div>{isEquipment?<button type="button" onClick={()=>window.dispatchEvent(new CustomEvent("dm-open-equipment-profile",{detail:{code}}))}
+                    style={{padding:"6px 3px",background:"transparent",border:0,color:C.blue,fontWeight:800,textDecoration:"underline",textAlign:"right"}}>{content}</button>:content}</div>
+                </div>;
+              })}
+            </div>
+          </details>;
+        })}
+        {mobileCardsCount<sortedRows.length&&<button type="button" className="dm-mobile-more-rows"
+          onClick={()=>setMobileCardsCount(n=>Math.min(sortedRows.length,n+30))}>
+          Mostrar 30 registros más · {Math.min(mobileCardsCount,sortedRows.length)} de {sortedRows.length.toLocaleString("es-AR")}
+        </button>}
+      </section>
       <div className="dm-table-scroll" onScroll={onScroll} style={{overflowX:"auto",overflowY:"auto",maxHeight:maxH,scrollbarGutter:"stable",overscrollBehavior:"contain",contain:"layout paint",transform:"translateZ(0)"}}>
         <table style={{width:"100%",minWidth:tableMinWidth,borderCollapse:"separate",borderSpacing:0,fontSize:12,tableLayout:"fixed"}}>
           <thead><tr>{visibleCols.map((c,i)=>{
