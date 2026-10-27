@@ -334,6 +334,13 @@ export default function App(){
   const[st05,setSt05]=useState(()=>savedOr("st05",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}}));
   const[stCtrl,setStCtrl]=useState(()=>savedOr("stCtrl",{mode:"dia",fecha:"",fechaD:"",fechaH:"",proyectosConsiderar:"todos",equiposConsiderar:"todos",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}}));
   const [controlLiveIssues,setControlLiveIssues]=useState(null);
+  // Conservar el último recuento confirmado por la pestaña incluso al salir de ella.
+  // Si cambian filtros o fuentes, se descarta el valor anterior y se recalcula.
+  const controlBadgeSignature=JSON.stringify([stCtrl,rop02All.length,rop05.length,lastUpdate instanceof Date?lastUpdate.getTime():null]);
+  const reportControlIssues=useCallback(count=>setControlLiveIssues(prev=>
+    prev?.signature===controlBadgeSignature&&prev?.count===count?prev:
+    {signature:controlBadgeSignature,count}
+  ),[controlBadgeSignature]);
   // Badge lateral: mismo alcance y mismo algoritmo de cruce ROP02 ↔ ROP05.
   const controlSidebarBadge=useMemo(()=>{
     const projects=stCtrl?.proyectosConsiderar??"todos",machines=stCtrl?.equiposConsiderar??"todos";
@@ -353,8 +360,10 @@ export default function App(){
       normDate,machineLookupVariants,cleanMachine,matchMulti,multiIsAll
     }).problemas;
   },[control,stCtrl]);
-  // Al abrir la pestaña, priorizar el cruce con los históricos completos ya cargados.
-  const badgeControlVisible=view==="control"&&Number.isInteger(controlLiveIssues)?controlLiveIssues:controlSidebarBadge;
+  // Mostrar el recuento de la pestaña siempre que corresponda a la misma
+  // configuración y versión de datos, incluso mientras se navega por otras áreas.
+  const badgeControlVisible=controlLiveIssues?.signature===controlBadgeSignature
+    ?controlLiveIssues.count:controlSidebarBadge;
 
   // Cuando el usuario tiene un proyecto asignado, los datos ya llegan recortados
   // a ese proyecto. Se limpian filtros de proyecto guardados anteriormente para
@@ -1153,7 +1162,7 @@ export default function App(){
                   stControlErrores={stControlErrores} setStControlErrores={setStControlErrores} stCtrlEquipo={stCtrlEquipo} setStCtrlEquipo={setStCtrlEquipo}
                   stComb={stComb} setStComb={setStComb} st05={st05} setSt05={setSt05}
                   stRma15CtrlEquipo={stRma15CtrlEquipo} setStRma15CtrlEquipo={setStRma15CtrlEquipo}
-                  stCHC={stCHC} setStCHC={setStCHC} stCtrl={stCtrl} setStCtrl={setStCtrl} onControlIssuesChange={setControlLiveIssues}
+                  stCHC={stCHC} setStCHC={setStCHC} stCtrl={stCtrl} setStCtrl={setStCtrl} onControlIssuesChange={reportControlIssues}
                 /></ModuleErrorBoundary>}
                 {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Control de horas mensuales" onRetry={loadData}><ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando control de horas mensuales..." />)}
                 {["gestionHumanaSitio","gestionHumanaHistorial","gestionHumanaRanking"].includes(view)&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Gestión Humana" onRetry={loadData}><GestionHumanaRoute view={view} rop02All={rop02All} rop05={rop05} listaEquipos={listaEquipos} rankingDeps={OPERATIONAL_ANALYTICS_DEPS} rankingState={stRanking} setRankingState={setStRanking} onNavigate={navigateToView}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Gestión Humana..." />)}
