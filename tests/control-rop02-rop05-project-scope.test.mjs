@@ -43,13 +43,19 @@ test("proyectos futuros se filtran sin nombres fijos; se preservan variantes FDS
 });
 test("la vista aplica el alcance antes del cruce y mantiene el mismo reporte acotado",()=>{
   const content=readFileSync(new URL("../src/modules/oficina-tecnica/OficinaTecnicaModule.jsx",import.meta.url),"utf8");
-  const start=content.indexOf("function ViewControl({control,rop02All,rop05,extState,setExtState})");
+  const start=content.indexOf("function ViewControl({control,rop02All,rop05,extState,setExtState,onControlIssuesChange})");
   const end=content.indexOf("\nfunction ",start+10);
   assert.ok(start>0);
   const view=content.slice(start,end>start?end:undefined);
   assert.match(view,/label="Proyectos a considerar"/);
   assert.match(view,/filterControlProjects\(control\.productivos,proyectosConsiderados\)/);
   assert.match(view,/filterControlProjects\(control\.prod05,proyectosConsiderados\)/);
+  assert.match(view,/filterControlMachines\(productivosProyecto,equiposConsiderados/);
+  assert.match(view,/filterControlMachines\(prod05Proyecto,equiposConsiderados/);
+  assert.match(view,/calculateControlIssueRows\(filtered02Match,filtered05Match/);
+  assert.match(view,/onControlIssuesChange\?\.\(filteredData\.problemas\)/);
+  assert.match(view,/name="gear"/);
+  assert.match(view,/Configuración/);
   assert.match(view,/useFacetedFilters\(productivosConsiderados/);
   assert.match(view,/byDateFilter\(prod05Considerados/);
   assert.match(view,/filteredData\.faltanEn05,\s*filteredData\.faltanEn02/);
