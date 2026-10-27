@@ -995,6 +995,12 @@ export default function App(){
     }
     return navStructure.filter(item=>!["dashboard","chc"].includes(item.id));
   },[activeModule,navStructure,costosUnitariosBadge,badgeControlVisible,esAdministrativo]);
+  // El tablero ejecutivo se abre desde Bienvenida en escritorio.
+  // Móvil necesita un acceso directo equivalente sin cambiar permisos.
+  const mobileNavItems=useMemo(()=>{
+    if(esAdministrativo||displayedNavStructure.some(item=>item.id==="dashboard"))return displayedNavStructure;
+    return [{id:"dashboard",icon:"dashboard",label:"Dashboard ejecutivo",type:"item",color:C.green},...displayedNavStructure];
+  },[displayedNavStructure,esAdministrativo]);
   const vistasAdministrativo=new Set(["bienvenida","controlErrores","ctrlEquipo","atrasoROP02","control","abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas"]);
   useEffect(()=>{
     if(esAdministrativo&&!vistasAdministrativo.has(view)){
@@ -1042,7 +1048,7 @@ export default function App(){
       <div className={mobileExperience?"dm-app-shell dm-mobile":"dm-app-shell"} style={{display:"flex",height:"100dvh",minHeight:0,overflow:"hidden",background:"transparent"}}>
         <GlobalSearch listaEquipos={listaEquipos} rawSources={rawSources} onNavigate={navigateToView}/>
         {mobileExperience&&<MobileShell
-          view={view} titles={titles} navItems={displayedNavStructure}
+          view={view} titles={titles} navItems={mobileNavItems}
           onNavigate={navigateToView} onRefresh={loadData} onOpenProfile={()=>setSettingsOpen(true)}
           onSignOut={cambiarUsuario} onSwitchDesktop={()=>setMobilePreference("desktop")}
           syncing={syncing} loading={loading} lastUpdate={lastUpdate}
@@ -1177,7 +1183,7 @@ export default function App(){
               <>
                 {view==="bienvenida"&&(mobileExperience
                   ?<MobileHome nombreUsuario={nombreUsuario} proyectoUsuario={proyectoUsuario}
-                    navItems={displayedNavStructure} onNavigate={navigateToView} badgeControl={badgeControlVisible}
+                    navItems={mobileNavItems} onNavigate={navigateToView} badgeControl={badgeControlVisible}
                     syncing={syncing} lastUpdate={lastUpdate} onRefresh={loadData}/>
                   :<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>
                 )}
