@@ -1,4 +1,6 @@
 import {ROP02_SOURCES,ROP02_SOURCE_KEYS} from "./config/rop02Sources.js";
+import {MobileShell,MobileHome} from "./mobile/MobileShell.jsx";
+import {MOBILE_STYLES} from "./mobile/mobileStyles.js";
 import {filterControlProjects} from "./modules/oficina-tecnica/controlProjectScope.js";
 import {filterControlMachines,calculateControlIssueRows} from "./modules/oficina-tecnica/controlMachineScope.js";
 import {listaIdentityFromRow,patchConfirmedMeters} from "./services/horometerUpdates.js";
@@ -194,6 +196,21 @@ export default function App(){
   const esAdministrativo=rolUsuario==="ADMINISTRATIVO";
   const[view,setView]=useState("bienvenida");
   const[activeModule,setActiveModule]=useState("home");
+  // Una sola aplicación, dos presentaciones. El modo automático responde al
+  // viewport; la preferencia de usuario puede forzar escritorio o móvil.
+  const [mobilePreference,setMobilePreference]=useState(()=>{
+    try{const value=localStorage.getItem("dm_ui_mode_v1");return ["auto","mobile","desktop"].includes(value)?value:"auto";}catch(_){return"auto";}
+  });
+  const [narrowViewport,setNarrowViewport]=useState(()=>typeof window!=="undefined"&&window.matchMedia("(max-width: 780px)").matches);
+  useEffect(()=>{
+    if(typeof window==="undefined")return undefined;
+    const query=window.matchMedia("(max-width: 780px)");
+    const update=()=>setNarrowViewport(query.matches);
+    update();query.addEventListener("change",update);
+    return()=>query.removeEventListener("change",update);
+  },[]);
+  useEffect(()=>{try{localStorage.setItem("dm_ui_mode_v1",mobilePreference);}catch(_){}},[mobilePreference]);
+  const mobileExperience=mobilePreference==="mobile"||(mobilePreference==="auto"&&narrowViewport);
   const[selectedEquipmentCode,setSelectedEquipmentCode]=useState(()=>sessionStorage.getItem("dm_selected_equipment")||"");
   const areaRequeridaVista=useMemo(()=>getRequiredAreaForView(view),[view]);
   const puedeEditarVista=!areaRequeridaVista||can("edit",areaRequeridaVista);
@@ -998,6 +1015,7 @@ export default function App(){
   return(
     <>
       <style>{STYLES}</style>
+      <style>{MOBILE_STYLES}</style>
       <UserSettingsModal
         APPS_SCRIPT_URL={APPS_SCRIPT_URL}
         C={C}
@@ -1021,9 +1039,17 @@ export default function App(){
           </div>
         </div>,document.body
       )}
-      <div className="dm-app-shell" style={{display:"flex",height:"100dvh",minHeight:0,overflow:"hidden",background:"transparent"}}>
+      <div className={mobileExperience?"dm-app-shell dm-mobile":"dm-app-shell"} style={{display:"flex",height:"100dvh",minHeight:0,overflow:"hidden",background:"transparent"}}>
         <GlobalSearch listaEquipos={listaEquipos} rawSources={rawSources} onNavigate={navigateToView}/>
-        {showSidebar&&(
+        {mobileExperience&&<MobileShell
+          view={view} titles={titles} navItems={displayedNavStructure}
+          onNavigate={navigateToView} onRefresh={loadData} onOpenProfile={()=>setSettingsOpen(true)}
+          onSignOut={cambiarUsuario} onSwitchDesktop={()=>setMobilePreference("desktop")}
+          syncing={syncing} loading={loading} lastUpdate={lastUpdate}
+          nombreUsuario={nombreUsuario} proyectoUsuario={proyectoUsuario}
+          badgeControl={badgeControlVisible}
+        />}
+        {showSidebar&&!mobileExperience&&(
         <div className="dm-app-sidebar" style={{width:SW,flexShrink:0,background:"rgba(22,22,22,0.55)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderRight:`1px solid ${C.border}44`,display:"flex",flexDirection:"column",transition:"width .25s ease",overflow:"hidden",position:"relative"}}>
           <div style={{padding:sidebarOpen?"18px 16px 14px":"18px 0 14px",borderBottom:`1px solid ${C.border}33`,display:"flex",alignItems:"center",gap:8,justifyContent:sidebarOpen?"flex-start":"center",minHeight:88,transition:"padding .25s ease"}}>
             {sidebarOpen&&(<div style={{display:"flex",alignItems:"center",gap:6}}><img src={LOGO} alt="Delta Mining" style={{height:58,display:"block",padding:"4px 6px",background:"transparent"}}/><div style={{display:"flex",flexDirection:"column",lineHeight:1.1}}><span style={{fontFamily:"Inter",fontWeight:800,fontSize:16,color:C.accent}}>DELTA MINING</span><span style={{fontFamily:"Inter",fontWeight:700,fontSize:16,color:C.accent}}>APP</span></div></div>)}
@@ -1087,12 +1113,14 @@ export default function App(){
           </div>
         </div>
         )}
-        {showSidebar&&sidebarTooltip&&!sidebarOpen&&(<div style={{position:"fixed",left:sidebarTooltip.x,top:sidebarTooltip.y,transform:"translateY(-50%)",background:"rgba(18,18,18,.96)",border:`1px solid ${C.border}`,boxShadow:"0 10px 24px rgba(0,0,0,.35)",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none"}}>{sidebarTooltip.label}</div>)}
+        {showSidebar&&!mobileExperience&&sidebarTooltip&&!sidebarOpen&&(<div style={{position:"fixed",left:sidebarTooltip.x,top:sidebarTooltip.y,transform:"translateY(-50%)",background:"rgba(18,18,18,.96)",border:`1px solid ${C.border}`,boxShadow:"0 10px 24px rgba(0,0,0,.35)",borderRadius:8,padding:"7px 10px",fontSize:12,fontWeight:700,color:C.text,whiteSpace:"nowrap",zIndex:9999,pointerEvents:"none"}}>{sidebarTooltip.label}</div>)}
         <div className="dm-app-content" style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",overflow:"hidden",background:"transparent",transition:"all .25s ease"}}>
-          {showSidebar&&(<div style={{height:50,flexShrink:0,background:"rgba(22,22,22,0.65)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${C.border}44`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
+          {showSidebar&&!mobileExperience&&(<div style={{height:50,flexShrink:0,background:"rgba(22,22,22,0.65)",backdropFilter:"blur(10px)",WebkitBackdropFilter:"blur(10px)",borderBottom:`1px solid ${C.border}44`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 18px"}}>
             <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
               <h1 style={{fontFamily:"Inter",fontWeight:700,fontSize:14,color:C.text,whiteSpace:"nowrap"}}>{titles[view]}</h1>
               {titleHelp[view]&&<HelpTip text={titleHelp[view]}/>}
+              {narrowViewport&&!mobileExperience&&<button type="button" onClick={()=>setMobilePreference("mobile")}
+                style={{padding:"6px 10px",background:C.blueDim,border:`1px solid ${C.blue}66`,color:C.blue,borderRadius:8,fontSize:11,fontWeight:800,cursor:"pointer"}}>Modo móvil</button>}
               {pwaInstallAvailable&&<button type="button" onClick={installPwa} style={{display:"flex",alignItems:"center",gap:6,marginLeft:14,padding:"6px 12px",borderRadius:7,border:`1px solid ${C.blue}66`,background:C.blueDim,color:C.blue,fontSize:11,fontWeight:700,fontFamily:"Inter",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
                 <span aria-hidden="true">⬇</span> Instalar aplicación
               </button>}
@@ -1117,7 +1145,7 @@ export default function App(){
               </button>
             </div>
           </div>)}
-          <div style={{flex:1,overflow:"auto",padding:showSidebar?16:0,background:"transparent"}}>
+          <div className="dm-main-scroll" style={{flex:1,overflow:"auto",padding:showSidebar?16:0,background:"transparent"}}>
             {areaRequeridaVista&&!puedeEditarVista&&view!=="bienvenida"&&(
               <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:12,padding:"10px 13px",background:`${C.blue}12`,border:`1px solid ${C.blue}55`,borderRadius:9,color:C.textSub,fontSize:12,fontWeight:700}}>
                 <Icon name="eye" size={14} color={C.blue}/>
@@ -1147,7 +1175,12 @@ export default function App(){
             )}
             {!fatalError&&(view==="bienvenida"||lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
+                {view==="bienvenida"&&(mobileExperience
+                  ?<MobileHome nombreUsuario={nombreUsuario} proyectoUsuario={proyectoUsuario}
+                    navItems={displayedNavStructure} onNavigate={navigateToView} badgeControl={badgeControlVisible}
+                    syncing={syncing} lastUpdate={lastUpdate} onRefresh={loadData}/>
+                  :<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>
+                )}
                 {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
                 {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}
                 {["listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
