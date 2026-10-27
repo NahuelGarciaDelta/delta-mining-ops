@@ -15,6 +15,7 @@ import {getRop02,getRop05,getRop02LatestByEquipmentProject} from "../../data/his
 import {normalizeROP02,normalizeROP05,calcControl} from "../../shared/domain/index.jsx";
 import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";
 import {availableControlProjects,filterControlProjects,noControlProjectsSelected} from "./controlProjectScope.js";
+import {availableControlMachines,filterControlMachines,noControlMachinesSelected,calculateControlIssueRows} from "./controlMachineScope.js";
 import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 import {qualityProjectsFromSources,selectedQualityProject,qualityMonthPeriod,qualityRowsForProject} from "./chcQualityProjects.js";
 import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
@@ -4775,21 +4776,30 @@ function ViewControlROP02({rop02All,rop02ControlAll=rop02All,tabState,setTabStat
   );
 }
 
-function ViewControl({control,rop02All,rop05,extState,setExtState}){
+function ViewControl({control,rop02All,rop05,extState,setExtState,onControlIssuesChange}){
   const[sub,setSub]=useState("dashboard");
+  const [configOpen,setConfigOpen]=useState(false);
   const tipoMaquina=extState?.tipoMaquina||"todas";
   const setTipoMaquina=v=>setExtState(st=>({...st,tipoMaquina:v}));
   // El selector superior define qué proyectos entran al análisis, tanto desde
   // ROP02 como desde ROP05. Es independiente del filtro facetado "Proyecto".
   // Se persiste en stCtrl junto con el resto de preferencias del módulo.
   const proyectosConsiderados=extState?.proyectosConsiderar??"todos";
-  const sinProyectos=noControlProjectsSelected(proyectosConsiderados);
+  const equiposConsiderados=extState?.equiposConsiderar??"todos";
+  const sinProyectos=noControlProjectsSelected(proyectosConsiderados)||noControlMachinesSelected(equiposConsiderados);
   const proyectosDisponibles=useMemo(()=>availableControlProjects(rop02All,rop05),[rop02All,rop05]);
-  const productivosConsiderados=useMemo(()=>filterControlProjects(control.productivos,proyectosConsiderados),[control.productivos,proyectosConsiderados]);
-  const prod05Considerados=useMemo(()=>filterControlProjects(control.prod05,proyectosConsiderados),[control.prod05,proyectosConsiderados]);
+  const productivosProyecto=useMemo(()=>filterControlProjects(control.productivos,proyectosConsiderados),[control.productivos,proyectosConsiderados]);
+  const prod05Proyecto=useMemo(()=>filterControlProjects(control.prod05,proyectosConsiderados),[control.prod05,proyectosConsiderados]);
+  const equiposDisponibles=useMemo(()=>availableControlMachines(productivosProyecto,prod05Proyecto,canonicalEquivalentMachineCode),[productivosProyecto,prod05Proyecto]);
+  const productivosConsiderados=useMemo(()=>filterControlMachines(productivosProyecto,equiposConsiderados,canonicalEquivalentMachineCode),[productivosProyecto,equiposConsiderados]);
+  const prod05Considerados=useMemo(()=>filterControlMachines(prod05Proyecto,equiposConsiderados,canonicalEquivalentMachineCode),[prod05Proyecto,equiposConsiderados]);
   const actualizarProyectosConsiderados=value=>setExtState(st=>({
     ...st,proyectosConsiderar:value,
     vals:{...(st?.vals||{}),proyecto:"todos",maquina:"todas",supervisor:"todos"}
+  }));
+  const actualizarEquiposConsiderados=value=>setExtState(st=>({
+    ...st,equiposConsiderar:value,
+    vals:{...(st?.vals||{}),maquina:"todas",supervisor:"todos"}
   }));
 
   // Filtros facetados sobre el universo productivo combinado (02+05)
@@ -4845,37 +4855,19 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
   // Recalcular inconsistencias: el cruce se hace sobre los conjuntos SIN filtro
   // de supervisor; luego se filtra el resultado por supervisor de cada registro.
   const filteredData=useMemo(()=>{
-    const keys=row=>{
-      const fecha=normDate(row?.fecha);
-      if(!fecha)return[];
-      const variants=machineLookupVariants(row?.maquina||"");
-      if(!variants.length){
-        const fallback=cleanMachine(row?.maquina||"");
-        if(fallback)variants.push(fallback);
-      }
-      return variants.map(code=>`${fecha}__${String(code||"").trim().toUpperCase()}`);
-    };
-    const makeSet=rows=>{
-      const set=new Set();
-      rows.forEach(row=>keys(row).forEach(key=>set.add(key)));
-      return set;
-    };
-    const set05=makeSet(filtered05Match);
-    const set02=makeSet(filtered02Match);
-    let faltanEn05=filtered02Match.filter(r=>!keys(r).some(key=>set05.has(key)));
-    let faltanEn02=filtered05Match.filter(r=>!keys(r).some(key=>set02.has(key)));
-    if(!multiIsAll(vals.supervisor,"todos")){
-      faltanEn05=faltanEn05.filter(r=>matchMulti(r.supervisor,vals.supervisor,"todos"));
-      faltanEn02=faltanEn02.filter(r=>matchMulti(r.supervisor,vals.supervisor,"todos"));
-    }
+    const issues=calculateControlIssueRows(filtered02Match,filtered05Match,vals.supervisor,{
+      normDate,machineLookupVariants,cleanMachine,matchMulti,multiIsAll
+    });
     const total=filtered02.length+filtered05.length;
-    const problemas=faltanEn05.length+faltanEn02.length;
-    const consistencia=total>0?Math.round(((total-problemas)/total)*100):100;
-    return{faltanEn05,faltanEn02,total,problemas,consistencia,prod02f:filtered02,prod05f:filtered05};
-  },[filtered02Match,filtered05Match,filtered02,filtered05,vals]);
+    const consistencia=total>0?Math.round(((total-issues.problemas)/total)*100):100;
+    return{...issues,total,consistencia,prod02f:filtered02,prod05f:filtered05};
+  },[filtered02Match,filtered05Match,filtered02,filtered05,vals.supervisor]);
 
-  const resetAll=()=>{reset();setTipoMaquina("todas");actualizarProyectosConsiderados("todos");};
-  const hayFiltrosControl=hayFiltros||!multiIsAll(tipoMaquina,"todas")||!multiIsAll(proyectosConsiderados,"todos");
+  useEffect(()=>{onControlIssuesChange?.(filteredData.problemas);},[onControlIssuesChange,filteredData.problemas]);
+
+  // "Limpiar filtros" reinicia la vista, NO modifica la configuración guardada.
+  const resetAll=()=>{reset();setTipoMaquina("todas");};
+  const hayFiltrosControl=hayFiltros||!multiIsAll(tipoMaquina,"todas");
 
   const inconsistFecha=useMemo(()=>{
     const m={};
@@ -4942,12 +4934,33 @@ function ViewControl({control,rop02All,rop05,extState,setExtState}){
         <SubTab active={sub==="dashboard"} onClick={()=>setSub("dashboard")}>Dashboard</SubTab>
         <SubTab active={sub==="sinprod"} onClick={()=>setSub("sinprod")}>Sin producción ({filteredData.faltanEn05.length})</SubTab>
         <SubTab active={sub==="sinparte"} onClick={()=>setSub("sinparte")}>Sin parte diario ({filteredData.faltanEn02.length})</SubTab>
-        <div style={{marginLeft:"auto",minWidth:210,width:"min(280px,100%)"}}>
-          <MultiSel label="Proyectos a considerar" value={proyectosConsiderados} onChange={actualizarProyectosConsiderados}
-            options={[{value:"todos",label:"Todos"},...proyectosDisponibles.map(p=>({value:p,label:p}))]}/>
-        </div>
+        <button type="button" aria-expanded={configOpen} onClick={()=>setConfigOpen(open=>!open)}
+          style={{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:8,padding:"9px 14px",
+            borderRadius:8,border:`1px solid ${C.blue}77`,background:configOpen?C.blueDim:C.card,
+            color:C.text,cursor:"pointer",fontSize:12,fontWeight:800}}>
+          <Icon name="gear" size={16} color={C.blue}/> Configuración
+        </button>
       </div>
-      {sinProyectos&&<AlertBanner type="info">No hay proyectos seleccionados para evaluar productividad. Marcá al menos uno en “Proyectos a considerar”.</AlertBanner>}
+      {configOpen&&(
+        <div style={{padding:"14px 16px",marginTop:10,marginBottom:10,borderRadius:10,
+          background:"rgba(15,23,42,.94)",border:`1px solid ${C.blue}55`}}>
+          <div style={{fontWeight:850,fontSize:14,marginBottom:5,color:C.text}}>Configuración del control ROP05 vs ROP02</div>
+          <div style={{color:C.textSub,fontSize:12,marginBottom:12}}>Elegí qué proyectos y equipos entran al cruce. La selección se conserva al cambiar de pestaña y también determina la alerta roja de la barra lateral. Los filtros por fecha, tipo y supervisor siguen siendo independientes.</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:12}}>
+            <MultiSel label="Proyectos a considerar" value={proyectosConsiderados} onChange={actualizarProyectosConsiderados}
+              options={[{value:"todos",label:"Todos"},...proyectosDisponibles.map(p=>({value:p,label:p}))]}/>
+            <MultiSel label="Equipos a considerar" value={equiposConsiderados} onChange={actualizarEquiposConsiderados}
+              options={[{value:"todos",label:"Todos"},...equiposDisponibles.map(code=>({value:code,label:code}))]}/>
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:12,alignItems:"center"}}>
+            <span style={{color:C.textMuted,fontSize:11}}>Alcance actual: {multiIsAll(proyectosConsiderados,"todos")?"Todos los proyectos":Array.isArray(proyectosConsiderados)?proyectosConsiderados.length+" proyectos":"1 proyecto"} · {multiIsAll(equiposConsiderados,"todos")?"Todos los equipos":Array.isArray(equiposConsiderados)?equiposConsiderados.length+" equipos":"1 equipo"}</span>
+            <button type="button" onClick={()=>{actualizarProyectosConsiderados("todos");actualizarEquiposConsiderados("todos");}}
+              style={{marginLeft:"auto",padding:"6px 10px",borderRadius:7,border:`1px solid ${C.border}`,
+                background:C.surface,color:C.textSub,fontSize:11,cursor:"pointer"}}>Restablecer alcance</button>
+          </div>
+        </div>
+      )}
+      {sinProyectos&&<AlertBanner type="info">No hay proyectos o equipos seleccionados para evaluar el control. Elegí al menos uno en Configuración.</AlertBanner>}
       {FilterPanel}
       <AlertBanner type="info">Camionetas, camiones y equipos auxiliares están excluidos de este análisis.</AlertBanner>
 
@@ -6065,6 +6078,7 @@ export function OficinaTecnicaModule({
   stControlROP02,setStControlROP02,stControlErrores,setStControlErrores,
   stCtrlEquipo,setStCtrlEquipo,stComb,setStComb,st05,setSt05,
   stRma15CtrlEquipo,setStRma15CtrlEquipo,stCHC,setStCHC,stCtrl,setStCtrl,
+  onControlIssuesChange,
   health,loading,onLoadAll,
 }){
   applyDeps(deps);
@@ -6233,7 +6247,7 @@ export function OficinaTecnicaModule({
   if(view==="chc")return dataHydrated&&rop02All.length>0?<ViewCHC rop02All={rop02All} extState={stCHC} setExtState={setStCHC}/>:<Loader label="Cargando ICHC..."/>;
   if(view==="control"){
     if(!controlRemote.loaded)return <Loader label="Cargando Control ROP05 vs ROP02..."/>;
-    return <ViewControl control={controlLive} rop02All={controlRemote.rop02} rop05={controlRemote.rop05} extState={stCtrl} setExtState={setStCtrl}/>;
+    return <ViewControl control={controlLive} rop02All={controlRemote.rop02} rop05={controlRemote.rop05} extState={stCtrl} setExtState={setStCtrl} onControlIssuesChange={onControlIssuesChange}/>;
   }
   return null;
 }
