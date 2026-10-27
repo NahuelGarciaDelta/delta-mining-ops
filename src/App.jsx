@@ -1,4 +1,6 @@
 import {ROP02_SOURCES,ROP02_SOURCE_KEYS} from "./config/rop02Sources.js";
+import {filterControlProjects} from "./modules/oficina-tecnica/controlProjectScope.js";
+import {filterControlMachines,calculateControlIssueRows} from "./modules/oficina-tecnica/controlMachineScope.js";
 import {listaIdentityFromRow,patchConfirmedMeters} from "./services/horometerUpdates.js";
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import { C, STYLES, Icon, LoadingMotoniveladora, PageLoadingMotoniveladora, Spinner, Badge, StatCard, Card, Table, tableSortValue, compareTableValues, sortRowsForTable, SortableTH, Sel, multiDefault, normalizeMultiValue, multiIsAll, multiIncludes, matchMulti, multiSummary, multiSelectedLabels, dmNormalizeAssignedProject, dmAssignedProject, dmProjectMatches, MultiSel, DateIn, MONTH_OPTIONS, YEAR_OPTIONS, PeriodMonthYear, ChartTip, TabBtn, SubTab, AlertBanner, HelpTip } from "./components/ui/index.jsx";
@@ -330,7 +332,29 @@ export default function App(){
   const[stCtrlEquipo,setStCtrlEquipo]=useState(()=>savedOr("stCtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:"",controlActivo:"numeracion"}));
   const[stControlROP02,setStControlROP02]=useState(()=>savedOr("stControlROP02",{tab:"errores"}));
   const[st05,setSt05]=useState(()=>savedOr("st05",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos",unidad:"todas"}}));
-  const[stCtrl,setStCtrl]=useState(()=>savedOr("stCtrl",{mode:"dia",fecha:"",fechaD:"",fechaH:"",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}}));
+  const[stCtrl,setStCtrl]=useState(()=>savedOr("stCtrl",{mode:"dia",fecha:"",fechaD:"",fechaH:"",proyectosConsiderar:"todos",equiposConsiderar:"todos",vals:{proyecto:"todos",maquina:"todas",supervisor:"todos"}}));
+  const [controlLiveIssues,setControlLiveIssues]=useState(null);
+  // Badge lateral: mismo alcance y mismo algoritmo de cruce ROP02 ↔ ROP05.
+  const controlSidebarBadge=useMemo(()=>{
+    const projects=stCtrl?.proyectosConsiderar??"todos",machines=stCtrl?.equiposConsiderar??"todos";
+    const scope02=filterControlMachines(filterControlProjects(control.productivos,projects),machines,canonicalEquivalentMachineCode);
+    const scope05=filterControlMachines(filterControlProjects(control.prod05,projects),machines,canonicalEquivalentMachineCode);
+    const mode=stCtrl?.mode||"dia";
+    const date=stCtrl?.fecha||scope02.reduce((max,row)=>{
+      const d=normDate(row?.fecha);return d>max?d:max;
+    },"");
+    const by02=byDateFilter(scope02,mode,date,stCtrl?.fechaD||"",stCtrl?.fechaH||"");
+    const by05=byDateFilter(scope05,mode,date,stCtrl?.fechaD||"",stCtrl?.fechaH||"");
+    const vals=stCtrl?.vals||{},type=stCtrl?.tipoMaquina||"todas";
+    const selected=row=>matchMulti(row.proyecto,vals.proyecto||"todos","todos")&&
+      (multiIsAll(type,"todas")||tipoMatchMachineROP05(type,row.maquina))&&
+      matchMulti(row.maquina,vals.maquina||"todas","todas");
+    return calculateControlIssueRows(by02.filter(selected),by05.filter(selected),vals.supervisor||"todos",{
+      normDate,machineLookupVariants,cleanMachine,matchMulti,multiIsAll
+    }).problemas;
+  },[control,stCtrl]);
+  // Al abrir la pestaña, priorizar el cruce con los históricos completos ya cargados.
+  const badgeControlVisible=view==="control"&&Number.isInteger(controlLiveIssues)?controlLiveIssues:controlSidebarBadge;
 
   // Cuando el usuario tiene un proyecto asignado, los datos ya llegan recortados
   // a ese proyecto. Se limpian filtros de proyecto guardados anteriormente para
@@ -795,7 +819,7 @@ export default function App(){
       {id:"costosMant",icon:"fileBarChart",label:"Informe de Costos"},
       {id:"costosUnitarios",icon:"badgeDollarSign",label:"Costos Unitarios",badge:costosUnitariosBadge>0?costosUnitariosBadge:null},
     ]},
-    {id:"control",icon:"clipboardCheck",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:(control.problemasPost31??0)>0?control.problemasPost31:null},
+    {id:"control",icon:"clipboardCheck",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:badgeControlVisible>0?badgeControlVisible:null},
     {id:"listaEquipos",icon:"database",label:"Lista Maestra de Equipos",type:"item",color:C.yellow},
     {id:"chc",icon:"clipboardList",label:"ICHC",type:"item",color:C.green},
   ];
@@ -860,7 +884,7 @@ export default function App(){
           {id:"ctrlEquipo",icon:"clipboardCheck",label:"Control por Equipo"},
           {id:"atrasoROP02",icon:"warn",label:"Atraso"},
         ]},
-        {id:"control",icon:"clipboardCheck",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:(control.problemasPost31??0)>0?control.problemasPost31:null},
+        {id:"control",icon:"clipboardCheck",label:"Control ROP05 vs ROP02",type:"item",color:C.blue,badge:badgeControlVisible>0?badgeControlVisible:null},
       ];
     }
     if(activeModule==="calidad"){
@@ -944,7 +968,7 @@ export default function App(){
       ];
     }
     return navStructure.filter(item=>!["dashboard","chc"].includes(item.id));
-  },[activeModule,navStructure,costosUnitariosBadge,control.problemasPost31,esAdministrativo]);
+  },[activeModule,navStructure,costosUnitariosBadge,badgeControlVisible,esAdministrativo]);
   const vistasAdministrativo=new Set(["bienvenida","controlErrores","ctrlEquipo","atrasoROP02","control","abastecimiento","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas"]);
   useEffect(()=>{
     if(esAdministrativo&&!vistasAdministrativo.has(view)){
@@ -1129,7 +1153,7 @@ export default function App(){
                   stControlErrores={stControlErrores} setStControlErrores={setStControlErrores} stCtrlEquipo={stCtrlEquipo} setStCtrlEquipo={setStCtrlEquipo}
                   stComb={stComb} setStComb={setStComb} st05={st05} setSt05={setSt05}
                   stRma15CtrlEquipo={stRma15CtrlEquipo} setStRma15CtrlEquipo={setStRma15CtrlEquipo}
-                  stCHC={stCHC} setStCHC={setStCHC} stCtrl={stCtrl} setStCtrl={setStCtrl}
+                  stCHC={stCHC} setStCHC={setStCHC} stCtrl={stCtrl} setStCtrl={setStCtrl} onControlIssuesChange={setControlLiveIssues}
                 /></ModuleErrorBoundary>}
                 {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Control de horas mensuales" onRetry={loadData}><ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando control de horas mensuales..." />)}
                 {["gestionHumanaSitio","gestionHumanaHistorial","gestionHumanaRanking"].includes(view)&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Gestión Humana" onRetry={loadData}><GestionHumanaRoute view={view} rop02All={rop02All} rop05={rop05} listaEquipos={listaEquipos} rankingDeps={OPERATIONAL_ANALYTICS_DEPS} rankingState={stRanking} setRankingState={setStRanking} onNavigate={navigateToView}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Gestión Humana..." />)}
