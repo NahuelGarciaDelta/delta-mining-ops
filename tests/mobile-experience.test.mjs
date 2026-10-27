@@ -16,11 +16,12 @@ test("vista móvil se activa automáticamente por ancho, tiene opción escritori
   assert.match(app,/Modo móvil/);
 });
 test("mobile navega sobre la misma sesión y las mismas rutas sin nuevos accesos a datos",()=>{
-  assert.match(app,/<MobileShell[\s\S]*navItems=\{displayedNavStructure\}/);
+  assert.match(app,/<MobileShell[\s\S]*navItems=\{mobileNavItems\}/);
   assert.match(app,/onNavigate=\{navigateToView\}/);
   assert.match(app,/onSignOut=\{cambiarUsuario\}/);
   assert.match(app,/<MobileHome[\s\S]*onNavigate=\{navigateToView\}/);
   assert.doesNotMatch(mobile,/fetch\(|axios\.|supabase\.|getRop02\(|getRop05\(|setInterval\(/);
+  assert.match(app,/const mobileNavItems=useMemo\(/);
   assert.match(mobile,/flatten\(navItems\)/);
   assert.match(mobile,/const bottom=preferred\.filter\(x=>allowed\.has\(x\.id\)\)/);
 });
