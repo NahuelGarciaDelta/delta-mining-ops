@@ -1167,7 +1167,7 @@ export default function App(){
                 ))}
               </div>
             )}
-            {fatalError&&<ErrorScreen errors={[{source:"Apps Script",message:fatalError}]} onRetry={loadData}/>}
+            {fatalError&&<ErrorScreen errors={[{source:"Supabase",message:fatalError}]} onRetry={loadData}/>}
             {!fatalError&&view!=="bienvenida"&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"center"}}>
