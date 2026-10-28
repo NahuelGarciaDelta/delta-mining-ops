@@ -16,33 +16,20 @@ function fakeResponse(rows,status=200){
   };
 }
 
-test("fallback de manifiesto: 500 de RPC no causa descargar tablas completas",async t=>{
+test("RPC de versiones fallido no dispara diez consultas count=exact adicionales",async t=>{
   const previous=globalThis.fetch;
   const calls=[];
-  globalThis.fetch=async(url,options)=>{
+  globalThis.fetch=async(url)=>{
     calls.push(String(url));
     if(String(url).includes("/rpc/delta_source_versions"))
       return fakeResponse({message:"statement timeout"},500);
-    const parsed=new URL(String(url));
-    assert.equal(parsed.searchParams.get("select"),"synced_at");
-    assert.equal(parsed.searchParams.get("limit"),"1");
-    assert.equal(options.headers.Prefer,"count=exact");
-    return fakeResponse([{synced_at:"2026-10-13T12:34:56.123456+00:00"}]);
+    throw new Error("No debe consultar el fallback masivo");
   };
   t.after(()=>{globalThis.fetch=previous;});
   const manifest=await fetchSupabaseVersions();
-  assert.equal(manifest.ok,true);
-  assert.equal(manifest.source,"supabase-lightweight");
-  assert.equal(calls.length,11,"1 RPC + 10 probes ligeros");
-  assert.equal(Object.keys(manifest.versions).length,10);
-  for(const key of sourceKeys){
-    assert.equal(manifest.rowCounts[key],12);
-    assert.equal(manifest.versions[key],Date.parse("2026-10-13T12:34:56.123Z"));
-  }
-  assert.deepEqual(planVersionedRefresh(["rop02_jm","rop05"],
-    {rop02_jm:{ok:true,data:Array(12),meta:{serverVersion:manifest.versions.rop02_jm}},
-     rop05:{ok:true,data:Array(12),meta:{serverVersion:manifest.versions.rop05}}},
-    manifest.versions,manifest.rowCounts),[]);
+  assert.equal(manifest,null);
+  assert.equal(calls.length,1,"solo un RPC acotado bajo degradación");
+  assert.equal(calls[0].includes("/rpc/delta_source_versions"),true);
 });
 
 test("probe parcial obliga a revalidar origen incierto, sin marcarlo como fresco",async t=>{
