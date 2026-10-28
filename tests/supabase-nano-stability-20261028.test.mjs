@@ -42,6 +42,9 @@ test("ROP02 falla de forma explícita; no inventa dataset vacío ni deja Promise
   assert.doesNotMatch(historical,/const guarded=isLiveDataset_/);
   assert.match(historical,/No se confirmó la fuente/);
   assert.match(historical,/throw error/);
+  assert.doesNotMatch(historical,/withHardTimeout_\(/);
+  assert.doesNotMatch(historical,/Promise\.allSettled\(sources\.map/);
+  assert.match(historical,/total:response\.total\?\?null/);
 });
 
 test("Paginación histórica no solicita conteos exactos en ruta principal",()=>{
