@@ -1,5 +1,9 @@
 import {SUPABASE_TYPED_SOURCES,fetchSupabaseDatasetQuery,fetchSupabaseHealth,fetchSupabasePmSnapshot,fetchSupabaseSource,fetchSupabaseVersions} from "./supabaseReadApi.js";
 import {ROP02_SOURCE_KEYS} from "../config/rop02Sources.js";
+import {CONTINGENCY_SHEET_SOURCES,readCompleteSheetSource,shareSheetRead} from "./contingencySheetApi.js";
+
+// Exclusivo de esta rama; main conserva íntegra la arquitectura original.
+export const EMERGENCY_READ_MODE=true;
 import {appsScriptRequestKey,resetAppsScriptInflightForTests,shareAppsScriptRequest} from "./appsScriptRequestCoordinator.js";
 
 const ROP02_BUNDLE_SOURCES=ROP02_SOURCE_KEYS;
@@ -54,14 +58,14 @@ export async function runWithConcurrency_(items,limit,worker){
 // Apps Script queda reservado para acciones que todavía no fueron migradas y para
 // escrituras. Los datasets pesados ya no pasan por este camino.
 export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,params:extraParams={}}={}){
-  if(String(action||"")==="mantenimiento_programado")return fetchSupabasePmSnapshot();
-  if(SUPABASE_TYPED_SOURCES.has(String(action||"")))return fetchTypedSupabaseSource_(String(action||""));
+  if(!EMERGENCY_READ_MODE&&String(action||"")==="mantenimiento_programado")return fetchSupabasePmSnapshot();
+  if(!EMERGENCY_READ_MODE&&SUPABASE_TYPED_SOURCES.has(String(action||"")))return fetchTypedSupabaseSource_(String(action||""));
 
   const requestParams={...(extraParams||{})};
   if(force)requestParams.force="1";
   if(since&&!force)requestParams.since=since;
   if(compact&&!['health','diag','clear_cache','sync','versions','get_data_versions'].includes(action))requestParams.compact="1";
-  if(action==="rop05")requestParams.limit="all";
+  if(action==="rop05"&&requestParams.limit===undefined)requestParams.limit="all";
 
   const key=appsScriptRequestKey(url,action,requestParams,{timeoutMs,retries});
   return shareAppsScriptRequest(key,async()=>{
@@ -89,42 +93,66 @@ export async function fetchAction(url,action,{force=false,compact=true,retries=2
 
 // Compatibilidad para consumidores antiguos: el bundle se arma directamente desde
 // Supabase. No vuelve a abrir las cuatro Google Sheets ni depende de Apps Script.
-export async function fetchRop02Bundle(_url,{force=false}={}){
-  const key=force?"force":"normal",now=Date.now();
-  if(!force&&rop02BundleMemo_.key===key&&rop02BundleMemo_.value&&now-rop02BundleMemo_.at<30000)return rop02BundleMemo_.value;
-  if(rop02BundleMemo_.key===key&&rop02BundleMemo_.promise)return rop02BundleMemo_.promise;
-  const task=Promise.all(ROP02_BUNDLE_SOURCES.map(source=>fetchTypedSupabaseSource_(source))).then(values=>{
-    const sources={};values.forEach((value,index)=>{sources[ROP02_BUNDLE_SOURCES[index]]=value;});
-    const bundle={ok:true,source:"supabase",bundleId:`supabase-${Date.now()}`,sources};
-    rop02BundleMemo_={key,value:bundle,at:Date.now(),promise:null};return bundle;
-  }).catch(error=>{if(rop02BundleMemo_.promise===task)rop02BundleMemo_={key:"",value:null,at:0,promise:null};throw error;});
-  rop02BundleMemo_={key,value:null,at:now,promise:task};return task;
+async function readSheetSource_(url,source,{force=false}={}){
+  return shareSheetRead(source,()=>readCompleteSheetSource(source,async(key,{offset,limit})=>
+    fetchAction(url,key,{force,compact:true,retries:0,timeoutMs:52000,
+      params:{offset,limit}})));
 }
 
-export async function fetchHealth(_url){return fetchSupabaseHealth();}
-
-export async function fetchSource(_url,source,_options={}){
-  const sourceKey=String(source||"");
-  if(SUPABASE_TYPED_SOURCES.has(sourceKey))return fetchTypedSupabaseSource_(sourceKey);
-  return fetchAction(_url,sourceKey,_options);
+export async function fetchRop02Bundle(url,{force=false}={}){
+  if(!EMERGENCY_READ_MODE){
+    const sources={};
+    for(const key of ROP02_BUNDLE_SOURCES)sources[key]=await fetchTypedSupabaseSource_(key);
+    return {ok:true,source:"supabase",sources};
+  }
+  const sources={};
+  for(const key of ROP02_BUNDLE_SOURCES){
+    try{sources[key]=await readSheetSource_(url,key,{force});}
+    catch(error){sources[key]={ok:false,error:{message:String(error?.message||error)}};}
+  }
+  return {ok:Object.values(sources).every(v=>v.ok),source:"google-sheets-contingency",
+    fetchedAt:new Date().toISOString(),sources};
 }
 
-// El heartbeat también sale de Supabase. Así una simple comprobación de vigencia
-// nunca dispara una ejecución de Apps Script ni abre una planilla.
-export async function fetchSyncVersions(_url,{force=false}={}){
+export async function fetchHealth(url){
+  if(!EMERGENCY_READ_MODE)return fetchSupabaseHealth();
+  const status=await fetchAction(url,"backend_version",{retries:0,timeoutMs:20000,compact:false});
+  if(!status?.ok)throw new Error("Backend Apps Script sin respuesta");
+  return {ok:true,source:"google-sheets-contingency",version:status.backendVersion||status.version,
+    checkedAt:new Date().toISOString()};
+}
+
+export async function fetchSource(url,source,options={}){
+  const key=String(source||"");
+  if(EMERGENCY_READ_MODE&&SUPABASE_TYPED_SOURCES.has(key)){
+    return readSheetSource_(url,key,options);
+  }
+  if(SUPABASE_TYPED_SOURCES.has(key))return fetchTypedSupabaseSource_(key);
+  return fetchAction(url,key,options);
+}
+
+export async function fetchSyncVersions(url,{force=false}={}){
   const now=Date.now();
   if(!force&&syncVersionsMemo_.value&&now-syncVersionsMemo_.at<SYNC_VERSIONS_MEMO_MS)return syncVersionsMemo_.value;
   if(syncVersionsMemo_.promise)return syncVersionsMemo_.promise;
-  const task=fetchSupabaseVersions().then(value=>{if(value)syncVersionsMemo_={value,at:Date.now(),promise:null};return value;});
+  const task=EMERGENCY_READ_MODE
+    ?fetchAction(url,"get_data_versions",{retries:0,timeoutMs:30000,compact:false})
+    :fetchSupabaseVersions();
   syncVersionsMemo_={value:syncVersionsMemo_.value,at:syncVersionsMemo_.at,promise:task};
-  try{return await task;}finally{if(syncVersionsMemo_.promise===task)syncVersionsMemo_={...syncVersionsMemo_,promise:null};}
+  try{
+    const value=await task;
+    if(value?.ok)syncVersionsMemo_={value,at:Date.now(),promise:null};
+    return value;
+  }finally{
+    if(syncVersionsMemo_.promise===task)syncVersionsMemo_={...syncVersionsMemo_,promise:null};
+  }
 }
 
 // Las vistas históricas ROP02/ROP05/RMA15 leen Supabase directamente. Sólo se
 // conserva query_dataset de Apps Script como compatibilidad para datasets ajenos.
 export async function fetchDatasetQuery(url,params={},options={}){
   const dataset=String(params?.dataset||"").trim().toLowerCase();
-  if(["rop02","rop05","rma15"].includes(dataset))return fetchSupabaseDatasetQuery(params);
+  if(!EMERGENCY_READ_MODE&&["rop02","rop05","rma15"].includes(dataset))return fetchSupabaseDatasetQuery(params);
 
   const timeoutMs=Number(options?.timeoutMs)||60000;
   const controller=typeof AbortController!=="undefined"?new AbortController():null;
