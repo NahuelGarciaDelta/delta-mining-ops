@@ -31,18 +31,21 @@ let bienvenidaStockCache=null;
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
 
-export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false,summaryDayFiltered=false}){
+export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,onLoadDashboard,esAdministrativo=false,summaryDayFiltered=false}){
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
   const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
   const [snapshotRop02,setSnapshotRop02]=useState(null);
+  const [snapshotUnavailable,setSnapshotUnavailable]=useState(false);
   const [openOtSummary,setOpenOtSummary]=useState(null);
   const [fallbackRma15,setFallbackRma15]=useState(null);
   useEffect(()=>{
     let alive=true;
     getRop02LatestByEquipmentProject({}).then(response=>{
-      if(!alive||!Array.isArray(response?.data))return;
+      if(!alive)return;
+      if(!Array.isArray(response?.data))throw new Error("Resumen ROP02 no verificado");
+      setSnapshotUnavailable(false);
       const rows=response.data.map(row=>{const stateText=norm(row.ULTIMO_ESTADO||row.ultimoEstado||"");const estado=stateText==="fs"||stateText.includes("fuera de servicio")?"FS":stateText==="od"||stateText.includes("orden del dia")?"OD":stateText==="em"||stateText.includes("mantenimiento")?"EM":"TRABAJO";return{
         fecha:String(row.ULTIMA_FECHA||row.ultimaCarga||"").slice(0,10),
         maquina:row.INTERNO||row.equipo||"",
@@ -53,10 +56,15 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         _snapshotActive:Number(row.CARGAS_7D??row.cargas7d??0)>0,
       }});
       startTransition(()=>setSnapshotRop02(rows));
-    }).catch(()=>{});
+    }).catch(()=>{if(alive)setSnapshotUnavailable(true);});
     return()=>{alive=false;};
   },[]);
-  useEffect(()=>{let alive=true;getRma15OpenOtSummary({}).then(response=>{if(alive&&Array.isArray(response?.data))setOpenOtSummary(response.data);}).catch(()=>getRma15({limit:"all",sortBy:"fecha",sortDirection:"asc"}).then(response=>{if(alive)setFallbackRma15(response.data||[]);}).catch(()=>{}));return()=>{alive=false;};},[]);
+  // Si falla el resumen de OT no descargar el historial completo RMA15
+  // como fallback: bajo sobrecarga ese SELECT masivo multiplica timeouts.
+  useEffect(()=>{let alive=true;getRma15OpenOtSummary({}).then(response=>{
+    if(alive&&Array.isArray(response?.data))setOpenOtSummary(response.data);
+  }).catch(error=>{console.warn("Resumen de OT pendiente de verificar",error);});
+  return()=>{alive=false;};},[]);
   const effectiveRop02=summaryDayFiltered&&Array.isArray(rop02All)?rop02All:(Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]));
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
@@ -254,6 +262,9 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   ];
   const [sidebarCollapsed,setSidebarCollapsed]=useState(false);
   const [activeView,setActiveView]=useState(()=>{const requested=sessionStorage.getItem("dm_home_requested_view");sessionStorage.removeItem("dm_home_requested_view");return requested==="weather"?"weather":"home";});
+  // El dashboard interno sí requiere históricos completos. Se solicitan SÓLO
+  // cuando el usuario lo abre; no al entrar a la portada de bienvenida.
+  useEffect(()=>{if(activeView==="dashboard")onLoadDashboard?.();},[activeView,onLoadDashboard]);
   useEffect(()=>{const open=()=>setActiveView("weather");window.addEventListener("dm-open-weather",open);return()=>window.removeEventListener("dm-open-weather",open);},[]);
   const [agendaMonth,setAgendaMonth]=useState(()=>new Date(new Date().getFullYear(),new Date().getMonth(),1));
   const [agendaData,setAgendaData]=useState({programaciones:[],licitaciones:[],loading:true,error:""});
@@ -312,6 +323,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     if(activeView==="agenda")return renderPanel("Agenda operativa","Calendario mensual con programaciones de mantenimiento y fechas de licitación disponibles en los servicios existentes.",<OperationalAgenda month={agendaMonth} onMonthChange={setAgendaMonth} data={agendaData} onNavigate={openView}/>, "#22c55e");
     if(activeView==="weather")return renderPanel("Clima operacional","Pronóstico para Campamento Batidero orientado a condiciones relevantes para la operación minera.",<WeatherModule/>, "#38bdf8");
     if(activeView==="docs")return renderPanel("Documentos","Se reutilizan los informes, planillas y fichas ya disponibles en los módulos operativos; no se creó una biblioteca paralela.",actionGrid([{label:"Ficha única de equipo",view:"equipmentProfile",icon:"person",color:"#22c55e",detail:"Abrir ficha"},{label:"Informe de costos",view:"costosMant",icon:"barChart",color:"#a78bfa",detail:"Abrir informe"},{label:"Planillas de licitación",view:"licitaciones",icon:"fileSpreadsheet",color:"#22d3ee",detail:"Abrir licitaciones"},{label:"Documentación técnica",view:"listaEquipos",icon:"fileBarChart",color:"#60a5fa",detail:"Abrir lista maestra"}]), "#3b82f6");
+    if(activeView==="dashboard"&&!rop02All.length&&!rop05.length&&!rma15.length)return <div role="status" style={{padding:22,color:"#e7edf7",border:"1px solid rgba(245,158,11,.3)",background:"rgba(15,23,42,.85)",borderRadius:12}}>Consultando historial para el dashboard. Si Supabase no responde, no se mostrarán indicadores vacíos como si fueran valores actuales.</div>;
     if(activeView==="dashboard")return <div className="dm-home-dashboard-shell" style={{margin:"-2px -4px 0",padding:"18px",borderRadius:14,background:"rgba(7,13,19,.36)",border:"1px solid rgba(255,255,255,.08)",boxShadow:"0 22px 60px rgba(0,0,0,.24)",backdropFilter:"blur(5px) saturate(105%)",WebkitBackdropFilter:"blur(5px) saturate(105%)"}}><ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={onNavigate}/></div>;
     return null;
   };
@@ -343,6 +355,9 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
 
       {activeView==="home"?(
         <>
+          {snapshotUnavailable&&!rop02All.length&&<div role="status" style={{padding:"10px 14px",borderRadius:10,background:"rgba(245,158,11,.15)",border:"1px solid rgba(245,158,11,.38)",fontSize:12,color:"#ffe2a5",lineHeight:1.5}}>
+            El resumen operativo no pudo verificarse con Supabase. Los indicadores no disponibles deben considerarse pendientes de actualización.
+          </div>}
           <section className="dm-home-hero" style={{position:"relative",display:"flex",alignItems:"center",minHeight:0}}>
             <div className="dm-home-hero-copy" style={{maxWidth:600,marginLeft:54,marginTop:-12}}>
               <div style={{fontSize:"clamp(28px,3vw,48px)",fontWeight:500,letterSpacing:".01em",lineHeight:1}}>BIENVENIDO</div>
