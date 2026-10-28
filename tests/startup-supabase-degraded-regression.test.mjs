@@ -42,8 +42,7 @@ test("en indisponibilidad de Supabase no se disparan 10 consultas exactas",async
   t.after(()=>{globalThis.fetch=before;});
   const manifest=await fetchSupabaseVersions();
   assert.equal(manifest,null);
-  assert.equal(requests.length,1);
-  assert.match(requests[0],/rpc\/delta_source_versions/);
+  assert.equal(requests.length,0,"sin RPC ni consultas de respaldo durante saturación");
 });
 
 test("error de health es no fatal y la UI advierte copias no verificadas",()=>{
@@ -58,7 +57,7 @@ test("error de health es no fatal y la UI advierte copias no verificadas",()=>{
   assert.doesNotMatch(initial,/setFatalError\(/);
   assert.doesNotMatch(initial,/setLastUpdate\(new Date/);
   assert.match(app,/Estado de datos sin confirmar/);
-  assert.match(app,/No se pudo verificar si los datos guardados siguen vigentes/);
+  assert.match(app,/La vigencia de la copia local no pudo verificarse/);
   assert.match(views,/bienvenida:\["lista_equipos"\]/);
   assert.match(plugin,/runWithConcurrency_\(toCheck,2,async key/);
   assert.match(api,/const limitSupabasePageRequest=createRequestLimiter\(2\)/);
