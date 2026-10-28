@@ -16,20 +16,14 @@ function fakeResponse(rows,status=200){
   };
 }
 
-test("RPC de versiones fallido no dispara diez consultas count=exact adicionales",async t=>{
+test("No se invoca delta_source_versions: evitar COUNT y 42501 en anon",async t=>{
   const previous=globalThis.fetch;
   const calls=[];
-  globalThis.fetch=async(url)=>{
-    calls.push(String(url));
-    if(String(url).includes("/rpc/delta_source_versions"))
-      return fakeResponse({message:"statement timeout"},500);
-    throw new Error("No debe consultar el fallback masivo");
-  };
+  globalThis.fetch=async url=>{calls.push(String(url));throw new Error("Acceso inesperado a red");};
   t.after(()=>{globalThis.fetch=previous;});
   const manifest=await fetchSupabaseVersions();
   assert.equal(manifest,null);
-  assert.equal(calls.length,1,"solo un RPC acotado bajo degradación");
-  assert.equal(calls[0].includes("/rpc/delta_source_versions"),true);
+  assert.equal(calls.length,0,"la revisión de versiones no consulta PostgreSQL");
 });
 
 test("probe parcial obliga a revalidar origen incierto, sin marcarlo como fresco",async t=>{
