@@ -6,7 +6,6 @@ import { tallerCentralNavigationVitePlugin } from './scripts/taller-central-navi
 import { atrasoIchcFixesVitePlugin } from './scripts/atraso-ichc-fixes-vite-plugin.mjs'
 import { intelligentRefreshVitePlugin } from './scripts/intelligent-refresh-vite-plugin.mjs'
 import { equipmentLiveDataFixesVitePlugin } from './scripts/equipment-live-data-fixes-vite-plugin.mjs'
-import { supabaseSameOriginProxyVitePlugin } from './scripts/supabase-same-origin-proxy-vite-plugin.mjs'
 import { supabasePmReadFixVitePlugin } from './scripts/supabase-pm-read-fix-vite-plugin.mjs'
 import { abastecimientoLineEndingsVitePlugin } from './scripts/abastecimiento-line-endings-vite-plugin.mjs'
 import { abastecimientoInstantVitePlugin } from './scripts/abastecimiento-instant-vite-plugin.mjs'
@@ -37,7 +36,10 @@ import { controlRop02Rop05RefreshVitePlugin } from './scripts/control-rop02-rop0
 export default defineConfig({
   // Los parches siguientes usan anclas de texto. Normalizar CRLF antes de todos ellos
   // impide que un checkout de Windows convierta una diferencia de formato en un fallo de build.
-  plugins: [abastecimientoLineEndingsVitePlugin(), phase0PerformanceDiagnosticsVitePlugin(), controlRop02Rop05RefreshVitePlugin(), informeCostosResumenCategoriasVitePlugin(), pmPanelActive7DaysVitePlugin(), supabaseSameOriginProxyVitePlugin(), supabasePmReadFixVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02DailyControlRegressionVitePlugin(), administrativoDailyHiControlVitePlugin(), rop02TruckHistoryVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), equipmentLiveDataFixesVitePlugin(), abastecimientoInstantVitePlugin(), mutationIdempotencyVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfilePlaceholderCodeFixVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileLiveRop02FinalVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), equipmentProfilePmUnitsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), rop02ControlVehicleFiltersVitePlugin(), progressiveRowsVitePlugin(), react()],
+  // Las lecturas públicas van directo al Data API. El proxy Vercel abortaba el
+  // upstream a los 25 s y convertía una caída temporal de PostgREST en otro 504.
+  // La clave publishable ya es pública y Supabase soporta CORS.
+  plugins: [abastecimientoLineEndingsVitePlugin(), phase0PerformanceDiagnosticsVitePlugin(), controlRop02Rop05RefreshVitePlugin(), informeCostosResumenCategoriasVitePlugin(), pmPanelActive7DaysVitePlugin(), supabasePmReadFixVitePlugin(), rop02TruckPickupSplitVitePlugin(), rop02UnifyTrucksVitePlugin(), rop02DailyControlRegressionVitePlugin(), administrativoDailyHiControlVitePlugin(), rop02TruckHistoryVitePlugin(), rop02StateClassificationVitePlugin(), rop02Rop05PositiveHoursVitePlugin(), intelligentRefreshVitePlugin(), equipmentLiveDataFixesVitePlugin(), abastecimientoInstantVitePlugin(), mutationIdempotencyVitePlugin(), vehicleKmMaintenanceVitePlugin(), pmVehicleScopeVitePlugin(), pmVehicleDisplayVitePlugin(), equipmentProfileCodeHistoryVitePlugin(), equipmentProfilePlaceholderCodeFixVitePlugin(), equipmentProfileAliasProjectMultiselectVitePlugin(), equipmentProfileLiveRop02FinalVitePlugin(), equipmentProfileDeduplicateLastRop02VitePlugin(), equipmentProfileLocationVehicleLabelVitePlugin(), equipmentProfileVehicleArrowsVitePlugin(), equipmentProfilePmUnitsVitePlugin(), tallerCentralNavigationVitePlugin(), atrasoIchcFixesVitePlugin(), rop02ControlVehicleFiltersVitePlugin(), progressiveRowsVitePlugin(), react()],
   server: {
     host: '0.0.0.0'
   },

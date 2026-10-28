@@ -32,7 +32,9 @@ test("Rop02 auto-registra una nueva fuente sin quitar las cinco productivas",asy
   assert.equal(ROP02_PREFIX[example.dataset],"SRC|ROP02_BATIDERO|");
   assert.equal(rop02SourceFromKey("SRC|ROP02_BATIDERO|2026|12"),example.dataset);
   assert.equal(SUPABASE_TYPED_SOURCES.has(example.dataset),true);
-  for(const view of ["rop02","horometros","dashboard","ctrlEquipo","controlErrores","atrasoROP02","gestionHumanaHistorial","tallerCentral","listaEquipos","pmDashboard","vehiculos","bienvenida"]){
+  // Bienvenida sólo consulta Lista Maestra y sus RPC de resumen: no debe
+  // incorporar un histórico completo cuando el catálogo descubre un proyecto.
+  for(const view of ["rop02","horometros","dashboard","ctrlEquipo","controlErrores","atrasoROP02","gestionHumanaHistorial","tallerCentral","listaEquipos","pmDashboard","vehiculos"]){
     assert.ok(VIEW_SOURCES[view].includes(example.dataset),view);
   }
   assert.ok(DASHBOARD_PROJECT_DEFS.some(s=>s.source===example.dataset&&s.id==="BATIDERO"));

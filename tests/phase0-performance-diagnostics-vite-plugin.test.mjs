@@ -41,7 +41,7 @@ test("instrumenta cargas Supabase sin alterar select ni filtros",()=>{
   assert.match(code,/estimatedBytes:estimatePerfBytes\(raw\)/);
   assert.equal((code.match(/select:\"\*\"/g)||[]).length,(original.match(/select:\"\*\"/g)||[]).length);
   assert.match(code,/const PAGE_SIZE=1000/);
-  assert.match(code,/const PAGE_CONCURRENCY=4/);
+  assert.match(code,/const PAGE_CONCURRENCY=1/);
 });
 
 test("instrumenta escrituras de cache sin cambiar su implementación",()=>{

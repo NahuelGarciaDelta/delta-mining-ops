@@ -6,11 +6,12 @@ const read=path=>fs.readFileSync(new URL(path,import.meta.url),"utf8");
 const sources=read("../src/config/viewSources.js");
 const app=read("../src/App.jsx");
 
-test("Bienvenida recibe ROP02 y RMA15 hidratados sin snapshot bloqueante",()=>{
+test("Bienvenida usa resúmenes acotados sin hidratar históricos al inicio",()=>{
   const view=read("../src/modules/home/ViewBienvenida.jsx");
-  assert.match(sources,/bienvenida:\["rop02_fs","rop02_jm","rma15_fs","rma15_jm"/);
-  assert.match(sources,/bienvenida:\[[^\]]*"rop05"/);
+  assert.match(sources,/bienvenida:\["lista_equipos"\]/);
+  assert.doesNotMatch(sources,/bienvenida:\[[^\]]*"rop05"/);
   assert.match(view,/rop02All/);
+  assert.match(view,/getRop02LatestByEquipmentProject/);
   assert.doesNotMatch(app,/await getDashboardSnapshot\(/);
 });
 
