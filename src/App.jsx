@@ -251,6 +251,10 @@ export default function App(){
   }),[sidebarOpen]);
   const[errors,setErrors]=useState([]);
   const[fatalError,setFatalError]=useState(null);
+  // Avisos de disponibilidad independientes: una falla de salud de Supabase
+  // no impide navegar ni invalida copias de fuentes verificadas antes.
+  const[serviceWarning,setServiceWarning]=useState("");
+  const[sourceWarning,setSourceWarning]=useState("");
   const[health,setHealth]=useState(null);
   const[rawSources,setRawSources]=useState(()=>savedAppData.sources||{});
   const[loadedSources,setLoadedSources]=useState(()=>Object.fromEntries(Object.keys(savedAppData.sources||{}).map(k=>[k,true])));
@@ -481,13 +485,17 @@ export default function App(){
   },[rawSources,proyectoUsuario]);
 
   const loadInitial=useCallback(async()=>{
-    setLoading(true);setErrors([]);setFatalError(null);
+    // El ping consulta Supabase, NO Apps Script. Si está saturado, falla sólo
+    // el diagnóstico; cada módulo conserva su carga y sus propios errores.
     try{
       const h=await fetchHealth(APPS_SCRIPT_URL);
       setHealth(h);
-      setLastUpdate(new Date());
-    }catch(err){setFatalError(err.message);}
-    finally{setLoading(false);}
+      setServiceWarning("");
+    }catch(error){
+      setHealth(null);
+      setServiceWarning("Supabase no respondió a la verificación de conexión. Las fuentes pueden estar temporalmente desactualizadas.");
+      console.warn("Verificación de salud de Supabase fallida",error);
+    }
   },[]);
 
   const hydratedCacheKeysRef=useRef(new Set());
@@ -595,13 +603,22 @@ export default function App(){
     });
     // El último acceso puede superar 5 min sin que Supabase haya cambiado.
     // Verificar un manifiesto pequeño antes de volver a descargar miles de filas.
-    // Si falla el manifiesto, prevalece la lectura normal para no ocultar novedades.
+    // Con Supabase degradado no relanzar descargas históricas si hay caché:
+    // seguirán disponibles PERO se marca explícitamente la falta de verificación.
     if(!force&&toCheck.some(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
-      try{
-        const manifest=await fetchSyncVersions(APPS_SCRIPT_URL);
-        if(manifest?.ok)toCheck=planVersionedRefresh(toCheck,knownSources,manifest.versions,manifest.rowCounts);
-      }catch(error){
-        console.warn("Manifest no disponible; lectura de respaldo conservada.",error);
+      let manifest=null;
+      try{manifest=await fetchSyncVersions(APPS_SCRIPT_URL);}catch(error){
+        console.warn("Manifest Supabase no disponible.",error);
+      }
+      if(manifest?.ok){
+        toCheck=planVersionedRefresh(toCheck,knownSources,manifest.versions,manifest.rowCounts);
+        setSourceWarning("");
+      }else{
+        const hadCached=toCheck.filter(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data));
+        if(hadCached.length){
+          setSourceWarning("No se pudo verificar si los datos guardados siguen vigentes. Se muestran copias anteriores con fecha de última actualización conocida.");
+        }
+        toCheck=toCheck.filter(key=>!hadCached.includes(key));
       }
     }
     if(!toCheck.length)return;
@@ -621,13 +638,14 @@ export default function App(){
         if(result.status==='fulfilled'){
           if(!result.value.skipped)entries.push([key,result.value.value]);
         }else{
-          const previous=rawSourcesRef.current?.[key];
+          const previous=rawSourcesRef.current?.[key]||cacheRecords?.[key]?.value;
           const hasSavedData=previous?.ok&&Array.isArray(previous.data);
           if(hasSavedData){
             // Una actualización en segundo plano no debe interrumpir al usuario
             // cuando la pestaña conserva una copia utilizable. Se reintentará
             // automáticamente más adelante (o de inmediato al usar Actualizar).
             lastCheckedBySourceRef.current[key]=Date.now();
+            setSourceWarning("Algunas fuentes no pudieron actualizarse. Los datos guardados son anteriores; revisá la fecha indicada antes de tomar decisiones.");
             console.warn(`No se pudo actualizar ${key}; se mantiene la copia local.`,result.reason);
           }else{
             softErrors.push({source:key.toUpperCase(),message:result.reason?.message||'No se pudo cargar la fuente.'});
@@ -660,8 +678,11 @@ export default function App(){
       if(softErrors.length)setErrors(prev=>[...softErrors,...(prev||[]).filter(e=>!softErrors.some(se=>se.source===e.source))]);
       else setErrors(prev=>(prev||[]).filter(e=>!toCheck.some(k=>e.source===k.toUpperCase())));
 
-      const hasAnyUsable=requested.some(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data))||entries.length>0;
-      if(!hasAnyUsable&&softErrors.length===toCheck.length)setFatalError('No se pudieron cargar los datos y no existe una copia local disponible.');
+      // Aunque fallen TODAS las fuentes solicitadas, los controles globales
+      // y otros módulos permanecen accesibles. No convertirlo en error fatal.
+      if(softErrors.length&&entries.length===0){
+        setSourceWarning("Las fuentes de esta vista no respondieron. No se deben interpretar los valores vacíos como datos actuales.");
+      }
     }catch(err){
       const hasAnyData=requested.some(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data));
       if(hasAnyData){
@@ -669,7 +690,10 @@ export default function App(){
         // Se informa sólo en la consola para no llenar la aplicación de carteles.
         requested.forEach(key=>{lastCheckedBySourceRef.current[key]=Date.now();});
         console.warn("No se pudo completar la actualización; se mantiene la copia local.",err);
-      }else setFatalError(err.message);
+      }else{
+        setSourceWarning("No se pudo cargar la información de esta sección. Probá nuevamente cuando se restablezca Supabase.");
+        setErrors(prev=>[...prev,{source:"Supabase",message:err?.message||"Error de conexión"}]);
+      }
     }finally{
       setLoading(false);
       if(background||hasVisible)endBackgroundSync();
@@ -695,15 +719,18 @@ export default function App(){
     try{
       if(sources.length){
         let toRefresh=sources;
-        // Manual y automático revisan las versiones antes de descargar.
-        // El botón Actualizar omite snapshots idénticos, pero vuelve a leer
-        // normalmente si el manifiesto falla: nunca sacrifica consistencia.
+        // No multiplicar lecturas completas cuando el RPC de versiones falla.
+        // Se reintenta en el siguiente control o cuando el usuario navega.
         if(reason==="auto"||reason==="manual"){
-          try{
-            const manifest=await fetchSyncVersions(APPS_SCRIPT_URL,{force:reason==="manual"});
-            toRefresh=planVersionedRefresh(sources,rawSourcesRef.current,manifest?.ok?manifest.versions:null,manifest?.rowCounts);
-          }catch(error){
-            console.warn("No se pudo verificar la vigencia de los datasets; se recargarán.",error);
+          let manifest=null;
+          try{manifest=await fetchSyncVersions(APPS_SCRIPT_URL,{force:reason==="manual"});}
+          catch(error){console.warn("Versiones Supabase no disponibles.",error);}
+          if(manifest?.ok){
+            toRefresh=planVersionedRefresh(sources,rawSourcesRef.current,manifest.versions,manifest.rowCounts);
+            setSourceWarning("");
+          }else{
+            toRefresh=sources.filter(key=>!(rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data)));
+            setSourceWarning("Supabase no pudo confirmar la vigencia de los datos. Los existentes conservan su fecha anterior.");
           }
         }
         if(toRefresh.length)await loadSources(toRefresh,{force:true,background});
@@ -713,7 +740,8 @@ export default function App(){
       // Único motor de actualización: los módulos con endpoints propios registran
       // tareas en refreshManager y el botón global espera a que todas finalicen.
       await runRefreshTasks(view,{reason,refreshedAt});
-      setLastUpdate(new Date());
+      // No actualizar la marca temporal por un botón de refresco que no pudo
+      // confirmar ni una lectura real; las fuentes la fijan al completar éxito.
     }finally{if(!background)setLoading(false);}
   },[view,loadSources,loadInitial]);
 
@@ -725,7 +753,6 @@ export default function App(){
   // donde el resumen visual quedaba desfasado respecto del botón Actualizar.
 
   useEffect(()=>{
-    if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){loadInitial();return;}
     let cancelled=false;
     const run=()=>{if(!cancelled)loadSources(VIEW_SOURCES[view]||[],{background:true});};
     const id=typeof window.requestIdleCallback==="function"
@@ -1125,6 +1152,10 @@ export default function App(){
               </div>
             )}
             {!online&&<OfflineBanner lastUpdate={lastUpdate}/>}
+            {(serviceWarning||sourceWarning)&&<div role="status" style={{padding:"10px 13px",marginBottom:12,borderRadius:9,background:"rgba(245,158,11,.12)",border:"1px solid rgba(245,158,11,.48)",color:C.text,fontSize:12,lineHeight:1.5}}>
+              <strong style={{color:C.yellow}}>Estado de datos sin confirmar. </strong>{sourceWarning||serviceWarning}
+              {lastUpdate&&<span style={{display:"block",marginTop:3,color:C.textSub}}>Última información local conocida: {lastUpdate.toLocaleString("es-AR")}. No equivale a una sincronización reciente.</span>}
+            </div>}
             {errors.length>0&&!fatalError&&(
               <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                 {errors.map((e,i)=>(
