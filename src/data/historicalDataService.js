@@ -167,10 +167,25 @@ async function fetchRop02SourceFallback_(params={}){
 // orígenes coinciden con Supabase. Cuando el manifiesto falla, mantiene la
 // lectura viva de respaldo; no oculta partes nuevos ni cambia los filtros.
 export async function readDatasetQuery(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(memory.has(key)){const value=memory.get(key);remember_(key,value);return{...value,cacheHit:true,cacheLevel:"memory"};}const record=await readCachedSource(`query:${key}`).catch(()=>null);if(record?.data?.ok){remember_(key,record.data);return{...record.data,cacheHit:true,cacheLevel:"indexeddb",cacheUpdatedAt:record.updatedAt||null};}return null;}
-export async function fetchDatasetPage(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(pending.has(key))return pending.get(key);const started=performance.now();const versionPromise=fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null);const work=(async()=>{let response;if(isLiveDataset_(dataset))response=await fetchRop02SourceFallback_(params);else response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});const manifest=await versionPromise;const value={...response,versions:historicalVersionsForDataset(dataset,manifest)||{},rowCounts:historicalCountsForDataset(dataset,manifest)||{},cacheHit:false,cacheLevel:response?.fallbackSources?"source-live":"network",elapsedMs:Math.round(performance.now()-started)};remember_(key,value);lastRevalidatedAt.set(key,Date.now());await writeCachedSource(`query:${key}`,value).catch(()=>{});if(!isLiveDataset_(dataset))notifyDatasetUpdated_(dataset,key,value,params);return value;})();const guarded=isLiveDataset_(dataset)?withHardTimeout_(work,ROP02_HARD_TIMEOUT_MS+1000,"ROP02"):work;const task=guarded.catch(error=>{console.warn("No se confirmó la fuente "+dataset+"; no se inventan filas vacías.",error);throw error;}).finally(()=>{if(pending.get(key)===task)pending.delete(key);});pending.set(key,task);return task;}
+export async function fetchDatasetPage(dataset,params={}){const key=buildDatasetQueryKey(dataset,params);if(pending.has(key))return pending.get(key);const started=performance.now();const versionPromise=fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null);const work=(async()=>{let response;if(isLiveDataset_(dataset))response=await fetchRop02SourceFallback_(params);else response=await fetchDatasetQuery(APPS_SCRIPT_URL,{dataset,...params,limit:params.limit||250,offset:params.offset||0});const manifest=await versionPromise;const value={...response,versions:historicalVersionsForDataset(dataset,manifest)||{},rowCounts:historicalCountsForDataset(dataset,manifest)||{},cacheHit:false,cacheLevel:response?.fallbackSources?"source-live":"network",elapsedMs:Math.round(performance.now()-started)};remember_(key,value);lastRevalidatedAt.set(key,Date.now());await writeCachedSource(`query:${key}`,value).catch(()=>{});if(!isLiveDataset_(dataset))notifyDatasetUpdated_(dataset,key,value,params);return value;})();// No usar Promise.race sobre la lectura viva: cortaba la espera pero NO
+// abortaba el fetch interno, permitiendo nuevas solicitudes superpuestas.
+const task=work.catch(error=>{console.warn("No se confirmó la fuente "+dataset+"; no se inventan filas vacías.",error);throw error;}).finally(()=>{if(pending.get(key)===task)pending.delete(key);});pending.set(key,task);return task;}
 function shouldRevalidate_(key){const last=Number(lastRevalidatedAt.get(key)||0);return !last||Date.now()-last>=DATA_REFRESH_INTERVAL_MS;}
 function revalidateDatasetInBackground_(dataset,params,cached){const key=buildDatasetQueryKey(dataset,params);if(!shouldRevalidate_(key))return;lastRevalidatedAt.set(key,Date.now());fetchSyncVersions(APPS_SCRIPT_URL).then(sync=>{if(!sync)return null;if(!historicalSnapshotMatchesManifest(dataset,cached,sync))return fetchDatasetPage(dataset,params);return null;}).catch(()=>{});}
-export async function getDataset(dataset,params={}){const live=isLiveDataset_(dataset);const cached=await readDatasetQuery(dataset,params);if(!cached)return fetchDatasetPage(dataset,params);const requireFresh=Boolean(live||params?.requireFresh||params?.desde||params?.hasta);if(requireFresh){let sync=null;try{sync=await fetchSyncVersions(APPS_SCRIPT_URL);}catch(_){}if(historicalSnapshotMatchesManifest(dataset,cached,sync)){lastRevalidatedAt.set(buildDatasetQueryKey(dataset,params),Date.now());return cached;}if(!sync&&!live)return cached;return fetchDatasetPage(dataset,params);}revalidateDatasetInBackground_(dataset,params,cached);return cached;}
+// Paginación e historial comparten un único período de revalidación por
+// consulta. Sólo un usuario que solicite requireFresh fuerza lectura inmediata.
+// No consultar delta_source_versions, que fallaba con anon y hacía COUNT(*).
+export async function getDataset(dataset,params={}){
+  const key=buildDatasetQueryKey(dataset,params);
+  const cached=await readDatasetQuery(dataset,params);
+  if(!cached||params?.requireFresh===true)return fetchDatasetPage(dataset,params);
+  const last=Number(lastRevalidatedAt.get(key)||0)
+    ||Date.parse(cached.cacheUpdatedAt||cached.meta?.fetchedAt||"")||0;
+  const age=Date.now()-last;
+  if(!Number.isFinite(age)||age<0||age>=20*60*1000)
+    return fetchDatasetPage(dataset,params);
+  return {...cached,cacheHit:true,cacheVerifiedAt:new Date(last).toISOString()};
+}
 export async function getRop02(params={}){
   const immediate=officeControlImmediateResponse_("rop02",params);
   if(immediate)return filterAssignedProjectsResponse_(immediate);
