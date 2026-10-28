@@ -193,48 +193,36 @@ function lightweightVersionQuery_(source){
   return{table:source,params:{select:"synced_at",order:"synced_at.desc",limit:1}};
 }
 
+// Diagnóstico opcional, nunca automático: sólo lee una fila por origen, sin
+// Prefer:count=exact. Este pulso detecta cambios recientes, pero NO confirma
+// revisiones de filas históricas ni puede certificar la vigencia de una caché.
 export async function fetchSupabaseVersionsLightweight(){
   const results=await Promise.allSettled(LIGHTWEIGHT_VERSION_SOURCES().map(async source=>{
     const {table,params}=lightweightVersionQuery_(source);
-    const {data,response}=await limitSupabasePageRequest(()=>
-      request(`/rest/v1/${table}?${queryString(params)}`,{prefer:"count=exact",timeoutMs:8000}));
-    const range=String(response.headers.get("content-range")||"");
-    const matched=range.match(/\/(\d+)$/);
-    if(!matched)throw new Error(`La fuente ${source} no confirmó su cantidad`);
-    const count=Number(matched[1]);
+    const {data}=await limitSupabasePageRequest(()=>
+      request(`/rest/v1/${table}?${queryString(params)}`,{timeoutMs:8000}));
     const stamp=Array.isArray(data)?data[0]?.synced_at:null;
     const version=stamp?Date.parse(stamp):0;
-    if(count>0&&(!Number.isFinite(version)||version<=0))
-      throw new Error(`La fuente ${source} no confirmó su versión`);
-    return {source,count,version:count===0?0:version};
+    if(stamp&&(!Number.isFinite(version)||version<=0))
+      throw new Error(`Origen ${source}: marca de tiempo inválida`);
+    return {source,version};
   }));
-  const versions={},rowCounts={};
+  const versions={};
   results.forEach(result=>{
-    if(result.status!=="fulfilled")return;
-    const {source,count,version}=result.value;
-    versions[source]=version;rowCounts[source]=count;
+    if(result.status==="fulfilled")versions[result.value.source]=result.value.version;
   });
   if(!Object.keys(versions).length)return null;
-  return {ok:true,source:"supabase-lightweight",versions,rowCounts,serverTime:new Date().toISOString()};
+  // No incluir rowCounts ni usar estos stamps como prueba de equivalencia
+  // entre Google Sheets y la base. Sólo son indicios para diagnóstico.
+  return {ok:true,source:"supabase-lightweight-hint",versions,serverTime:new Date().toISOString()};
 }
 
+// Deshabilitado en la aplicación pública: esta función RPC exige SELECT en
+// rop02_project_sources (no permitido a anon) y ejecuta COUNT(*) sobre los
+// históricos. No ampliar RLS ni usar SECURITY DEFINER para sortearlo.
+// La revalidación del frontend usa una cadencia acotada y lectura real.
 export async function fetchSupabaseVersions(){
-  try{
-    const {data}=await request("/rest/v1/rpc/delta_source_versions",{method:"POST",body:{},timeoutMs:5000});
-    const versions={},rowCounts={};
-    (Array.isArray(data)?data:[]).forEach(row=>{
-      versions[row.source_key]=Number(row.server_version||0);
-      const count=Number(row.rows);
-      if(row.rows!==null&&row.rows!==undefined&&Number.isSafeInteger(count)&&count>=0)rowCounts[row.source_key]=count;
-    });
-    return {ok:true,source:"supabase",versions,rowCounts,serverTime:new Date().toISOString()};
-  }catch(error){
-    // Bajo saturación, disparar diez SELECT count=exact agrava la caída.
-    // El consumidor conserva las fuentes locales señalándolas como NO VERIFICADAS
-    // y vuelve a consultar este único RPC en el siguiente ciclo.
-    console.warn("Manifiesto Supabase temporalmente no disponible; se evita la consulta masiva de respaldo.",error);
-    return null;
-  }
+  return null;
 }
 
 export async function fetchSupabasePmSnapshot(){
