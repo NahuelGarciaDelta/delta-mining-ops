@@ -9,7 +9,7 @@ import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
 import { equipmentProjectKey, normalizeRop02Project, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap } from "./homeAvailability.js";
 import {useEquipmentMovements} from "../../services/equipmentMovements.js";
-import {getRma15,getRma15OpenOtSummary,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
+import {getRma15OpenOtSummary,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 
 const norm=v=>String(v??"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim();
 const getVal=(row,cands)=>{const keys=Object.keys(row||{});for(const cand of cands){const w=norm(cand);for(const k of keys){const nk=norm(k);if(nk===w||nk.includes(w)||w.includes(nk))return row[k];}}return "";};
