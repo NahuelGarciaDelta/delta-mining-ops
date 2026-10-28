@@ -1149,30 +1149,11 @@ export default function App(){
             </div>
           </div>)}
           <div style={{flex:1,overflow:"auto",padding:showSidebar?16:0,background:"transparent"}}>
-            {areaRequeridaVista&&!puedeEditarVista&&view!=="bienvenida"&&(
-              <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:12,padding:"10px 13px",background:`${C.blue}12`,border:`1px solid ${C.blue}55`,borderRadius:9,color:C.textSub,fontSize:12,fontWeight:700}}>
-                <Icon name="eye" size={14} color={C.blue}/>
-                Modo solo lectura. El usuario pertenece a <strong style={{color:C.text}}>{areaUsuario||"SIN ÁREA"}</strong>. Solo <strong style={{color:C.blue}}>{areaRequeridaVista}</strong> y <strong style={{color:C.accent}}>OFICINA TÉCNICA</strong> pueden realizar modificaciones en esta sección.
-              </div>
-            )}
-            {EMERGENCY_READ_MODE&&<div role="status" style={{padding:"10px 13px",marginBottom:10,borderRadius:9,background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.55)",color:C.text,fontSize:12,lineHeight:1.5}}>
-              <strong>MODO RESPALDO · GOOGLE SHEETS</strong> — Lectura por Apps Script. Los módulos de datos históricos no dependen de PostgREST. La sincronización hacia Supabase y las operaciones de escritura NO se consideran verificadas. El proyecto El Fierro puede no estar disponible.
+            {/* Un único aviso visual de contingencia. Los permisos, errores y
+                verificaciones de las fuentes siguen vigentes internamente. */}
+            {EMERGENCY_READ_MODE&&<div role="status" title="Consulta temporal por Google Apps Script. Los registros pueden estar incompletos o pendientes de sincronización con Supabase." style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"10px 13px",marginBottom:12,borderRadius:9,background:"rgba(36,66,105,.23)",border:"1px solid rgba(91,151,215,.5)",color:"#f5f9ff",fontSize:13,fontWeight:900,letterSpacing:".14em"}}>
+              MODO DE SEGURIDAD
             </div>}
-            {!online&&<OfflineBanner lastUpdate={lastUpdate}/>}
-            {(serviceWarning||sourceWarning)&&<div role="status" style={{padding:"10px 13px",marginBottom:12,borderRadius:9,background:"rgba(245,158,11,.12)",border:"1px solid rgba(245,158,11,.48)",color:C.text,fontSize:12,lineHeight:1.5}}>
-              <strong style={{color:C.yellow}}>Estado de datos sin confirmar. </strong>{sourceWarning||serviceWarning}
-              {lastUpdate&&<span style={{display:"block",marginTop:3,color:C.textSub}}>Última información local conocida: {lastUpdate.toLocaleString("es-AR")}. No equivale a una sincronización reciente.</span>}
-            </div>}
-            {errors.length>0&&!fatalError&&(
-              <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-                {errors.map((e,i)=>(
-                  <div key={i} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"9px 12px",background:C.yellowDim,border:`1px solid ${C.yellow}44`,borderRadius:8,fontSize:12}}>
-                    <Icon name="warn" size={13} color={C.yellow} style={{flexShrink:0,marginTop:1}}/>
-                    <span><strong style={{color:C.yellow}}>{e.source}: </strong><span style={{color:C.textSub}}>{e.message}</span></span>
-                  </div>
-                ))}
-              </div>
-            )}
             {fatalError&&<ErrorScreen errors={[{source:"Supabase",message:fatalError}]} onRetry={loadData}/>}
             {!fatalError&&view!=="bienvenida"&&(loading&&!lastUpdate&&Object.keys(rawSources).length===0||(view==="dashboard"&&loading&&Object.keys(rawSources).length===0))&&(
               <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:14}}>
