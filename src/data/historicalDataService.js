@@ -184,7 +184,7 @@ export async function getDataset(dataset,params={}){
   const age=Date.now()-last;
   if(!Number.isFinite(age)||age<0||age>=20*60*1000)
     return fetchDatasetPage(dataset,params);
-  return {...cached,cacheHit:true,cacheVerifiedAt:new Date(last).toISOString()};
+  return {...cached,cacheHit:true,cacheReadAt:new Date(last).toISOString(),cacheUnverified:true};
 }
 export async function getRop02(params={}){
   const immediate=officeControlImmediateResponse_("rop02",params);
