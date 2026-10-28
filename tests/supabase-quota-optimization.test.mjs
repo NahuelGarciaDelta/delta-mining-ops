@@ -39,12 +39,21 @@ test('Taller simultaneous consumers share a complete history; subsequent read ob
  const data=await Promise.all(Array.from({length:4},()=>getAllTallerMovements()));assert.equal(calls,1);data.forEach(r=>assert.deepEqual(r,data[0]));assert.equal((await getAllTallerMovements())[0].id,2);assert.equal(calls,2);
 });
 
-test('repeated module navigation reuses version-confirmed historical cache; save/version change downloads fresh data',async t=>{
+test('repeated module navigation reuses bounded cache; explicit refresh reads newly saved data',async t=>{
  const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original});
- const {getRop05,clearHistoricalQueryMemory}=await import('../src/data/historicalDataService.js');
- const {fetchSyncVersions}=await import('../src/services/appsScriptApi.js');clearHistoricalQueryMemory();let version=100,rows=0;
- globalThis.fetch=async url=>{if(String(url).includes('delta_source_versions'))return response([{source_key:'rop05',server_version:version,rows:1}]);rows++;return response([{fecha:'2026-10-01',interno:'CTA-0530',raw_data:{},horas_productivas:version}])};
+ const {getRop05,refreshHistoricalDataset,clearHistoricalQueryMemory}=await import('../src/data/historicalDataService.js');
+ clearHistoricalQueryMemory();let version=100,rows=0;
+ globalThis.fetch=async url=>{
+   assert.doesNotMatch(String(url),/delta_source_versions/);
+   rows++;return response([{fecha:'2026-10-01',interno:'CTA-0530',raw_data:{},horas_productivas:version}]);
+ };
  const params={desde:'2026-09-26',hasta:'2026-10-25',limit:'all'};
- const first=await getRop05(params);for(let i=0;i<5;i++)assert.deepEqual((await getRop05(params)).data,first.data);assert.equal(rows,1);
- version=101;await fetchSyncVersions('',{force:true});const fresh=await getRop05(params);assert.equal(rows,2);assert.notDeepEqual(fresh.data,first.data);clearHistoricalQueryMemory();
+ const first=await getRop05(params);
+ for(let i=0;i<5;i++)assert.deepEqual((await getRop05(params)).data,first.data);
+ assert.equal(rows,1);
+ version=101;
+ const refreshed=await refreshHistoricalDataset('rop05',params);
+ assert.equal(rows,2);
+ assert.notDeepEqual(refreshed.data,first.data);
+ clearHistoricalQueryMemory();
 });
