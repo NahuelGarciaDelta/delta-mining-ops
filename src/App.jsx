@@ -746,6 +746,7 @@ export default function App(){
   },[view,loadSources,loadInitial]);
 
   const loadData=useCallback(()=>refreshCurrentView({background:false,reason:"manual"}),[refreshCurrentView]);
+  const loadWelcomeDashboard=useCallback(()=>loadSources(VIEW_SOURCES.dashboard,{background:true}),[loadSources]);
 
 
   // Bienvenida carga sus datasets mínimos mediante VIEW_SOURCES.
@@ -1178,7 +1179,7 @@ export default function App(){
             )}
             {!fatalError&&(view==="bienvenida"||lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
+                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} onLoadDashboard={loadWelcomeDashboard} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
                 {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
                 {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}
                 {["listaEquipos","tallerCentral","rop02","horometros","vehiculos","controlROP02","controlErrores","ctrlEquipo","atrasoROP02","combustible","rop05","rop05Discriminacion","rma15CtrlEquipo","chc","control"].includes(view)&&<ModuleErrorBoundary name="Oficina Técnica" onRetry={loadData}><OficinaTecnicaRoute
