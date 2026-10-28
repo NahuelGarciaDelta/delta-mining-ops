@@ -39,19 +39,19 @@ test("la version cero no permite afirmar que hay datos completos",()=>{
   assert.equal(historicalVersionsForDataset("rop05",{ok:true,versions:{rop05:0}}),null);
 });
 
-test("seguridad: los GET iniciales y manuales pasan por control de version",()=>{
+test("seguridad Nano: GET automático usa caché acotada y manual siempre fuerza lectura",()=>{
   const app=fs.readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
-  assert.match(app,/if\(!force&&toCheck\.some\(/);
-  assert.match(app,/planVersionedRefresh\(toCheck,knownSources,manifest\.versions,manifest\.rowCounts\)/);
+  assert.match(app,/SYNC_FRESH_MS=20\*60\*1000/);
   assert.match(app,/force:reason==="manual"/);
   assert.match(app,/if\(existingRequest\)return existingRequest/);
+  assert.doesNotMatch(app,/planVersionedRefresh\(toCheck,knownSources,manifest\.versions,manifest\.rowCounts\)/);
 });
 
-test("ROP02 filtrado solo reutiliza cache si su version sigue vigente",()=>{
+test("ROP02 filtrado revalida por cadencia y conserva la actualización explícita",()=>{
   const source=fs.readFileSync(new URL("../src/data/historicalDataService.js",import.meta.url),"utf8");
   assert.match(source,/const cached=await readDatasetQuery\(dataset,params\)/);
-  assert.match(source,/historicalSnapshotMatchesManifest\(dataset,cached,sync\)/);
-  assert.match(source,/if\(!sync&&!live\)return cached/);
-  assert.doesNotMatch(source,/live&&!isOfficeControlFullQuery_\(params\)\)return fetchDatasetPage/);
+  assert.match(source,/params\?\.requireFresh===true/);
+  assert.match(source,/age>=20\*60\*1000/);
+  assert.match(source,/cacheUnverified:true/);
   assert.match(source,/export const refreshHistoricalDataset=\(dataset,params=\{\}\)=>fetchDatasetPage/);
 });
