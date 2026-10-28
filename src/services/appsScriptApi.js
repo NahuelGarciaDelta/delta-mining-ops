@@ -103,8 +103,46 @@ export async function fetchRop02Bundle(_url,{force=false}={}){
 
 export async function fetchHealth(_url){return fetchSupabaseHealth();}
 
+// Continuidad operativa: Lista Maestra es una fuente chica (≈127 equipos).
+// Si PostgREST no responde, usar la misma hoja de origen por Apps Script V9.
+// El respaldo es SOLO de lectura, no reintenta escrituras y nunca inventa filas.
+async function fetchListaEquiposFromSheets_(url){
+  const controller=typeof AbortController!=="undefined"?new AbortController():null;
+  const timer=controller?setTimeout(()=>controller.abort(),45000):null;
+  try{
+    const target=buildAppsScriptUrl(url,"lista_equipos",{compact:"1",limit:"all"});
+    const response=await fetch(target,{cache:"no-store",redirect:"follow",signal:controller?.signal});
+    if(!response.ok)throw new Error(`Apps Script respondió HTTP ${response.status}`);
+    const text=await response.text();
+    let json;
+    try{json=JSON.parse(text);}catch(_){throw new Error("Respuesta JSON inválida del respaldo de Lista Maestra");}
+    const expanded=expandCompactResponse(json);
+    if(!expanded?.ok||!Array.isArray(expanded.data))throw new Error(expanded?.error?.message||"Respuesta de Lista Maestra inválida");
+    const meta=expanded.meta||{};
+    const rowsCount=Number(meta.rows??meta.totalRows??expanded.rows??expanded.data.length);
+    if(meta.hasMore===true||(Number.isFinite(rowsCount)&&rowsCount>expanded.data.length)){
+      throw new Error("El respaldo devolvió una Lista Maestra incompleta");
+    }
+    const firstRow=Number(meta.headerRow||5)+1;
+    const data=expanded.data.map((row,i)=>({...row,_sourceDataset:"lista_equipos",_sourceRow:Number.isInteger(row?._sourceRow)?row._sourceRow:firstRow+i}));
+    return {...expanded,source:"google-sheets-fallback",data,
+      meta:{...meta,source:"lista_equipos",rows:data.length,returnedRows:data.length,hasMore:false,
+        recoverySource:"Google Sheets · Apps Script V9",serverTime:new Date().toISOString()}};
+  }finally{if(timer)clearTimeout(timer);}
+}
+
 export async function fetchSource(_url,source,_options={}){
   const sourceKey=String(source||"");
+  if(sourceKey==="lista_equipos"){
+    try{return await fetchTypedSupabaseSource_(sourceKey);}
+    catch(supabaseError){
+      console.warn("Lista Maestra no disponible en Supabase; leyendo hoja de origen como respaldo",supabaseError);
+      try{return await shareAppsScriptRequest("lista-equipos-read-recovery",()=>fetchListaEquiposFromSheets_(_url));}
+      catch(sheetError){
+        throw new Error(`Lista Maestra: Supabase (${supabaseError?.message||"sin respuesta"}); respaldo de Google Sheets (${sheetError?.message||"sin respuesta"})`);
+      }
+    }
+  }
   if(SUPABASE_TYPED_SOURCES.has(sourceKey))return fetchTypedSupabaseSource_(sourceKey);
   return fetchAction(_url,sourceKey,_options);
 }
