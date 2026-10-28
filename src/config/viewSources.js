@@ -1,10 +1,11 @@
 import {ROP02_SOURCE_KEYS} from "./rop02Sources.js";
 const SECONDARY_ROP02_SOURCE_KEYS=ROP02_SOURCE_KEYS.filter(key=>key!=="rop02_fs"&&key!=="rop02_jm");
 export const VIEW_SOURCES = Object.freeze({
-  // El inicio prioriza las fuentes operativas registradas. Concurrencia=4:
-  // FDS/JM + RMA15 FDS/JM salen en la primera tanda; el resto queda listo detrás.
-  // ROP05 también se precarga para que Productividad/Control abran sin espera.
-  bienvenida:["rop02_fs","rop02_jm","rma15_fs","rma15_jm","insumos","lista_equipos","rop05",...SECONDARY_ROP02_SOURCE_KEYS],
+  // Inicio desacoplado: ViewBienvenida obtiene sus indicadores con RPCs
+  // pequeños y su caché propia. Cargar aquí ROP02/ROP05/RMA15 completos
+  // saturaba PostgREST al abrir la aplicación, incluso sin consultar módulos.
+  // Los históricos se cargan bajo demanda al entrar en su vista.
+  bienvenida:["lista_equipos"],
   equipmentProfile:["lista_equipos",...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","insumos"],
   // Dashboard usa los mismos datasets hidratados por App desde Supabase.
   // No existe una segunda carga monolítica ni un snapshot bloqueante de Apps Script.
