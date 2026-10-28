@@ -15,9 +15,10 @@ export function intelligentRefreshVitePlugin(){
 
       // Publicar cada fuente en cuanto termina. Antes React esperaba a que finalizara
       // la ÚLTIMA de todas las consultas (incluidos opcionales lentos) para mostrar JM/FDS.
+      // Máximo 2 fuentes en paralelo: evita saturación PostgREST ante fallas de base.
       next=next.replace(
         'const results=await runWithConcurrency_(toCheck,2,key=>fetchOneSource(key,{force,cacheRecords}));',
-        `const results=await runWithConcurrency_(toCheck,4,async key=>{\n        const item=await fetchOneSource(key,{force,cacheRecords});\n        if(!item.skipped){\n          const value=item.value;\n          rawSourcesRef.current={...rawSourcesRef.current,[key]:value};\n          loadedSourcesRef.current={...loadedSourcesRef.current,[key]:true};\n          startTransition(()=>{\n            setRawSources(prev=>({...prev,[key]:value}));\n            setLoadedSources(prev=>({...prev,[key]:true}));\n          });\n          setLastUpdate(new Date());\n        }\n        return {...item,skipped:true,_publishedImmediately:true};\n      });`
+        `const results=await runWithConcurrency_(toCheck,2,async key=>{\n        const item=await fetchOneSource(key,{force,cacheRecords});\n        if(!item.skipped){\n          const value=item.value;\n          rawSourcesRef.current={...rawSourcesRef.current,[key]:value};\n          loadedSourcesRef.current={...loadedSourcesRef.current,[key]:true};\n          startTransition(()=>{\n            setRawSources(prev=>({...prev,[key]:value}));\n            setLoadedSources(prev=>({...prev,[key]:true}));\n          });\n          setLastUpdate(new Date());\n        }\n        return {...item,skipped:true,_publishedImmediately:true};\n      });`
       );
 
       // El proxy ya resuelve un HTTP transitorio. Reintentar nuevamente desde React
