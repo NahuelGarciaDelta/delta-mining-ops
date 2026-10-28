@@ -16,14 +16,7 @@ const lastRevalidatedAt=new Map();
 const MAX_MEMORY_QUERIES=8;
 const HISTORICAL_UPDATED_EVENT="dm-historical-dataset-updated";
 const COMMON_HISTORICAL_QUERY=Object.freeze({limit:"all",offset:0,sortBy:"fecha",sortDirection:"desc"});
-const ROP02_HARD_TIMEOUT_MS=12000;
-
 function isLiveDataset_(dataset){return String(dataset||"").trim().toLowerCase()==="rop02";}
-function withHardTimeout_(promise,ms,label="consulta"){
-  let timer;
-  const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(`${label} excedió ${Math.round(ms/1000)} s`)),ms);});
-  return Promise.race([Promise.resolve(promise),timeout]).finally(()=>clearTimeout(timer));
-}
 function remember_(key,value){memory.delete(key);memory.set(key,value);while(memory.size>MAX_MEMORY_QUERIES)memory.delete(memory.keys().next().value);}
 function notifyDatasetUpdated_(dataset,key,value,params){if(typeof window==="undefined"||typeof window.dispatchEvent!=="function")return;try{window.dispatchEvent(new CustomEvent(HISTORICAL_UPDATED_EVENT,{detail:{dataset,key,value,params:{...(params||{})}}}));}catch(_){}}
 function normalizeHomeProject_(value){const raw=String(value||"").trim().toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ");if(!raw||raw==="TODOS"||raw==="TODO")return "TODOS";if(raw==="JM"||raw.includes("JOSE MARIA"))return "JOSE MARIA";if(raw==="FS"||raw==="FDS"||raw==="FILO"||raw.includes("FILO DEL SOL")||raw.includes("VICUNA"))return "FILO DEL SOL";if(raw==="FILOSUR"||raw.includes("FILO SUR"))return "FILO SUR";if(raw==="ZORRO"||raw.includes("EL ZORRO"))return "EL ZORRO";if(raw==="FIERRO"||raw.includes("EL FIERRO"))return "EL FIERRO";return raw;}
@@ -125,43 +118,24 @@ function isVehicleSnapshotRow_(row){const code=normalizeEquipmentSnapshotCode_(r
 function filterEquipmentOnlySnapshot_(response){if(!Array.isArray(response?.data))return response;const data=response.data.filter(row=>!isVehicleSnapshotRow_(row));return {...response,data,rows:data.length,total:data.length};}
 function normalizeProjectParam_(value){return normalizeHomeProject_(value||"");}
 function rowMatchesRop02Params_(row,params={}){const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");if(requestedProject&&requestedProject!=="TODOS"&&rowProject_(row)!==requestedProject)return false;const equipo=String(params.equipo||"").trim().toUpperCase();if(equipo){const code=String(row?.INTERNO??row?.maquina??row?.equipo??row?.Interno??"").trim().toUpperCase();if(!code.includes(equipo))return false;}const desde=String(params.desde||"").slice(0,10),hasta=String(params.hasta||"").slice(0,10);const fecha=String(row?.FECHA??row?.fecha??row?.Fecha??"").slice(0,10);if(desde&&fecha&&fecha<desde)return false;if(hasta&&fecha&&fecha>hasta)return false;return true;}
+// Un único query dirigido. Si falla PostgREST, NO descargar cinco históricos
+// completos como fallback: en Nano una falla disparaba múltiples lecturas
+// enormes y consumía el presupuesto de I/O. El llamador conserva la caché
+// anterior, identificada como no verificada, y puede reintentar manualmente.
 async function fetchRop02SourceFallback_(params={}){
-  const requestedProject=normalizeProjectParam_(params.proyecto||params.project||"");
-  let firstError=null;
-  try{
-    const response=await withHardTimeout_(fetchDatasetQuery(APPS_SCRIPT_URL,{dataset:"rop02",...params,limit:params.limit||5000,offset:params.offset||0},{timeoutMs:6000}),ROP02_HARD_TIMEOUT_MS,"ROP02");
-    const data=Array.isArray(response?.data)?response.data:[];
-    if(data.length){
-      const filtered=data.filter(row=>rowMatchesRop02Params_(row,params));
-      const direction=String(params.sortDirection||"desc").toLowerCase()==="asc"?1:-1;
-      filtered.sort((a,b)=>direction*String(a?.FECHA??a?.fecha??a?.Fecha??"").localeCompare(String(b?.FECHA??b?.fecha??b?.Fecha??"")));
-      return{...response,ok:true,data:filtered,rows:filtered.length,total:Number(response?.total||filtered.length),hasMore:Boolean(response?.hasMore),nextOffset:Number(response?.nextOffset||filtered.length),fallbackSources:false};
-    }
-  }catch(error){firstError=error;}
-
-  const sources=requestedProject&&requestedProject!=="TODOS"?ROP02_SOURCE_MAP.filter(([,project])=>normalizeProjectParam_(project)===requestedProject):ROP02_SOURCE_MAP;
-  if(!sources.length)throw firstError||new Error(`No existe una fuente ROP02 para ${requestedProject||"el proyecto solicitado"}`);
-
-  const settled=await Promise.allSettled(sources.map(async([source,project])=>{
-    const response=await withHardTimeout_(fetchSource(APPS_SCRIPT_URL,source,{force:false,retries:0,timeoutMs:6000}),ROP02_HARD_TIMEOUT_MS,`ROP02 ${project}`);
-    if(!response?.ok||!Array.isArray(response?.data))throw new Error(`${project}: respuesta ROP02 inválida`);
-    return response.data.map(row=>({...row,proyecto:row?.proyecto||row?.Proyecto||row?.PROYECTO||project,PROYECTO:row?.PROYECTO||row?.Proyecto||row?.proyecto||project}));
-  }));
-
-  const failures=settled
-    .map((result,index)=>({result,source:sources[index]?.[0],project:sources[index]?.[1]}))
-    .filter(({result})=>result.status!=="fulfilled");
-  if(failures.length){
-    const detail=failures.map(({source,project,result})=>`${project||source}: ${String(result.reason?.message||result.reason||"sin respuesta")}`).join(" · ");
-    throw new Error(`ROP02 incompleto. Se conserva la carga anterior y no se calculan faltantes con datos parciales. ${detail}`);
+  const response=await fetchDatasetQuery(APPS_SCRIPT_URL,{
+    dataset:"rop02",...params,limit:params.limit||5000,offset:params.offset||0
+  },{timeoutMs:12000});
+  if(response?.ok!==true||!Array.isArray(response.data)){
+    throw new Error(response?.error?.message||"ROP02: consulta sin datos válidos");
   }
-
-  let data=[];
-  settled.forEach(result=>{data.push(...result.value);});
-  data=data.filter(row=>rowMatchesRop02Params_(row,params));
+  const data=response.data.filter(row=>rowMatchesRop02Params_(row,params));
   const direction=String(params.sortDirection||"desc").toLowerCase()==="asc"?1:-1;
   data.sort((a,b)=>direction*String(a?.FECHA??a?.fecha??a?.Fecha??"").localeCompare(String(b?.FECHA??b?.fecha??b?.Fecha??"")));
-  return{ok:true,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length,fallbackSources:true,queryFallbackError:firstError?String(firstError?.message||firstError):""};
+  return {...response,ok:true,data,rows:data.length,
+    // No inventar total: el servidor puede devolver solamente una página.
+    total:response.total??null,hasMore:Boolean(response.hasMore),
+    nextOffset:response.nextOffset??null,fallbackSources:false};
 }
 // ROP02 filtrado reutiliza snapshots únicamente si las versiones de sus cuatro
 // orígenes coinciden con Supabase. Cuando el manifiesto falla, mantiene la
