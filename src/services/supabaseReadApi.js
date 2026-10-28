@@ -5,11 +5,11 @@ const env=(typeof import.meta!=="undefined"&&import.meta.env)?import.meta.env:{}
 const SUPABASE_URL=String(env.VITE_SUPABASE_URL||"https://jwfocqaxlckuxoklwyxs.supabase.co").replace(/\/+$/,"");
 const SUPABASE_KEY=String(env.VITE_SUPABASE_ANON_KEY||"sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2").trim();
 const PAGE_SIZE=1000;
-const PAGE_CONCURRENCY=4;
+const PAGE_CONCURRENCY=1; // Páginas secuenciales: sin ráfagas durante sobrecarga de Disk I/O
 const REQUEST_TIMEOUT_MS=45000;
 const ADAPT_CHUNK_SIZE=1200;
 // El límite es GLOBAL, no por fuente: evita picos al cambiar de módulo.
-const limitSupabasePageRequest=createRequestLimiter(5);
+const limitSupabasePageRequest=createRequestLimiter(2);
 
 export const SUPABASE_TYPED_SOURCES=new Set([
   ...ROP02_SOURCE_KEYS,
@@ -67,17 +67,20 @@ async function fetchPage(table,params,offset,{count=false,pageSize=PAGE_SIZE}={}
   return limitSupabasePageRequest(()=>request(`/rest/v1/${table}?${queryString({...params,limit:pageSize,offset})}`,{prefer:count?"count=exact":""}));
 }
 
+// No usar Prefer: count=exact en historiales completos: fuerza un COUNT(*)
+ // adicional sobre vistas ROP02/RMA15, confirmado como origen de statement_timeout.
+ // La página corta (menos de PAGE_SIZE) es el fin seguro de la consulta.
 async function fetchAll(table,params={}){
-  const first=await fetchPage(table,params,0,{count:true});
-  const firstRows=Array.isArray(first.data)?first.data:[];
-  const match=String(first.response.headers.get("content-range")||"").match(/\/(\d+)$/);
-  const total=match?Number(match[1]):firstRows.length;
-  if(!Number.isFinite(total)||total<=firstRows.length)return firstRows;
-  const offsets=[];for(let offset=PAGE_SIZE;offset<total;offset+=PAGE_SIZE)offsets.push(offset);
-  const pages=await runLimited(offsets,PAGE_CONCURRENCY,async offset=>{
-    const page=await fetchPage(table,params,offset);return Array.isArray(page.data)?page.data:[];
-  });
-  return [firstRows,...pages].flat();
+  const rows=[];
+  const MAX_PAGES=250; // protección: fallar antes que devolver un historial truncado
+  for(let pageNumber=0;pageNumber<MAX_PAGES;pageNumber++){
+    const offset=pageNumber*PAGE_SIZE;
+    const page=await fetchPage(table,params,offset,{count:false,pageSize:PAGE_SIZE});
+    const batch=Array.isArray(page.data)?page.data:[];
+    rows.push(...batch);
+    if(batch.length<PAGE_SIZE)return rows;
+  }
+  throw new Error(`La fuente ${table} superó el límite seguro de páginas; no se devuelve un historial incompleto.`);
 }
 
 function yieldMainThread_(){
@@ -226,8 +229,11 @@ export async function fetchSupabaseVersions(){
     });
     return {ok:true,source:"supabase",versions,rowCounts,serverTime:new Date().toISOString()};
   }catch(error){
-    console.warn("Manifiesto Supabase no disponible: revalidación liviana de respaldo",error);
-    return fetchSupabaseVersionsLightweight().catch(()=>null);
+    // Bajo saturación, disparar diez SELECT count=exact agrava la caída.
+    // El consumidor conserva las fuentes locales señalándolas como NO VERIFICADAS
+    // y vuelve a consultar este único RPC en el siguiente ciclo.
+    console.warn("Manifiesto Supabase temporalmente no disponible; se evita la consulta masiva de respaldo.",error);
+    return null;
   }
 }
 
