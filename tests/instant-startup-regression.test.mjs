@@ -21,7 +21,7 @@ test("IndexedDB acepta ROP02 independientes sin exigir bundleId",()=>{
 test("arranque pinta cache antes de red y publica cada fuente al terminar",()=>{
   assert.match(plugin,/rawSourcesRef\.current=cachedRaw/);
   assert.match(plugin,/loadedSourcesRef\.current=cachedLoaded/);
-  assert.match(plugin,/runWithConcurrency_\(toCheck,4/);
+  assert.match(plugin,/runWithConcurrency_\(toCheck,2/);
   assert.match(plugin,/_publishedImmediately:true/);
   assert.match(plugin,/window\.setTimeout\(run,0\)/);
 });
@@ -31,9 +31,9 @@ test("refrescos de lectura no fuerzan Sheets ni duplican reintentos",()=>{
   assert.match(plugin,/retries:0,timeoutMs:isRop02Source\?45000:20000/);
 });
 
-test("bienvenida prioriza ROP02 y RMA15 principales y precarga ROP05",()=>{
-  assert.match(views,/bienvenida:\["rop02_fs","rop02_jm","rma15_fs","rma15_jm"/);
-  assert.match(views,/bienvenida:\[[^\]]*"rop05"/);
+test("bienvenida no fuerza todo el historial en cada inicio",()=>{
+  assert.match(views,/bienvenida:\["lista_equipos"\]/);
+  assert.doesNotMatch(views,/bienvenida:\[[^\]]*"rop05"/);
 });
 
 test("lecturas pesadas usan Supabase y no Apps Script",()=>{
@@ -43,7 +43,7 @@ test("lecturas pesadas usan Supabase y no Apps Script",()=>{
   assert.match(api,/fetchSupabaseVersions/);
   assert.match(supabaseRead,/rop02_frontend/);
   assert.match(supabaseRead,/rma15_frontend/);
-  assert.match(supabaseRead,/PAGE_CONCURRENCY=4/);
+  assert.match(supabaseRead,/PAGE_CONCURRENCY=1/);
   assert.match(supabaseRead,/REQUEST_TIMEOUT_MS=45000/);
 });
 
