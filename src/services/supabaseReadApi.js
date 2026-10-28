@@ -64,7 +64,10 @@ async function runLimited(items,limit,worker){
 }
 
 async function fetchPage(table,params,offset,{count=false,pageSize=PAGE_SIZE}={}){
-  return limitSupabasePageRequest(()=>request(`/rest/v1/${table}?${queryString({...params,limit:pageSize,offset})}`,{prefer:count?"count=exact":""}));
+  // La Lista Maestra tiene pocos registros; si el gateway no responde en 8 s,
+  // activar la fuente de respaldo (Google Sheets), sin esperar el corte de 25 s.
+  const timeoutMs=table==="lista_equipos"?8000:REQUEST_TIMEOUT_MS;
+  return limitSupabasePageRequest(()=>request(`/rest/v1/${table}?${queryString({...params,limit:pageSize,offset})}`,{prefer:count?"count=exact":"",timeoutMs}));
 }
 
 // No usar Prefer: count=exact en historiales completos: fuerza un COUNT(*)
