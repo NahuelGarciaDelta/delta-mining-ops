@@ -503,7 +503,7 @@ export default function App(){
   const lastCheckedBySourceRef=useRef({});
   const welcomePreloadStartedRef=useRef(false);
   const activeSyncCountRef=useRef(0);
-  const SYNC_FRESH_MS=5*60*1000;
+  const SYNC_FRESH_MS=20*60*1000; // Nano: jamás recargar históricos cada 5 minutos por navegador.
 
   const beginBackgroundSync=useCallback(()=>{
     activeSyncCountRef.current+=1;
@@ -605,21 +605,12 @@ export default function App(){
     // Verificar un manifiesto pequeño antes de volver a descargar miles de filas.
     // Con Supabase degradado no relanzar descargas históricas si hay caché:
     // seguirán disponibles PERO se marca explícitamente la falta de verificación.
+    // El RPC delta_source_versions es inaccesible a anon y hacía COUNT(*).
+    // La revalidación se apoya en la cadencia de 20 min POR FUENTE (arriba)
+    // y en el botón Actualizar para lecturas inmediatas. No se disparan 10
+    // SELECTs como "fallback". Una copia local no se declara verificada.
     if(!force&&toCheck.some(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
-      let manifest=null;
-      try{manifest=await fetchSyncVersions(APPS_SCRIPT_URL);}catch(error){
-        console.warn("Manifest Supabase no disponible.",error);
-      }
-      if(manifest?.ok){
-        toCheck=planVersionedRefresh(toCheck,knownSources,manifest.versions,manifest.rowCounts);
-        setSourceWarning("");
-      }else{
-        const hadCached=toCheck.filter(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data));
-        if(hadCached.length){
-          setSourceWarning("No se pudo verificar si los datos guardados siguen vigentes. Se muestran copias anteriores con fecha de última actualización conocida.");
-        }
-        toCheck=toCheck.filter(key=>!hadCached.includes(key));
-      }
+      setSourceWarning("La vigencia de la copia local no pudo verificarse con un manifiesto. Se revalidará mediante lectura real; revisá la última fecha de actualización.");
     }
     if(!toCheck.length)return;
 
@@ -721,19 +712,9 @@ export default function App(){
         let toRefresh=sources;
         // No multiplicar lecturas completas cuando el RPC de versiones falla.
         // Se reintenta en el siguiente control o cuando el usuario navega.
-        if(reason==="auto"||reason==="manual"){
-          let manifest=null;
-          try{manifest=await fetchSyncVersions(APPS_SCRIPT_URL,{force:reason==="manual"});}
-          catch(error){console.warn("Versiones Supabase no disponibles.",error);}
-          if(manifest?.ok){
-            toRefresh=planVersionedRefresh(sources,rawSourcesRef.current,manifest.versions,manifest.rowCounts);
-            setSourceWarning("");
-          }else{
-            toRefresh=sources.filter(key=>!(rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data)));
-            setSourceWarning("Supabase no pudo confirmar la vigencia de los datos. Los existentes conservan su fecha anterior.");
-          }
-        }
-        if(toRefresh.length)await loadSources(toRefresh,{force:true,background});
+        // Manual fuerza una lectura real aun con caché; automático respeta
+        // los 20 min por fuente y la caché local. Ningún RPC hace recuentos.
+        if(toRefresh.length)await loadSources(toRefresh,{force:reason==="manual",background});
       }
       else if(view==="bienvenida")await loadInitial();
 
