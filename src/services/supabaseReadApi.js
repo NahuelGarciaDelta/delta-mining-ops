@@ -303,10 +303,15 @@ export async function fetchSupabaseDatasetQuery(params={}){
     raw=await fetchAll(config.table,base);total=raw.length;nextOffset=raw.length;
   }else{
     const limit=Math.min(Math.max(Number(params.limit)||250,1),2000),offset=Math.max(Number(params.offset)||0,0);
-    const page=await request(`/rest/v1/${config.table}?${queryString({...base,limit,offset})}`,{prefer:"count=exact"});
-    raw=Array.isArray(page.data)?page.data:[];
-    const match=String(page.response.headers.get("content-range")||"").match(/\/(\d+)$/);total=match?Number(match[1]):raw.length;
-    const next=offset+raw.length;hasMore=next<total;nextOffset=hasMore?next:null;
+    // Pedir una fila extra permite paginar sin Prefer: count=exact. En ROP02
+    // ese COUNT(*) recorría el historial/vista en cada navegación y agotaba
+    // el I/O de la instancia aun cuando el usuario sólo necesitaba una página.
+    const page=await request(`/rest/v1/${config.table}?${queryString({...base,limit:limit+1,offset})}`);
+    const batch=Array.isArray(page.data)?page.data:[];
+    hasMore=batch.length>limit;
+    raw=hasMore?batch.slice(0,limit):batch;
+    total=null; // desconocido por diseño: nunca inventar un conteo exacto.
+    const next=offset+raw.length;nextOffset=hasMore?next:null;
   }
   const data=await adaptRowsInChunks_(raw,config.adapt);
   return {ok:true,source:"supabase",data,rows:data.length,total,hasMore,nextOffset,offset:Number(params.offset||0),limit:params.limit||250};
