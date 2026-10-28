@@ -566,6 +566,9 @@ export default function App(){
       const isRop02Source=key.startsWith("rop02_");
       const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:isRop02Source?0:1,timeoutMs:isRop02Source?45000:20000});
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
+      if(fetched.source==="google-sheets-fallback"){
+        setSourceWarning("Lista Maestra recuperada directamente de Google Sheets. Los datos son de la hoja original, pero aún no está confirmada la sincronización con Supabase.");
+      }
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
       const value=mergeIncrementalSource(previous,fetched);
       const confirmsEmpty=Number(fetched?.meta?.rows)===0||fetched?.empty===true;
