@@ -16,7 +16,7 @@ import { APPS_SCRIPT_URL } from "./config/app.js";
 import { VIEW_SOURCES } from "./config/viewSources.js";
 import { planVersionedRefresh } from "./data/refreshPlanner.js";
 import { planDerivedRefresh } from "./data/derivedRefreshPlanner.js";
-import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcurrency_ } from "./services/appsScriptApi.js";
+import { fetchAction, fetchHealth, fetchSource, fetchSyncVersions, runWithConcurrency_, EMERGENCY_READ_MODE } from "./services/appsScriptApi.js";
 import { clearAuthenticatedSession, getAuthenticatedUser } from "./services/authSession.js";
 import { appAlert, appConfirm } from "./services/dialogService.js";
 import { APP_FILTERS_STATE_KEY, readSavedAppFilters, readSavedDataSources, saveDataSourcesToStorage, getCachedSourceTimestamp, mergeIncrementalSource, readCachedSourceRecords, readCachedSource, writeCachedSource } from "./services/appCache.js";
@@ -568,6 +568,9 @@ export default function App(){
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
       const value=mergeIncrementalSource(previous,fetched);
+      if(EMERGENCY_READ_MODE&&fetched.source==="google-sheets-contingency"){
+        setSourceWarning("MODO CONTINGENCIA: lectura directa desde Google Sheets mediante Apps Script. Las sincronizaciones con Supabase no están garantizadas.");
+      }
       const confirmsEmpty=Number(fetched?.meta?.rows)===0||fetched?.empty===true;
       if(previous?.data?.length>0&&value?.data?.length===0&&!confirmsEmpty)throw new Error('El servidor devolvió una respuesta vacía no confirmada');
       await writeCachedSource(key,value);
@@ -1152,6 +1155,9 @@ export default function App(){
                 Modo solo lectura. El usuario pertenece a <strong style={{color:C.text}}>{areaUsuario||"SIN ÁREA"}</strong>. Solo <strong style={{color:C.blue}}>{areaRequeridaVista}</strong> y <strong style={{color:C.accent}}>OFICINA TÉCNICA</strong> pueden realizar modificaciones en esta sección.
               </div>
             )}
+            {EMERGENCY_READ_MODE&&<div role="status" style={{padding:"10px 13px",marginBottom:10,borderRadius:9,background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.55)",color:C.text,fontSize:12,lineHeight:1.5}}>
+              <strong>MODO RESPALDO · GOOGLE SHEETS</strong> — Lectura por Apps Script. Los módulos de datos históricos no dependen de PostgREST. La sincronización hacia Supabase y las operaciones de escritura NO se consideran verificadas. El proyecto El Fierro puede no estar disponible.
+            </div>}
             {!online&&<OfflineBanner lastUpdate={lastUpdate}/>}
             {(serviceWarning||sourceWarning)&&<div role="status" style={{padding:"10px 13px",marginBottom:12,borderRadius:9,background:"rgba(245,158,11,.12)",border:"1px solid rgba(245,158,11,.48)",color:C.text,fontSize:12,lineHeight:1.5}}>
               <strong style={{color:C.yellow}}>Estado de datos sin confirmar. </strong>{sourceWarning||serviceWarning}
