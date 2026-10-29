@@ -371,6 +371,9 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const [agendaMonth,setAgendaMonth]=useState(()=>new Date(new Date().getFullYear(),new Date().getMonth(),1));
   const [agendaData,setAgendaData]=useState({programaciones:[],licitaciones:[],loading:true,error:""});
   useEffect(()=>{
+    // Agenda no participa del resumen general: no precargar sus dos servicios
+    // hasta que el usuario pulse Agenda.
+    if(activeView!=="agenda")return;
     let alive=true;
     Promise.allSettled([
       fetchAction(APPS_SCRIPT_URL,"mantenimiento_programado"),
@@ -386,7 +389,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       });
     });
     return()=>{alive=false;};
-  },[]);
+  },[activeView]);
   const favoriteOptions=[
     {id:"rop02",label:"ROP02",icon:"fileBarChart",color:"#38bdf8"},
     {id:"rma15CtrlEquipo",label:"RMA15",icon:"wrench",color:"#f59e0b"},
