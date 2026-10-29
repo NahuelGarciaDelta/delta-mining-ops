@@ -170,6 +170,9 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   const [saving, setSaving] = useState(false);
   const [configs, setConfigs] = useState([]);
   const [registros, setRegistros] = useState([]);
+  const [pmLoaded, setPmLoaded] = useState(false);
+  const [pmLoadError, setPmLoadError] = useState("");
+  const [pmReadSource, setPmReadSource] = useState("");
   const [proyectoFiltro, setProyectoFiltro] = useState(ALL);
   const [tipoFiltro, setTipoFiltro] = useState(ALL);
   const [equipoFiltro, setEquipoFiltro] = useState(ALL);
@@ -209,14 +212,20 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     if (!silent) setLoading(true);
     try {
       const json = await fetchAction(APPS_SCRIPT_URL, "mantenimiento_programado", { force: true });
-      if (!json?.ok) throw new Error(json?.error?.message || "No se pudo cargar Mantenimiento Programado.");
+      if (!json?.ok || !Array.isArray(json.config) || !Array.isArray(json.registros)
+        || !Array.isArray(json.programaciones) || !Array.isArray(json.repuestos))
+        throw new Error("Mantenimiento Programado no devolvió todas las colecciones verificables.");
+      setPmReadSource(json.pmReadSource || "supabase");
+      setPmLoadError("");
+      setPmLoaded(true);
       setConfigs(Array.isArray(json.config) ? json.config : []);
       setRegistros(Array.isArray(json.registros) ? json.registros : []);
       setProgramaciones(Array.isArray(json.programaciones) ? json.programaciones : JSON.parse(localStorage.getItem("dm_pm_programaciones") || "[]"));
       setRepuestos(Array.isArray(json.repuestos) ? json.repuestos : JSON.parse(localStorage.getItem("dm_pm_repuestos") || "[]"));
     } catch (err) {
-      if (!silent) appAlert?.(err.message);
-      else console.warn("No se pudo completar la recarga silenciosa de Mantenimiento Programado:", err);
+      // El error jamás se interpreta como "0 PM registrados".
+      setPmLoadError(String(err?.message || err));
+      console.warn("No se pudo recuperar el historial real de Mantenimiento Programado:", err);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -708,6 +717,13 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       : <div style={{ color: C?.textSub }}>Cargando mantenimiento programado…</div>}
   </div>;
 
+  if (!pmLoaded) return <div role="alert" style={{margin:16,padding:20,borderRadius:12,border:"1px solid rgba(245,158,11,.5)",background:"rgba(15,23,42,.88)",color:"#fff"}}>
+    <strong>Historial de Mantenimiento Programado no disponible</strong>
+    <p>La consulta principal y su respaldo deben completarse para mostrar registros e indicadores. No se interpretan los datos faltantes como cero.</p>
+    <div style={{fontSize:12,opacity:.83,marginBottom:12}}>{pmLoadError || "No se recibió todavía una respuesta completa."}</div>
+    <button type="button" onClick={()=>load()} style={{padding:"8px 12px",cursor:"pointer",borderRadius:7}}>Reintentar carga</button>
+  </div>;
+
   const tableHead = h => <th key={h} style={{ padding:"9px 10px",textAlign:"left",color:C?.textSub,borderBottom:`1px solid ${C?.border}`,whiteSpace:"nowrap" }}>{h}</th>;
   const tableCell = {padding:"9px 10px",borderBottom:`1px solid ${C?.border}33`,whiteSpace:"nowrap"};
   const fmtDate = d => d ? new Date(d).toLocaleDateString("es-AR") : "—";
@@ -731,6 +747,12 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   };
 
   return <div style={{ padding: 16 }}>
+    {pmReadSource==="google-sheets-fallback"&&<div role="status" style={{padding:"11px 14px",marginBottom:14,borderRadius:9,border:"1px solid rgba(59,130,246,.5)",background:"rgba(37,99,235,.15)",color:"#e3efff",fontSize:12}}>
+      <strong>RESPALDO DE MANTENIMIENTO PROGRAMADO · GOOGLE SHEETS</strong> — Los registros se leen de la hoja original. La sincronización con Supabase no está confirmada.
+    </div>}
+    {pmLoadError&&<div role="status" style={{padding:"9px 12px",marginBottom:12,color:"#ffe6ba",background:"rgba(245,158,11,.14)",borderRadius:8,fontSize:12}}>
+      No se pudo verificar una actualización posterior. Se conserva el último conjunto cargado: {pmLoadError}
+    </div>}
     {readOnly && <div style={{padding:"9px 12px",marginBottom:12,borderRadius:8,border:"1px solid rgba(59,130,246,.4)",background:"rgba(59,130,246,.09)",color:"#93c5fd",fontSize:11,fontWeight:700}}>Modo solo lectura: puede consultar la planificación y el historial, pero no registrar ni modificar PM.</div>}
     {(["dashboard","panel","planificador","gestion"].includes(tab)) && <div style={{ marginBottom: 14, padding: "14px 16px", borderRadius: 12, background: tab === "panel" ? "rgba(0,0,0,.72)" : "rgba(0,0,0,.55)", border: `1px solid ${C?.border || "#333"}`, backdropFilter: tab === "panel" ? "none" : "blur(8px)", WebkitBackdropFilter: tab === "panel" ? "none" : "blur(8px)" }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
