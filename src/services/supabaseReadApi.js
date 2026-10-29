@@ -141,13 +141,21 @@ function rop02Legacy(row={}){
 }
 
 function rop05Legacy(row={}){
-  return {...(row.raw_data||{}),
+  const raw=row.raw_data||{};
+  // La columna tipada observaciones puede quedar vacia aun cuando el texto
+  // historico exista bajo el encabezado largo de la hoja ROP05.
+  const observationRaw=Object.entries(raw).find(([key])=>
+    String(key).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().startsWith("observacion de la tarea")
+  )?.[1]??"";
+  const observaciones=(row.observaciones!==null&&row.observaciones!==undefined&&String(row.observaciones).trim()!=="")
+    ?row.observaciones:observationRaw;
+  return {...raw,
     "Fecha del Parte Diario":row.fecha,Fecha:row.fecha,Supervisor:row.supervisor,Proyecto:row.proyecto,
     "Codigo Int":row.interno,"Código Interno del Equipo":row.interno,Interno:row.interno,"N° de Parte":row.numero_parte,
     "Tipo Equipo":row.tipo_equipo,Tarea:row.tarea,"CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)":row.horas_productivas,Hs:row.horas_productivas,
     LARGO:row.largo,ANCHO:row.ancho,PROFUNDIDAD:row.profundidad,
     "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)":row.cantidad_produccion,Cantidad:row.cantidad_produccion,
-    "UNIDAD DE PRODUCTIVIDAD":row.unidad,Unidad:row.unidad,Observaciones:row.observaciones,Mes:row.mes,
+    "UNIDAD DE PRODUCTIVIDAD":row.unidad,Unidad:row.unidad,Observaciones:observaciones,Mes:row.mes,
     _sourceDataset:row.source_dataset,_sourceRow:row.source_row};
 }
 
