@@ -157,7 +157,7 @@ function rma15Legacy(row={}){
   // los campos tipados pueden ser vacios aunque el dato original exista.
   const firstNonEmpty=(...values)=>values.find(v=>v!==null&&v!==undefined&&String(v).trim()!=="")??"";
   const interventionRaw=Object.entries(raw).find(([key])=>
-    String(key).normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase().startsWith("intervencion o reparacion realizada")
+    String(key).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().startsWith("intervencion o reparacion realizada")
   )?.[1]??"";
   const effectiveTurno=firstNonEmpty(row.turno,raw["TURNO EN QUE SE HIZO LA OT"],raw["TURNO EN EL QUE SE REALIZO LA INTERVENCION"]);
   const effectiveIntervencion=firstNonEmpty(row.intervencion,interventionRaw);
