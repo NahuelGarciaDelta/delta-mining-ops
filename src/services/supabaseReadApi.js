@@ -252,17 +252,6 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
   return {ok:true,source:"supabase",data:rows,rows:rows.length,total:rows.length,referenceDate};
 }
 
-// Resumen pequeño para Inicio: no materializar RMA15 completo ni usar Apps Script.
-export async function fetchSupabaseRma15OpenOtSummary(){
-  const started=performance.now();
-  const {data}=await request("/rest/v1/rpc/rma15_open_ot_summary",{
-    method:"POST",body:{},timeoutMs:6500
-  });
-  if(!Array.isArray(data))throw new Error("Supabase no confirmó la lista de OT abiertas");
-  return {ok:true,source:"supabase-rpc",data,rows:data.length,total:data.length,
-    elapsedMs:Math.round(performance.now()-started)};
-}
-
 export async function fetchSupabaseHealth(){
   const started=performance.now();await request("/rest/v1/rop02?select=id&limit=1",{timeoutMs:5000});
   return {ok:true,source:"supabase",latencyMs:Math.round(performance.now()-started),serverTime:new Date().toISOString()};
