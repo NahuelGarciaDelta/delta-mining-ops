@@ -7,6 +7,13 @@ let rop02BundleMemo_={key:"",value:null,at:0,promise:null};
 let syncVersionsMemo_={value:null,at:0,promise:null};
 const typedSourceInflight_=new Map();
 const SYNC_VERSIONS_MEMO_MS=15000;
+let pmSnapshotSupabaseCooldownUntil_=0;
+const PM_SNAPSHOT_COOLDOWN_MS=5*60*1000;
+function validPmPayload_(data){
+  return data?.ok===true&&Array.isArray(data.config)&&Array.isArray(data.registros)
+    &&Array.isArray(data.programaciones)&&Array.isArray(data.repuestos);
+}
+
 
 function fetchTypedSupabaseSource_(source){
   const sourceKey=String(source||"");
@@ -53,8 +60,30 @@ export async function runWithConcurrency_(items,limit,worker){
 
 // Apps Script queda reservado para acciones que todavía no fueron migradas y para
 // escrituras. Los datasets pesados ya no pasan por este camino.
-export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,params:extraParams={}}={}){
-  if(String(action||"")==="mantenimiento_programado")return fetchSupabasePmSnapshot();
+export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,params:extraParams={},pmFromSheet=false}={}){
+  if(String(action||"")==="mantenimiento_programado"&&!pmFromSheet){
+    // Un único origen por lectura: Supabase primero; si falla la API, Google
+    // Sheets original por el Apps Script existente. Nunca fusionar versiones.
+    if(Date.now()>=pmSnapshotSupabaseCooldownUntil_){
+      try{
+        const snapshot=await fetchSupabasePmSnapshot();
+        if(!validPmPayload_(snapshot))throw new Error("Snapshot PM sin todas las colecciones");
+        pmSnapshotSupabaseCooldownUntil_=0;
+        return {...snapshot,pmReadSource:"supabase"};
+      }catch(error){
+        pmSnapshotSupabaseCooldownUntil_=Date.now()+PM_SNAPSHOT_COOLDOWN_MS;
+        console.warn("PM: falló el snapshot de Supabase; se intenta la hoja original",error);
+      }
+    }
+    const backup=await fetchAction(url,"mantenimiento_programado",{
+      force:false,compact:false,retries:0,timeoutMs:20000,pmFromSheet:true
+    });
+    if(!validPmPayload_(backup)){
+      throw new Error("La copia de PM en Google Sheets no devolvió las cuatro colecciones completas");
+    }
+    return {...backup,pmReadSource:"google-sheets-fallback",
+      pmReadWarning:"Respaldo temporal desde Google Sheets. No se confirmó la sincronización con Supabase."};
+  }
   if(SUPABASE_TYPED_SOURCES.has(String(action||"")))return fetchTypedSupabaseSource_(String(action||""));
 
   const requestParams={...(extraParams||{})};
