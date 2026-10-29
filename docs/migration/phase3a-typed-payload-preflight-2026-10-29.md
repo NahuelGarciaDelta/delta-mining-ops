@@ -30,3 +30,18 @@ Las pruebas locales resultaron correctas, pero todavía debe ejecutarse en el cl
 La fase 3B debe comparar payload contra las tablas reales antes de producir escrituras, resolver y probar la sincronización incremental y confirmar que los procesos antiguos no se deshabiliten antes de que se cubran sus dependencias (outbox, ROP02, ROP05, RMA15, insumos, etc.).
 
 No se modificaron los activadores, los proyectos Apps Script activos, las funciones SQL, Vercel producción ni `main`.
+
+## Resultado del primer dry-run con hojas reales y corrección V2
+
+La ejecución V1 del clon (19:30 hora Argentina) contó 13.350 filas y reportó validación fallida por considerar obligatoriamente numéricos valores históricos:
+- ROP05: **4.429 filas** con tres dimensiones `SIN DATOS` (13.287 celdas), que están conservadas en `raw_data`.
+- RMA15 JM: fila 445 `operativo=-` para trabajo sin equipo asignado y fila 809 `km_hs=S/H`.
+- RMA15 FS: `_`, `S/H`, `N/A` y vacíos; fila 123 `km_hs=EXC-0005`, fila 834 `operativo` vacío.
+
+Se confirmó en Supabase que en FS fila 123 el valor tipado `km_hs=-5` es una transformación errónea del identificador `EXC-0005`, y en fila 834 `equipo_operativo=false` pese a origen vacío. No se han modificado esos registros.
+
+El módulo **`DM_UNIFIED_ROP05_RMA15_PHASE3_DRYRUN_V2.gs`** se entrega como archivo local de conversación, para **reemplazar el contenido** del archivo V1 en el clon. V2 conserva todos los valores originales en `raw_data`, acepta marcadores históricos no numéricos en dimensiones opcionales, evita conversiones de códigos a números, distingue advertencias de errores y reduce el tamaño del log.
+
+En pruebas locales con los 13.350 registros simulados, los 3 datasets se mapearon sin errores fatales, se conservaron las 7 excepciones históricas JM y quedaron **dos advertencias explícitas FS 123 / 834**. Ninguna función de escritura fue invocada. **La prueba de los datos reales V2 sigue pendiente**.
+
+`ok:true` de V2 solo significa **mapeo posible**; **no habilita escritura** y permanece `readyForWrites:false`. Falta comparación de valores contra Supabase, verificación de claves y fuentes, y reconciliación segura de datos tipados.
