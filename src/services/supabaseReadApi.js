@@ -152,11 +152,20 @@ function rop05Legacy(row={}){
 }
 
 function rma15Legacy(row={}){
-  const legacy={...(row.raw_data||{}),"Fecha de OT":row.fecha_ot,Fecha:row.fecha_ot,Proyecto:row.proyecto,EQUIPO:row.equipo,Equipo:row.equipo,
+  const raw=row.raw_data||{};
+  // Las fuentes RMA15 historicas tienen turno e intervencion en raw_data;
+  // los campos tipados pueden ser vacios aunque el dato original exista.
+  const firstNonEmpty=(...values)=>values.find(v=>v!==null&&v!==undefined&&String(v).trim()!=="")??"";
+  const interventionRaw=Object.entries(raw).find(([key])=>
+    String(key).normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase().startsWith("intervencion o reparacion realizada")
+  )?.[1]??"";
+  const effectiveTurno=firstNonEmpty(row.turno,raw["TURNO EN QUE SE HIZO LA OT"],raw["TURNO EN EL QUE SE REALIZO LA INTERVENCION"]);
+  const effectiveIntervencion=firstNonEmpty(row.intervencion,interventionRaw);
+  const legacy={...raw,"Fecha de OT":row.fecha_ot,Fecha:row.fecha_ot,Proyecto:row.proyecto,EQUIPO:row.equipo,Equipo:row.equipo,
     "CODIGO N° INTERNO":row.interno,Interno:row.interno,"Km / hs":row.km_hs,"TIPO DE MANTENIMIENTO":row.tipo_mantenimiento,
     "¿EQUIPO QUEDO OPERATIVO?":row.equipo_operativo===true?"SI":row.equipo_operativo===false?"NO":"",
-    "TURNO EN QUE SE HIZO LA OT":row.turno,"TURNO EN EL QUE SE REALIZO LA INTERVENCION":row.turno,
-    "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":row.intervencion,
+    "TURNO EN QUE SE HIZO LA OT":effectiveTurno,"TURNO EN EL QUE SE REALIZO LA INTERVENCION":effectiveTurno,
+    "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":effectiveIntervencion,
     OBSERVACIONES:row.observaciones,"MAIL AVISADO":row.mail_avisado,_proyectoForzado:row.proyecto,_sourceDataset:row.source_dataset,_sourceRow:row.source_row};
   for(const item of row.insumos||[]){legacy[`codigo ${item.posicion}`]=item.codigo||"";legacy[`nombre ${item.posicion}`]=item.nombre||"";legacy[`cantidad ${item.posicion}`]=item.cantidad??"";}
   return legacy;
