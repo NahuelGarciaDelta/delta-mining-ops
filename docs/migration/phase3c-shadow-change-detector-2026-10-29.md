@@ -38,3 +38,24 @@ Archivo Apps Script: `DM_UNIFIED_ROP05_RMA15_PHASE3C_SHADOW_V1.gs` (13.7 kB).
 No activar nuevos escritores, disparadores ni alterar los dos proyectos originales hasta comparar valores de origen vs Supabase (no solo conteos), resolver insumos descriptivos FS filas 642 y 979 y operativo no informado fila 834, proteger `source_dataset+source_row`, implementar flujo de confirmación por lote y **prohibir siempre borrados**. Mantener costo de datos bajo y evitar réplica entera.
 
 No se modificaron Supabase, Vercel de producción, `main`, Apps Script en vivo ni sus activadores.
+
+## Resultado real: ciclos 1 y 2 aprobados
+
+El usuario ejecutó `dmUnifiedPhase3cStartV1` y `probarMigracionFase3cV1` en su clon Apps Script sin activadores.
+
+- **Ciclo 1**: `completed:true`; `scanned:13350`, `initialBaseline:13350`, `modified:0`, `added:0`, dos advertencias; huellas guardadas en ScriptProperties locales.
+- **Ciclo 2**: `completed:true`; `scanned:13350`, `initialBaseline:0`, `unchanged:13350`, `modified:0`, `added:0`, dos advertencias. Se reutilizaron huellas previas correctamente.
+- Hubo un fallo transitorio `CAMBIO DE ORIGEN / ENCABEZADO rop05` durante ciclo 1, pero el diagnóstico posterior `diagnosticarBloqueoFase3c` indicó `YA_COINCIDE` con mismo GID, encabezados, hashes y lastRow; el recorrido continuó y cerró sin modificar datos. La causa del cambio transitorio no quedó determinada.
+- **No hubo escrituras en Sheets ni Supabase ni instalaciones de activadores**. Aún no se ha probado un cambio real de hoja con una pasada completa (solo simulaciones locales).
+
+### Advertencia crítica para futura fase 3D
+
+El detector **actualiza huellas inmediatamente al procesar cada lote**. Esto sirve para auditoría *shadow*, pero **NO puede convertirse directamente en un productor de sincronización**. Si se usaran sus huellas para decidir qué enviar y se registrara la huella antes de que Supabase confirme la escritura, un fallo de red podría perder cambios. Una implementación real requiere:
+1. Baseline **confirmado** por lote/fila (última versión efectivamente aceptada en Supabase) separado del inventario local;
+2. cola de cambios pendientes con payload/hashes, reintentos y cursor, conservada hasta respuesta RPC exitosa verificada;
+3. condición de idempotencia en `(source_dataset,source_row)` y `p_delete_source_rows: []`, sin replicar datos históricos con unidades ambiguas;
+4. bloqueo de escritores concurrentes con el sincronizador heredado durante corte controlado, sin detener sus triggers hasta validar equivalencia de todos los datasets;
+5. controles de `raw_data` y campos tipados, especialmente observaciones ROP05, turno/lugar/intervención RMA15 y cantidades descriptivas de insumos;
+6. pruebas de interrupción después de enviar lote pero antes de guardar ACK, preservando la posibilidad de reenvío seguro (upsert idempotente).
+
+**Estado:** fase 3C aprobada como *detector en sombra*, no como mecanismo de sincronización desplegable.
