@@ -501,6 +501,8 @@ export default function App(){
   const hydratedCacheKeysRef=useRef(new Set());
   const sourceRequestsRef=useRef(new Map());
   const lastCheckedBySourceRef=useRef({});
+  // La fecha del archivo en IndexedDB no equivale a validación en esta sesión.
+  const rosterVerifiedThisSessionRef=useRef(false);
   const welcomePreloadStartedRef=useRef(false);
   const activeSyncCountRef=useRef(0);
   const SYNC_FRESH_MS=5*60*1000;
@@ -572,6 +574,7 @@ export default function App(){
       if(previous?.data?.length>0&&value?.data?.length===0&&!confirmsEmpty)throw new Error('El servidor devolvió una respuesta vacía no confirmada');
       await writeCachedSource(key,value);
       lastCheckedBySourceRef.current[key]=Date.now();
+      if(key==="lista_equipos")rosterVerifiedThisSessionRef.current=true;
       return {key,value,skipped:false};
     })();
 
@@ -599,6 +602,9 @@ export default function App(){
     let toCheck=force?requested:requested.filter(key=>{
       const hasData=knownSources[key]?.ok&&Array.isArray(knownSources[key].data);
       const fresh=now-Number(lastCheckedBySourceRef.current[key]||0)<SYNC_FRESH_MS;
+      // En una pestaña recién abierta, una copia puede tener 1 minuto de edad
+      // y aun así estar desactualizada: verificarla una vez con una lectura real.
+      if(key==="lista_equipos"&&!rosterVerifiedThisSessionRef.current)return true;
       return !hasData||!fresh;
     });
     // El último acceso puede superar 5 min sin que Supabase haya cambiado.
