@@ -45,3 +45,19 @@ El módulo **`DM_UNIFIED_ROP05_RMA15_PHASE3_DRYRUN_V2.gs`** se entrega como arch
 En pruebas locales con los 13.350 registros simulados, los 3 datasets se mapearon sin errores fatales, se conservaron las 7 excepciones históricas JM y quedaron **dos advertencias explícitas FS 123 / 834**. Ninguna función de escritura fue invocada. **La prueba de los datos reales V2 sigue pendiente**.
 
 `ok:true` de V2 solo significa **mapeo posible**; **no habilita escritura** y permanece `readyForWrites:false`. Falta comparación de valores contra Supabase, verificación de claves y fuentes, y reconciliación segura de datos tipados.
+
+
+## Dry-run real V2 y ajuste V3 (19:39, 29/10)
+
+El usuario ejecutó V2 sobre las hojas reales: ROP05 9.683/9.684, RMA15 JM 2.124/2.124 y RMA15 FS 1.542/1.542. El único fallo fue ROP05 fila **3165**: `cantidad_produccion="2 km"` con `unidad="KILÓMETROS LINEALES"`. Supabase ya registra `cantidad_produccion=2` y el literal `2 km` en `raw_data`.
+
+Las tres advertencias no bloqueantes de RMA15 FS fueron:
+- fila **642**: cantidad 5 `1 FILTRO TRANSMISION`;
+- fila **834**: estado operativo original vacío;
+- fila **979**: cantidad 6 `1 TERMOCONTRAIBLE`.
+
+El nuevo archivo de diagnóstico `DM_UNIFIED_ROP05_RMA15_PHASE3_DRYRUN_V3.gs`, generado en contenedor y entregado como archivo separado, acepta `2 km` solo con unidad de kilómetros lineales y preserva el literal original. No intenta convertir ciegamente cantidades mixtas de insumos. Las advertencias subsisten para revisión manual y el resultado `readyForWrites` sigue siendo `false`.
+
+Prueba simulada local V3 (13.350 registros + fila 3165 + caso de insumo descriptivo): `ok:true`, `failed:0`, 7 excepciones JM, cero accesos de escritura, rechazo explícito de incompatibilidad de unidad y fecha inválida. **El usuario todavía debe ejecutar V3 en el clon Apps Script real**.
+
+No se activan triggers ni escrituras y producción permanece intacta.
