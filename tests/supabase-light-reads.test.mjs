@@ -19,8 +19,8 @@ test("small typed source reads one page without count=exact",async()=>{
     assert.equal(calls.length,1);
     assert.equal(calls[0].method,"GET");
     assert.equal(calls[0].prefer,undefined);
-    assert.match(new URL(calls[0].url).searchParams.get("select")||"","raw_data");
-    assert.doesNotMatch(new URL(calls[0].url).searchParams.get("select")||"","^\\*$");
+    assert.match(new URL(calls[0].url).searchParams.get("select")||"",/raw_data/);
+    assert.doesNotMatch(new URL(calls[0].url).searchParams.get("select")||"",/^\*$/);
   }finally{globalThis.fetch=original;}
 });
 
