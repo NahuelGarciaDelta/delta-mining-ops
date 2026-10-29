@@ -68,16 +68,42 @@ async function fetchPage(table,params,offset,{count=false,pageSize=PAGE_SIZE}={}
 }
 
 async function fetchAll(table,params={}){
-  const first=await fetchPage(table,params,0,{count:true});
+  // Una fuente de menos de 1.000 filas no necesita COUNT(*) para descargar todo.
+  // Las fuentes grandes mantienen la paginacion paralela y el control de totalidad.
+  const first=await fetchPage(table,params,0);
   const firstRows=Array.isArray(first.data)?first.data:[];
-  const match=String(first.response.headers.get("content-range")||"").match(/\/(\d+)$/);
-  const total=match?Number(match[1]):firstRows.length;
-  if(!Number.isFinite(total)||total<=firstRows.length)return firstRows;
-  const offsets=[];for(let offset=PAGE_SIZE;offset<total;offset+=PAGE_SIZE)offsets.push(offset);
-  const pages=await runLimited(offsets,PAGE_CONCURRENCY,async offset=>{
-    const page=await fetchPage(table,params,offset);return Array.isArray(page.data)?page.data:[];
-  });
-  return [firstRows,...pages].flat();
+  if(firstRows.length<PAGE_SIZE)return firstRows;
+
+  let total=null;
+  try{
+    // HEAD no transfiere otra pagina de datos; solo obtiene el total para
+    // planificar las paginas restantes. Nunca usar count=exact en el GET inicial.
+    const {response}=await limitSupabasePageRequest(()=>
+      request(`/rest/v1/${table}?${queryString({...params,limit:1,offset:0})}`,{method:"HEAD",prefer:"count=exact"}));
+    const match=String(response.headers.get("content-range")||"").match(/\/(\d+)$/);
+    if(match)total=Number(match[1]);
+  }catch(_){
+    // Un HEAD no disponible no debe convertir una fuente legible en un error.
+    // Se usa paginacion secuencial hasta la primera pagina incompleta.
+  }
+
+  if(Number.isSafeInteger(total)&&total>=firstRows.length){
+    if(total===firstRows.length)return firstRows;
+    const offsets=[];for(let offset=PAGE_SIZE;offset<total;offset+=PAGE_SIZE)offsets.push(offset);
+    const pages=await runLimited(offsets,PAGE_CONCURRENCY,async offset=>{
+      const page=await fetchPage(table,params,offset);return Array.isArray(page.data)?page.data:[];
+    });
+    return [firstRows,...pages].flat();
+  }
+
+  const pages=[firstRows];
+  for(let offset=PAGE_SIZE;;offset+=PAGE_SIZE){
+    const page=await fetchPage(table,params,offset);
+    const rows=Array.isArray(page.data)?page.data:[];
+    pages.push(rows);
+    if(rows.length<PAGE_SIZE)break;
+  }
+  return pages.flat();
 }
 
 function yieldMainThread_(){
@@ -151,15 +177,19 @@ function listaEquiposLegacy(row={}){
 const insumoLegacy=row=>({...((row&&row.raw_data)||{}),Codigo:row?.codigo,"Código":row?.codigo,Descripcion:row?.descripcion,"Descripción":row?.descripcion,Precio:row?.precio_unitario,"Precio Unitario":row?.precio_unitario,_sourceDataset:row?.source_dataset,_sourceRow:row?.source_row});
 
 const ROP02_COLUMNS="fecha,interno,equipo,operador,supervisor_delta,supervisor_vial_cliente,turno_trabajo,numero_parte,proyecto,horometro_inicial,horometro_final,cantidad_horas,combustible,aceite,aceite_text,descripcion_trabajos,informacion_desgaste,observaciones,source_key,synced_at,estado";
+const ROP05_COLUMNS="source_dataset,source_row,fecha,mes,ancho,largo,profundidad,tarea,proyecto,interno,supervisor,tipo_equipo,numero_parte,unidad,horas_productivas,cantidad_produccion,observaciones,raw_data,synced_at";
+const RMA15_COLUMNS="source_dataset,source_row,fecha_ot,proyecto,equipo,interno,km_hs,tipo_mantenimiento,equipo_operativo,turno,intervencion,observaciones,mail_avisado,raw_data,synced_at,insumos";
+const LISTA_EQUIPOS_COLUMNS="source_dataset,source_row,codigo_nuevo,codigo_drusila,codigo_anterior,familia,marca,modelo,lugar_alquiler,raw_data,synced_at";
+const INSUMOS_COLUMNS="source_dataset,source_row,codigo,descripcion,precio_unitario,raw_data,synced_at";
 function sourceConfig(source){
   if(ROP02_PREFIX[source])return {table:"rop02_frontend",params:{
     select:ROP02_COLUMNS,
     source_key:`like.${ROP02_PREFIX[source]}*`,order:"fecha.asc,source_key.asc"},adapt:rop02Legacy};
-  if(source==="rop05")return {table:"rop05",params:{select:"*",order:"source_row.asc"},adapt:rop05Legacy};
-  if(source==="rma15_fs")return {table:"rma15_frontend",params:{select:"*",source_dataset:"eq.rma15_fs",order:"source_row.asc"},adapt:rma15Legacy};
-  if(source==="rma15_jm")return {table:"rma15_frontend",params:{select:"*",source_dataset:"eq.rma15_jm",order:"source_row.asc"},adapt:rma15Legacy};
-  if(source==="lista_equipos")return {table:"lista_equipos",params:{select:"*",order:"source_row.asc"},adapt:listaEquiposLegacy};
-  if(source==="insumos")return {table:"insumos",params:{select:"*",order:"source_row.asc"},adapt:insumoLegacy};
+  if(source==="rop05")return {table:"rop05",params:{select:ROP05_COLUMNS,order:"source_row.asc"},adapt:rop05Legacy};
+  if(source==="rma15_fs")return {table:"rma15_frontend",params:{select:RMA15_COLUMNS,source_dataset:"eq.rma15_fs",order:"source_row.asc"},adapt:rma15Legacy};
+  if(source==="rma15_jm")return {table:"rma15_frontend",params:{select:RMA15_COLUMNS,source_dataset:"eq.rma15_jm",order:"source_row.asc"},adapt:rma15Legacy};
+  if(source==="lista_equipos")return {table:"lista_equipos",params:{select:LISTA_EQUIPOS_COLUMNS,order:"source_row.asc"},adapt:listaEquiposLegacy};
+  if(source==="insumos")return {table:"insumos",params:{select:INSUMOS_COLUMNS,order:"source_row.asc"},adapt:insumoLegacy};
   return null;
 }
 
@@ -274,13 +304,13 @@ function datasetConfig(dataset,params={}){
     return {table:"rop02_frontend",query:q,adapt:rop02Legacy};
   }
   if(dataset==="rop05"){
-    const q=new URLSearchParams({select:"*"});setDateRange(q,"fecha",params.desde,params.hasta);
+    const q=new URLSearchParams({select:ROP05_COLUMNS});setDateRange(q,"fecha",params.desde,params.hasta);
     setExact(q,"proyecto",params.proyecto||params.project);setExact(q,"interno",params.equipo);setExact(q,"supervisor",params.supervisor);setExact(q,"unidad",params.unidad);setExact(q,"tarea",params.tarea);setExact(q,"tipo_equipo",params.tipo);
     q.set("order",`${params.sortBy==="maquina"?"interno":"fecha"}.${String(params.sortDirection||"desc").toLowerCase()==="asc"?"asc":"desc"},source_row.asc`);
     return {table:"rop05",query:q,adapt:rop05Legacy};
   }
   if(dataset==="rma15"){
-    const q=new URLSearchParams({select:"*"});setDateRange(q,"fecha_ot",params.desde,params.hasta);
+    const q=new URLSearchParams({select:RMA15_COLUMNS});setDateRange(q,"fecha_ot",params.desde,params.hasta);
     setExact(q,"proyecto",params.proyecto||params.project);setExact(q,"interno",params.equipo);setExact(q,"tipo_mantenimiento",params.tipo);
     q.set("order",`fecha_ot.${String(params.sortDirection||"desc").toLowerCase()==="asc"?"asc":"desc"},source_row.asc`);
     return {table:"rma15_frontend",query:q,adapt:rma15Legacy};
