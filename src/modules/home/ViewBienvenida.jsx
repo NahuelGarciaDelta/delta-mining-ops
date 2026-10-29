@@ -41,8 +41,13 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const [openOtSummary,setOpenOtSummary]=useState(null);
   const [fallbackRma15,setFallbackRma15]=useState(null);
   useEffect(()=>{
-    let alive=true;
-    getRop02LatestByEquipmentProject({}).then(response=>{
+    let alive=true,retryTimer=null;
+    // Una demora transitoria de Supabase no debe dejar la portada marcada como
+    // no verificada para toda la sesión. El resumen se reintenta en serie: sin
+    // ráfagas contra ROP02 y sin mostrar el aviso mientras la recuperación está en curso.
+    const loadSnapshot=async(attempt=0)=>{
+      try{
+      const response=await getRop02LatestByEquipmentProject({});
       if(!alive)return;
       if(!Array.isArray(response?.data))throw new Error("Resumen ROP02 no verificado");
       setSnapshotUnavailable(false);
@@ -56,8 +61,14 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         _snapshotActive:Number(row.CARGAS_7D??row.cargas7d??0)>0,
       }});
       startTransition(()=>setSnapshotRop02(rows));
-    }).catch(()=>{if(alive)setSnapshotUnavailable(true);});
-    return()=>{alive=false;};
+      }catch(_){
+        if(!alive)return;
+        if(attempt<2){retryTimer=setTimeout(()=>loadSnapshot(attempt+1),700*(attempt+1));return;}
+        setSnapshotUnavailable(true);
+      }
+    };
+    loadSnapshot();
+    return()=>{alive=false;if(retryTimer)clearTimeout(retryTimer);};
   },[]);
   // Si falla el resumen de OT no descargar el historial completo RMA15
   // como fallback: bajo sobrecarga ese SELECT masivo multiplica timeouts.
