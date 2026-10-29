@@ -608,7 +608,7 @@ export default function App(){
     // Inicio necesita solamente 132 filas de lista_equipos; es más barato y
     // más seguro releer esta pequeña fuente que ejecutar el manifiesto global
     // (que llegó a devolver 500). Una recarga siempre verifica el dato real.
-    const isHomeRosterOnly=view==="bienvenida"&&requested.length===1&&requested[0]==="lista_equipos";
+    const isHomeRosterOnly=requested.length===1&&requested[0]==="lista_equipos";
     if(!force&&!isHomeRosterOnly&&toCheck.some(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
       let manifest=null;
       try{manifest=await fetchSyncVersions(APPS_SCRIPT_URL);}catch(error){
@@ -702,7 +702,7 @@ export default function App(){
       setLoading(false);
       if(background||hasVisible)endBackgroundSync();
     }
-  },[view,hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
+  },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
 
   const onMetersConfirmed=useCallback(result=>{
     const source=rawSourcesRef.current.lista_equipos;
