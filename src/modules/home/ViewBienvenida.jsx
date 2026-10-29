@@ -5,6 +5,7 @@ import { APPS_SCRIPT_URL } from "../../config/app.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
 import { fetchStockData, readCachedStockData } from "../../services/stockService.js";
 import { readCachedSource, writeCachedSource } from "../../services/appCache.js";
+import { getAuthenticatedUser } from "../../services/authSession.js";
 import { canonicalEquivalentMachineCode } from "../../shared/domain/index.jsx";
 import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
@@ -31,6 +32,14 @@ let bienvenidaSummaryCache=null;
 let bienvenidaStockCache=null;
 const HOME_ROP02_CACHE_KEY="home:rop02_latest_v2";
 const HOME_OT_CACHE_KEY="home:rma15_open_ot_v2";
+// Separar copias operativas entre usuarios y proyectos: una sesión distinta
+// nunca debe visualizar el resumen privado guardado por otra.
+const scopedHomeCacheKey=base=>{
+  const user=getAuthenticatedUser();
+  const email=String(user?.email||window.sessionStorage?.getItem("dm_user")||"").trim().toLowerCase();
+  const project=String(window.sessionStorage?.getItem("dm_project")||"TODO").trim().toUpperCase();
+  return base+":"+encodeURIComponent(email)+":"+encodeURIComponent(project);
+};
 const homeCacheDate=value=>{const timestamp=Date.parse(String(value||""));return Number.isFinite(timestamp)?new Date(timestamp).toLocaleString("es-AR"):"fecha no disponible";};
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
@@ -53,13 +62,16 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   // La copia IndexedDB se presenta como "último dato conocido" hasta recibir
   // una respuesta vigente del RPC. Una nueva pestaña NUNCA la declara actual.
   useEffect(()=>{
-    let alive=true,verified=false,retryTimer=null;
-    readCachedSource(HOME_ROP02_CACHE_KEY).then(record=>{
+    let alive=true,verified=false,retryTimer=null,inflight=false;
+    const cacheKey=scopedHomeCacheKey(HOME_ROP02_CACHE_KEY);
+    readCachedSource(cacheKey).then(record=>{
       if(!alive||verified||!Array.isArray(record?.data?.data))return;
       startTransition(()=>setSnapshotRop02(record.data.data));
       setRopKnownAt(record?.data?.meta?.verifiedAt||record?.updatedAt||null);
     }).catch(()=>{});
     const loadSnapshot=async(attempt=0)=>{
+      if(inflight)return;
+      inflight=true;
       const started=performance.now();
       try{
         const response=await getRop02LatestByEquipmentProject({});
@@ -82,7 +94,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         setRopKnownAt(verifiedAt);
         setRopStatus("confirmed");
         setSnapshotUnavailable(false);
-        writeCachedSource(HOME_ROP02_CACHE_KEY,{ok:true,data:rows,meta:{verifiedAt}}).catch(()=>{});
+        writeCachedSource(cacheKey,{ok:true,data:rows,meta:{verifiedAt}}).catch(()=>{});
         if(typeof window!=="undefined"){
           window.__dmHomeTiming={...(window.__dmHomeTiming||{}),rop02Ms:Math.round(performance.now()-started),rop02Source:"rpc-live",rop02VerifiedAt:verifiedAt};
         }
@@ -92,32 +104,49 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         setRopStatus("error");
         setSnapshotUnavailable(true);
         console.warn("No se pudo verificar el snapshot ROP02; la copia anterior sigue marcada como tal.",error);
-      }
+      }finally{inflight=false;}
     };
+    const refresh=()=>{
+      if(retryTimer){clearTimeout(retryTimer);retryTimer=null;}
+      setRopStatus("validating");
+      loadSnapshot(0);
+    };
+    window.addEventListener("dm-home-summary-refresh",refresh);
     loadSnapshot();
-    return()=>{alive=false;if(retryTimer)clearTimeout(retryTimer);};
+    return()=>{
+      alive=false;if(retryTimer)clearTimeout(retryTimer);
+      window.removeEventListener("dm-home-summary-refresh",refresh);
+    };
   },[]);
   // OT: consumir el RPC específico (nunca todo RMA15). El valor guardado
   // se muestra sólo con la advertencia de falta de verificación.
   useEffect(()=>{
-    let alive=true,verified=false;
-    readCachedSource(HOME_OT_CACHE_KEY).then(record=>{
+    let alive=true,verified=false,inflight=false;
+    const cacheKey=scopedHomeCacheKey(HOME_OT_CACHE_KEY);
+    readCachedSource(cacheKey).then(record=>{
       if(!alive||verified||!Array.isArray(record?.data?.data))return;
       startTransition(()=>setOpenOtSummary(record.data.data));
       setOtKnownAt(record?.data?.meta?.verifiedAt||record?.updatedAt||null);
     }).catch(()=>{});
-    const started=performance.now();
-    getRma15OpenOtSummary({}).then(response=>{
-      if(!alive||!Array.isArray(response?.data))throw new Error("Resumen de OT no verificado");
-      verified=true;
-      const verifiedAt=new Date().toISOString();
-      setOpenOtSummary(response.data);
-      setOtStatus("confirmed");
-      setOtKnownAt(verifiedAt);
-      writeCachedSource(HOME_OT_CACHE_KEY,{ok:true,data:response.data,meta:{verifiedAt}}).catch(()=>{});
-      if(typeof window!=="undefined")window.__dmHomeTiming={...(window.__dmHomeTiming||{}),otMs:Math.round(performance.now()-started),otSource:"rpc-live",otVerifiedAt:verifiedAt};
-    }).catch(error=>{if(alive){setOtStatus("error");console.warn("No se pudo verificar el resumen de OT.",error);}});
-    return()=>{alive=false;};
+    const refresh=()=>{
+      if(inflight)return;
+      inflight=true;
+      setOtStatus("validating");
+      const started=performance.now();
+      getRma15OpenOtSummary({}).then(response=>{
+        if(!alive||!Array.isArray(response?.data))throw new Error("Resumen de OT no verificado");
+        verified=true;
+        const verifiedAt=new Date().toISOString();
+        setOpenOtSummary(response.data);
+        setOtStatus("confirmed");
+        setOtKnownAt(verifiedAt);
+        writeCachedSource(cacheKey,{ok:true,data:response.data,meta:{verifiedAt}}).catch(()=>{});
+        if(typeof window!=="undefined")window.__dmHomeTiming={...(window.__dmHomeTiming||{}),otMs:Math.round(performance.now()-started),otSource:"rpc-live",otVerifiedAt:verifiedAt};
+      }).catch(error=>{if(alive){setOtStatus("error");console.warn("No se pudo verificar el resumen de OT.",error);}}).finally(()=>{inflight=false;});
+    };
+    window.addEventListener("dm-home-summary-refresh",refresh);
+    refresh();
+    return()=>{alive=false;window.removeEventListener("dm-home-summary-refresh",refresh);};
   },[]);
   const effectiveRop02=summaryDayFiltered&&Array.isArray(rop02All)?rop02All:(Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]));
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
