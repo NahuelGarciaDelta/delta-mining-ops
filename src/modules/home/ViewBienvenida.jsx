@@ -3,7 +3,8 @@ import { Icon } from "../../components/ui/index.jsx";
 import { APP_BUILD_LABEL } from "../../app/version.js";
 import { APPS_SCRIPT_URL } from "../../config/app.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
-import { fetchStockData } from "../../services/stockService.js";
+import { fetchStockData, readCachedStockData } from "../../services/stockService.js";
+import { readCachedSource, writeCachedSource } from "../../services/appCache.js";
 import { canonicalEquivalentMachineCode } from "../../shared/domain/index.jsx";
 import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
@@ -28,6 +29,9 @@ const EMPTY_SUMMARY_DETAILS={
 const EMPTY_SUMMARY={viales:null,camiones:null,camionetas:null,equiposOD:null,equiposFS:null,disponibilidad:null,otAbiertas:null,stockCritico:null,details:EMPTY_SUMMARY_DETAILS};
 let bienvenidaSummaryCache=null;
 let bienvenidaStockCache=null;
+const HOME_ROP02_CACHE_KEY="home:rop02_latest_v2";
+const HOME_OT_CACHE_KEY="home:rma15_open_ot_v2";
+const homeCacheDate=value=>{const timestamp=Date.parse(String(value||""));return Number.isFinite(timestamp)?new Date(timestamp).toLocaleString("es-AR"):"fecha no disponible";};
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
 
@@ -38,58 +42,112 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
   const [snapshotRop02,setSnapshotRop02]=useState(null);
   const [snapshotUnavailable,setSnapshotUnavailable]=useState(false);
+  const [ropStatus,setRopStatus]=useState("validating");
+  const [ropKnownAt,setRopKnownAt]=useState(null);
+  const [otStatus,setOtStatus]=useState("validating");
+  const [otKnownAt,setOtKnownAt]=useState(null);
+  const [stockStatus,setStockStatus]=useState("validating");
+  const [stockKnownAt,setStockKnownAt]=useState(null);
   const [openOtSummary,setOpenOtSummary]=useState(null);
   const [fallbackRma15,setFallbackRma15]=useState(null);
+  // La copia IndexedDB se presenta como "último dato conocido" hasta recibir
+  // una respuesta vigente del RPC. Una nueva pestaña NUNCA la declara actual.
   useEffect(()=>{
-    let alive=true,retryTimer=null;
-    // Una demora transitoria de Supabase no debe dejar la portada marcada como
-    // no verificada para toda la sesión. El resumen se reintenta en serie: sin
-    // ráfagas contra ROP02 y sin mostrar el aviso mientras la recuperación está en curso.
+    let alive=true,verified=false,retryTimer=null;
+    readCachedSource(HOME_ROP02_CACHE_KEY).then(record=>{
+      if(!alive||verified||!Array.isArray(record?.data?.data))return;
+      startTransition(()=>setSnapshotRop02(record.data.data));
+      setRopKnownAt(record?.data?.meta?.verifiedAt||record?.updatedAt||null);
+    }).catch(()=>{});
     const loadSnapshot=async(attempt=0)=>{
+      const started=performance.now();
       try{
-      const response=await getRop02LatestByEquipmentProject({});
-      if(!alive)return;
-      if(!Array.isArray(response?.data))throw new Error("Resumen ROP02 no verificado");
-      setSnapshotUnavailable(false);
-      const rows=response.data.map(row=>{const stateText=norm(row.ULTIMO_ESTADO||row.ultimoEstado||"");const estado=stateText==="fs"||stateText.includes("fuera de servicio")?"FS":stateText==="od"||stateText.includes("orden del dia")?"OD":stateText==="em"||stateText.includes("mantenimiento")?"EM":"TRABAJO";return{
-        fecha:String(row.ULTIMA_FECHA||row.ultimaCarga||"").slice(0,10),
-        maquina:row.INTERNO||row.equipo||"",
-        proyecto:row.PROYECTO||row.proyecto||"",
-        estado,
-        horas:toNum(row.HORAS??row.horas??0),
-        supervisor:row.SUPERVISOR||row.supervisor||"",
-        _snapshotActive:Number(row.CARGAS_7D??row.cargas7d??0)>0,
-      }});
-      startTransition(()=>setSnapshotRop02(rows));
-      }catch(_){
+        const response=await getRop02LatestByEquipmentProject({});
         if(!alive)return;
-        if(attempt<2){retryTimer=setTimeout(()=>loadSnapshot(attempt+1),700*(attempt+1));return;}
+        if(!Array.isArray(response?.data))throw new Error("Resumen ROP02 no verificado");
+        verified=true;
+        const rows=response.data.map(row=>{
+          const stateText=norm(row.ULTIMO_ESTADO||row.ultimoEstado||"");
+          const estado=stateText==="fs"||stateText.includes("fuera de servicio")?"FS":stateText==="od"||stateText.includes("orden del dia")?"OD":stateText==="em"||stateText.includes("mantenimiento")?"EM":"TRABAJO";
+          return{
+            fecha:String(row.ULTIMA_FECHA||row.ultimaCarga||"").slice(0,10),
+            maquina:row.INTERNO||row.equipo||"",proyecto:row.PROYECTO||row.proyecto||"",
+            estado,horas:toNum(row.HORAS??row.horas??0),
+            supervisor:row.SUPERVISOR||row.supervisor||"",
+            _snapshotActive:Number(row.CARGAS_7D??row.cargas7d??0)>0,
+          };
+        });
+        const verifiedAt=new Date().toISOString();
+        startTransition(()=>setSnapshotRop02(rows));
+        setRopKnownAt(verifiedAt);
+        setRopStatus("confirmed");
+        setSnapshotUnavailable(false);
+        writeCachedSource(HOME_ROP02_CACHE_KEY,{ok:true,data:rows,meta:{verifiedAt}}).catch(()=>{});
+        if(typeof window!=="undefined"){
+          window.__dmHomeTiming={...(window.__dmHomeTiming||{}),rop02Ms:Math.round(performance.now()-started),rop02Source:"rpc-live",rop02VerifiedAt:verifiedAt};
+        }
+      }catch(error){
+        if(!alive)return;
+        if(attempt<1){retryTimer=setTimeout(()=>loadSnapshot(attempt+1),750);return;}
+        setRopStatus("error");
         setSnapshotUnavailable(true);
+        console.warn("No se pudo verificar el snapshot ROP02; la copia anterior sigue marcada como tal.",error);
       }
     };
     loadSnapshot();
     return()=>{alive=false;if(retryTimer)clearTimeout(retryTimer);};
   },[]);
-  // Si falla el resumen de OT no descargar el historial completo RMA15
-  // como fallback: bajo sobrecarga ese SELECT masivo multiplica timeouts.
-  useEffect(()=>{let alive=true;getRma15OpenOtSummary({}).then(response=>{
-    if(alive&&Array.isArray(response?.data))setOpenOtSummary(response.data);
-  }).catch(error=>{console.warn("Resumen de OT pendiente de verificar",error);});
-  return()=>{alive=false;};},[]);
+  // OT: consumir el RPC específico (nunca todo RMA15). El valor guardado
+  // se muestra sólo con la advertencia de falta de verificación.
+  useEffect(()=>{
+    let alive=true,verified=false;
+    readCachedSource(HOME_OT_CACHE_KEY).then(record=>{
+      if(!alive||verified||!Array.isArray(record?.data?.data))return;
+      startTransition(()=>setOpenOtSummary(record.data.data));
+      setOtKnownAt(record?.data?.meta?.verifiedAt||record?.updatedAt||null);
+    }).catch(()=>{});
+    const started=performance.now();
+    getRma15OpenOtSummary({}).then(response=>{
+      if(!alive||!Array.isArray(response?.data))throw new Error("Resumen de OT no verificado");
+      verified=true;
+      const verifiedAt=new Date().toISOString();
+      setOpenOtSummary(response.data);
+      setOtStatus("confirmed");
+      setOtKnownAt(verifiedAt);
+      writeCachedSource(HOME_OT_CACHE_KEY,{ok:true,data:response.data,meta:{verifiedAt}}).catch(()=>{});
+      if(typeof window!=="undefined")window.__dmHomeTiming={...(window.__dmHomeTiming||{}),otMs:Math.round(performance.now()-started),otSource:"rpc-live",otVerifiedAt:verifiedAt};
+    }).catch(error=>{if(alive){setOtStatus("error");console.warn("No se pudo verificar el resumen de OT.",error);}});
+    return()=>{alive=false;};
+  },[]);
   const effectiveRop02=summaryDayFiltered&&Array.isArray(rop02All)?rop02All:(Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]));
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
   const summaryRef=useRef(null);
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(id);},[]);
   useEffect(()=>{
-    if(bienvenidaStockCache)return;
-    let alive=true;
-    const run=()=>fetchStockData(APPS_SCRIPT_URL).then(r=>{
-      if(!alive)return;
-      bienvenidaStockCache=Array.isArray(r.rows)?r.rows:[];
-      startTransition(()=>setSharedStockRows(bienvenidaStockCache));
+    let alive=true,verified=false;
+    // IndexedDB permite mostrar la última copia, identificada como no validada,
+    // mientras el stock se consulta sin bloquear la flota de Inicio.
+    readCachedStockData().then(cached=>{
+      if(!alive||verified||!cached)return;
+      bienvenidaStockCache=cached.rows;
+      setSharedStockRows(cached.rows);
+      setStockKnownAt(cached.cacheUpdatedAt||null);
     }).catch(()=>{});
-    const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(run,{timeout:900}):window.setTimeout(run,120);
+    const run=()=>{
+      const started=performance.now();
+      fetchStockData(APPS_SCRIPT_URL).then(r=>{
+        if(!alive)return;
+        if(!Array.isArray(r?.rows))throw new Error("Stock sin respuesta verificable");
+        verified=true;
+        bienvenidaStockCache=r.rows;
+        setSharedStockRows(r.rows);
+        setStockStatus("confirmed");
+        setStockKnownAt(new Date().toISOString());
+        if(typeof window!=="undefined")window.__dmHomeTiming={...(window.__dmHomeTiming||{}),stockMs:Math.round(performance.now()-started),stockSource:"network"};
+      }).catch(error=>{if(alive){setStockStatus("error");console.warn("Stock no verificado; se mantiene última copia identificada.",error);}});
+    };
+    const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(run,{timeout:2200}):window.setTimeout(run,900);
     return()=>{alive=false;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
   },[]);
   useEffect(()=>{
@@ -219,7 +277,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     const otAbiertasItems=Array.isArray(openOtSummary)?openOtSummary.filter(item=>!exclusionMap.has(equipmentProjectKey(item.interno,item.lugar))&&!exclusionMap.has(item.interno)):calculateOpenOtItems(rmaRecords,exclusionMap);
     let stockCritico=null;
     let stockCriticoItems=[];
-      if(sharedStockRows.length){
+      if(stockStatus==="confirmed"||sharedStockRows.length){
         stockCriticoItems=sharedStockRows.filter(r=>{
           const deposito=String(r?.descripcionDeposito||"").trim().toUpperCase();
           if(deposito&&!(["DEPOSITO CENTRAL","DEPOSITO BATIDERO","DEPOSITO FILO DEL SOL"].includes(deposito)))return false;
@@ -246,16 +304,16 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     };
     if(cancelled)return;
     bienvenidaSummaryCache={data:nextData,loading:{
-      flota:rop.length===0,
-      disponibilidad:rop.length===0||!movimientosLoaded||Boolean(movimientosError),
-      ot:rma.length===0||!movimientosLoaded||Boolean(movimientosError),
-      stock:bienvenidaStockCache===null,
+      flota:!Array.isArray(snapshotRop02)&&!rop02All.length,
+      disponibilidad:(!Array.isArray(snapshotRop02)&&!rop02All.length)||!movimientosLoaded||Boolean(movimientosError),
+      ot:!Array.isArray(openOtSummary)&&rma.length===0,
+      stock:stockStatus==="validating"&&bienvenidaStockCache===null,
     }};
     startTransition(()=>setSummaryState(bienvenidaSummaryCache));
     };
     const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:700}):window.setTimeout(calculate,40);
     return()=>{cancelled=true;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
-  },[listaEquipos,effectiveRop02,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
+  },[listaEquipos,effectiveRop02,snapshotRop02,rop02All,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError,stockStatus]);
   const stats=summaryState.data||EMPTY_SUMMARY;
   const summaryLoading=summaryState.loading||{};
 
@@ -367,7 +425,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       {activeView==="home"?(
         <>
           {snapshotUnavailable&&!rop02All.length&&<div role="status" style={{padding:"10px 14px",borderRadius:10,background:"rgba(245,158,11,.15)",border:"1px solid rgba(245,158,11,.38)",fontSize:12,color:"#ffe2a5",lineHeight:1.5}}>
-            El resumen operativo no pudo verificarse con Supabase. Los indicadores no disponibles deben considerarse pendientes de actualización.
+            El resumen ROP02 no pudo verificarse con Supabase. La última copia, si existe, corresponde a {homeCacheDate(ropKnownAt)} y no equivale a información actual.
           </div>}
           <section className="dm-home-hero" style={{position:"relative",display:"flex",alignItems:"center",minHeight:0}}>
             <div className="dm-home-hero-copy" style={{maxWidth:600,marginLeft:54,marginTop:-12}}>
@@ -380,6 +438,11 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
 
             <div ref={summaryRef} className="dm-home-summary" style={{position:"absolute",right:0,top:"50%",transform:"translateY(-45%)",width:252,borderRadius:10,background:"rgba(5,18,29,.62)",border:"1px solid rgba(255,255,255,.10)",boxShadow:"0 18px 45px rgba(0,0,0,.26)",overflow:"visible",backdropFilter:"blur(18px) saturate(115%)",WebkitBackdropFilter:"blur(18px) saturate(115%)"}}>
               <div style={{padding:"17px 18px",fontSize:14,fontWeight:900,borderBottom:"1px solid rgba(255,255,255,.07)",display:"flex",alignItems:"center",gap:8}}><Icon name="dashboard" size={16} color="#fff"/>RESUMEN GENERAL</div>
+              <div aria-live="polite" style={{fontSize:10,padding:"8px 14px 0",lineHeight:1.5,color:ropStatus==="confirmed"?"#b7f7d2":"#fcd69c"}}>
+                {ropStatus==="confirmed"?"ROP02 verificado":`ROP02 ${ropStatus==="error"?"sin verificar":"validando"} · última copia ${homeCacheDate(ropKnownAt)}`}
+                <div style={{color:otStatus==="confirmed"?"#b7f7d2":"#fcd69c"}}>{otStatus==="confirmed"?"OT verificadas":`OT ${otStatus==="error"?"sin verificar":"validando"} · ${homeCacheDate(otKnownAt)}`}</div>
+                <div style={{color:stockStatus==="confirmed"?"#b7f7d2":"#fcd69c"}}>{stockStatus==="confirmed"?"Stock verificado":`Stock ${stockStatus==="error"?"sin verificar":"validando"} · ${homeCacheDate(stockKnownAt)}`}</div>
+              </div>
               <div style={{padding:"9px 14px 13px"}}>
                 <SummaryRow active={activeSummaryKey==="equiposViales"} onClick={()=>setActiveSummaryKey(k=>k==="equiposViales"?null:"equiposViales")} icon="truck" color="#e7edf2" label="Equipos viales operativos" value={summaryLoading.flota?"Cargando…":stats.viales}/>
                 <SummaryRow active={activeSummaryKey==="camiones"} onClick={()=>setActiveSummaryKey(k=>k==="camiones"?null:"camiones")} icon="truck" color="#60a5fa" label="Camiones operativos" value={summaryLoading.flota?"Cargando…":stats.camiones}/>
