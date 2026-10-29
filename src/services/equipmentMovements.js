@@ -10,7 +10,7 @@ import {getAllTallerMovements,getCachedTallerMovements} from "./tallerMovements.
 
 export {getMovimientoVigentePorEquipo,movementsToAtrasoMap} from "./equipmentMovementsDomain.js";
 
-let cache={data:[],loaded:false,loading:null,error:"",version:0};
+let cache={data:[],loaded:false,loading:null,error:"",version:0,confirmedAt:null,lastKnownAt:null};
 const listeners=new Set();
 const emit=()=>listeners.forEach(listener=>listener(cache));
 const CACHE_KEY="movimientos_equipos";
@@ -19,7 +19,7 @@ const isErrorAcceptanceMovement_=movement=>String(movement?.observacion||"").inc
 const TALLER_ATRASO_TYPES=new Set(["BAJA","MOVILIZACION","CAMBIO_EQUIPO"]);
 const persistCache_=async(version=0)=>{
   cache={...cache,version:Number(version||cache.version||0)};
-  return writeCachedSource(CACHE_KEY,{ok:true,data:cache.data,meta:{serverVersion:cache.version}}).catch(()=>{});
+  return writeCachedSource(CACHE_KEY,{ok:true,data:cache.data,meta:{serverVersion:cache.version,verifiedAt:cache.confirmedAt||cache.lastKnownAt||null}}).catch(()=>{});
 };
 const hydrateEquipmentMovementsFromLocalCache_=async()=>{
   if(cache.loaded)return cache;
@@ -31,6 +31,8 @@ const hydrateEquipmentMovementsFromLocalCache_=async()=>{
       loading:cache.loading,
       error:"",
       version:Number(record.data?.meta?.serverVersion||record.version||0),
+      confirmedAt:null,
+      lastKnownAt:record?.data?.meta?.verifiedAt||record?.updatedAt||null,
     };
     emit();
   }
@@ -62,7 +64,7 @@ export async function loadEquipmentMovements({force=false,revalidate=true,skipGl
     if(!cache.loaded){
       record=await readCachedSource(CACHE_KEY).catch(()=>null);
       if(record?.data?.ok&&Array.isArray(record.data.data)){
-        cache={data:record.data.data,loaded:true,loading:cache.loading,error:"",version:Number(record.data?.meta?.serverVersion||record.version||0)};emit();
+        cache={data:record.data.data,loaded:true,loading:cache.loading,error:"",version:Number(record.data?.meta?.serverVersion||record.version||0),confirmedAt:null,lastKnownAt:record?.data?.meta?.verifiedAt||record?.updatedAt||null};emit();
       }
     }
     if(cache.loaded&&!force&&!revalidate)return cache;
@@ -74,7 +76,8 @@ export async function loadEquipmentMovements({force=false,revalidate=true,skipGl
     const serverVersion=Number(versions?.versions?.[CACHE_KEY]||0);
     if(!force&&cache.loaded&&serverVersion>0&&localVersion===serverVersion)return cache;
     const response=await fetchAction(APPS_SCRIPT_URL,"get_equipment_movements",{force,compact:false});
-    cache={data:(Array.isArray(response.data)?response.data:[]).filter(item=>!isErrorAcceptanceMovement_(item)),loaded:true,loading:cache.loading,error:"",version:Number(response?.meta?.serverVersion||serverVersion||0)};
+    const confirmedAt=new Date().toISOString();
+    cache={data:(Array.isArray(response.data)?response.data:[]).filter(item=>!isErrorAcceptanceMovement_(item)),loaded:true,loading:cache.loading,error:"",version:Number(response?.meta?.serverVersion||serverVersion||0),confirmedAt,lastKnownAt:confirmedAt};
     await persistCache_(response?.meta?.serverVersion||serverVersion);emit();return cache;
   })().catch(error=>{
     cache={...cache,loaded:true,loading:null,error:error?.message||"No fue posible cargar movimientos de equipos."};emit();
