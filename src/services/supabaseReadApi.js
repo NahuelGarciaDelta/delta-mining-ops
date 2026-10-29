@@ -184,6 +184,9 @@ const INSUMOS_COLUMNS="source_dataset,source_row,codigo,descripcion,precio_unita
 function sourceConfig(source){
   if(ROP02_PREFIX[source])return {table:"rop02_frontend",params:{
     select:ROP02_COLUMNS,
+    // Mantener el prefijo como validacion; el filtro de igualdad utiliza el indice
+    // (source_dataset, fecha, source_key), evitando ordenar miles de partes.
+    source_dataset:`eq.${source}`,
     source_key:`like.${ROP02_PREFIX[source]}*`,order:"fecha.asc,source_key.asc"},adapt:rop02Legacy};
   if(source==="rop05")return {table:"rop05",params:{select:ROP05_COLUMNS,order:"source_row.asc"},adapt:rop05Legacy};
   if(source==="rma15_fs")return {table:"rma15_frontend",params:{select:RMA15_COLUMNS,source_dataset:"eq.rma15_fs",order:"source_row.asc"},adapt:rma15Legacy};
