@@ -192,7 +192,13 @@ export const refreshHistoricalDataset=(dataset,params={})=>fetchDatasetPage(data
 export const HISTORICAL_DATASET_UPDATED_EVENT=HISTORICAL_UPDATED_EVENT;
 export async function refreshCommonHistoricalDatasets(){return Promise.allSettled([fetchDatasetPage("rop02",COMMON_HISTORICAL_QUERY),fetchDatasetPage("rop05",COMMON_HISTORICAL_QUERY),fetchDatasetPage("rma15",COMMON_HISTORICAL_QUERY)]);}
 async function fetchSpecialAction_(action,params={}){const key=`special:${buildDatasetQueryKey(action,params)}`;const record=await readCachedSource(key).catch(()=>null);if(record?.data?.ok){const sync=await fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null);const local=record.data.versions||{},remote=sync?.versions||{};if(sync&&!versionsDiffer_(local,remote))return{...record.data,cacheHit:true,cacheLevel:"indexeddb"};}const started=performance.now(),response=await fetch(`${APPS_SCRIPT_URL}?${new URLSearchParams({action,...params,_t:String(Date.now())})}`,{cache:"no-store",redirect:"follow"});if(!response.ok)throw new Error(`HTTP ${response.status} desde Apps Script`);const text=await response.text();let json;try{json=JSON.parse(text);}catch(_){throw new Error("Apps Script no devolvió JSON válido");}if(!json?.ok)throw new Error(json?.error?.message||`Falló ${action}`);const value={...json,elapsedMs:Math.round(performance.now()-started),payloadBytes:new Blob([text]).size};await writeCachedSource(key,value);return value;}
-export async function getRop02LatestByEquipmentProject(params={}){if(usesExternalHomeFilter_())throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");const response=await fetchSupabaseRop02LatestByEquipmentProject(params);return filterAssignedProjectsResponse_(filterEquipmentOnlySnapshot_(filterHomeProjectResponse_(response)));}
+export async function getRop02LatestByEquipmentProject(params={}){
+  // Inicio debe poder consultar su snapshot liviano aunque esté habilitado el
+  // filtro externo. ViewBienvenida decide qué fuente mostrar al filtrar por día.
+  // Bloquear aquí el RPC dejaba la portada en "Cargando..." sin hacer request.
+  const response=await fetchSupabaseRop02LatestByEquipmentProject(params);
+  return filterAssignedProjectsResponse_(filterEquipmentOnlySnapshot_(filterHomeProjectResponse_(response)));
+}
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
 export async function getRma15OpenOtSummary(params={}){
