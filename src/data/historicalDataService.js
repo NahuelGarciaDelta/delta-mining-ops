@@ -1,6 +1,6 @@
 import {APPS_SCRIPT_URL} from "../config/app.js";
-import {fetchDatasetQuery,fetchSyncVersions,fetchSource} from "../services/appsScriptApi.js";
-import {fetchSupabaseRop02LatestByEquipmentProject,fetchSupabaseRma15OpenOtSummary} from "../services/supabaseReadApi.js";
+import {fetchAction,fetchDatasetQuery,fetchSyncVersions,fetchSource} from "../services/appsScriptApi.js";
+import {fetchSupabaseRop02LatestByEquipmentProject} from "../services/supabaseReadApi.js";
 import {ROP02_SOURCE_MAP} from "../config/rop02Sources.js";
 import {readCachedSource,writeCachedSource} from "../services/appCache.js";
 import {DATA_REFRESH_INTERVAL_MS} from "../services/dataRefreshPolicy.js";
@@ -197,8 +197,13 @@ export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_month
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
 export async function getRma15OpenOtSummary(params={}){
   if(usesExternalHomeFilter_())return{ok:true,data:null,externalFilter:true};
-  const response=await fetchSupabaseRma15OpenOtSummary(params);
-  // Un conjunto vacío VERIFICADO es legítimo: no descargar RMA15 histórico.
+  // El RPC rma15_open_ot_summary mostró 1.097 bloques temporales escritos
+  // por consulta (~8,6 MiB). Mantener este resumen fuera de la Nano evita
+  // sumar I/O de PostgreSQL sólo por abrir Inicio.
+  // Consulta puntual a la fuente liviana existente: sin manifiesto global,
+  // sin SELECT masivo RMA15 y sin reintentos concurrentes.
+  const response=await fetchAction(APPS_SCRIPT_URL,"get_rma15_open_ot_summary",{compact:false,retries:0,timeoutMs:12000});
+  if(!response?.ok||!Array.isArray(response?.data))throw new Error("Resumen de OT no verificable");
   return filterHomeProjectResponse_(response);
 }
 export async function getEquipmentHistory({equipo,desde="",hasta=""}){if(!String(equipo||"").trim())return{rop02:[],rop05:[],rma15:[]};const params={equipo,desde,hasta,limit:"all",offset:0};const [rop02,rop05,rma15]=await Promise.all([getRop02(params),getRop05(params),getRma15(params)]);return{rop02:rop02.data||[],rop05:rop05.data||[],rma15:rma15.data||[],meta:{rop02,rop05,rma15}};}
