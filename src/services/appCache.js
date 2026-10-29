@@ -59,7 +59,7 @@ function normalizeRecord_(record){
 function savedSourcesFromMemory_(){
   const sources={};
   for(const [key,record] of memoryCache_){
-    if(!key||String(key).startsWith("query:"))continue;
+    if(!key||String(key).startsWith("query:")||String(key).startsWith("home:"))continue;
     const data=record?.data??record?.value;
     if(data?.ok&&Array.isArray(data.data))sources[key]=data;
   }
