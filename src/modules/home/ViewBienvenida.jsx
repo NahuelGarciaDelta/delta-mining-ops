@@ -53,6 +53,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const [snapshotUnavailable,setSnapshotUnavailable]=useState(false);
   const [ropStatus,setRopStatus]=useState("validating");
   const [ropKnownAt,setRopKnownAt]=useState(null);
+  const [initialRopFinished,setInitialRopFinished]=useState(false);
   const [otStatus,setOtStatus]=useState("validating");
   const [otKnownAt,setOtKnownAt]=useState(null);
   const [stockStatus,setStockStatus]=useState("validating");
@@ -93,6 +94,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         startTransition(()=>setSnapshotRop02(rows));
         setRopKnownAt(verifiedAt);
         setRopStatus("confirmed");
+        setInitialRopFinished(true);
         setSnapshotUnavailable(false);
         writeCachedSource(cacheKey,{ok:true,data:rows,meta:{verifiedAt}}).catch(()=>{});
         if(typeof window!=="undefined"){
@@ -102,6 +104,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         if(!alive)return;
         if(attempt<1){retryTimer=setTimeout(()=>loadSnapshot(attempt+1),750);return;}
         setRopStatus("error");
+        setInitialRopFinished(true);
         setSnapshotUnavailable(true);
         console.warn("No se pudo verificar el snapshot ROP02; la copia anterior sigue marcada como tal.",error);
       }finally{inflight=false;}
@@ -121,6 +124,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   // OT: consumir el RPC específico (nunca todo RMA15). El valor guardado
   // se muestra sólo con la advertencia de falta de verificación.
   useEffect(()=>{
+    if(!initialRopFinished)return;
     let alive=true,verified=false,inflight=false;
     const cacheKey=scopedHomeCacheKey(HOME_OT_CACHE_KEY);
     readCachedSource(cacheKey).then(record=>{
@@ -147,7 +151,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     window.addEventListener("dm-home-summary-refresh",refresh);
     refresh();
     return()=>{alive=false;window.removeEventListener("dm-home-summary-refresh",refresh);};
-  },[]);
+  },[initialRopFinished]);
   const effectiveRop02=summaryDayFiltered&&Array.isArray(rop02All)?rop02All:(Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]));
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
