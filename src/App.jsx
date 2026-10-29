@@ -605,7 +605,11 @@ export default function App(){
     // Verificar un manifiesto pequeño antes de volver a descargar miles de filas.
     // Con Supabase degradado no relanzar descargas históricas si hay caché:
     // seguirán disponibles PERO se marca explícitamente la falta de verificación.
-    if(!force&&toCheck.some(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
+    // Inicio necesita solamente 132 filas de lista_equipos; es más barato y
+    // más seguro releer esta pequeña fuente que ejecutar el manifiesto global
+    // (que llegó a devolver 500). Una recarga siempre verifica el dato real.
+    const isHomeRosterOnly=view==="bienvenida"&&requested.length===1&&requested[0]==="lista_equipos";
+    if(!force&&!isHomeRosterOnly&&toCheck.some(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
       let manifest=null;
       try{manifest=await fetchSyncVersions(APPS_SCRIPT_URL);}catch(error){
         console.warn("Manifest Supabase no disponible.",error);
@@ -698,7 +702,7 @@ export default function App(){
       setLoading(false);
       if(background||hasVisible)endBackgroundSync();
     }
-  },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
+  },[view,hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
 
   const onMetersConfirmed=useCallback(result=>{
     const source=rawSourcesRef.current.lista_equipos;
@@ -721,7 +725,7 @@ export default function App(){
         let toRefresh=sources;
         // No multiplicar lecturas completas cuando el RPC de versiones falla.
         // Se reintenta en el siguiente control o cuando el usuario navega.
-        if(reason==="auto"||reason==="manual"){
+        if(view!=="bienvenida"&&(reason==="auto"||reason==="manual")){
           let manifest=null;
           try{manifest=await fetchSyncVersions(APPS_SCRIPT_URL,{force:reason==="manual"});}
           catch(error){console.warn("Versiones Supabase no disponibles.",error);}
@@ -740,6 +744,10 @@ export default function App(){
       // Único motor de actualización: los módulos con endpoints propios registran
       // tareas en refreshManager y el botón global espera a que todas finalicen.
       await runRefreshTasks(view,{reason,refreshedAt});
+      // El botón Actualizar y el ciclo de 5 minutos también deben revalidar
+      // los dos RPC pequeños de portada, no sólo la lista maestra.
+      if(view==="bienvenida"&&typeof window!=="undefined")
+        window.dispatchEvent(new Event("dm-home-summary-refresh"));
       // No actualizar la marca temporal por un botón de refresco que no pudo
       // confirmar ni una lectura real; las fuentes la fijan al completar éxito.
     }finally{if(!background)setLoading(false);}
