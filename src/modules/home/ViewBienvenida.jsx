@@ -153,7 +153,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     return()=>{alive=false;window.removeEventListener("dm-home-summary-refresh",refresh);};
   },[initialRopFinished]);
   const effectiveRop02=summaryDayFiltered&&Array.isArray(rop02All)?rop02All:(Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]));
-  const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
+  const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError,confirmedAt:movimientosConfirmedAt,lastKnownAt:movimientosKnownAt}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
   const summaryRef=useRef(null);
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(id);},[]);
@@ -338,7 +338,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     if(cancelled)return;
     bienvenidaSummaryCache={data:nextData,loading:{
       flota:!Array.isArray(snapshotRop02)&&!rop02All.length,
-      disponibilidad:(!Array.isArray(snapshotRop02)&&!rop02All.length)||!movimientosLoaded||Boolean(movimientosError),
+      disponibilidad:(!Array.isArray(snapshotRop02)&&!rop02All.length)||!movimientosLoaded||!movimientosConfirmedAt||Boolean(movimientosError),
       ot:!Array.isArray(openOtSummary)&&rma.length===0,
       stock:stockStatus==="validating"&&bienvenidaStockCache===null,
     }};
@@ -346,7 +346,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     };
     const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:700}):window.setTimeout(calculate,40);
     return()=>{cancelled=true;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
-  },[listaEquipos,effectiveRop02,snapshotRop02,rop02All,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError,stockStatus]);
+  },[listaEquipos,effectiveRop02,snapshotRop02,rop02All,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosConfirmedAt,movimientosError,stockStatus]);
   const stats=summaryState.data||EMPTY_SUMMARY;
   const summaryLoading=summaryState.loading||{};
 
@@ -477,6 +477,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
               <div aria-live="polite" style={{fontSize:10,padding:"8px 14px 0",lineHeight:1.5,color:ropStatus==="confirmed"?"#b7f7d2":"#fcd69c"}}>
                 {ropStatus==="confirmed"?"ROP02 verificado":`ROP02 ${ropStatus==="error"?"sin verificar":"validando"} · última copia ${homeCacheDate(ropKnownAt)}`}
                 <div style={{color:otStatus==="confirmed"?"#b7f7d2":"#fcd69c"}}>{otStatus==="confirmed"?"OT verificadas":`OT ${otStatus==="error"?"sin verificar":"validando"} · ${homeCacheDate(otKnownAt)}`}</div>
+                <div style={{color:movimientosConfirmedAt&&!movimientosError?"#b7f7d2":"#fcd69c"}}>{movimientosConfirmedAt&&!movimientosError?"Movimientos verificados":`Movimientos ${movimientosError?"sin verificar":"validando"} · ${homeCacheDate(movimientosKnownAt)}`}</div>
                 <div style={{color:stockStatus==="confirmed"?"#b7f7d2":"#fcd69c"}}>{stockStatus==="confirmed"?"Stock verificado":`Stock ${stockStatus==="error"?"sin verificar":"validando"} · ${homeCacheDate(stockKnownAt)}`}</div>
               </div>
               <div style={{padding:"9px 14px 13px"}}>
