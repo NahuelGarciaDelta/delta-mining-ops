@@ -55,7 +55,7 @@ const tallerRowIsActive_=row=>{
   return true;
 };
 
-export async function loadEquipmentMovements({force=false,revalidate=true}={}){
+export async function loadEquipmentMovements({force=false,revalidate=true,skipGlobalManifest=false}={}){
   if(cache.loading)return cache.loading;
   cache.loading=(async()=>{
     let record=null;
@@ -66,7 +66,10 @@ export async function loadEquipmentMovements({force=false,revalidate=true}={}){
       }
     }
     if(cache.loaded&&!force&&!revalidate)return cache;
-    const versions=force?null:await fetchSyncVersions(APPS_SCRIPT_URL);
+    // Inicio no necesita consultar delta_source_versions para verificar sólo
+    // 67 movimientos: solicita la fuente original directamente y la persiste.
+    // Otras vistas mantienen su validación por manifiesto sin cambios.
+    const versions=(force||skipGlobalManifest)?null:await fetchSyncVersions(APPS_SCRIPT_URL);
     const localVersion=Number(cache.version||record?.data?.meta?.serverVersion||0);
     const serverVersion=Number(versions?.versions?.[CACHE_KEY]||0);
     if(!force&&cache.loaded&&serverVersion>0&&localVersion===serverVersion)return cache;
@@ -136,10 +139,10 @@ export function useEquipmentMovements(rop02Rows=[],views=[]){
 
   useEffect(()=>{
     listeners.add(setSnapshot);
-    if(!wantsTallerAtraso)loadEquipmentMovements().catch(()=>{});
+    if(!wantsTallerAtraso)loadEquipmentMovements({skipGlobalManifest:views.includes("bienvenida")}).catch(()=>{});
     return()=>listeners.delete(setSnapshot);
   },[wantsTallerAtraso]);
-  useEffect(()=>registerRefreshTask("equipment-movements",()=>loadEquipmentMovements({revalidate:true}),{views,priority:15}),[viewsKey]);
+  useEffect(()=>registerRefreshTask("equipment-movements",()=>loadEquipmentMovements({revalidate:true,skipGlobalManifest:views.includes("bienvenida")}),{views,priority:15}),[viewsKey]);
   useEffect(()=>{if(wantsTaller&&!wantsTallerAtraso)loadTaller();},[wantsTaller,wantsTallerAtraso,loadTaller]);
   useEffect(()=>{
     if(!wantsTallerAtraso){setAtrasoInitialSyncReady(true);return;}
