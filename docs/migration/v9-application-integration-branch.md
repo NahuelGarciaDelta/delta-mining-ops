@@ -82,7 +82,15 @@ La tabla `public.app_user_sessions` tenía 28 sesiones históricas y **0 vigente
 
 Se preparó sin desplegar `integration/apps-script/v9/DM_V9_AUTH_BRIDGE_READONLY.gs`. Este archivo valida el token HMAC existente y su perfil activo **solo si se instala en el mismo proyecto de Apps Script que emitió el token**; una copia independiente carece del secreto y no puede verificarlo. No exponer ni copiar los secretos de `ScriptProperties` a GitHub ni al navegador. No alterar el despliegue activo V8.1.
 
-Falta definir y auditar un contrato seguro para que Vercel confíe en esa verificación y emita lecturas de Supabase sin servicio privilegiado expuesto al navegador; después ejecutar pruebas autenticadas y publicar una nueva Preview. El `dm_v9_ops_session_read_v1` instalado permanece restringido por credenciales existentes, pero no valida tokens Apps Script.
+El contrato para ese puente está **implementado en código, pero NO habilitado ni desplegado** en `api/v9-ops.js`:
+1. Si están definidas `DELTA_V9_AUTH_BRIDGE_URL` y `DELTA_V9_SUPABASE_SERVICE_KEY` en el entorno **Preview de esta rama**, Vercel envía el token existente **solo** al nuevo action `v9_validate_existing_session` de una versión nueva del **mismo proyecto Apps Script** que emitió el token.
+2. Apps Script verifica firma, vencimiento y estado de cuenta; el resultado debe ser `{ok:true,mode:"V9_SIGNED_SESSION_VALIDATED"}`. Un rechazo no tiene fallback.
+3. Solo después de esa validación, Vercel invoca `dm_v9_ops_read_v1` de Supabase con una clave **servidor**; nunca se envía esa clave a React o a Apps Script. El RPC sigue siendo solo lectura y mantiene el plan de publicación V9 completamente bloqueado.
+4. Si se configura solamente una de esas dos variables, el backend falla cerrado con `V9_AUTH_BRIDGE_INCOMPLETE`. No subir secretos a GitHub ni copiar la propiedad `APP_AUTH_TOKEN_SECRET`.
+
+**Pendiente para activación:** instalar el archivo `DM_V9_AUTH_BRIDGE_READONLY.gs` en el proyecto Apps Script operativo **sin tocar la implementación activa V8.1**, agregar su acción a la nueva versión de `doPost`, crear una URL de Web App de prueba y configurar esas dos variables **restringidas a la rama Preview** en Vercel. Eso necesita revisión de permisos y un despliegue autorizado; no se ha realizado desde esta conversación.
+
+El `dm_v9_ops_session_read_v1` ya instalado permanece como alternativa para sesiones de Supabase (no sirve para los tokens HMAC actuales). Las pruebas unitarias del proxy cubren el flujo fail-closed, pero todavía falta una prueba de usuario real desde la app.
 
 **Estado de Vercel:** el primer Preview de código compiló y quedó READY (commit `e465ae80`). Los cambios posteriores de pruebas/documentación/diagnóstico no se redeplegaron porque Vercel devolvió el límite `api-deployments-free-per-day` (402); el Preview no debe anunciarse como build del último commit ni como flujo autenticado aprobado.
 
