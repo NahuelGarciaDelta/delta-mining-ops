@@ -25,3 +25,15 @@ Comprobación adicional directamente mediante SELECT en sandbox: registro test-4
 DICTAMEN: el circuito de transporte Apps Script->RPC->ACK por identidad + revision sintéticas quedó validado de extremo a extremo. Aún NO es ACK de registros reales ni reemplazo de V8.1. NO repetir 4D, NO habilitar aplicar ni scripts productores V9.
 
 SIGUIENTE ENTREGABLE: diseñar almacenamiento persistente de outbox real para (dataset, original_rop02_id, taskOrdinal, canonical_payload_hash, revision, pending/acked). El plan actual 4B transporta metadata por referencia de arrays solo en memoria y requiere desacoplar revisiones de source_row. Tratar los 3 IDs de origen anómalos y las 4 supresiones históricas como excepciones, sin resolverlas automáticamente. Probar con carga real en modo sombra y ACK sintético en sandbox antes de corte.
+
+## 4E — Outbox SOMBRA persistente preparado (2026-10-30)
+
+Se preparó REVISION del mismo archivo 4B, DM_UNIFIED_PHASE4B_ROP05_GENERADOR_NO_DESTRUCTIVO_V1.gs, integrando captura de hashes SHA-256 de las 15 columnas canónicas de salida 4B+4C. La previsualización tradicional conserva comportamiento, Aplicar sigue bloqueado. Nuevo entrypoint EXPLÍCITO: dmV9OutboxSombraV1Ejecutar.
+
+La función vuelve a correr la composición read-only, rechaza mismatch entre fuente original y espejo IMPORTRANGE, toma solo las tareas con identidad original VALIDADA (en última prueba fueron 5290), crea una NUEVA hoja Google Sheets autónoma en el Drive del usuario para histórico append-only de dataset, task_key, revision, SHA-256, status SHADOW_*_NO_ACK, source_row_hint y timestamp. El nuevo ID de archivo se guarda en ScriptProperties del clon DM_U4E_SHADOW_OUTBOX_SPREADSHEET_ID. Usa un marcador para validar que el workbook no sea uno de los cinco libros productivos conocidos. El guard bloquea IDs de libros productivos.
+
+Al repetir, relee versiones persistidas, evita duplicados, solo incrementa revision cuando cambió hash; desplazamiento de fila sin cambio de datos no genera versión. Ausentes no se borran. Posibles escrituras parciales son reentrantes bajo la misma clave. No usa red Supabase ni manda datos operativos ni payloads originales al sandbox; 0 ACK reales. Las 3 anomalías de ID y 4 deduplicaciones heredadas siguen sin resolver. No crea triggers ni toca el viejo V8.1.
+
+Validación LOCAL: node --check PASS, 27/27 verificaciones de lógica y persistencia con objetos SpreadsheetApp simulados, incluida carga de 5290 versiones, rerun sin duplicado, revision 2, cambios de posición, fallo por ID productivo y fallo de espejo. Pendiente ejecución del nuevo script por el usuario en clon: no declarar fase aceptada operativamente antes del log.
+
+ARTEFACTO local generado: DELTA_OPS_V9_FASE4E_OUTBOX_SOMBRA_PERSISTENTE_20261030.zip. Instalación: REEMPLAZAR contenido de 4B existente, no crear .gs nuevo, no tocar 4C/4D, ejecutar solo dmV9OutboxSombraV1Ejecutar. Estimación global 58%, aumentar solo tras prueba GAS real y no confundir ledger SHA con outbox de entrega ACK listo.
