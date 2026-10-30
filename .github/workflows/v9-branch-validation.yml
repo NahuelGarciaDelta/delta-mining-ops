@@ -22,7 +22,7 @@ jobs:
       - name: Instalar dependencias
         run: npm ci --no-audit --no-fund
       - name: Validar proxy V9 sin secretos
-        run: node --test tests/v9-ops-proxy.test.mjs
+        run: node --test tests/v9-ops-proxy.test.mjs tests/v9-gas-sources.test.mjs
       - name: Validar compilación de la app V9
         run: npm run build
       - name: Verificar base de pruebas
