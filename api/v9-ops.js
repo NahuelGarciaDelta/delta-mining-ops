@@ -97,7 +97,7 @@ export default async function handler(req, res) {
     try {
       const u = new URL(bridgeRaw);
       if (u.protocol !== "https:" || u.hostname !== "script.google.com" ||
-          !/^\\/macros\\/s\\/[A-Za-z0-9_-]+\\/exec$/.test(u.pathname) ||
+          !new RegExp("^/macros/s/[A-Za-z0-9_-]+/exec$").test(u.pathname) ||
           u.search || u.hash || !/^sb_secret_[A-Za-z0-9_-]{25,}$/.test(serviceKey)) throw new Error();
       bridgeUrl = u.toString();
     } catch {
