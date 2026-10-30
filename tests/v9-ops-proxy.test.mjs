@@ -16,7 +16,9 @@ function res() {
     json(value) { this.body = value; return this; }
   };
 }
-function req(body = { mode: "preview" }, credential = token, method = "POST") {
+function req(body = { mode: "preview" }, credential, method = "POST") {
+  // Preserve an explicitly missing token; only omitted arguments use the fixture.
+  if (arguments.length < 2) credential = token;
   return { method, headers: { "x-delta-auth-token": credential }, body };
 }
 function remote(body, status = 200) {
