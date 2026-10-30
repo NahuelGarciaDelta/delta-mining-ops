@@ -58,3 +58,17 @@ El usuario ejecutó generarROP05NuevoV9Previsualizar en el clon. Resultado: ok:t
 Dictamen: Planificador no destructivo aprobado en previsualización, NO es autorización de corte. Las 23 filas son posiciones modificadas y no equivalen necesariamente a partes nuevos. Las 4 claves descartadas requieren verificación porque podrían corresponder a partes distintos con contenido idéntico.
 El backend legado V8.3 contiene deltaSyncRop02_ y deltaReadSourceRows_ y sus filas se asocian a source_row, no a un identificador inmutable de parte. Próximo entregable: identidad persistente del parte en origen ROP02 y del item de tarea ROP05, versiones y ACK idempotente de sandbox, luego corte reversible. No ejecutar generarROP05NuevoV9Aplicar ni habilitar gates mientras V8.1 siga activo.
 Estimación general anterior 52 %, sin aumentar por una sola previsualización.
+
+## Hallazgo CRITICO: ID AppSheet original ya existe, fase 4C (30/10/2026)
+
+Se recibió y examinó el código real ROP02 actualizarROP02 V7.6.4 (admin web V3). El productor AppSheet original JM y FS ya incluye columna A1='ID'. La función prepararROP02V761_ lee A:S y hace fila.slice(1,12), omitiendo deliberadamente el ID para conservar destino A:Q. Los destinos de esta importación ROP02 son libros distintos al libro ROP05. Las pestañas Datos de ROP02 JM y FS dentro del libro ROP05 usan formulas IMPORTRANGE('R_OP02_JM!B2:AK') y equivalente FS, por lo tanto TAMBIEN excluyen el ID.
+
+El diseño anterior que exigía GENERAR un ID nuevo en el punto de captura debe corregirse: REUTILIZAR la columna ID original del origen si es válida. Clave de parte (dataset, ID) y clave de tarea ROP05 (dataset, ID, ordinal 1/2/3). NO añadir A al IMPORTRANGE existente: desplazaría las 43 columnas que consume ROP05. En el adaptador de V9 leer el ID y campos B:AR desde la misma lectura A:AR del original, y mantener ROP05 legado de 15 columnas, con clave externa en índice separado antes de implementar esquema de identidad.
+
+Se relevaron las 5351 filas de datos JM y 3251 FS de la columna A del origen. Excepciones: JM ID f9dd54b2 duplicado en filas originales 974 y 1004 (partes diferentes: 27 y 28 de julio, números 269 y 270); FS fila original 531 ID vacío (parte TOP-0058 número 177 del 28/07). Ningún algoritmo debe asignar automáticamente la misma clave a los dos JM ni generar IDs en FS silenciosamente. Requiere conciliación en origen; no editar hojas originales sin verificación.
+
+Adicionalmente las formulas IMPORTRANGE B2:AK excluyen columnas después de AK del original, incluidas Ancho 3, Profundidad 3 y Total 3; existe riesgo de pérdida de datos en tareas 3 si esas columnas están pobladas. Impacto real pendiente de evaluar.
+
+Se preparó módulo ADAPTADOR de identidad original, solo lectura, DM_UNIFIED_PHASE4C_ROP02_ID_BRIDGE_V1.gs, entregado como artefacto local: conserva 43 campos B:AR y genera claves dataset:ID:tN solo con IDs únicos; bloquea duplicados y blancos. 16/16 pruebas unitarias locales. No contiene secretos, no cambia fórmulas ni producción, no modifica esquema ni implementa ACK o cutover. No ejecutar ni desactivar scripts hasta integrar el adaptador a 4B y agregar ACK/versiones en sandbox.
+
+IMPORTANTE: comentarios antiguos en la documentación que dicen que no existe ID original ya NO SON VÁLIDOS. Sí existe; simplemente se descartaba al copiar. Global uniqueness no está demostrada porque se detectaron los 3 registros excepcionales.
