@@ -21,3 +21,14 @@ Sin UrlFetchApp ni Supabase credenciales; no se mutan hojas, servidor ni colas p
 
 ## Progreso
 Estimación global de unificación: **45 %** hasta sustitución segura total. Resta consumir cambios reales con ACK, corregir inconsistencias tipadas, procesos complementarios y corte/monitoreo/rollback. GitHub main, Apps Script originales, Vercel y Supabase no modificados.
+## Ejecución real de fase 3K — 2026-10-30 09:43 ART
+
+El usuario corrió preflight, prueba 16 firmas (16/16), start y continue hasta final:
+`completed:true`, `ok:false`, `scanned:13368`, `comparedBlocks:55`, `matchedBlocks:53`, `mismatchedBlocks:2`, `mapperIssues:0`, `mapperWarnings:2`. Bloques ROP05 17 (filas 4252–4501) y 26 (6502–6751). `potentialMismatchedRows:500` es techo de filas de bloques, no recuento de diferencias.
+
+Investigación exclusivamente READ ONLY posterior:
+- Supabase actualizó huella de los dos bloques por SELECT y ambas son iguales al snapshot de referencia (17: 86038dc3ef30b0e4e1d25ab3329c1956, 26: 31dd46f0420384a42fcfd76c78f64d3e).
+- Consultas individuales de 250 digests de ambos bloques y lecturas de Google Sheets a través de conector, con normalización de fechas serial a ISO y cálculo MD5 local de todos los raw campos: **500/500 firmas por fila iguales al contenido actual de Supabase**. La huella reagrupada del bloque 26 también coincide con la remota.
+- Por tanto el desacuerdo del registro de ejecución GAS no se reproduce en comparación posterior, pero **no se puede declarar 3K aprobada sin resolver la inconsistencia**. Puede ser cambio transitorio de hoja, dato dependiente del momento o diferencia entre los entornos de cálculo; causa NO CONFIRMADA.
+
+Se creó módulo estrictamente READ ONLY sin UrlFetchApp ni escrituras, con 500 digests de referencia remota: `migration/scripts/DM_UNIFIED_PHASE3K_DIAGNOSTICO_BLOQUES_V1.gs`. Copiar como nuevo archivo en CLON y ejecutar **solo** `probarMigracionFase3kDiagnosticarBloquesV1`. No reiniciar, borrar ni forzar `DM_U3K_V1_STATE`; no habilitar sincronizador productivo. Avance global estimado sigue en 45%.
