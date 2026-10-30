@@ -1,0 +1,29 @@
+name: Validar piloto V9
+
+on:
+  push:
+    branches:
+      - feature/v9-ops-supabase-app-20261030
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-v9:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Instalar dependencias
+        run: npm ci --no-audit --no-fund
+      - name: Validar proxy V9 sin secretos
+        run: node --test tests/v9-ops-proxy.test.mjs
+      - name: Validar compilación de la app V9
+        run: npm run build
+      - name: Verificar base de pruebas
+        run: npm run check
