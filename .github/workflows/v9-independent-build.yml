@@ -1,4 +1,4 @@
-name: V9 independiente - compilación aislada
+name: V9 independiente - interfaz Delta OPS original
 on:
   push:
     branches:
@@ -18,15 +18,25 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Verificar código standalone
-        run: node --check api/v9-independent.js && node --check vite.v9.config.js
-      - name: Compilar solamente Delta OPS V9
-        run: npm run build -- --config vite.v9.config.js
-      - name: Confirmar salida de Vite
-        run: test -s dist/v9.html && test -d dist/assets
-      - name: Comprobar ausencia de referencias operativas V8.1 en los entrypoints V9
+      - name: Validar configuración V9 aislada
         run: |
-          if grep -R -E 'jwfocqaxlckuxoklwyxs|AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog' src/standalone api/v9-independent.js; then
-            echo "V9 contiene dependencias productivas prohibidas."
+          node --check vite.v9.config.js
+          node --check api/v9-independent.js
+          node --check api/v9-blocked.js
+          test -f src/main.v9.jsx
+          grep -F 'import App from "./App.jsx"' src/main.v9.jsx
+          grep -F '/src/main.v9.jsx' v9.html
+      - name: Compilar la interfaz original de Delta OPS con backend V9
+        run: npm run build -- --config vite.v9.config.js
+      - name: Verificar salida y bloquear dependencias V8.1
+        run: |
+          test -s dist/v9.html
+          test -d dist/assets
+          if grep -R -E 'jwfocqaxlckuxoklwyxs|XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2' dist/assets; then
+            echo "ERROR: el bundle V9 contiene dependencias de producción V8.1"
+            exit 1
+          fi
+          if grep -R -F '/api/apps-script' dist/assets; then
+            echo "ERROR: el bundle V9 contiene la ruta Apps Script original"
             exit 1
           fi
