@@ -32,3 +32,10 @@ Investigación exclusivamente READ ONLY posterior:
 - Por tanto el desacuerdo del registro de ejecución GAS no se reproduce en comparación posterior, pero **no se puede declarar 3K aprobada sin resolver la inconsistencia**. Puede ser cambio transitorio de hoja, dato dependiente del momento o diferencia entre los entornos de cálculo; causa NO CONFIRMADA.
 
 Se creó módulo estrictamente READ ONLY sin UrlFetchApp ni escrituras, con 500 digests de referencia remota: `migration/scripts/DM_UNIFIED_PHASE3K_DIAGNOSTICO_BLOQUES_V1.gs`. Copiar como nuevo archivo en CLON y ejecutar **solo** `probarMigracionFase3kDiagnosticarBloquesV1`. No reiniciar, borrar ni forzar `DM_U3K_V1_STATE`; no habilitar sincronizador productivo. Avance global estimado sigue en 45%.
+
+
+## Diagnóstico posterior en Apps Script — 09:54 ART, 30/10/2026
+
+El usuario ejecutó `probarMigracionFase3kDiagnosticarBloquesV1` en el clon. Log: `ok:true`, `rowsChecked:500`, `matchedRows:500`, `mismatchedRows:0`, `noWrites:true`, `productionTouched:false`, `previous3kStatePreserved:true`, `readyForProductionWrites:false`. Bloque 17 (4252–4501) y bloque 26 (6502–6751): **250/250 coincidencias cada uno** y ambas huellas completas MD5 iguales al snapshot de referencia del 30/10/2026. 
+
+**Dictamen actualizado:** no se reproduce la discrepancia de 2 bloques registrada en el primer recorrido de 3K. No se conoce con certeza la causa inicial: pudieron existir cambios transitorios, diferencias de lectura u otra circunstancia. La primera auditoría original permanece conservada con `matchedBlocks:53`, `mismatchedBlocks:2`. No marcar arbitrariamente `55/55` en ese estado. Ejecutar una confirmación integral independiente y de solo lectura antes de afirmar equivalencia estable. Todavía hay diferencias conocidas en columnas tipadas (ROP05 `observaciones`, RMA15 `turno/lugar/intervencion`, conversiones de dimensiones y km_hs). Ningún permiso para escrituras productivas ni cambio de triggers.
