@@ -1,6 +1,6 @@
 # 4F — Cola local con snapshot inmutable, preparación de envíos (30/10/2026)
 
-**Estado:** Código local preparado y probado 52/52 en simulación; pendiente instalación/ejecución del clon. NO aprobado para sincronización productiva.
+**Estado:** Código local preparado y probado 53/53 en simulación; pendiente instalación/ejecución del clon. NO aprobado para sincronización productiva.
 
 ## Antecedente verificado
 
@@ -20,8 +20,10 @@ La vista IMPORTRANGE de ROP05 lee la fuente B:AK, omitiendo AL:AN del ROP02 orig
 
 ## Pruebas y límites
 
-52/52 PASS con Node y SpreadsheetApp simulado: 5296, segunda ejecución sin duplicación, actualización revisión 2, cambio de fila sin revisión, corte entre ledger y payload, recuperación, lagunas históricas, filas corruptas, validación de destinos, concurrencia, no hay nuevas llamadas a Supabase. Node syntax PASS. Resultados NO equivalen a ejecución del clon real.
+53/53 PASS con Node y SpreadsheetApp simulado: 5296, segunda ejecución sin duplicación, actualización revisión 2, cambio de fila sin revisión, corte entre ledger y payload, recuperación, lagunas históricas, filas corruptas, validación de destinos, concurrencia, no hay nuevas llamadas a Supabase. Node syntax PASS. Resultados NO equivalen a ejecución del clon real.
 
 **Privacidad:** ENTREGAS_PREPARADAS agrega una segunda copia de los 15 campos operativos dentro del libro de pruebas del usuario (actualmente no compartido). Debe seguir restringido y contar con política de retención antes de usar en producción. No subir payloads operativos a GitHub ni a sandbox sintético 4D.
 
 **Siguiente etapa real:** receptor versionado para IDs de origen reales, permisos y control de acceso, retención de payloads, confirmación remota ligada a digest/request_id, proceso de reintento después de HTTP incierto y corte reversible. Resolver IDs anómalos y 4 duplicados suprimidos; rotar webhook original.
+
+ADENDA DE SEGURIDAD: el resultado reporta por separado excludedAmbiguousTasks y excludedTask3Unmirrored, sin mezclarlas en la salida. El test agregado verifica esa separación. No cambió ninguna hoja de operación.
