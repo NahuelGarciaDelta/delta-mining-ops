@@ -72,3 +72,11 @@ Adicionalmente las formulas IMPORTRANGE B2:AK excluyen columnas después de AK d
 Se preparó módulo ADAPTADOR de identidad original, solo lectura, DM_UNIFIED_PHASE4C_ROP02_ID_BRIDGE_V1.gs, entregado como artefacto local: conserva 43 campos B:AR y genera claves dataset:ID:tN solo con IDs únicos; bloquea duplicados y blancos. 16/16 pruebas unitarias locales. No contiene secretos, no cambia fórmulas ni producción, no modifica esquema ni implementa ACK o cutover. No ejecutar ni desactivar scripts hasta integrar el adaptador a 4B y agregar ACK/versiones en sandbox.
 
 IMPORTANTE: comentarios antiguos en la documentación que dicen que no existe ID original ya NO SON VÁLIDOS. Sí existe; simplemente se descartaba al copiar. Global uniqueness no está demostrada porque se detectaron los 3 registros excepcionales.
+
+## 4B + 4C integracion en candidato de generador (2026-10-30)
+
+El usuario confirmo que agrego el modulo DM_UNIFIED_PHASE4C_ROP02_ID_BRIDGE_V1.gs en su CLON. Se genero una REVISION de DM_UNIFIED_PHASE4B_ROP05_GENERADOR_NO_DESTRUCTIVO_V1.gs que consulta el puente 4C en su previsualizacion, comprueba primeras 36 columnas de la vista IMPORTRANGE B:AK frente al original (con ID en A), y conserva asociacion por referencia de arreglo tras el ordenamiento de ROP05. Calcula identidad de tarea por dataset:ID:tN sin cambiar las 15 columnas ni modificar Supabase. Informa conteos ready/blocked/mirrorUnmatched, mantiene excepciones y no expone IDs en logs. Se preserva deduplicacion historica y se reportan los 4 descartes.
+
+Pruebas unitarias en Node: escenario normal, espejo con desajuste, identidad duplicada y bloqueo de aplicacion, todos con cero escrituras, sintaxis validada. Se empaqueto localmente: DELTA_OPS_V9_4B_4C_PUENTE_INTEGRADO_SIN_ESCRITURAS_20261030.zip. AUN NO INSTALADO NI EJECUTADO por el usuario, por lo tanto NO DECLARAR INTEGRACION OPERATIVA. Requiere sustituir contenido del archivo 4B existente en clon (NO crear .gs duplicado); 4C ya instalado. No ejecutar Aplicar ni tocar triggers.
+
+Falta persistir la identidad con revision y ACK verdadero en sandbox, resolver excepciones ID del origen y comprobar estabilidad frente a actualizaciones del IMPORTRANGE. Estado general permanece 52% estimado.
