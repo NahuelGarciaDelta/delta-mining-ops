@@ -43,19 +43,32 @@ Deno.serve(async req=>{
    return json(401,{ok:false,error:"INVALID_SIGNATURE"});
  let data:Record<string,unknown>;
  try{data=JSON.parse(raw);}catch{return json(400,{ok:false,error:"INVALID_JSON"});}
- if(!data||!ACCEPT.has(String(data.dataset||""))||!Array.isArray(data.records)
+ if(!data||!ACCEPT.has(String(data.dataset||"")))
+  return json(400,{ok:false,error:"INVALID_V9_DATASET"});
+ const probe=data.action==="probe";
+ if(probe){
+  if(!Array.isArray(data.ids)||data.ids.length<1||data.ids.length>100
+    ||data.ids.some(x=>typeof x!=="string"||x.length<1||x.length>200))
+    return json(400,{ok:false,error:"INVALID_PROBE_IDS"});
+ }else if(!Array.isArray(data.records)
   ||data.records.length<1||data.records.length>100
   ||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(data.request_id||"")))
   return json(400,{ok:false,error:"INVALID_V9_PAYLOAD"});
  try{
-  const response=await fetch(TARGET+"/rest/v1/rpc/v9_ingest_accept_batch_v1",{
+  const response=await fetch(TARGET+"/rest/v1/rpc/"+(probe?"v9_ingest_probe_v1":"v9_ingest_accept_batch_v1"),{
    method:"POST",headers:{"apikey":serviceKey,"Authorization":"Bearer "+serviceKey,
       "Content-Type":"application/json","Accept":"application/json"},
-   body:JSON.stringify({p_request_id:data.request_id,p_dataset:data.dataset,p_records:data.records}),
+   body:JSON.stringify(probe
+      ?{p_dataset:data.dataset,p_record_ids:data.ids}
+      :{p_request_id:data.request_id,p_dataset:data.dataset,p_records:data.records}),
    signal:AbortSignal.timeout(25000)
   });
   if(!response.ok)return json(response.status>=500?502:409,{ok:false,error:"V9_INGEST_REJECTED"});
   const proof=await response.json();
+  if(probe){
+   if(!Array.isArray(proof))return json(502,{ok:false,error:"V9_PROBE_REPLY_INVALID"});
+   return json(200,{ok:true,mode:"V9_PROBE",dataset:data.dataset,rows:proof});
+  }
   if(!proof?.ok||proof.dataset!==data.dataset)return json(502,{ok:false,error:"V9_RECEIPT_INVALID"});
   return json(200,proof);
  }catch{return json(502,{ok:false,error:"V9_INGEST_UNAVAILABLE"});}
