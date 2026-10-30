@@ -41,7 +41,7 @@ async function requestV9(payload) {
     const code = String(data?.error || "");
     const known = {
       V9_SESSION_REQUIRED: "La sesión de Delta OPS está vacía.",
-      V9_SESSION_REJECTED: "La sesión venció o fue revocada. Iniciá sesión nuevamente.",
+      V9_SESSION_REJECTED: "Tu sesión de Apps Script puede seguir activa, pero todavía no está vinculada con Supabase V9. El puente de autenticación está pendiente; no necesitás volver a iniciar sesión.",
       V9_PERMISSION_DENIED: "Tu perfil no tiene permiso para consultar el piloto V9.",
       V9_BACKEND_TIMEOUT: "La consulta a Supabase excedió el tiempo disponible.",
       V9_GAS_NOT_CONFIGURED: "Todavía no se configuró la URL del Apps Script V9 de pruebas.",
@@ -128,7 +128,7 @@ export default function V9OpsPanel({ C = {} }) {
           <Action onClick={() => load(filter, history)} disabled={busy}> {busy ? "Actualizando..." : "Actualizar datos"} </Action>
         </div>
         <p style={{ margin: "8px 0 0", fontSize: 12, color: secondary }}>
-          Acceso validado en Supabase con tu sesión existente; no necesitás otra contraseña.
+          Este piloto reutilizará la sesión actual cuando termine el puente de autenticación. No pedirá una segunda contraseña.
           Los registros de V8.1 continúan sincronizándose normalmente.
         </p>
         {error && <p role="alert" style={{ color: "#f0aaa5", margin: "12px 0 0" }}>{error}</p>}
