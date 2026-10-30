@@ -23,3 +23,13 @@ Crear archivo .gs nuevo en `DELTA OPS - V9 UNIFICADO - PRUEBAS` y ejecutar ÚNIC
 
 ## Limitación
 3H **no** habilita consumidor real de cola 3D ni prueba equivalencia de ROP05/RMA15 tipados/raw_data en Supabase productivo. Requiere baseline ACK separado, colas inmutables, revisión manual de insumos y un corte de un único escritor antes de migración real.
+
+## Resultado real del piloto 3H — APROBADO, 30/10/2026
+
+El usuario ejecutó paso 1 y paso 2 en Apps Script del clon, utilizando exclusivamente tres filas sintéticas en el proyecto Supabase de pruebas `biztlietuvvonigcfdwy`.
+
+- Paso 1: `ok:true`, `replayed:false`, `phase:ACK_UNCONFIRMED`, `syntheticSent:3`, `locallyAcknowledged:0`, `blockedForReview:1`, `realQueueTouched:false`, `productionTouched:false`.
+- Paso 2: `ok:true`, `phase:ACK_CONFIRMED`, `confirmedNow:3`, `remoteRequestReplayed:3`, `syntheticAcknowledged:3`, `syntheticPending:0`, `syntheticBlockedForReview:1`, `realQueueTouched:false`, `readyForProductionWrites:false`.
+- Verificación SQL independiente **después del paso 2** en sandbox: hay **4 filas sintéticas y 4 recibos en total**, incluyendo 1 fila y 1 recibo previos de la fase 3G. El piloto 3H dejó **exactamente tres filas**: rop05/900000101, rma15_jm/900000102 y rma15_fs/900000103, todas en revisión 1, marcador DELTA_3G_SANDBOX_ONLY. Existen los tres recibos esperados, `accepted:1` y `deleted:0` cada uno. La fila bloqueada rma15_fs/900000104 **no existe** en la base.
+
+**Conclusión estricta:** fase 3H aprobada como prueba de cola/ACK **sintética** sobre una base aislada. **No** demuestra sincronización de filas operativas ni comparación completa de campos ROP05/RMA15; **no** autoriza cortar sincronizadores actuales ni habilitar escrituras a producción. Próxima etapa: auditar correspondencia campo-a-campo y preparar consumidor versionado con baseline remoto confirmado y revisión manual para datos históricos ambiguos.
