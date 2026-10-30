@@ -1,74 +1,79 @@
-# Delta Mining OPS V9 — Rama funcional de integración
+# Delta Mining OPS V9 — Rama ejecutable y prueba paralela
 
-**Rama:** `feature/v9-ops-supabase-app-20261030` (desde `migration/unified-apps-script-v9-20261029`).
-**Producción:** `main` + Apps Script V8.1 siguen independientes y operativos.
-**Estado:** Aplicación React/Vite con módulo V9 de lectura integrado. **No es todavía un cutover operativo**; el transporte V9 no escribe ni genera ACK reales.
+**Rama:** `feature/v9-ops-supabase-app-20261030`  
+**Base:** `migration/unified-apps-script-v9-20261029`  
+**Producción:** `main` y Apps Script V8.1 permanecen en servicio.  
+**Preview Vercel:** https://delta-mining-ops-git-feature-v9-37ff09-delta-mining-s-projects.vercel.app
 
-## Estructura implementada
+## Qué funciona
 
-| Componente | Archivo | Comportamiento |
-|---|---|---|
-| Pantalla de control dentro de Delta OPS | `src/modules/v9/V9OpsPanel.jsx` | Estados de migración, 5295 tareas, búsqueda por estado y páginas de ROP05 |
-| Navegación de la app | `src/App.jsx` | Botón desde Bienvenida y entrada «V9 · Piloto Supabase» para Admin/Oficina Técnica |
-| Backend Vercel seguro | `api/v9-ops.js` | Requiere token técnico V9, nunca expone secreto Supabase al navegador, solo `preview` y `gas-health` |
-| RPC de Supabase **ya instalado** | `supabase/v9_migration/20261030_v9_ops_readonly_rpc.sql` | `public.dm_v9_ops_read_v1`; solo `service_role`, los 15 campos originales siguen en esquema privado |
-| Generador GAS 4F V3 | `integration/apps-script/v9/DM_UNIFIED_PHASE4B_ROP05_GENERADOR_NO_DESTRUCTIVO_V1.gs` | Código versionado, **IDs de hojas redactados**; únicamente generador/outbox en modo seguro |
-| Pruebas ACK GAS 4I | `integration/apps-script/v9/DM_UNIFIED_PHASE4D_ACK_VERSION_SANDBOX_V1.gs` | Simulación de ACK con datos ficticios y previsualización; sin envíos reales |
-| Verificación | `tests/v9-ops-proxy.test.mjs` y `tests/v9-gas-sources.test.mjs` | Acceso, lectura acotada, fuentes sin IDs privados |
+La aplicación React/Vite existente incorpora una nueva sección **V9 · Piloto Supabase**, disponible en la navegación y Bienvenida para usuarios con perfil administrador u Oficina Técnica. El acceso **reutiliza la sesión normal de Delta OPS**; no pide otra contraseña ni requiere una clave de servicio Supabase en el navegador o en Vercel.
 
-## Cómo ejecutar el piloto local
+El panel puede consultar con paginación la conciliación ROP05 sobre `delta_v9`, filtrar los motivos de bloqueo y mostrar tareas, horas y productividad desde la lectura por `task_key`. Cuenta con acceso a un diagnóstico `health` del Apps Script V9 de pruebas **solo cuando esté configurada su URL**.
+
+### Arquitectura real
+
+```text
+Usuario -> Login Delta OPS (existente)
+        -> React src/App.jsx -> V9OpsPanel.jsx
+        -> Vercel api/v9-ops.js (solo POST preview / gas-health)
+        -> Supabase PostgREST public.dm_v9_ops_session_read_v1
+           -> Valida p_auth_token con public.app_require_session_
+           -> Comprueba rol administrador / área Oficina Técnica
+           -> public.dm_v9_ops_read_v1 [solo lectura]
+           -> delta_v9 (plan, historial y compuerta de publicación)
+```
+
+Vercel **solo usa la clave pública `sb_publishable_...`** del proyecto para consultar el RPC que valida sesión y rol del lado servidor. Nunca utiliza ni devuelve una `service_role` o `sb_secret` para este panel.
+
+La identidad de las tareas usa `task_key`, no el número físico de fila. Los cambios diferidos de productividad se conservan en el historial de revisiones sombra. Un desplazamiento o una diferencia posterior cambia la compuerta de publicación a bloqueado.
+
+## Archivos de la rama
+
+| Componente | Ubicación |
+|---|---|
+| Navegación y enrutamiento | `src/App.jsx` |
+| Panel de datos V9 | `src/modules/v9/V9OpsPanel.jsx` |
+| Proxy Vercel con sesión existente | `api/v9-ops.js` |
+| RPC de lectura interna | `supabase/v9_migration/20261030_v9_ops_readonly_rpc.sql` |
+| RPC de autenticación del piloto | `supabase/v9_migration/20261030_v9_existing_session_read_rpc.sql` |
+| SQL de identidad/historial/publicación bloqueada | `supabase/v9_migration/` |
+| Generador Apps Script V9 (fuente versionada) | `integration/apps-script/v9/DM_UNIFIED_PHASE4B_ROP05_GENERADOR_NO_DESTRUCTIVO_V1.gs` |
+| Ensayos de ACK / vista previa V9 | `integration/apps-script/v9/DM_UNIFIED_PHASE4D_ACK_VERSION_SANDBOX_V1.gs` |
+| Prueba de proxy y fuentes GAS | `tests/v9-ops-proxy.test.mjs`, `tests/v9-gas-sources.test.mjs` |
+| Validación automatizada de rama | `.github/workflows/v9-branch-validation.yml` |
+
+## Prueba del módulo
+
+1. Entrar a la URL de Preview de Vercel, con autenticación Vercel si el proyecto la exige.
+2. Iniciar sesión con el **usuario habitual** de Delta OPS.
+3. Abrir **V9 · Piloto Supabase** desde la Bienvenida o la barra lateral.
+4. Revisar el estado de las tareas ROP05 y sus bloqueos. El botón *Actualizar datos* vuelve a consultar la compuerta vigente.
+5. El botón **Verificar Apps Script** responde “No configurado” hasta que exista un despliegue Web App V9 de pruebas y se informe su dirección mediante `DELTA_V9_GAS_URL` en el entorno Preview.
+
+### Configuración
+
+No instalar credenciales secretas de Supabase en Vercel: la validación ocurre en un RPC con sesión de Delta OPS. El proxy V9 usa la clave **pública** del proyecto, con valores por defecto del repositorio. Se pueden configurar `DELTA_V9_SUPABASE_URL` y `DELTA_V9_SUPABASE_PUBLISHABLE_KEY` como variables de Preview si se quiere sustituir estos valores.
+
+La URL `DELTA_V9_GAS_URL` es opcional y debe corresponder **solo** al proyecto de prueba V9; no utilizar el Apps Script operativo para este diagnóstico. No configurar desencadenadores automáticos ni credenciales productivas de escritura.
 
 ```bash
 git switch feature/v9-ops-supabase-app-20261030
 npm ci
-npm run dev
+npm run validate
+npm run build
 ```
 
-Para compilar: `npm run build`. La app existente sigue usando sus fuentes Supabase públicas autorizadas y su Apps Script V8.1 para autenticación/escrituras legadas.
+## Protección de producción y límites actuales
 
-El módulo V9 se abre desde el botón de **Bienvenida** (Admin/Oficina Técnica) o desde la barra lateral. No necesita recargar todos los datasets operativos para consultar el backend V9.
+- V8.1 sigue sincronizando las fuentes. `main` no se modificó y no hubo publicación V9.
+- `delta_v9.rop05_publication_plan_v1` tiene los 5295 planes inicialmente bloqueados; las filas nuevas o desplazadas requieren reconciliación.
+- La cola de recibos ACK operativos existe, pero **continúa vacía**.
+- Los módulos de Apps Script integrados en GitHub son **fuentes versionadas, no un Web App desplegado**; V9 no puede usar su `health` hasta configurar y verificar el despliegue.
+- Aún **no** hay reemplazo operativo de V8.1 ni escritura V9 de productividad. El objetivo siguiente es crear y probar ese transporte con identidad estable, revisiones y ACK bajo autorización separada.
+- No abrir la función `dm_v9_ops_read_v1` a `anon`; únicamente `dm_v9_ops_session_read_v1` puede ser invocada con sesión vigente y rol habilitado.
+- No confundir el build de Vercel con una prueba end-to-end autenticada. Hay pruebas unitarias y lectura SQL por separado; la comprobación final desde una sesión de usuario real aún debe completarse.
 
-## Configuración privada en Vercel (solo en un Preview de esta rama)
+## Criterios para reemplazar V8.1
 
-Crear **en Vercel, no en GitHub**, como variables **no VITE_**, y restringirlas a esta rama concreta:
-
-- `DELTA_V9_ADMIN_TOKEN`: token aleatorio de al menos 32 caracteres, exclusivo para técnicos autorizados; el usuario lo ingresa en la pantalla V9 y nunca se guarda en localStorage.
-- `DELTA_V9_SUPABASE_URL`: URL HTTPS del proyecto productivo correcto de Delta Mining (el endpoint rechaza otro proyecto).
-- `DELTA_V9_SUPABASE_SERVICE_KEY`: **clave privada de servidor** del mismo proyecto Supabase; nunca exponerla en `VITE_*`, Apps Script o frontend.
-- `DELTA_V9_GAS_URL`: opcional, URL `https://script.google.com/macros/s/.../exec` del **clon** V9 de pruebas, no del Apps Script V8.1 productivo. Solo se consulta `action=health`.
-
-**IMPORTANTE:** El repositorio es público. No configurar la clave `service_role` en TODOS los Preview o para PR de terceros. Utilizar un entorno protegido/restringido a esta rama revisada. Si no está configurada una credencial, el endpoint V9 responde 503 (falla cerrada). Nunca copiar claves en archivos `.env` commiteados, issues ni chats.
-
-## Apps Script y Google Sheets
-
-La copia del generador V9 en GitHub **NO es un reemplazo pegable tal cual** sin configurar 5 ScriptProperties de IDs productivos. Esto se hizo intencionalmente para evitar que un repositorio público revele identificadores de hojas:
-
-`DM_V9_ROP05_BOOK_ID`, `DM_V9_ROP02_JM_BOOK_ID`, `DM_V9_ROP02_FS_BOOK_ID`, `DM_V9_PRODUCTION_GUARD_4_ID`, `DM_V9_PRODUCTION_GUARD_5_ID`.
-
-Los archivos GAS que ya están instalados y probados en el clon **no fueron modificados** durante la creación de la rama. El botón «Verificar Apps Script V9» solo funcionará si existe una URL desplegada para ese clon y su `doGet` soporta `action=health`. La app normal continúa usando el script V8.1.
-
-## Base de datos V9 realmente conectada
-
-La RPC `public.dm_v9_ops_read_v1` consulta en vivo:
-
-- `delta_v9.rop05_publication_live_gate_v1` para detectar desplazamiento de filas/bloqueos;
-- `delta_v9.rop05_snapshot_read_v1` para mostrar productividad por ID estable;
-- las tablas puente/revisiones/planes previamente implementadas sin habilitar las escrituras.
-
-La base rechaza `publishing_enabled=true`; los ACK operativos continúan en cero. Las 34 filas desplazadas permanecen bloqueadas, al igual que los 23 registros sin identidad legacy, los 8 con productividad pendiente y el registro con anomalía numérica. **No se deben insertar/reubicar automáticamente a partir de la pantalla.**
-
-## Pruebas y despliegue
-
-- CI GitHub: [Validar piloto V9](https://github.com/NahuelGarciaDelta/delta-mining-ops/actions/workflows/v9-branch-validation.yml).
-- La compilación con cambios React y API recibió al menos un resultado satisfactorio de «Predeploy Candidate Validation» en GitHub durante esta implementación; revisar siempre el commit más reciente antes de dar por validada toda la rama.
-- El despliegue automático/manual de Preview en Vercel está **bloqueado por cuota diaria de deployments (HTTP 402)**. No hay URL de Preview verificada en esta entrega; no se modificó la producción.
-
-## Pendientes para la sustitución operativa V9
-
-1. Autenticación/sesiones del clon GAS y mecanismo de publicación V9 con identidad estable, revisiones remotas secuenciales y ACK real idempotente.
-2. Lecturas y escrituras operativas completas desde la app, primero en canary reversible y sin modificar `main`.
-3. Reconciliar desplazamientos de filas y datos en cuarentena sin falsos vínculos.
-4. Reparar parser numérico y registro afectado con respaldo.
-5. Definir política explícita de productividad **provisional vs. cerrada** y propagar correcciones tardías sin duplicaciones.
-
-**Resumen:** La rama ya contiene una app real integrada con Supabase V9 y fuentes Apps Script V9 versionadas. No afirmar que el flujo V9 completo ya reemplaza V8.1.
+Antes de fusionar a `main`: validar los datos reales completos, resolver los registros en cuarentena, reparar el parser numérico legado de manera compatible, acordar productividad provisional/definitiva, implementar un escritor transaccional con idempotencia por `request_id`, verificar ACK versionado y ejecutar pruebas de rollback y de operación bajo carga. La vista previa no satisface aún estos requisitos.
