@@ -32,3 +32,13 @@ Nuevo módulo 4A V2 `DM_UNIFIED_PHASE4A_LOTES_DINAMICOS_V2.gs`: reconoce las 18 
 La 4A V2 aborto tras 79 s con cambio de cantidad de filas durante auditoria. El usuario confirmo que hay cargas matutinas por lotes. No es fallo de datos demostrado.
 Se preparo modulo DM_UNIFIED_PHASE4A_VENTANAS_CORTAS_V3.gs, solo para el clon: lectura de las ultimas 512 filas; ampliacion eventual a 2048; segunda lectura de 18 huellas RAW; permite crecimiento concurrente de lastRow, pero bloquea recortes, encabezados mutados, ausencia o duplicados detectados en ventana y errores de mapeo. Solo guarda en DM_U4A_V3_STATE. 16/16 tests locales superados; pendiente ejecucion real del usuario.
 LIMITACION: cotejo por contenido no equivale a identidad global ni a ACK remoto. Para sincronizador final se necesita identificador inmutable generado en el ingreso original de cada parte, revision, outbox, ACK y corte reversible. Produccion sin cambios; porcentaje permanece en 50% estimado.
+
+## Fase 4A V3 — cierre operativo favorable 2026-10-30 10:40 ART
+
+El usuario ejecutó `probarMigracionFase4aCrearColaV3` después de corregir el `key:DATASET` faltante en `source_()`. Resultado `ok:true`, `staged:true`, `referenceRows:18`, `matchedInBoundedWindow:18`, `review:0`, `shifted:5`, `scanRows:512`, `verifyRows:81`, `lastRowBefore:9718`, `lastRowAfter:9718`, `growthObserved:false`, `identityGloballyVerified:false`, `remoteAckCount:0`, `productionWrites:0`, `readyForProductionWrites:false`. Se observaron 5 registros desplazados de las filas 9699-9703 a 9714-9718; se recuperaron por hash de contenido. Se guardó únicamente `DM_U4A_V3_STATE`.
+
+**Dictamen:** Aprobado el reconocimiento de referencias RAW desplazadas en una ventana acotada, sin escrituras. No se ha aprobado identidad inmutable, deduplicación global, sincronización productiva ni ACK. No repetir 4A para obtener progreso aparente.
+
+**Siguiente entregable que produce avance real:** adaptar el flujo de INGESTA de partes y el esquema de persistencia para generar y preservar `record_id` inmutable, con `revision`/`content_hash`, sentinela de concurrencia e idempotencia. Debe ser generado ANTES de que Apps Script inserte o reordene filas; reutilizar un identificador fuente confiable si ya existe. Preparar consumidor ACK-gated usando la ruta sandbox sintética 3G/3H y ensayos de doble entrega, edición y reordenamiento. No desactivar V8.1 ni escribir en Supabase productivo antes de un corte planificado y validado.
+
+Estado global: estimación previa de 50% (ingeniería; no representa porcentaje de datos sincronizados).
