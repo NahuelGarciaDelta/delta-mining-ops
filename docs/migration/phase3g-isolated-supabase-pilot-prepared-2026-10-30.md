@@ -28,3 +28,12 @@ Verificación SQL posterior en sandbox: tablas privadas `delta_3g_sandbox.rows` 
 **Compatibilidad de claves:** El usuario compartió una clave `sb_publishable_`, pública y **sin permisos para RPC restringida**. El módulo V1 original esperaba la clave JWT legacy `service_role` (deprecada), por lo que se preparó revisión `DM_UNIFIED_PHASE3G_SANDBOX_RPC_V1_1_SECRET_KEY.gs` para usar `DM_U3G_V1_TEST_SECRET_KEY` en ScriptProperties del clon, exigir `sb_secret_` de **este sandbox**, y enviar únicamente encabezado `apikey` (sin Bearer). Conserva funciones Apps Script `probarMigracionFase3g*V1`. El usuario debe **reemplazar** el contenido del archivo 3G existente, **no agregar duplicado con mismas funciones**. Revisión local 13/13 tests PASS. Archivo y README entregados en nuevo ZIP `DELTA_OPS_V9_FASE3G_ACTUALIZACION_SECRET_KEY_20261030.zip`.
 
 **Aún NO ejecutado:** petición HTTP real desde Apps Script, ping desde cliente, inserción de fila sintética ni ACK remoto. El siguiente paso del usuario es cargar 5 ScriptProperties privadas en clon (nunca por chat), ejecutar preflight y ping. No habilitar producción.
+
+
+## Fase 3G VALIDADA con Apps Script y RPC real de sandbox
+
+El usuario ejecutó el paso 1 (ACK local omitido) y el paso 2 en su proyecto CLON de Apps Script. Resultado paso 2: `ok:true`, `phase:ACK_CONFIRMED`, `replayed:false` a nivel llamada local, `remoteRequestReplayed:true`, `remoteRows:1`, `remoteReceipts:1`, `realQueueTouched:false`, `productionTouched:false`, `readyForProductionWrites:false`. Request ID: `8da8d3c0-4f99-403f-b8dc-cf89de34e05a`.
+
+**Postverificación independiente de Supabase**: SQL SELECT en proyecto de pruebas `biztlietuvvonigcfdwy` verificó **1 fila** y **1 comprobante** con ese request ID, dataset `rop05`, source_row `900000001`, revisión `1`, marker `DELTA_3G_SANDBOX_ONLY`, y recibo original `accepted:1`, `writtenUpserts:1`, `deleted:0`. Se demuestra idempotencia del reintento RPC sobre un payload sintético. El comprobante original almacena `replayed:false` por ser el resultado de la primera escritura; el paso 2 informó `remoteRequestReplayed:true` en Apps Script.
+
+**Estado:** 3G aprobada como prueba de RPC real en ambiente aislado, NO para sincronización productiva. Aún no existe consumidor de cambios reales de la cola 3D con ACK remoto ni comparación integral de datos tipados/raw_data ni garantía del corte a un único escritor. No copiar credenciales test a producción. 
