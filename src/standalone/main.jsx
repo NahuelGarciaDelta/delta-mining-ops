@@ -1,75 +1,138 @@
-import React,{useState,useEffect,useCallback} from "react";
+import React,{useCallback,useEffect,useRef,useState} from "react";
 import{createRoot}from"react-dom/client";
-import "./style.css";
+import{currentSession,forgetSession,isV9Configured,loginV9,requestV9,saveSession}from"./session.js";
+import OperationalTable from"./OperationalTable.jsx";
+import"./style.css";
 
-const SERVER="biztlietuvvonigcfdwy";
-const API=String(import.meta.env.VITE_V9_SUPABASE_URL||"");
-const KEY=String(import.meta.env.VITE_V9_SUPABASE_PUBLISHABLE_KEY||"");
-const BACKEND_OK=API==="https://"+SERVER+".supabase.co"&&/^sb_publishable_[A-Za-z0-9_-]{15,}$/.test(KEY);
-const SESSION_KEY="delta_ops_v9_independent_session";
 const MODULES=[
- ["inicio","Inicio"],["rop02_jm","ROP02 · José María"],["rop02_fs","ROP02 · Filo del Sol"],
- ["rop05","Productividad · ROP05"],["rma15_jm","Mantenimiento · JM"],["rma15_fs","Mantenimiento · FS"],
- ["lista_equipos","Lista maestra"],["insumos","Abastecimiento"],["control","Control cruzado"],
- ["licitaciones","Licitaciones"],["gestion","Gestión Humana"]
+ ["inicio","Inicio","General"],
+ ["rop02_jm","ROP02 · José María","Operaciones"],
+ ["rop02_fs","ROP02 · Filo del Sol","Operaciones"],
+ ["rop02_filosur","ROP02 · Filo Sur","Operaciones"],
+ ["rop02_zorro","ROP02 · El Zorro","Operaciones"],
+ ["rop02_fierro","ROP02 · El Fierro","Operaciones"],
+ ["rop05","Productividad · ROP05","Operaciones"],
+ ["combustible","Combustible","Operaciones"],
+ ["rma15_jm","RMA15 · José María","Mantenimiento"],
+ ["rma15_fs","RMA15 · Filo del Sol","Mantenimiento"],
+ ["mantenimiento_programado","Mantenimiento programado","Mantenimiento"],
+ ["lista_equipos","Lista maestra de equipos","Equipos"],
+ ["insumos","Insumos","Abastecimiento"],
+ ["raba03","RABA03","Abastecimiento"],
+ ["control","Control cruzado","Análisis"],
+ ["licitaciones","Licitaciones","Oficina Técnica"],
+ ["gestion","Gestión Humana","Administración"]
 ];
-const ENABLED=new Set(["rop02_jm","rop02_fs","rop05","rma15_jm","rma15_fs","lista_equipos","insumos"]);
-function restore(){try{const x=JSON.parse(sessionStorage.getItem(SESSION_KEY)||"null");return x&&x.access_token&&x.expires_at*1000>Date.now()?x:null;}catch{return null}}
-async function apiCall(session,payload){
- const r=await fetch("/api/v9-independent",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token},body:JSON.stringify(payload),cache:"no-store"});
- const d=await r.json().catch(()=>({ok:false,error:"INVALID_RESPONSE"}));
- if(!r.ok||!d.ok)throw Error(d.error||"No se pudo consultar el backend V9");return d;
-}
-async function signIn(email,password){
- if(!BACKEND_OK)throw Error("El Supabase V9 independiente todavía no está configurado.");
- const r=await fetch(API+"/auth/v1/token?grant_type=password",{method:"POST",headers:{"apikey":KEY,"Content-Type":"application/json"},body:JSON.stringify({email,password})});
- const d=await r.json().catch(()=>({}));
- if(!r.ok||!d.access_token)throw Error("Credenciales inválidas o cuenta todavía no habilitada en Supabase V9");
- const expires_at=Math.floor(Date.now()/1000)+Number(d.expires_in||3600);
- return {access_token:d.access_token,expires_at,email:d.user?.email||email};
-}
+const DATASETS=new Set(MODULES.filter(m=>!["inicio","control","licitaciones","gestion"].includes(m[0])).map(m=>m[0]));
+const groups=[...new Set(MODULES.map(x=>x[2]))];
+
 function App(){
- const[session,setSession]=useState(restore);
+ const[session,setSession]=useState(currentSession);
  const[email,setEmail]=useState("");const[password,setPassword]=useState("");
  const[error,setError]=useState("");const[busy,setBusy]=useState(false);
  const[view,setView]=useState("inicio");const[records,setRecords]=useState([]);
  const[status,setStatus]=useState(null);const[gas,setGas]=useState(null);
- const[loading,setLoading]=useState(false);
- const logout=()=>{sessionStorage.removeItem(SESSION_KEY);setSession(null);setStatus(null);setRecords([])};
- const login=async(e)=>{e.preventDefault();setBusy(true);setError("");try{const s=await signIn(email,password);await apiCall(s,{action:"status"});sessionStorage.setItem(SESSION_KEY,JSON.stringify(s));setSession(s);setPassword("");}catch(err){setError(err.message);}finally{setBusy(false)}};
- const load=useCallback(async()=>{if(!session)return;setLoading(true);setError("");try{
-   const s=await apiCall(session,{action:"status"});setStatus(s);
-   if(ENABLED.has(view)){const d=await apiCall(session,{action:"rows",dataset:view,limit:100});setRecords(d.rows||[]);}
-   else setRecords([]);
- }catch(e){setError(e.message);if(/SESSION_EXPIRED|UNAUTHORIZED/.test(e.message))logout();}finally{setLoading(false)}},[session,view]);
+ const[loading,setLoading]=useState(false);const[offset,setOffset]=useState(0);
+ const[total,setTotal]=useState(0);const generation=useRef(0);
+ const logout=useCallback(()=>{generation.current++;forgetSession();setSession(null);setStatus(null);setRecords([]);setTotal(0);setGas(null)},[]);
+ const login=async(e)=>{
+  e.preventDefault();if(busy)return;setBusy(true);setError("");
+  try{const s=await loginV9(email,password);await requestV9({action:"status"},s);saveSession(s);setSession(s);setPassword("");}
+  catch(err){setError(err.message==="V9_INVALID_CREDENTIALS"?"Correo o contraseña incorrectos, o usuario no habilitado en V9.":err.message==="V9_ROLE_NOT_ALLOWED"?"Tu cuenta todavía no tiene permiso en V9.":err.message);}
+  finally{setBusy(false);}
+ };
+ const load=useCallback(async()=>{
+  if(!session)return;
+  const id=++generation.current;setLoading(true);setError("");setRecords([]);
+  try{
+   const active=currentSession()||session;
+   const s=await requestV9({action:"status"},active);
+   if(id!==generation.current)return;setStatus(s);
+   if(DATASETS.has(view)){
+    const d=await requestV9({action:"rows",dataset:view,limit:100,offset},currentSession()||active);
+    if(id!==generation.current)return;setRecords(d.rows||[]);setTotal(d.total??0);
+   }else setTotal(0);
+  }catch(err){
+   if(id!==generation.current)return;
+   if(/V9_SESSION_EXPIRED|V9_SESSION_REQUIRED/.test(err.message)){logout();setError("Tu sesión V9 venció. Iniciá sesión nuevamente.");return;}
+   setError(err.message);
+  }finally{if(id===generation.current)setLoading(false);}
+ },[session,view,offset,logout]);
  useEffect(()=>{if(session)load()},[load,session]);
- const checkGas=async()=>{if(!session)return;try{setGas(await apiCall(session,{action:"gas-health"}));}catch(e){setGas({ok:false,error:e.message});}};
- if(!session)return <div className="login"><h1>DELTA OPS <span className="tag">V9</span></h1><p className="muted">Aplicación independiente · Supabase y Apps Script V9</p>
- <div className="panel"><strong>Acceso independiente</strong><p className="muted">Las sesiones de Delta OPS original no se reutilizan. Los usuarios deben estar habilitados en la base V9.</p></div>
- <form className="form" onSubmit={login}><label>Correo electrónico<input autoComplete="username" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>
- <label>Contraseña<input autoComplete="current-password" type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>
- <button disabled={busy||!BACKEND_OK} className="btn">{busy?"Verificando…":"Ingresar"}</button>
- {error&&<p className="error" role="alert">{error}</p>}{!BACKEND_OK&&<p className="notice">Falta configurar las variables de Supabase V9 en el despliegue.</p>}</form></div>;
- return <div className="layout"><aside className="side"><div className="brand">DELTA OPS <span className="tag">V9</span></div>
- <p className="sub">Plataforma independiente</p><nav className="nav">{MODULES.map(([key,label])=><button className={view===key?"active":""} key={key} onClick={()=>setView(key)}>{label}</button>)}</nav>
- <p className="sub" style={{marginTop:22}}>Conectado a Supabase V9</p></aside>
- <main className="content"><div className="top"><div><h1>{MODULES.find(x=>x[0]===view)?.[1]}</h1><span className="muted">Entorno V9 separado · lectura de pruebas</span></div>
- <div className="row"><span className="pill">{session.email}</span><button className="btn ghost" onClick={logout}>Salir</button></div></div>
- {error&&<div role="alert" className="panel error">{error}</div>}
- {view==="inicio"?<><div className="cards">
- <div className="card"><span className="muted">Backend</span><strong>{status?.backend||"No verificado"}</strong></div>
- <div className="card"><span className="muted">Registros V9</span><strong>{status?.total??"—"}</strong></div>
- <div className="card"><span className="muted">Modo</span><strong>Solo lectura</strong></div>
- </div><div className="panel"><h2>Estado de las fuentes</h2><p className="muted">El proyecto V9 tiene su propia base y autenticación. No usa el Supabase ni el Apps Script originales.</p>
- <div className="row"><button className="btn" disabled={loading} onClick={load}>Actualizar</button><button className="btn ghost" onClick={checkGas}>Verificar Apps Script V9</button></div>
- {gas&&<p className={gas.ok?"tag":"notice"}>{gas.ok?"Apps Script V9 respondió correctamente.":gas.error||"Apps Script V9 sin configurar."}</p>}
- {status?.total===0&&<p className="notice">La base V9 todavía está sin datos operativos. No se mostrarán datos de V8.1 como reemplazo.</p>}</div></>:
- <div className="panel"><h2>{MODULES.find(x=>x[0]===view)?.[1]}</h2>
- {!ENABLED.has(view)?<p className="notice">Módulo pendiente de migración al backend independiente. No se mostrarán registros de producción original.</p>:
- <><div className="row"><button className="btn" disabled={loading} onClick={load}>{loading?"Cargando…":"Actualizar"}</button><span className="muted">{records.length} filas en esta página</span></div>
- <div className="tablewrap" style={{marginTop:16}}><table className="table"><thead><tr><th>ID</th><th>Fecha de actualización</th><th>Datos de V9</th></tr></thead>
- <tbody>{records.map(r=><tr key={r.record_id}><td className="mono">{r.record_id}</td><td>{r.updated_at||"—"}</td><td className="mono">{JSON.stringify(r.payload)}</td></tr>)}</tbody></table></div>
- {!records.length&&!loading&&<p className="notice">Sin registros en la base independiente para este módulo.</p>}</>}</div>}
- </main></div>
+ const navTo=(key)=>{setView(key);setOffset(0);setRecords([]);setError("");};
+ const checkGas=async()=>{if(!session)return;setGas(null);try{setGas(await requestV9({action:"gas-health"},currentSession()||session));}
+  catch(err){setGas({ok:false,error:err.message});}};
+ const current=MODULES.find(m=>m[0]===view);
+ const currentSource=status?.sources?.find(s=>s.dataset===view);
+ if(!session)return <div className="login">
+  <h1>DELTA OPS <span className="tag">V9</span></h1>
+  <p className="muted">Operaciones · Plataforma independiente</p>
+  <div className="panel"><strong>Nuevo entorno Delta OPS</strong>
+   <p className="muted">V9 utiliza una base Supabase y un Apps Script distintos. Es necesario habilitar tu usuario en V9; no se aprovecha el token de la aplicación anterior.</p></div>
+  <form className="form" onSubmit={login}>
+   <label>Correo electrónico<input autoComplete="username" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>
+   <label>Contraseña<input autoComplete="current-password" type="password" required value={password} onChange={e=>setPassword(e.target.value)}/></label>
+   <button className="btn" disabled={busy||!isV9Configured}>{busy?"Comprobando acceso…":"Iniciar sesión"}</button>
+   {error&&<p role="alert" className="error">{error}</p>}
+   {!isV9Configured&&<p className="notice">No se configuró el backend independiente V9.</p>}
+  </form></div>;
+ return <div className="layout">
+  <aside className="side">
+   <div className="brand">DELTA OPS <span className="tag">V9</span></div>
+   <div className="sub">Sistema independiente · Pruebas</div>
+   <nav className="nav" aria-label="Áreas de Delta OPS">
+    {groups.map(group=><div key={group}>
+     <div className="sub" style={{marginTop:12,marginBottom:6}}>{group}</div>
+     {MODULES.filter(m=>m[2]===group).map(([key,label])=>
+      <button key={key} type="button" className={view===key?"active":""}
+       aria-current={view===key?"page":undefined} onClick={()=>navTo(key)}>{label}</button>)}
+    </div>)}
+   </nav>
+   <div className="sub" style={{marginTop:20}}>Origen: Supabase V9 exclusivo</div>
+  </aside>
+  <main className="content">
+   <div className="top">
+    <div><h1>{current?.[1]||"Delta OPS"}</h1>
+     <span className="muted">Sistema aislado · No consulta fuentes de V8.1</span></div>
+    <div className="row"><span className="pill">{session.email}</span>
+     <button type="button" className="btn ghost" onClick={logout}>Cerrar sesión</button></div>
+   </div>
+   {error&&<div role="alert" className="panel error">{error}</div>}
+   {view==="inicio"?<>
+    <div className="cards">
+     <div className="card"><span className="muted">Datos V9</span><strong>{status?.total?.toLocaleString("es-AR")??"—"}</strong></div>
+     <div className="card"><span className="muted">Fuentes registradas</span><strong>{status?.sources?.length??"—"}</strong></div>
+     <div className="card"><span className="muted">Entorno</span><strong style={{fontSize:19}}>Independiente</strong></div>
+     <div className="card"><span className="muted">Operación</span><strong style={{fontSize:19}}>Solo lectura</strong></div>
+    </div>
+    <div className="panel">
+     <div className="row" style={{justifyContent:"space-between"}}>
+      <h2>Estado de los orígenes de datos</h2>
+      <div className="row"><button className="btn" disabled={loading} onClick={load}>{loading?"Actualizando…":"Actualizar"}</button>
+       <button className="btn ghost" onClick={checkGas}>Comprobar Apps Script V9</button></div>
+     </div>
+     <p className="muted">Los registros llegan a la base V9 cuando se active su sincronizador propio. Nunca se muestran datos de la base original como reemplazo.</p>
+     <div className="tablewrap"><table className="table">
+      <thead><tr><th>Fuente</th><th>Área</th><th>Registros</th><th>Sincronización</th><th>Último dato</th></tr></thead>
+      <tbody>{(status?.sources||[]).map(s=><tr key={s.dataset}>
+       <td>{s.label}</td><td>{s.category}</td><td>{Number(s.records||0).toLocaleString("es-AR")}</td>
+       <td>{s.is_migrated?"Migrada":"Pendiente"}</td><td>{s.latest_row_at||"—"}</td>
+      </tr>)}</tbody>
+     </table></div>
+     {status?.total===0&&<p className="notice">Actualmente no hay partes operativos sincronizados en la base V9. Su carga está pendiente.</p>}
+     {gas&&<p role="status" className={gas.ok?"tag":"notice"}>{gas.ok?"Apps Script V9 responde al chequeo de salud.":gas.error||"Apps Script V9 aún no disponible."}</p>}
+    </div>
+   </>:<div className="panel">
+    <h2>{current?.[1]}</h2>
+    {!DATASETS.has(view)?
+     <p className="notice">Este módulo requiere trasladar sus cálculos y servicios al backend V9. Está deshabilitado para no usar los datos ni las escrituras del sistema original.</p>
+     :<>
+      {!currentSource?.is_migrated&&<p className="notice">La fuente está registrada en V9 pero todavía no se confirmó su sincronización desde Apps Script V9.</p>}
+      <OperationalTable dataset={view} rows={records} offset={offset} total={total} busy={loading}
+       onRefresh={load} onPage={setOffset}/>
+     </>}
+   </div>}
+  </main>
+ </div>;
 }
 createRoot(document.getElementById("root")).render(<App/>);
