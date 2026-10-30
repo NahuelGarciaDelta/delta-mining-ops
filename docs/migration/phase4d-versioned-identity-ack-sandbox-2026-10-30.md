@@ -15,3 +15,13 @@ Módulo entregado para instalar en CLON `DM_UNIFIED_PHASE4D_ACK_VERSION_SANDBOX_
 ## Pendientes para corte
 
 Este es un protocolo de laboratorio, NO equivale a haber sincronizado los 5.290 ROP05. Construir outbox persistente que derive clave (dataset, ID original, tarea), revisión real e identidad de ejecución; reconciliar 3 anomalías de ID y 4 descartes, y migrar consumidores/lectores del modelo físico al inmutable con rollback. Mover secreto webhook productivo que fue expuesto a ScriptProperties y rotarlo. No ejecutar `generarROP05NuevoV9Aplicar`, no crear triggers nuevos ni desactivar V8.1.
+
+## EJECUTADO y corroborado en Apps Script — 30/10/2026 11:21 ART
+
+Registro del usuario de probarMigracionFase4dAckSandboxV1: ok=true, mode=SYNTHETIC_SANDBOX_ONLY, dataset=rop05, syntheticId=test-4d-rop05-gas-001, revision1Confirmed=true, revision1ReplayConfirmed=true, revision2Confirmed=true, revision2ReplayConfirmed=true, latestRevision=2, sandboxRef=biztlietuvvonigcfdwy, realRecordsSent=0, productionWrites=0, realAckCount=0.
+
+Comprobación adicional directamente mediante SELECT en sandbox: registro test-4d-rop05-gas-001 en revision=2, total_versions=2, total_receipts=2 (un comprobante por request_id original), latest_digest_confirmed=true. La repetición del mismo request_id no generó un nuevo recibo; es el comportamiento esperado. No hubo escrituras en Supabase productivo.
+
+DICTAMEN: el circuito de transporte Apps Script->RPC->ACK por identidad + revision sintéticas quedó validado de extremo a extremo. Aún NO es ACK de registros reales ni reemplazo de V8.1. NO repetir 4D, NO habilitar aplicar ni scripts productores V9.
+
+SIGUIENTE ENTREGABLE: diseñar almacenamiento persistente de outbox real para (dataset, original_rop02_id, taskOrdinal, canonical_payload_hash, revision, pending/acked). El plan actual 4B transporta metadata por referencia de arrays solo en memoria y requiere desacoplar revisiones de source_row. Tratar los 3 IDs de origen anómalos y las 4 supresiones históricas como excepciones, sin resolverlas automáticamente. Probar con carga real en modo sombra y ACK sintético en sandbox antes de corte.
