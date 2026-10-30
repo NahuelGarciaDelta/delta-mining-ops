@@ -7,9 +7,9 @@
 
 ## Qué funciona
 
-La aplicación React/Vite existente incorpora una nueva sección **V9 · Piloto Supabase**, disponible en la navegación y Bienvenida para usuarios con perfil administrador u Oficina Técnica. El acceso **reutiliza la sesión normal de Delta OPS**; no pide otra contraseña ni requiere una clave de servicio Supabase en el navegador o en Vercel.
+La aplicación React/Vite existente incorpora una nueva sección **V9 · Piloto Supabase**, disponible en la navegación y Bienvenida para administradores y Oficina Técnica. El frontend intenta reutilizar la sesión normal de Delta OPS y no pide otra contraseña. **Sin embargo, el puente de verificación todavía no está activado:** el Apps Script operativo emite tokens HMAC propios, mientras que Supabase valida tokens guardados en `app_user_sessions`. No deben considerarse intercambiables.
 
-El panel puede consultar con paginación la conciliación ROP05 sobre `delta_v9`, filtrar los motivos de bloqueo y mostrar tareas, horas y productividad desde la lectura por `task_key`. Cuenta con acceso a un diagnóstico `health` del Apps Script V9 de pruebas **solo cuando esté configurada su URL**.
+El RPC de lectura, los filtros y la paginación fueron probados con consultas SQL y mocks, y el frontend compiló en Vercel. **La consulta autenticada extremo a extremo desde un usuario V8.1 todavía no pasó**, porque falta el puente de sesiones. El diagnóstico `health` de Apps Script V9 solo funcionará cuando exista un despliegue de prueba configurado.
 
 ### Arquitectura real
 
@@ -17,6 +17,7 @@ El panel puede consultar con paginación la conciliación ROP05 sobre `delta_v9`
 Usuario -> Login Delta OPS (existente)
         -> React src/App.jsx -> V9OpsPanel.jsx
         -> Vercel api/v9-ops.js (solo POST preview / gas-health)
+        -> [BLOQUEADO: tokens firmados por Apps Script ≠ sesiones Supabase]
         -> Supabase PostgREST public.dm_v9_ops_session_read_v1
            -> Valida p_auth_token con public.app_require_session_
            -> Comprueba rol administrador / área Oficina Técnica
@@ -73,6 +74,17 @@ npm run build
 - Aún **no** hay reemplazo operativo de V8.1 ni escritura V9 de productividad. El objetivo siguiente es crear y probar ese transporte con identidad estable, revisiones y ACK bajo autorización separada.
 - No abrir la función `dm_v9_ops_read_v1` a `anon`; únicamente `dm_v9_ops_session_read_v1` puede ser invocada con sesión vigente y rol habilitado.
 - No confundir el build de Vercel con una prueba end-to-end autenticada. Hay pruebas unitarias y lectura SQL por separado; la comprobación final desde una sesión de usuario real aún debe completarse.
+
+
+## Bloqueo de autenticación verificado (30/10/2026)
+
+La tabla `public.app_user_sessions` tenía 28 sesiones históricas y **0 vigentes** al momento de la comprobación; la última fue creada el 14/10/2026. El login de `src/modules/auth/Login.jsx` consulta el action `authenticate_user` de Apps Script. El Apps Script firma su propio token con `stockExcelIssueAuthToken_` y `stockExcelAuthSecret_`, mientras que `public.app_require_session_` verifica el SHA-256 de otro token que debe existir en `app_user_sessions`. Por eso **un inicio de sesión correcto en V8.1 no basta para invocar hoy el RPC V9**.
+
+Se preparó sin desplegar `integration/apps-script/v9/DM_V9_AUTH_BRIDGE_READONLY.gs`. Este archivo valida el token HMAC existente y su perfil activo **solo si se instala en el mismo proyecto de Apps Script que emitió el token**; una copia independiente carece del secreto y no puede verificarlo. No exponer ni copiar los secretos de `ScriptProperties` a GitHub ni al navegador. No alterar el despliegue activo V8.1.
+
+Falta definir y auditar un contrato seguro para que Vercel confíe en esa verificación y emita lecturas de Supabase sin servicio privilegiado expuesto al navegador; después ejecutar pruebas autenticadas y publicar una nueva Preview. El `dm_v9_ops_session_read_v1` instalado permanece restringido por credenciales existentes, pero no valida tokens Apps Script.
+
+**Estado de Vercel:** el primer Preview de código compiló y quedó READY (commit `e465ae80`). Los cambios posteriores de pruebas/documentación/diagnóstico no se redeplegaron porque Vercel devolvió el límite `api-deployments-free-per-day` (402); el Preview no debe anunciarse como build del último commit ni como flujo autenticado aprobado.
 
 ## Criterios para reemplazar V8.1
 
