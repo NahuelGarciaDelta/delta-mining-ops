@@ -4,6 +4,7 @@ export const VIEW_SOURCES = Object.freeze({
   // El inicio prioriza las fuentes operativas registradas. Concurrencia=4:
   // FDS/JM + RMA15 FDS/JM salen en la primera tanda; el resto queda listo detrás.
   // ROP05 también se precarga para que Productividad/Control abran sin espera.
+  v9Ops:[], // Panel V9: su API es independiente, no necesita precargar datasets pesados.
   bienvenida:["rop02_fs","rop02_jm","rma15_fs","rma15_jm","insumos","lista_equipos","rop05",...SECONDARY_ROP02_SOURCE_KEYS],
   equipmentProfile:["lista_equipos",...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","insumos"],
   // Dashboard usa los mismos datasets hidratados por App desde Supabase.
