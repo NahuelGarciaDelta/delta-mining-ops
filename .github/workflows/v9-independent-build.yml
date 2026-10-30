@@ -1,0 +1,32 @@
+name: V9 independiente - compilación aislada
+on:
+  push:
+    branches:
+      - feature/v9-ops-supabase-app-20261030
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-v9:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verificar código standalone
+        run: node --check api/v9-independent.js && node --check vite.v9.config.js
+      - name: Compilar solamente Delta OPS V9
+        run: npm run build -- --config vite.v9.config.js
+      - name: Confirmar salida de Vite
+        run: test -s dist/v9.html && test -d dist/assets
+      - name: Comprobar ausencia de referencias operativas V8.1 en los entrypoints V9
+        run: |
+          if grep -R -E 'jwfocqaxlckuxoklwyxs|AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog' src/standalone api/v9-independent.js; then
+            echo "V9 contiene dependencias productivas prohibidas."
+            exit 1
+          fi
