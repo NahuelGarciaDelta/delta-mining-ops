@@ -1,8 +1,10 @@
-import { timingSafeEqual } from "node:crypto";
-
+// V9 pilot: read-only, protected by the EXISTING Delta OPS session.
+// Supabase validates the session and roles in public.dm_v9_ops_session_read_v1.
+// No service-role key, no extra login, no ROP05 writes.
 export const config = { maxDuration: 30 };
 
 const DB_REF = "jwfocqaxlckuxoklwyxs";
+const PUBLIC_KEY_FALLBACK = "sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2";
 const GATES = new Set([
   "", "BLOCKED_CLOSURE_UNCONFIRMED", "BLOCKED_SOURCE_DRIFT",
   "BLOCKED_LEGACY_REVIEW", "BLOCKED_NUMERIC_ANOMALY",
@@ -10,58 +12,54 @@ const GATES = new Set([
   "BLOCKED_SNAPSHOT_STALE"
 ]);
 
-function secretMatches(candidate, configured) {
-  if (typeof candidate !== "string" || typeof configured !== "string" || configured.length < 24) return false;
-  const a = Buffer.from(candidate, "utf8");
-  const b = Buffer.from(configured, "utf8");
-  return a.length === b.length && timingSafeEqual(a, b);
+function fail(res, status, error) {
+  return res.status(status).json({ ok: false, error });
 }
 
-function fail(res, status, message) {
-  return res.status(status).json({ ok: false, error: message });
+function readBody(req) {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) return {};
+  return req.body;
+}
+
+async function safeJson(response) {
+  const data = await response.text();
+  if (data.length > 250000) throw new Error("RESPONSE_TOO_LARGE");
+  try { return data ? JSON.parse(data) : null; }
+  catch { throw new Error("INVALID_UPSTREAM_JSON"); }
 }
 
 function validDatabaseUrl(value) {
   try {
-    const u = new URL(value);
-    return u.protocol === "https:" && u.hostname === `${DB_REF}.supabase.co`
-      && (u.pathname === "/" || u.pathname === "") && !u.search && !u.hash
-      ? u.origin : null;
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === `${DB_REF}.supabase.co`
+      && (url.pathname === "/" || url.pathname === "")
+      && !url.search && !url.hash ? url.origin : null;
   } catch { return null; }
-}
-
-async function safeJson(res) {
-  const text = await res.text();
-  if (text.length > 250000) throw new Error("UPSTREAM_RESPONSE_TOO_LARGE");
-  try { return text ? JSON.parse(text) : null; } catch { throw new Error("UPSTREAM_RESPONSE_INVALID"); }
 }
 
 async function gasHealth(res) {
   const raw = String(process.env.DELTA_V9_GAS_URL || "");
-  let u;
+  let url;
   try {
-    u = new URL(raw);
-    if (u.protocol !== "https:" || u.hostname !== "script.google.com" ||
-        !/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(u.pathname)) throw new Error();
+    url = new URL(raw);
+    if (url.protocol !== "https:" || url.hostname !== "script.google.com" ||
+      !/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url.pathname)) throw new Error("BAD_URL");
   } catch { return fail(res, 503, "V9_GAS_NOT_CONFIGURED"); }
-  u.searchParams.set("action", "health");
+  url.searchParams.set("action", "health");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const response = await fetch(u.toString(), { method: "GET", redirect: "follow", cache: "no-store", signal: controller.signal });
-    if (!response.ok) return fail(res, 502, "V9_GAS_HEALTH_HTTP_" + response.status);
-    const result = await safeJson(response);
-    if (!result || typeof result !== "object") return fail(res, 502, "V9_GAS_HEALTH_INVALID");
+    const response = await fetch(url.toString(), { method: "GET", redirect: "follow", cache: "no-store", signal: controller.signal });
+    if (!response.ok) return fail(res, 502, "V9_GAS_HEALTH_UNAVAILABLE");
+    const data = await safeJson(response);
+    if (!data || typeof data !== "object") return fail(res, 502, "V9_GAS_INVALID_REPLY");
     return res.status(200).json({
-      ok: result.ok === true,
-      connected: true,
-      mode: String(result.mode || result.module || "health").slice(0, 60),
-      // Nunca reenviar payloads operativos, credenciales ni datos del script.
-      note: "Apps Script V9 de pruebas; diagnóstico de lectura únicamente"
+      ok: data.ok === true,
+      mode: String(data.mode || data.module || "health").slice(0, 60),
+      note: "Apps Script V9 de pruebas, solo diagnóstico"
     });
-  } catch (e) {
-    return fail(res, 502, e?.name === "AbortError" ? "V9_GAS_TIMEOUT" : "V9_GAS_UNAVAILABLE");
-  } finally { clearTimeout(timer); }
+  } catch (e) { return fail(res, 502, e?.name === "AbortError" ? "V9_GAS_TIMEOUT" : "V9_GAS_UNAVAILABLE"); }
+  finally { clearTimeout(timer); }
 }
 
 export default async function handler(req, res) {
@@ -71,45 +69,56 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "POST");
     return fail(res, 405, "METHOD_NOT_ALLOWED");
   }
-  const token = process.env.DELTA_V9_ADMIN_TOKEN;
-  if (!token || token.length < 24) return fail(res, 503, "V9_ADMIN_TOKEN_NOT_CONFIGURED");
-  if (!secretMatches(req.headers["x-delta-v9-admin-token"], token)) return fail(res, 401, "V9_UNAUTHORIZED");
 
-  const body = typeof req.body === "object" && req.body && !Array.isArray(req.body) ? req.body : {};
-  if (body.mode === "gas-health") return gasHealth(res);
-  if (body.mode !== "preview") return fail(res, 400, "UNSUPPORTED_V9_ACTION");
+  const token = req.headers["x-delta-auth-token"];
+  if (typeof token !== "string" || token.length < 24 || token.length > 512)
+    return fail(res, 401, "V9_SESSION_REQUIRED");
 
-  const limit = Number(body.limit ?? 20);
-  const after = String(body.after ?? "");
-  const gate = String(body.gate ?? "");
+  const body = readBody(req);
+  if (!["preview", "gas-health"].includes(body.mode)) return fail(res, 400, "UNSUPPORTED_V9_ACTION");
+  const limit = body.mode === "gas-health" ? 1 : Number(body.limit ?? 20);
+  const after = body.mode === "gas-health" ? "" : String(body.after ?? "");
+  const gate = body.mode === "gas-health" ? "" : String(body.gate ?? "");
   if (!Number.isInteger(limit) || limit < 1 || limit > 50 ||
-      !/^[A-Za-z0-9:_-]{0,150}$/.test(after) || !GATES.has(gate)) {
-    return fail(res, 400, "INVALID_V9_FILTER");
-  }
+    !/^[A-Za-z0-9:_-]{0,150}$/.test(after) || !GATES.has(gate)) return fail(res, 400, "INVALID_V9_FILTER");
 
   const url = validDatabaseUrl(process.env.DELTA_V9_SUPABASE_URL || `https://${DB_REF}.supabase.co`);
-  const key = String(process.env.DELTA_V9_SUPABASE_SERVICE_KEY || "");
-  if (!url || !key || key.startsWith("sb_publishable_") || key.length < 30)
-    return fail(res, 503, "V9_SUPABASE_SERVER_NOT_CONFIGURED");
+  const key = String(process.env.DELTA_V9_SUPABASE_PUBLISHABLE_KEY || PUBLIC_KEY_FALLBACK);
+  if (!url || !/^sb_publishable_[A-Za-z0-9_-]{15,}$/.test(key))
+    return fail(res, 503, "V9_PUBLIC_BACKEND_NOT_CONFIGURED");
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 24000);
   try {
-    const response = await fetch(`${url}/rest/v1/rpc/dm_v9_ops_read_v1`, {
+    const response = await fetch(`${url}/rest/v1/rpc/dm_v9_ops_session_read_v1`, {
       method: "POST", cache: "no-store", signal: controller.signal,
       headers: {
         apikey: key, Authorization: `Bearer ${key}`,
         "Content-Type": "application/json", Accept: "application/json"
       },
-      body: JSON.stringify({ p_limit: limit, p_after: after, p_gate: gate })
+      body: JSON.stringify({
+        p_auth_token: token,
+        p_limit: limit, p_after: after, p_gate: gate
+      })
     });
-    if (!response.ok) return fail(res, 502, "V9_SUPABASE_READ_FAILED_" + response.status);
+    if (response.status === 401 || response.status === 403)
+      return fail(res, 401, "V9_SESSION_REJECTED");
+    if (!response.ok) {
+      const upstream = await safeJson(response).catch(() => ({}));
+      const msg = String(upstream?.message || "");
+      if (/V9_PERMISSION_DENIED|V9_PASSWORD_CHANGE_REQUIRED/i.test(msg))
+        return fail(res, 403, "V9_PERMISSION_DENIED");
+      if (/V9_SESSION_REQUIRED|Sesión inválida|Sesión requerida/i.test(msg))
+        return fail(res, 401, "V9_SESSION_REJECTED");
+      return fail(res, 502, "V9_BACKEND_READ_FAILED");
+    }
     const data = await safeJson(response);
     if (!data || data.ok !== true || data.mode !== "V9_READ_ONLY" || !Array.isArray(data.rows))
-      return fail(res, 502, "V9_SUPABASE_CONTRACT_MISMATCH");
+      return fail(res, 502, "V9_BACKEND_CONTRACT_MISMATCH");
+    if (body.mode === "gas-health") return gasHealth(res);
     return res.status(200).json(data);
   } catch (error) {
     return fail(res, error?.name === "AbortError" ? 504 : 502,
-      error?.name === "AbortError" ? "V9_SUPABASE_TIMEOUT" : "V9_BACKEND_UNAVAILABLE");
+      error?.name === "AbortError" ? "V9_BACKEND_TIMEOUT" : "V9_BACKEND_UNAVAILABLE");
   } finally { clearTimeout(timer); }
 }
