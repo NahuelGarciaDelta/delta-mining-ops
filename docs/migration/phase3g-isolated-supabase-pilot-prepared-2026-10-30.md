@@ -16,3 +16,15 @@ DELTA_OPS_V9_UNIFICADO_FASE3G_SANDBOX_RPC_PREPARADO_20261030.zip:
 SQL no ejecutado ni verificado en PostgreSQL real. Fase 3G NO aprobada de forma remota. El usuario puede instalar un archivo nuevo en el clon y ejecutar probarMigracionFase3gPreflightV1 sin URL ni claves, para validar que 3D/3F siguen aprobadas. Solo después de disponer de un segundo proyecto separado y revisar costos deben instalarse SQL de pruebas y configurarse credenciales test-only. Nunca usar clave de producción.
 
 No se tocaron Apps Script originales, activadores, Supabase productivo, Vercel ni la rama main.
+
+## Actualización 30/10 — Sandbox confirmado e instalado
+
+Se verificó directamente con Supabase que el proyecto independiente `DELTA-OPS-SANDBOX-3G`, referencia `biztlietuvvonigcfdwy`, está **ACTIVE_HEALTHY**. El proyecto productivo es `jwfocqaxlckuxoklwyxs`, y se comprobó que el sandbox no contenía tablas ROP02/ROP05/RMA15 ni objetos anteriores de la fase 3G.
+
+Se aplicó por `apply_migration` **solo al sandbox** la migración `delta_3g_isolated_synthetic_rpc_v1` correspondiente al archivo `01_SQL_SOLO_EN_SUPABASE_DE_PRUEBAS.sql`, con respuesta **success:true**.
+
+Verificación SQL posterior en sandbox: tablas privadas `delta_3g_sandbox.rows` y `delta_3g_sandbox.receipts` existen y ambas tienen RLS habilitado; 3 RPC `delta_3g_ping_v1`, `delta_3g_apply_v1`, `delta_3g_verify_v1` usan SECURITY INVOKER, EXECUTE permitido a `service_role` y denegado a `anon` y `authenticated`; ping devolvió el contrato esperado; **0 rows y 0 receipts**. Security advisors informa dos avisos **INFO** por tablas con RLS sin políticas; esto es intencional, solo accesibles por `service_role` restringido.
+
+**Compatibilidad de claves:** El usuario compartió una clave `sb_publishable_`, pública y **sin permisos para RPC restringida**. El módulo V1 original esperaba la clave JWT legacy `service_role` (deprecada), por lo que se preparó revisión `DM_UNIFIED_PHASE3G_SANDBOX_RPC_V1_1_SECRET_KEY.gs` para usar `DM_U3G_V1_TEST_SECRET_KEY` en ScriptProperties del clon, exigir `sb_secret_` de **este sandbox**, y enviar únicamente encabezado `apikey` (sin Bearer). Conserva funciones Apps Script `probarMigracionFase3g*V1`. El usuario debe **reemplazar** el contenido del archivo 3G existente, **no agregar duplicado con mismas funciones**. Revisión local 13/13 tests PASS. Archivo y README entregados en nuevo ZIP `DELTA_OPS_V9_FASE3G_ACTUALIZACION_SECRET_KEY_20261030.zip`.
+
+**Aún NO ejecutado:** petición HTTP real desde Apps Script, ping desde cliente, inserción de fila sintética ni ACK remoto. El siguiente paso del usuario es cargar 5 ScriptProperties privadas en clon (nunca por chat), ejecutar preflight y ping. No habilitar producción.
