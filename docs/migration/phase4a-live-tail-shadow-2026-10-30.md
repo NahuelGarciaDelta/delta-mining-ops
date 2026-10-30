@@ -18,3 +18,11 @@ Pruebas locales: **12/12 PASS** (origen recortado, encabezados, mismatch RAW, ad
 
 ## Estimación global
 Se sustituye el 45% estático por una medición de hitos (15 puntos entorno, 25 fidelidad, 20 protocolo ACK, 25 integración, 15 corte). Trabajo técnico preparado estimado 50/100 = 15+19+12+4+0. **Es estimación, no porcentaje de producción lista ni autorización de corte**. El sistema actual sigue operativo; no se tocó main, código productivo ni Supabase por escrituras.
+
+## 4A V1 bloqueada por carga en lotes; solución V2 (30/10/2026, 10:17 ART)
+
+El preflight V1 rechazó ROP05: `lastRow=9708` frente al snapshot congelado de 9703. El usuario aclaró que los administrativos cargan por las mañanas y un Apps Script vuelca lotes en Sheets. El connector Sheets confirmó 9708 filas; Supabase productivo por SELECT confirmó 9707 registros (sin encabezado) y desplazamientos de los últimos cinco partes de las filas físicas 9699–9703 a 9704–9708. Esto invalida la hipótesis de append-only para el origen.
+
+Nuevo módulo 4A V2 `DM_UNIFIED_PHASE4A_LOTES_DINAMICOS_V2.gs`: reconoce las 18 referencias de raw_data por contenido en toda ROP05, tolera crecimiento, distingue posición original vs actual, bloquea fuentes truncadas, encabezados cambiantes, duplicados por contenido, referencias ausentes y cambios de tamaño durante lectura. Registra **solo metadatos** bajo `DM_U4A_V2_STATE` en el CLON. **12/12 pruebas locales aprobadas**. No sobrescribe el archivo ni el estado V1, no lee/escribe Supabase por red, no instala triggers. No es un sincronizador ni crea ACK. Pendiente preflight y ejecución en Apps Script real del clon.
+
+**DECISIÓN ARQUITECTÓNICA CRÍTICA:** source_row física NO constituye identidad estable si el App Script que carga lotes inserta o reorganiza filas. Antes del corte productivo, generar y transportar un `record_id` inmutable desde el primer punto de registro (origen del lote), persistirlo en Sheets y Supabase y versionar/ACK por `(dataset,record_id,revision)`. El cotejo por hash full RAW es apto para auditoría, pero no reemplaza identidad única frente a partes idénticos o editados. Mantener procesos actuales y no tocar main.
