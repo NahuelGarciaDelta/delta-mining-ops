@@ -42,3 +42,14 @@ El usuario ejecutó `probarMigracionFase4aCrearColaV3` después de corregir el `
 **Siguiente entregable que produce avance real:** adaptar el flujo de INGESTA de partes y el esquema de persistencia para generar y preservar `record_id` inmutable, con `revision`/`content_hash`, sentinela de concurrencia e idempotencia. Debe ser generado ANTES de que Apps Script inserte o reordene filas; reutilizar un identificador fuente confiable si ya existe. Preparar consumidor ACK-gated usando la ruta sandbox sintética 3G/3H y ensayos de doble entrega, edición y reordenamiento. No desactivar V8.1 ni escribir en Supabase productivo antes de un corte planificado y validado.
 
 Estado global: estimación previa de 50% (ingeniería; no representa porcentaje de datos sincronizados).
+## 4B: revisión del script de ingesta y generador ROP05; candidato preparado (2026-10-30)
+
+El usuario compartió el generador real `generarROP05Nuevo()` con funciones de sync V7.7.1. Se encontró origen de inestabilidad: lee los orígenes `Datos de ROP02 JM` y `Datos de ROP02 FS`, desde el 26/06/2026, transforma hasta 3 tareas por parte y desde fila física 4431 borra todo A:O con `clearContent()` antes de reescribir, ordenar y sincronizar por `source_row`. Eso produce ventanas de lectura incompleta y cambios físicos de posición. También deduplica por contenido, que puede colapsar partes distintos.
+
+Conector de Google Sheets: ambas hojas ROP02 tienen 43 campos poblados en encabezado, sin UUID explícito del parte. El ID de fuente debe nacer antes de la generación de ROP05; `record_id` de ROP05 se deriva de `(rop02_record_id, task_no)`. No confundir fecha/equipo/número parte con ID realmente inmutable.
+
+Se preparó en artefacto local del usuario `DM_UNIFIED_PHASE4B_ROP05_GENERADOR_NO_DESTRUCTIVO_V1.gs` para instalar como NUEVO módulo en clon. Cuenta con `generarROP05NuevoV9Previsualizar()` (solo lectura); `generarROP05NuevoV9Aplicar()` está bloqueada por propiedad deliberadamente no configurada y nunca debe usarse mientras el generador original escriba. El código optimiza rangos de escritura no contigua, evita vaciado completo antes de reescritura y revalida snapshots justo antes de cualquier aplicación. No resuelve atomicidad con otros proyectos, ACK remoto ni identidad global. Superó 15/15 pruebas locales simuladas, no pruebas productivas.
+
+**Seguridad urgente:** El script original contiene credencial de webhook incrustada en código. No incluirla en artefactos, logs ni repositorios; rotar en coordinación con Edge Function y guardar nuevo secreto en ScriptProperties. El módulo candidato no incluye el token original.
+
+**Próxima tarea de integración:** revisar código que incorpora originalmente ROP02 (AppSheet/importador), añadir ID inmutable y revision a ese origen, conservar los 15 campos visibles de ROP05; implementarlo en rama migratoria más sandbox ACK antes de un cutover con rollback. No modificar main ni apagar triggers activos por ahora.
