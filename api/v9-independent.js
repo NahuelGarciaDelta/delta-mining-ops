@@ -2,7 +2,7 @@
 // Auth tokens are issued by the independent V9 Supabase Auth project.
 // This gateway is read-only and never writes operational records.
 const REF="biztlietuvvonigcfdwy";
-const ALLOWED=new Set(["rop02_jm","rop02_fs","rop05","rma15_jm","rma15_fs","lista_equipos","insumos"]);
+const ALLOWED=new Set(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro","rop02_fierro","rop05","rma15_jm","rma15_fs","lista_equipos","insumos","mantenimiento_programado","raba03","combustible"]);
 export const config={maxDuration:30};
 function respond(res,status,body){res.setHeader("Cache-Control","no-store, max-age=0");res.setHeader("X-Content-Type-Options","nosniff");return res.status(status).json(body);}
 function bad(res,status,error){return respond(res,status,{ok:false,error});}
@@ -22,7 +22,7 @@ export default async function handler(req,res){
  const token=String(req.headers.authorization||"").replace(/^Bearer /i,"");
  if(!token||token.length<60||token.length>4096)return bad(res,401,"V9_SESSION_REQUIRED");
  const body=req.body&&typeof req.body==="object"&&!Array.isArray(req.body)?req.body:{};
- if(!["status","rows","gas-health"].includes(body.action))return bad(res,400,"INVALID_ACTION");
+ if(!["status","catalog","rows","gas-health"].includes(body.action))return bad(res,400,"INVALID_ACTION");
  try{
   const me=await upstream(db.url+"/auth/v1/user",{headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
   if(!me.ok)return bad(res,401,"V9_SESSION_EXPIRED");
@@ -39,24 +39,26 @@ export default async function handler(req,res){
    let health;try{health=await r.json();}catch{return bad(res,502,"V9_GAS_INVALID_REPLY");}
    return respond(res,200,{ok:health?.ok===true,mode:"V9_INDEPENDENT_HEALTH",backend:"V9 Apps Script"});
   }
-  if(body.action==="status"){
-   const r=await upstream(db.url+"/rest/v1/v9_operational_rows?select=record_id&limit=1",
-    {headers:{apikey:db.key,Authorization:"Bearer "+token,Prefer:"count=exact",Accept:"application/json"}});
-   if(!r.ok)return bad(res,502,"V9_DATASET_UNAVAILABLE");
-   const range=r.headers.get("content-range")||"0-0/0";
-   const match=range.match(/\/(\d+)$/);
-   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:match?Number(match[1]):null,mode:"READ_ONLY"});
+  if(body.action==="status" || body.action==="catalog"){
+   const r=await upstream(db.url+"/rest/v1/v9_dataset_status?select=dataset,label,category,is_migrated,read_enabled,notes,records,latest_row_at&order=category.asc,label.asc",
+    {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
+   if(!r.ok)return bad(res,502,"V9_CATALOG_UNAVAILABLE");
+   const sources=await r.json().catch(()=>null);
+   if(!Array.isArray(sources))return bad(res,502,"V9_CATALOG_INVALID_REPLY");
+   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY"});
   }
   const dataset=String(body.dataset||"");
   const limit=Number(body.limit||100);
-  if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>100)return bad(res,400,"INVALID_DATASET");
-  const q=new URLSearchParams({select:"record_id,payload,updated_at",dataset:"eq."+dataset,order:"updated_at.desc",limit:String(limit)});
+  const offset=Number(body.offset||0);
+  if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>100||!Number.isInteger(offset)||offset<0||offset>100000)return bad(res,400,"INVALID_DATASET_OR_PAGE");
+  const q=new URLSearchParams({select:"record_id,payload,updated_at",dataset:"eq."+dataset,order:"updated_at.desc,record_id.asc",limit:String(limit),offset:String(offset)});
   const r=await upstream(db.url+"/rest/v1/v9_operational_rows?"+q,
-   {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
+   {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json",Prefer:"count=exact"}});
   if(!r.ok)return bad(res,r.status===403?403:502,"V9_DATASET_READ_FAILED");
   const rows=await r.json();
   if(!Array.isArray(rows))return bad(res,502,"V9_BACKEND_INVALID_REPLY");
-  return respond(res,200,{ok:true,dataset,rows,mode:"READ_ONLY",total:rows.length});
+  const count=(r.headers.get("content-range")||"").match(/\/(\d+)$/);
+  return respond(res,200,{ok:true,dataset,rows,mode:"READ_ONLY",offset,limit,total:count?Number(count[1]):rows.length,hasMore:count?offset+rows.length<Number(count[1]):rows.length===limit});
  }catch(e){
   return bad(res,e?.name==="AbortError"?504:502,e?.name==="AbortError"?"V9_TIMEOUT":"V9_BACKEND_UNAVAILABLE");
  }
