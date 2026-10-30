@@ -20,6 +20,6 @@ test("public repository cannot contain hardcoded operational spreadsheet IDs or 
   const code = readFileSync(new URL("../" + sources[0], import.meta.url), "utf8");
   assert.doesNotMatch(code, /SpreadsheetApp\.openById\(['"][A-Za-z0-9_-]{30,}['"]\)/);
   assert.match(code, /dmV9U4eProductionIds_/);
-  assert.match(code, /DM_V9_PROD_BOOK/);
+  assert.match(code, /DM_V9_ROP05_BOOK_ID/);
   assert.doesNotMatch(code, /https:\/\/jwfocqaxlckuxoklwyxs\.supabase\.co/);
 });
