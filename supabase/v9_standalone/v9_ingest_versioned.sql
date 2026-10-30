@@ -71,7 +71,7 @@ begin
  for v_row in select value from jsonb_array_elements(p_records) loop
   if jsonb_typeof(v_row)<>'object'
   or jsonb_typeof(v_row->'payload')<>'object'
-  or length(v_row->'payload'::text)>100000
+  or length((v_row->'payload')::text)>100000
   or jsonb_typeof(v_row->'delivery_revision')<>'number'
   then raise exception 'V9_INVALID_RECORD';end if;
   v_id:=v_row->>'record_id';
