@@ -45,7 +45,7 @@ export default async function handler(req,res){
    if(!r.ok)return bad(res,502,"V9_CATALOG_UNAVAILABLE");
    const sources=await r.json().catch(()=>null);
    if(!Array.isArray(sources))return bad(res,502,"V9_CATALOG_INVALID_REPLY");
-   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY"});
+   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY",profile:{email:String(user.email||"").toLowerCase(),rol:role==="ADMIN"?"ADMIN":"USUARIO",area:role==="ADMIN"?"ADMINISTRACION":"OFICINA TECNICA",proyecto:"TODO",nombre:String(user.user_metadata?.nombre||user.user_metadata?.name||user.email?.split("@")[0]||"Usuario").slice(0,90)}});
   }
   const dataset=String(body.dataset||"");
   const limit=Number(body.limit||100);
