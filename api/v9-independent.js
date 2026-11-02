@@ -43,7 +43,18 @@ export default async function handler(req,res){
   const limit=Number(body.limit||100);
   const offset=Number(body.offset||0);
   if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>500||!Number.isInteger(offset)||offset<0||offset>100000)return bad(res,400,"INVALID_DATASET_OR_PAGE");
-  const q=new URLSearchParams({select:"record_id,payload,updated_at",dataset:"eq."+dataset,order:"updated_at.desc,record_id.asc",limit:String(limit),offset:String(offset)});
+  // Mirror sources are PREPARED separately; never mix partial historical snapshots.
+  // Only an audited, explicit is_migrated=true switch in the sandbox catalog
+  // allows the app to read mirror_* datasets. No application-side toggle.
+  let effectiveDataset=dataset;
+  const mirrored="mirror_"+dataset;
+  const catalog=await upstream(db.url+"/rest/v1/v9_dataset_catalog?select=dataset,is_migrated,read_enabled&dataset=eq."+encodeURIComponent(mirrored)+"&limit=1",
+   {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
+  if(!catalog.ok)return bad(res,502,"V9_MIRROR_CATALOG_UNAVAILABLE");
+  const list=await catalog.json().catch(()=>null);
+  if(!Array.isArray(list))return bad(res,502,"V9_MIRROR_CATALOG_INVALID_REPLY");
+  if(list[0]?.is_migrated===true && list[0]?.read_enabled===true)effectiveDataset=mirrored;
+  const q=new URLSearchParams({select:"record_id,payload,updated_at",dataset:"eq."+effectiveDataset,order:"updated_at.desc,record_id.asc",limit:String(limit),offset:String(offset)});
   const r=await upstream(db.url+"/rest/v1/v9_operational_rows?"+q,
    {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json",Prefer:"count=exact"}});
   if(!r.ok)return bad(res,r.status===403?403:502,"V9_DATASET_READ_FAILED");
