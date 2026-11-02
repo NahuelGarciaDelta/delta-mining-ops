@@ -36,14 +36,14 @@ function isolateV9(){
     // Build fail-closed: no original Apps Script, production Supabase or legacy API.
     // This examines every generated JS chunk, including lazy-loaded modules.
     const legacy=[
-     /jwfocqaxlckuxoklwyxs/,
-     /script\\.google\\.com\\/macros\\/s\\//,
-     /\\/api\\/apps-script(?:\\b|[?\\x22])/,
-     /\\/api\\/supabase-read(?:\\b|[?\\x22])/,
-     /\\/api\\/v9-ops(?:\\b|[?\\x22])/,
-     /\\.supabase\\.co\\/functions\\/v1\\/delta-rop02-incremental-sync/
+      "jwfocqaxlckuxoklwyxs",
+      "script.google.com/macros/s/",
+      "/api/apps-script",
+      "/api/supabase-read",
+      "/api/v9-ops",
+      "/functions/v1/delta-rop02-incremental-sync"
     ];
-    if(legacy.some(pattern=>pattern.test(asset.code)))
+    if(legacy.some(fragment=>asset.code.includes(fragment)))
      this.error("V9 BUILD BLOCKED: referencia ejecutable a backend de Delta OPS V8.1");
    }
   }
