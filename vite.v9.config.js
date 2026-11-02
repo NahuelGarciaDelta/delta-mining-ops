@@ -33,8 +33,18 @@ function isolateV9(){
   generateBundle(_opts,bundle){
    for(const asset of Object.values(bundle)){
     if(asset.type!=="chunk")continue;
-    if(/jwfocqaxlckuxoklwyxs|\.supabase\.co\/functions\/v1\/delta-rop02-incremental-sync/.test(asset.code))
-     this.error("V9 BUILD BLOCKED: se encontró una dependencia del Supabase V8.1");
+    // Build fail-closed: no original Apps Script, production Supabase or legacy API.
+    // This examines every generated JS chunk, including lazy-loaded modules.
+    const legacy=[
+     /jwfocqaxlckuxoklwyxs/,
+     /script\\.google\\.com\\/macros\\/s\\//,
+     /\\/api\\/apps-script(?:\\b|[?\\x22])/,
+     /\\/api\\/supabase-read(?:\\b|[?\\x22])/,
+     /\\/api\\/v9-ops(?:\\b|[?\\x22])/,
+     /\\.supabase\\.co\\/functions\\/v1\\/delta-rop02-incremental-sync/
+    ];
+    if(legacy.some(pattern=>pattern.test(asset.code)))
+     this.error("V9 BUILD BLOCKED: referencia ejecutable a backend de Delta OPS V8.1");
    }
   }
  }
