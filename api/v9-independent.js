@@ -52,7 +52,7 @@ export default async function handler(req,res){
   const dataset=String(body.dataset||"");
   const limit=Number(body.limit||100);
   const offset=Number(body.offset||0);
-  if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>100||!Number.isInteger(offset)||offset<0||offset>100000)return bad(res,400,"INVALID_DATASET_OR_PAGE");
+  if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>500||!Number.isInteger(offset)||offset<0||offset>100000)return bad(res,400,"INVALID_DATASET_OR_PAGE");
   const q=new URLSearchParams({select:"record_id,payload,updated_at",dataset:"eq."+dataset,order:"updated_at.desc,record_id.asc",limit:String(limit),offset:String(offset)});
   const r=await upstream(db.url+"/rest/v1/v9_operational_rows?"+q,
    {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json",Prefer:"count=exact"}});
