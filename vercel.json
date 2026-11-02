@@ -10,26 +10,40 @@
     {
       "source": "/api/apps-script",
       "headers": [
-        {"key": "Cache-Control", "value": "no-store, max-age=0"}
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
       ]
     },
     {
       "source": "/sw.js",
       "headers": [
-        {"key": "Cache-Control", "value": "no-cache, no-store, must-revalidate"}
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     },
     {
       "source": "/index.html",
       "headers": [
-        {"key": "Cache-Control", "value": "no-cache, no-store, must-revalidate"}
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     },
     {
       "source": "/",
       "headers": [
-        {"key": "Cache-Control", "value": "no-cache, no-store, must-revalidate"}
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     }
-  ]
+  ],
+  "buildCommand": "npm run build -- --config vite.v9.config.js",
+  "outputDirectory": "dist"
 }
