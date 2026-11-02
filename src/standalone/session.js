@@ -16,7 +16,8 @@ function readV9Claims(token){
   const b64=part.replace(/-/g,"+").replace(/_/g,"/");
   const payload=JSON.parse(atob(b64.padEnd(Math.ceil(b64.length/4)*4,"=")));
   const exp=Number(payload?.exp);
-  const issuer=String(payload?.iss||"").replace(/\\/+$/,"");
+  const rawIssuer=String(payload?.iss||"");
+  const issuer=rawIssuer.endsWith("/")?rawIssuer.slice(0,-1):rawIssuer;
   if(issuer!==`${URL}/auth/v1`||!Number.isFinite(exp)||exp<=Date.now()/1000+30)return null;
   return {exp,email:String(payload?.email||"").toLowerCase()};
  }catch{return null;}
