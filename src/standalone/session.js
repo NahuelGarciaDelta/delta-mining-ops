@@ -8,7 +8,7 @@ export const isV9Configured=URL===`https://${REF}.supabase.co`&&/^sb_publishable
 // V9 kept a separate Supabase session when the original Delta OPS UI was restored.
 // Recover a previously authenticated V9 token if that dedicated key was lost during
 // deployment. NEVER accept legacy V8.1 tokens: only this project's exact issuer.
-function readV9Claims(token){
+function readV9Claims(token,allowExpired=false){
  if(typeof token!=="string"||token.length>4096)return null;
  try{
   const part=token.split(".")[1];
@@ -18,7 +18,7 @@ function readV9Claims(token){
   const exp=Number(payload?.exp);
   const rawIssuer=String(payload?.iss||"");
   const issuer=rawIssuer.endsWith("/")?rawIssuer.slice(0,-1):rawIssuer;
-  if(issuer!==`${URL}/auth/v1`||!Number.isFinite(exp)||exp<=Date.now()/1000+30)return null;
+  if(issuer!==`${URL}/auth/v1`||!Number.isFinite(exp)||(!allowExpired&&exp<=Date.now()/1000+30))return null;
   return {exp,email:String(payload?.email||"").toLowerCase()};
  }catch{return null;}
 }
@@ -27,7 +27,7 @@ export function currentSession(){
   if(!isV9Configured)return null;
   const s=JSON.parse(sessionStorage.getItem(STORAGE)||"null");
   if(s&&typeof s==="object"&&typeof s.access_token==="string"&&
-     (s.expires_at>Date.now()/1000||s.refresh_token)&&readV9Claims(s.access_token))
+     (s.expires_at>Date.now()/1000||s.refresh_token)&&readV9Claims(s.access_token,Boolean(s.refresh_token)))
     return s;
   // The old frontend session may still hold this SAME V9 JWT after a redeploy.
   // This is a UI recovery only; /auth/v1/user and the API still validate it.
