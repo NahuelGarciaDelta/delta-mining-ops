@@ -30,7 +30,7 @@ jobs:
         run: npm run build -- --config vite.v9.config.js
       - name: Verificar salida y bloquear dependencias V8.1
         run: |
-          test -s dist/v9.html
+          test -s dist/index.html
           test -d dist/assets
           if grep -R -E 'jwfocqaxlckuxoklwyxs|XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2' dist/assets; then
             echo "ERROR: el bundle V9 contiene dependencias de producción V8.1"
