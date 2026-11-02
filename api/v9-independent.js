@@ -22,7 +22,7 @@ export default async function handler(req,res){
  const token=String(req.headers.authorization||"").replace(/^Bearer /i,"");
  if(!token||token.length<60||token.length>4096)return bad(res,401,"V9_SESSION_REQUIRED");
  const body=req.body&&typeof req.body==="object"&&!Array.isArray(req.body)?req.body:{};
- if(!["status","catalog","rows","gas-health"].includes(body.action))return bad(res,400,"INVALID_ACTION");
+ if(!["status","catalog","rows"].includes(body.action))return bad(res,400,"INVALID_ACTION");
  try{
   const me=await upstream(db.url+"/auth/v1/user",{headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
   if(!me.ok)return bad(res,401,"V9_SESSION_EXPIRED");
@@ -31,16 +31,6 @@ export default async function handler(req,res){
   const role=String(meta.v9_role||"").toUpperCase();
   if(!["ADMIN","OFICINA_TECNICA","ADMINISTRATIVO","MECANICO"].includes(role)||meta.v9_active!==true)
    return bad(res,403,"V9_ROLE_NOT_ALLOWED");
-  if(body.action==="gas-health"){
-   const raw=String(process.env.DELTA_V9_STANDALONE_GAS_URL||"");
-   let url;try{url=new URL(raw);if(url.protocol!=="https:"||url.hostname!=="script.google.com"||!/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url.pathname)||url.search||url.hash)throw Error("invalid");}
-   catch{return bad(res,503,"V9_GAS_NOT_CONFIGURED");}
-   url.searchParams.set("action","health");
-   const r=await upstream(url.toString(),{method:"GET"},12000);
-   if(!r.ok)return bad(res,502,"V9_GAS_HEALTH_FAILED");
-   let health;try{health=await r.json();}catch{return bad(res,502,"V9_GAS_INVALID_REPLY");}
-   return respond(res,200,{ok:health?.ok===true,mode:"V9_INDEPENDENT_HEALTH",backend:"V9 Apps Script"});
-  }
   if(body.action==="status" || body.action==="catalog"){
    const r=await upstream(db.url+"/rest/v1/v9_dataset_status?select=dataset,label,category,is_migrated,read_enabled,notes,records,latest_row_at&order=category.asc,label.asc",
     {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
