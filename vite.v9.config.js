@@ -25,6 +25,7 @@ function isolateV9(){
      .replaceAll("https://jwfocqaxlckuxoklwyxs.supabase.co","https://v8-disabled.invalid")
      .replaceAll("jwfocqaxlckuxoklwyxs","v8-disabled")
      .replaceAll("/api/apps-script","/api/v9-blocked")
+     .replaceAll("/api/supabase-read","/api/v9-blocked")
      .replaceAll("/api/v9-ops","/api/v9-blocked")
      .replaceAll("sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2","V8_PUBLISHABLE_KEY_DISABLED");
    return result===code?null:{code:result,map:null};
@@ -44,7 +45,7 @@ export default defineConfig({
   outDir:"dist",
   chunkSizeWarningLimit:900,
   rollupOptions:{
-   input:resolve(root,"v9.html"),
+   input:resolve(root,"index.html"),
    output:{manualChunks(id){
     const p=id.replace(/\\/g,"/");
     if(!p.includes("/node_modules/"))return;
