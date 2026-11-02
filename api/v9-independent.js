@@ -27,8 +27,10 @@ export default async function handler(req,res){
   const me=await upstream(db.url+"/auth/v1/user",{headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
   if(!me.ok)return bad(res,401,"V9_SESSION_EXPIRED");
   const user=await me.json();
-  const role=String(user?.app_metadata?.v9_role||"");
-  if(!["ADMIN","OFICINA_TECNICA"].includes(role))return bad(res,403,"V9_ROLE_NOT_ALLOWED");
+  const meta=user?.app_metadata||{};
+  const role=String(meta.v9_role||"").toUpperCase();
+  if(!["ADMIN","OFICINA_TECNICA","ADMINISTRATIVO","MECANICO"].includes(role)||meta.v9_active!==true)
+   return bad(res,403,"V9_ROLE_NOT_ALLOWED");
   if(body.action==="gas-health"){
    const raw=String(process.env.DELTA_V9_STANDALONE_GAS_URL||"");
    let url;try{url=new URL(raw);if(url.protocol!=="https:"||url.hostname!=="script.google.com"||!/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url.pathname)||url.search||url.hash)throw Error("invalid");}
@@ -45,7 +47,7 @@ export default async function handler(req,res){
    if(!r.ok)return bad(res,502,"V9_CATALOG_UNAVAILABLE");
    const sources=await r.json().catch(()=>null);
    if(!Array.isArray(sources))return bad(res,502,"V9_CATALOG_INVALID_REPLY");
-   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY",profile:{email:String(user.email||"").toLowerCase(),rol:role==="ADMIN"?"ADMIN":"USUARIO",area:role==="ADMIN"?"ADMINISTRACION":"OFICINA TECNICA",proyecto:"TODO",nombre:String(user.user_metadata?.nombre||user.user_metadata?.name||user.email?.split("@")[0]||"Usuario").slice(0,90)}});
+   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY",profile:{email:String(user.email||"").toLowerCase(),rol:role==="OFICINA_TECNICA"?"ADMIN":role,area:String(meta.v9_area||"").slice(0,90),proyecto:String(meta.v9_project||"TODOS").slice(0,90),nombre:String(user.user_metadata?.nombre||user.user_metadata?.name||user.email?.split("@")[0]||"Usuario").slice(0,90)}});
   }
   const dataset=String(body.dataset||"");
   const limit=Number(body.limit||100);
