@@ -1,0 +1,12 @@
+--- a/DM_UNIFIED_PHASE4B_ROP05_GENERADOR_NO_DESTRUCTIVO_V1.gs
++++ b/DM_UNIFIED_PHASE4B_ROP05_GENERADOR_NO_DESTRUCTIVO_V1.gs
+@@ -859,7 +859,8 @@ function dmV9U4fPlan_(ledger,stored,manifest,now){
+   manifest.forEach(function(m){
+     dmV9U4fAssert_(m && (m.dataset==='rop02_jm'||m.dataset==='rop02_fs'),'dataset manifiesto inválido');
+     var key=String(m.taskId||''),digest=String(m.digest||''),payload=String(m.payloadCanonical||'');
+-    var productivityState=String(m.productivityState||'READY');
++    // Fail-closed: unknown/missing productivity cannot be treated as READY.
++    var productivityState=String(m.productivityState==null?'':m.productivityState);
+     dmV9U4fAssert_(['READY','WAITING_UNIT','WAITING_MEASURE'].includes(productivityState),
+       'estado de productividad inválido');
+     dmV9U4fAssert_(key===m.dataset+':'+m.sourceId+':t'+m.task,'clave manifiesto inválida');
