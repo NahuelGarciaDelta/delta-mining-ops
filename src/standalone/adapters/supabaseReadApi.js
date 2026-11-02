@@ -2,7 +2,7 @@
 import {requestV9,currentSession} from "../session.js";
 import {ROP02_SOURCE_KEYS,ROP02_SOURCES} from "../../config/rop02Sources.js";
 export const SUPABASE_TYPED_SOURCES=new Set([...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","lista_equipos","insumos","mantenimiento_programado","combustible","raba03"]);
-const PAGE=100,MAX_ROWS=60000;
+const PAGE=500,MAX_ROWS=60000;
 const TIME=()=>new Date().toISOString();
 function adaptSourceRecord(source,p,recordId){
  const result={...p,_sourceDataset:source,_sourceKey:recordId};
@@ -53,7 +53,10 @@ function adaptSourceRecord(source,p,recordId){
  if(source==="lista_equipos")return {...result,
    "Código nuevo":p.codigo_nuevo,"Código anterior":p.codigo_anterior,
    "Código de Drusila":p.codigo_drusila,Familia:p.familia,
-   Marca:p.marca,Modelo:p.modelo};
+   Marca:p.marca,Modelo:p.modelo,
+   Lugar:p.lugar_alquiler,"Lugar de alquiler":p.lugar_alquiler,
+   "Ubicación":p.lugar_alquiler,
+   Propiedad:p.propiedad};
  return result;
 }
 function active(){const s=currentSession();if(!s)throw Error("V9_SESSION_REQUIRED");return s;}
