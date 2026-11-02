@@ -302,7 +302,7 @@ export default function App(){
   const[rma15,setRma15]=useState([]);
   const[stMant,setStMant]=useState(()=>savedOr("stMant",{modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:"todos",verGastosExcesivos:false}));
   const[stRma15CtrlEquipo,setStRma15CtrlEquipo]=useState(()=>savedOr("stRma15CtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:""}));
-  const[stCHC,setStCHC]=useState(()=>savedOr("stCHC",{proyecto:"todos",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()}));
+  const[stCHC,setStCHC]=useState(()=>savedOr("stCHC",{proyecto:"todos",maquina:"todas",añoSelec:String(new Date().getFullYear()),mesIdx:new Date().getMonth()}));
   const[stRanking,setStRanking]=useState(()=>savedOr("stRanking",{proyecto:"todos",modeR:"periodo",fecha:"",fechaD:"",fechaH:""}));
   const[navOpen,setNavOpen]=useState(()=>savedOr("navOpen",{grp_rop02:true,grp_control_rop02:true,grp_rop05:true,grp_rma15:true,grp_abastecimiento:true,grp_solicitudes:true,grp_stockcritico:true,grp_admin:true}));
   const[usdRate,setUsdRate]=useState(null);
