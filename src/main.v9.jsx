@@ -11,8 +11,13 @@ import {installMechanicRoleGuard} from "./services/mechanicRoleGuard.js";
 import {installUserHeaderDisplay} from "./services/userHeaderDisplay.js";
 import {installWelcomeRefreshButton} from "./services/welcomeRefreshButton.js";
 import {installLegacyRefreshIntervalPolicy} from "./services/dataRefreshPolicy.js";
+import {clearAuthenticatedSession} from "./services/authSession.js";
+import {currentSession} from "./standalone/session.js";
 
 if(typeof window!=="undefined"){
+ // Do not render Delta OPS as signed in if only the old UI session survived.
+ // Authentication must come from this sandbox's Supabase project.
+ if(sessionStorage.getItem("dm_auth")==="1"&&!currentSession())clearAuthenticatedSession();
  window.__DELTA_OPS_V9_INDEPENDENT__=true;
  applyAppearance(readLastAppearance(),C);
  window.addEventListener("dm-appearance-saved",e=>{applyAppearance(e?.detail||readLastAppearance(),C)});
