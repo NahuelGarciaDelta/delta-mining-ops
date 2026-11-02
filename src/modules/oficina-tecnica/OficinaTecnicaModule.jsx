@@ -5508,6 +5508,8 @@ function ViewCHC({rop02All,extState,setExtState}){
   const setProyectoActual=value=>setExtState(st=>({...st,chcProject:value,proyecto:"todos"}));
   const tipoMaquina=extState?.tipoMaquina??"todas";
   const setTipoMaquina=v=>setExtState(st=>({...st,tipoMaquina:v}));
+  const maquina=extState?.maquina??"todas";
+  const setMaquina=v=>setExtState(st=>({...st,maquina:v}));
   const HS_MES=180;
 
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -5527,10 +5529,18 @@ function ViewCHC({rop02All,extState,setExtState}){
     ()=>qualityMonthPeriod(proyectoActual,añoSelec,mesIdx),
     [proyectoActual,añoSelec,mesIdx]
   );
-  const base=useMemo(()=>qualityRowsForProject(rop02All,proyectoActual,fechaD,fechaH)
-    .filter(r=>dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina)),
-    [rop02All,proyectoActual,fechaD,fechaH,tipoMaquina]
+  const basePeriodo=useMemo(
+    ()=>qualityRowsForProject(rop02All,proyectoActual,fechaD,fechaH),
+    [rop02All,proyectoActual,fechaD,fechaH]
   );
+  const equiposDisponibles=useMemo(
+    ()=>[...new Set(basePeriodo.map(r=>String(r?.maquina||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)),
+    [basePeriodo]
+  );
+  const base=useMemo(()=>basePeriodo.filter(r=>
+    dmMatchTipoMaquinaSeleccion(r.maquina,tipoMaquina)&&
+    matchMulti(r.maquina,maquina,"todas")
+  ),[basePeriodo,tipoMaquina,maquina]);
 
   // Agrupar por máquina y calcular métricas
   const rows=useMemo(()=>{
@@ -5642,6 +5652,7 @@ function ViewCHC({rop02All,extState,setExtState}){
             </div>
           </div>
           <MultiSel label="Tipo de Máquina" value={tipoMaquina} onChange={setTipoMaquina} options={dmTipoMaquinaOptions()}/>
+          <MultiSel label="Equipo" value={maquina} onChange={setMaquina} options={[{value:"todas",label:"Todos"},...equiposDisponibles.map(e=>({value:e,label:e}))]}/>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
             <label style={{fontSize:10,color:C.textMuted,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>Proyecto</label>
             <div style={{fontSize:12,padding:"7px 10px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:7}}>
