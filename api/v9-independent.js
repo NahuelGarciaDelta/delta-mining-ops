@@ -35,9 +35,19 @@ export default async function handler(req,res){
    const r=await upstream(db.url+"/rest/v1/v9_dataset_status?select=dataset,label,category,is_migrated,read_enabled,notes,records,latest_row_at&order=category.asc,label.asc",
     {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
    if(!r.ok)return bad(res,502,"V9_CATALOG_UNAVAILABLE");
-   const sources=await r.json().catch(()=>null);
-   if(!Array.isArray(sources))return bad(res,502,"V9_CATALOG_INVALID_REPLY");
-   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY",profile:{email:String(user.email||"").toLowerCase(),rol:role==="OFICINA_TECNICA"?"ADMIN":role,area:String(meta.v9_area||"").slice(0,90),proyecto:String(meta.v9_project||"TODOS").slice(0,90),nombre:String(user.user_metadata?.nombre||user.user_metadata?.name||user.email?.split("@")[0]||"Usuario").slice(0,90)}});
+   const allSources=await r.json().catch(()=>null);
+   if(!Array.isArray(allSources))return bad(res,502,"V9_CATALOG_INVALID_REPLY");
+   const mirrors=allSources.filter(s=>String(s.dataset||"").startsWith("mirror_"));
+   const promoted=new Map(mirrors.filter(s=>s.is_migrated===true && s.read_enabled===true)
+     .map(s=>[String(s.dataset).slice(7),s]));
+   // Status/version cache must follow the promoted mirror, not the stale legacy snapshot.
+   const sources=allSources.filter(s=>!String(s.dataset||"").startsWith("mirror_"))
+     .map(s=>promoted.has(s.dataset)
+       ?{...s,records:promoted.get(s.dataset).records,
+           latest_row_at:promoted.get(s.dataset).latest_row_at,
+           is_migrated:true,notes:"V9_MIRROR_VERIFIED",active_storage:"mirror_"+s.dataset}
+       :{...s,active_storage:s.dataset});
+   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,mirrors:mirrors.map(s=>({dataset:s.dataset,records:s.records,is_migrated:s.is_migrated,latest_row_at:s.latest_row_at})),mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY",profile:{email:String(user.email||"").toLowerCase(),rol:role==="OFICINA_TECNICA"?"ADMIN":role,area:String(meta.v9_area||"").slice(0,90),proyecto:String(meta.v9_project||"TODOS").slice(0,90),nombre:String(user.user_metadata?.nombre||user.user_metadata?.name||user.email?.split("@")[0]||"Usuario").slice(0,90)}});
   }
   const dataset=String(body.dataset||"");
   const limit=Number(body.limit||100);
