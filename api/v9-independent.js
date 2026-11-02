@@ -64,7 +64,7 @@ export default async function handler(req,res){
   const list=await catalog.json().catch(()=>null);
   if(!Array.isArray(list))return bad(res,502,"V9_MIRROR_CATALOG_INVALID_REPLY");
   if(list[0]?.is_migrated===true && list[0]?.read_enabled===true)effectiveDataset=mirrored;
-  const q=new URLSearchParams({select:"record_id,payload,updated_at",dataset:"eq."+effectiveDataset,order:"updated_at.desc,record_id.asc",limit:String(limit),offset:String(offset)});
+  const q=new URLSearchParams({select:"record_id,payload,updated_at",dataset:"eq."+effectiveDataset,order:"record_id.asc",limit:String(limit),offset:String(offset)});
   const r=await upstream(db.url+"/rest/v1/v9_operational_rows?"+q,
    {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json",Prefer:"count=exact"}});
   if(!r.ok)return bad(res,r.status===403?403:502,"V9_DATASET_READ_FAILED");
