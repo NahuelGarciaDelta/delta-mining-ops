@@ -5,11 +5,39 @@ const KEY=String(import.meta.env.VITE_V9_SUPABASE_PUBLISHABLE_KEY||"");
 const STORAGE="delta_ops_v9_independent_session";
 export const isV9Configured=URL===`https://${REF}.supabase.co`&&/^sb_publishable_[A-Za-z0-9_-]{15,}$/.test(KEY);
 
+// V9 kept a separate Supabase session when the original Delta OPS UI was restored.
+// Recover a previously authenticated V9 token if that dedicated key was lost during
+// deployment. NEVER accept legacy V8.1 tokens: only this project's exact issuer.
+function readV9Claims(token){
+ if(typeof token!=="string"||token.length>4096)return null;
+ try{
+  const part=token.split(".")[1];
+  if(!part)return null;
+  const b64=part.replace(/-/g,"+").replace(/_/g,"/");
+  const payload=JSON.parse(atob(b64.padEnd(Math.ceil(b64.length/4)*4,"=")));
+  const exp=Number(payload?.exp);
+  const issuer=String(payload?.iss||"").replace(/\\/+$/,"");
+  if(issuer!==`${URL}/auth/v1`||!Number.isFinite(exp)||exp<=Date.now()/1000+30)return null;
+  return {exp,email:String(payload?.email||"").toLowerCase()};
+ }catch{return null;}
+}
 export function currentSession(){
  try{
+  if(!isV9Configured)return null;
   const s=JSON.parse(sessionStorage.getItem(STORAGE)||"null");
-  return s&&typeof s==="object"&&typeof s.access_token==="string"&&(s.expires_at>Date.now()/1000||s.refresh_token)?s:null;
- }catch{return null}
+  if(s&&typeof s==="object"&&typeof s.access_token==="string"&&
+     (s.expires_at>Date.now()/1000||s.refresh_token)&&readV9Claims(s.access_token))
+    return s;
+  // The old frontend session may still hold this SAME V9 JWT after a redeploy.
+  // This is a UI recovery only; /auth/v1/user and the API still validate it.
+  const user=JSON.parse(sessionStorage.getItem("dm_authenticated_user")||"null");
+  const token=String(user?.authToken||user?.token||"");
+  const claim=readV9Claims(token);
+  if(!claim)return null;
+  const restored={access_token:token,refresh_token:"",expires_at:claim.exp,email:claim.email};
+  sessionStorage.setItem(STORAGE,JSON.stringify(restored));
+  return restored;
+ }catch{return null;}
 }
 export function saveSession(s){sessionStorage.setItem(STORAGE,JSON.stringify(s));return s}
 export function forgetSession(){sessionStorage.removeItem(STORAGE)}
