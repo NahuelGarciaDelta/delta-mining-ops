@@ -79,7 +79,7 @@ function dmV9StandaloneSyncPreview(){
     operationsSent:0,productionWrites:0};
 }
 /**
- * Runs ONE batch of up to 100 ROP05 tasks. Repeated runs traverse outbox.
+ * Runs ONE batch of up to 100 ROP02 FS/JM tasks. Repeated runs traverse outbox.
  * Query remote digest first. Existing revisions are never overwritten.
  * No automatic schedule is installed.
  */
@@ -96,35 +96,46 @@ function dmV9StandaloneSyncBatch(){
     var end=Math.min(last,start+99);
     var rows=sheet.getRange(start,1,end-start+1,7).getValues();
     var records=rows.map(function(row){return dmV9StandaloneRecord_(row,cfg);});
-    var probe=dmV9StandaloneSignedCall_(cfg.secret,{
-      action:"probe",dataset:"rop05",
-      ids:records.map(function(r){return r.record_id;})
-    });
-    if(probe.mode!=="V9_PROBE"||!Array.isArray(probe.rows))throw Error("V9_PROBE_INVALID");
-    var remote={};
-    probe.rows.forEach(function(r){remote[String(r.record_id)]=r;});
-    var changes=[],skipped=0;
+    var grouped={};
     records.forEach(function(record){
-      var prev=remote[record.record_id],source=record.payload._v9;
-      if(prev&&prev.source_sha256===source.source_sha256&&
-        prev.productivity_state===source.productivity_state){skipped++;return;}
-      record.delivery_revision=prev?Number(prev.delivery_revision)+1:1;
-      changes.push(record);
+      var dataset=String(record.payload&&record.payload._v9&&record.payload._v9.source_dataset||"");
+      if(!/^(rop02_jm|rop02_fs)$/.test(dataset))throw Error("V9_OUTBOX_DATASET_NOT_ALLOWED_"+dataset);
+      (grouped[dataset]||(grouped[dataset]=[])).push(record);
     });
-    var ack={ok:true,mode:"V9_NO_DIFFERENCES",created:0,updated:0};
-    if(changes.length){
-      ack=dmV9StandaloneSignedCall_(cfg.secret,{
-        request_id:Utilities.getUuid(),dataset:"rop05",records:changes
+    var skipped=0,delivered=0,created=0,updated=0;
+    Object.keys(grouped).sort().forEach(function(dataset){
+      var batch=grouped[dataset];
+      var probe=dmV9StandaloneSignedCall_(cfg.secret,{
+        action:"probe",dataset:dataset,
+        ids:batch.map(function(record){return record.record_id;})
       });
-      if(ack.dataset!=="rop05"||Number(ack.created||0)+Number(ack.updated||0)+
+      if(probe.mode!=="V9_PROBE"||!Array.isArray(probe.rows))throw Error("V9_PROBE_INVALID_"+dataset);
+      var remote={};
+      probe.rows.forEach(function(row){remote[String(row.record_id)]=row;});
+      var changes=[];
+      batch.forEach(function(record){
+        var previous=remote[record.record_id];
+        var source=record.payload._v9;
+        if(previous&&previous.source_sha256===source.source_sha256&&
+          previous.productivity_state===source.productivity_state){skipped++;return;}
+        record.delivery_revision=previous?Number(previous.delivery_revision)+1:1;
+        changes.push(record);
+      });
+      if(!changes.length)return;
+      var ack=dmV9StandaloneSignedCall_(cfg.secret,{
+        request_id:Utilities.getUuid(),dataset:dataset,records:changes
+      });
+      if(ack.dataset!==dataset||Number(ack.created||0)+Number(ack.updated||0)+
         Number(ack.alreadyDelivered||0)!==changes.length)
-        throw Error("V9_ACK_MISMATCH");
-    }
-    PropertiesService.getScriptProperties().setProperty("DM_V9_STANDALONE_CURSOR",
-      String(end>=last?2:end+1));
+        throw Error("V9_ACK_MISMATCH_"+dataset);
+      delivered+=changes.length;
+      created+=Number(ack.created||0);
+      updated+=Number(ack.updated||0);
+    });
+    var cursorNext=end>=last?2:end+1;
+    PropertiesService.getScriptProperties().setProperty("DM_V9_STANDALONE_CURSOR",String(cursorNext));
     return {ok:true,mode:"V9_STANDALONE_SIGNED_BATCH",
-      scanned:records.length,skipped:skipped,delivered:changes.length,
-      created:ack.created||0,updated:ack.updated||0,
-      cursorNext:end>=last?2:end+1,productionWrites:0};
+      scanned:records.length,skipped:skipped,delivered:delivered,
+      created:created,updated:updated,cursorNext:cursorNext,productionWrites:0};
   }finally{lock.releaseLock();}
 }
