@@ -36,7 +36,9 @@ function adaptSourceRecord(source,p,recordId){
      Aceite:p.aceite_text??p.aceite,
      "Descripción de los trabajos realizados":p.descripcion_trabajos,
      "Información sobre Desgaste":p.informacion_desgaste,
-     Desgaste:p.informacion_desgaste,Observaciones:p.observaciones,Estado:p.estado
+     Desgaste:p.informacion_desgaste,Observaciones:p.observaciones,
+     "OD o FS":p.od_fs??p.od_o_fs??p["OD o FS"]??p.estado??p.status??"",
+     Estado:p.od_fs??p.od_o_fs??p["OD o FS"]??p.estado??p.status??""
    };
  }
  if(source.startsWith("rma15_")){
