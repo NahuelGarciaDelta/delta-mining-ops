@@ -32,22 +32,40 @@ export default async function handler(req,res){
   if(!["ADMIN","OFICINA_TECNICA","ADMINISTRATIVO","MECANICO"].includes(role)||meta.v9_active!==true)
    return bad(res,403,"V9_ROLE_NOT_ALLOWED");
   if(body.action==="status" || body.action==="catalog"){
-   const r=await upstream(db.url+"/rest/v1/v9_dataset_status?select=dataset,label,category,is_migrated,read_enabled,notes,records,latest_row_at&order=category.asc,label.asc",
+   const c=await upstream(db.url+"/rest/v1/v9_dataset_catalog?select=dataset,label,category,is_migrated,read_enabled,notes&order=category.asc,label.asc",
     {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json"}});
-   if(!r.ok)return bad(res,502,"V9_CATALOG_UNAVAILABLE");
-   const allSources=await r.json().catch(()=>null);
-   if(!Array.isArray(allSources))return bad(res,502,"V9_CATALOG_INVALID_REPLY");
-   const mirrors=allSources.filter(s=>String(s.dataset||"").startsWith("mirror_"));
-   const promoted=new Map(mirrors.filter(s=>s.is_migrated===true && s.read_enabled===true)
-     .map(s=>[String(s.dataset).slice(7),s]));
-   // Status/version cache must follow the promoted mirror, not the stale legacy snapshot.
-   const sources=allSources.filter(s=>!String(s.dataset||"").startsWith("mirror_"))
-     .map(s=>promoted.has(s.dataset)
-       ?{...s,records:promoted.get(s.dataset).records,
-           latest_row_at:promoted.get(s.dataset).latest_row_at,
-           is_migrated:true,notes:"V9_MIRROR_VERIFIED",active_storage:"mirror_"+s.dataset}
-       :{...s,active_storage:s.dataset});
-   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,mirrors:mirrors.map(s=>({dataset:s.dataset,records:s.records,is_migrated:s.is_migrated,latest_row_at:s.latest_row_at})),mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY",profile:{email:String(user.email||"").toLowerCase(),rol:role==="OFICINA_TECNICA"?"ADMIN":role,area:String(meta.v9_area||"").slice(0,90),proyecto:String(meta.v9_project||"TODOS").slice(0,90),nombre:String(user.user_metadata?.nombre||user.user_metadata?.name||user.email?.split("@")[0]||"Usuario").slice(0,90)}});
+   if(!c.ok)return bad(res,502,"V9_CATALOG_UNAVAILABLE");
+   const catalog=await c.json().catch(()=>null);
+   if(!Array.isArray(catalog))return bad(res,502,"V9_CATALOG_INVALID_REPLY");
+   // Avoid the full-table GROUP BY view: count each dataset through its (dataset, updated_at) index.
+   // Disabled staging mirrors stay at zero; only active mirrors need their own measurement.
+   const measured=await Promise.all(catalog.map(async s=>{
+    const name=String(s.dataset||"");
+    const staging=name.startsWith("mirror_");
+    const activeMirror=staging&&s.is_migrated===true&&s.read_enabled===true;
+    if(staging&&!activeMirror)return {...s,records:0,latest_row_at:null};
+    const q=new URLSearchParams({select:"updated_at",dataset:"eq."+name,order:"updated_at.desc.nullslast",limit:"1"});
+    const r=await upstream(db.url+"/rest/v1/v9_operational_rows?"+q,
+     {headers:{apikey:db.key,Authorization:"Bearer "+token,Accept:"application/json",Prefer:"count=exact",Range:"0-0"}});
+    if(!r.ok)throw Error("V9_DATASET_STATUS_QUERY_FAILED");
+    const rows=await r.json().catch(()=>null);
+    if(!Array.isArray(rows))throw Error("V9_DATASET_STATUS_INVALID_REPLY");
+    const count=(r.headers.get("content-range")||"").match(/\/(\d+)$/);
+    return {...s,records:count?Number(count[1]):rows.length,latest_row_at:rows[0]?.updated_at||null};
+   }));
+   const mirrors=measured.filter(s=>String(s.dataset||"").startsWith("mirror_"));
+   const promoted=new Map(mirrors.filter(s=>s.is_migrated===true&&s.read_enabled===true)
+    .map(s=>[String(s.dataset).slice(7),s]));
+   const sources=measured.filter(s=>!String(s.dataset||"").startsWith("mirror_"))
+    .map(s=>promoted.has(s.dataset)
+     ?{...s,records:promoted.get(s.dataset).records,latest_row_at:promoted.get(s.dataset).latest_row_at,
+       is_migrated:true,notes:"V9_MIRROR_VERIFIED",active_storage:"mirror_"+s.dataset}
+     :{...s,active_storage:s.dataset});
+   return respond(res,200,{ok:true,backend:"Supabase V9 independiente",total:sources.reduce((sum,s)=>sum+Number(s.records||0),0),sources,
+    mirrors:mirrors.map(s=>({dataset:s.dataset,records:s.records,is_migrated:s.is_migrated,latest_row_at:s.latest_row_at})),
+    mode:"READ_ONLY",isolation:"SANDBOX_V9_ONLY",profile:{email:String(user.email||"").toLowerCase(),rol:role==="OFICINA_TECNICA"?"ADMIN":role,
+     area:String(meta.v9_area||"").slice(0,90),proyecto:String(meta.v9_project||"TODOS").slice(0,90),
+     nombre:String(user.user_metadata?.nombre||user.user_metadata?.name||user.email?.split("@")[0]||"Usuario").slice(0,90)}});
   }
   const dataset=String(body.dataset||"");
   const limit=Number(body.limit||100);
