@@ -6,7 +6,8 @@ const target=Object.fromEntries(Object.entries({
  "src/config/app.js":"src/standalone/adapters/configApp.js",
  "src/services/appsScriptApi.js":"src/standalone/adapters/appsScriptApi.js",
  "src/services/supabaseReadApi.js":"src/standalone/adapters/supabaseReadApi.js",
- "src/services/confirmedWrites.js":"src/standalone/adapters/confirmedWrites.js"
+ "src/services/confirmedWrites.js":"src/standalone/adapters/confirmedWrites.js",
+ "src/services/stockService.js":"src/standalone/adapters/stockService.js"
 }).map(([k,v])=>[normalize(resolve(root,k)),resolve(root,v)]));
 
 function isolateV9(){
