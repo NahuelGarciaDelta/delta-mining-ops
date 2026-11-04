@@ -614,6 +614,25 @@ export default function App(){
       // solicitudes masivas hacían que ROP02_JM venciera antes de empezar a responder.
       const results=await runWithConcurrency_(toCheck,2,key=>fetchOneSource(key,{force,cacheRecords}));
 
+      // A missing/expired V9 token invalidates the whole session. Do not leave
+      // the legacy shell visible with one V9_SESSION_REQUIRED banner per source.
+      const sessionExpired=results.some(result=>
+        result.status==="rejected"&&/V9_SESSION_REQUIRED|V9_SESSION_EXPIRED/.test(
+          String(result.reason?.message||result.reason||"")
+        )
+      );
+      if(sessionExpired){
+        clearAuthenticatedSession();
+        setAuth(false);
+        setRawSources({});
+        rawSourcesRef.current={};
+        setLoadedSources({});
+        loadedSourcesRef.current={};
+        setErrors([]);
+        setFatalError(null);
+        return;
+      }
+
       const entries=[];
       const softErrors=[];
       results.forEach((result,index)=>{
