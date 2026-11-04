@@ -24,7 +24,16 @@ export async function fetchAction(_url,action,{params={}}={}){
  if(k==="health"||k==="diag")return fetchSupabaseHealth();
  if(["versions","get_data_versions"].includes(k))return fetchSupabaseVersions();
  if(k==="mantenimiento_programado")return fetchSupabasePmSnapshot();
- if(k==="raba03")return fetchSupabaseSource("raba03");
+ if(k==="raba03"){
+  const source=await fetchSupabaseSource("raba03");
+  const rows=Array.isArray(source.data)?source.data:[];
+  const data=rows.filter(row=>{
+   const kind=String(row?._entity||row?.entity||row?.tipo_registro||"").trim().toUpperCase();
+   if(kind)return ["RABA03_COMPRA","RABA03","COMPRA","SEGUIMIENTO_COMPRA"].includes(kind);
+   return "N° de solicitud" in row||"N° de pedido" in row||"N de solicitud" in row;
+  });
+  return {...source,data,total:data.length,rows:data.length,hasMore:false};
+ }
  if(k==="estados_solicitudes"||k==="remitos_cargados"){
   const source=await fetchSupabaseSource("raba03");
   const rows=Array.isArray(source.data)?source.data:[];
