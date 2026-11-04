@@ -1008,9 +1008,7 @@ export function AbastecimientoModule({initialTab="solicitudes",readOnly=false,as
       setError(null);
     }
     try{
-      const url=`${APPS_SCRIPT_URL}?action=raba03&limit=all&_=${Date.now()}`;
-      const res=await fetchWithTimeout(url,{cache:"no-store"},20000,"RABA03");
-      const json=await res.json();
+      const json=await fetchAction(APPS_SCRIPT_URL,"raba03",{params:{limit:"all"}});
       if(!json.ok)throw new Error(json?.error?.message||"No se pudo leer RABA03");
       const raw=Array.isArray(json.data)?json.data:(Array.isArray(json?.sources?.raba03?.data)?json.sources.raba03.data:[]);
       rawRaba03RowsRef.current=raw;
