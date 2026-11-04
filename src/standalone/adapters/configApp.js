@@ -1,2 +1,2 @@
-// Solo para el build independiente V9: el backend legado no es una fuente válida.
-export const APPS_SCRIPT_URL="/api/v9-blocked";
+/// Solo para el build independiente V9: las mutaciones pasan por el relay autenticado.
+export const APPS_SCRIPT_URL="/api/v9-write";
