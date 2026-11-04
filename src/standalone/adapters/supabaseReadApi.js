@@ -126,7 +126,21 @@ export async function fetchSupabaseDatasetQuery(params={}){
   const rows=data.slice(offset,offset+limit);
   return {ok:true,source:"supabase-v9",data:rows,rows:rows.length,total:data.length,hasMore:offset+rows.length<data.length,nextOffset:offset+rows.length<data.length?offset+rows.length:null,offset,limit};
 }
-export async function fetchSupabasePmSnapshot(){return {ok:false,error:{message:"Mantenimiento programado todavía no migrado al Supabase V9."}};}
+export async function fetchSupabasePmSnapshot(){
+ const r=await fetchSupabaseSource("mantenimiento_programado");
+ const rows=Array.isArray(r.data)?r.data:[];
+ const kind=row=>String(row?._entity||row?.entity||row?.tipo_registro||row?.tipo||"").trim().toUpperCase();
+ const config=[],registros=[],programaciones=[],repuestos=[];
+ for(const row of rows){
+  const k=kind(row);
+  if(k==="CONFIG"||k==="PM_CONFIG"||(!k&&("INTERVALO_HS" in row||"intervalo_hs" in row)))config.push(row);
+  else if(k==="REGISTRO"||k==="REGISTROS"||k==="PM_REGISTROS"||(!k&&("ID_PM" in row||"id_pm" in row)))registros.push(row);
+  else if(k==="PROGRAMACION"||k==="PROGRAMACIONES"||k==="PM_PROGRAMACION"||(!k&&("DURACION_HS" in row||"duracion_hs" in row)))programaciones.push(row);
+  else if(k==="REPUESTO"||k==="REPUESTOS"||k==="PM_REPUESTOS"||(!k&&("CANTIDAD_MINIMA" in row||"cantidad_minima" in row)))repuestos.push(row);
+ }
+ return {ok:true,source:"supabase-v9",config,registros,programaciones,repuestos,
+  rows:rows.length,serverTime:TIME()};
+}
 export async function fetchSupabaseRop02LatestByEquipmentProject(){
   return {ok:true,source:"supabase-v9",data:[],rows:0,total:0,referenceDate:""};
 }
