@@ -24,6 +24,17 @@ export async function fetchAction(_url,action,{params={}}={}){
  if(k==="health"||k==="diag")return fetchSupabaseHealth();
  if(["versions","get_data_versions"].includes(k))return fetchSupabaseVersions();
  if(k==="mantenimiento_programado")return fetchSupabasePmSnapshot();
+ if(k==="raba03")return fetchSupabaseSource("raba03");
+ if(k==="estados_solicitudes"||k==="remitos_cargados"){
+  const source=await fetchSupabaseSource("raba03");
+  const rows=Array.isArray(source.data)?source.data:[];
+  const data=rows.filter(row=>{
+   const kind=String(row?._entity||row?.entity||row?.tipo_registro||"").trim().toUpperCase();
+   if(k==="estados_solicitudes")return ["ESTADO","ESTADOS","ESTADOS_SOLICITUDES"].includes(kind)||(!kind&&("CLAVE_SOLICITUD" in row||"clave_solicitud" in row));
+   return ["REMITO","REMITOS","REMITOS_CARGADOS"].includes(kind)||(!kind&&("ID_REMITO" in row||"id_remito" in row));
+  });
+  return {...source,data,total:data.length,hasMore:false};
+ }
  if(k==="query_dataset")return fetchSupabaseDatasetQuery(params);
  if(SUPABASE_TYPED_SOURCES.has(k))return fetchSupabaseSource(k);
  throw Error("V9_SOURCE_NOT_MIGRATED:"+k);
