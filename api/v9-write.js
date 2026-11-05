@@ -12,7 +12,7 @@ const ALLOWED = new Set([
   "save_articulos_desgaste","save_equipment_movement","cancel_equipment_movement",
   "save_taller_movement","update_taller_movement","delete_taller_movement",
   "stock_excel_clear","stock_excel_upload","stock_excel_replace","upload_stock",
-  "save_user_preferences","upload_user_background","update_user_profile"
+  "save_user_preferences","upload_user_background"
 ]);
 const ADMIN_ONLY = new Set([
   "update_user_profile","stock_excel_clear","delete_remito_cargado","delete_raba03_solicitud_numero",
