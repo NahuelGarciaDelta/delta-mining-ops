@@ -26,19 +26,25 @@ function adaptSourceRecord(source,p,recordId){
    };
  }
  if(source.startsWith("rop02_")){
-   return {...result,Fecha:p.fecha,Interno:p.interno,Equipo:p.equipo,
-     Operador:p.operador,"Supervisor Delta":p.supervisor_delta,
-     "Supervisor Vial Cliente":p.supervisor_vial_cliente,
-     "Turno de trabajo":p.turno_trabajo,Turno:p.turno_trabajo,
-     "N° Parte":p.numero_parte,Proyecto:p.proyecto,
-     "Horómetro inicial":p.horometro_inicial,
-     "Horómetro final":p.horometro_final,
-     HI:p.horometro_inicial,HF:p.horometro_final,
-     "Cant. Hs.":p.cantidad_horas,Combustible:p.combustible,
-     Aceite:p.aceite_text??p.aceite,
-     "Descripción de los trabajos realizados":p.descripcion_trabajos,
-     "Información sobre Desgaste":p.informacion_desgaste,
-     Desgaste:p.informacion_desgaste,Observaciones:p.observaciones,
+   // Algunas copias V9 conservan los encabezados de la planilla y otras las
+   // claves normalizadas. Nunca sobrescribir un valor válido por undefined.
+   const pick=(...keys)=>keys.map(key=>p[key]).find(value=>value!==undefined&&value!==null&&value!=="");
+   const fecha=pick("fecha","Fecha"),interno=pick("interno","Interno"),equipo=pick("equipo","Equipo","Equipos");
+   const operador=pick("operador","Operador"),supervisor=pick("supervisor_delta","Supervisor Delta");
+   const supervisorCliente=pick("supervisor_vial_cliente","Supervisor Vial Cliente"),turno=pick("turno_trabajo","Turno de trabajo","Turno");
+   const parte=pick("numero_parte","N° Parte"),proyecto=pick("proyecto","Proyecto","Proyecto ");
+   const hi=pick("horometro_inicial","Horómetro inicial","HI"),hf=pick("horometro_final","Horómetro final","HF");
+   const horas=pick("cantidad_horas","Cant. Hs."),combustible=pick("combustible","Combustible"),aceite=pick("aceite_text","aceite","Aceite");
+   const trabajos=pick("descripcion_trabajos","Descripción de los trabajos realizados"),desgaste=pick("informacion_desgaste","Información sobre Desgaste","Desgaste");
+   return {...result,Fecha:fecha,Interno:interno,Equipo:equipo,
+     Operador:operador,"Supervisor Delta":supervisor,
+     "Supervisor Vial Cliente":supervisorCliente,
+     "Turno de trabajo":turno,Turno:turno,
+     "N° Parte":parte,Proyecto:proyecto,
+     "Horómetro inicial":hi,"Horómetro final":hf,HI:hi,HF:hf,
+     "Cant. Hs.":horas,Combustible:combustible,Aceite:aceite,
+     "Descripción de los trabajos realizados":trabajos,
+     "Información sobre Desgaste":desgaste,Desgaste:desgaste,Observaciones:pick("observaciones","Observaciones"),
      "OD o FS":p.od_fs??p.od_o_fs??p["OD o FS"]??p.estado??p.status??"",
      Estado:p.od_fs??p.od_o_fs??p["OD o FS"]??p.estado??p.status??""
    };
