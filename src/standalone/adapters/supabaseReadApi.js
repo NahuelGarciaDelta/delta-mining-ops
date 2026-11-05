@@ -95,11 +95,12 @@ export async function fetchSupabaseSource(source){
   return {ok:true,source:"supabase-v9",data,meta:{source,rows:data.length,returnedRows:data.length,total,hasMore:false,serverVersion:latest,serverTime:TIME()}};
 }
 export async function fetchSupabaseStockSnapshot(){
- const data=[];let total=0;
+ const data=[];let total=0,latestUpdatedAt=null;
  for(let offset=0;offset<MAX_ROWS;offset+=PAGE){
   const result=await getPage("raba03",PAGE,offset,"STOCK_EXCEL");
   const rows=Array.isArray(result.rows)?result.rows:[];
   for(const r of rows){
+   if(r?.updated_at&&(!latestUpdatedAt||r.updated_at>latestUpdatedAt))latestUpdatedAt=r.updated_at;
    const p=r?.payload;if(!p||typeof p!=="object"||Array.isArray(p))throw Error("V9_INVALID_STOCK_PAYLOAD");
    const num=v=>{const n=Number(String(v??"").replace(",", "."));return Number.isFinite(n)?n:0;};
    data.push({id:p.ID??p.id??r.record_id,codigoArticulo:String(p.CODIGO_ARTICULO??p.codigoArticulo??""),descripcion:String(p.DESCRIPCION??p.descripcion??""),descripcionAdicional:String(p.DESCRIPCION_ADICIONAL??p.descripcionAdicional??""),descripcionDeposito:String(p.DESCRIPCION_DEPOSITO??p.descripcionDeposito??""),controlStock:String(p.CONTROL_STOCK??p.controlStock??""),saldoControlStock:num(p.SALDO_CONTROL_STOCK??p.saldoControlStock),stockMaximo:num(p.STOCK_MAXIMO??p.stockMaximo),stockMinimo:num(p.STOCK_MINIMO??p.stockMinimo)});
@@ -108,7 +109,7 @@ export async function fetchSupabaseStockSnapshot(){
   if(!result.hasMore||rows.length===0)break;
   if(offset+rows.length>=MAX_ROWS)throw Error("V9_ROW_LIMIT:stock_excel");
  }
- const meta={version:1,active:data.length>0,activeSheet:"STOCK CRITICO",fileName:"Saldos.xlsx",sourceSheet:"STOCK CRITICO",rowCount:total,validRows:total,updatedAt:"2026-08-07T22:59:15.409Z"};
+ const meta={version:1,active:data.length>0,activeSheet:"STOCK CRITICO",fileName:"Saldos.xlsx",sourceSheet:"STOCK CRITICO",rowCount:total,validRows:total,updatedAt:latestUpdatedAt};
  return {ok:true,source:"supabase-v9",rows:data,meta};
 }
 export async function fetchSupabaseHealth(){
