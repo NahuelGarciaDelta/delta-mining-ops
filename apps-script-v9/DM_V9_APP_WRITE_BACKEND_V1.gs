@@ -36,7 +36,7 @@ var SHEETS_CONFIG = {
   rop02_zorro: {
     id: "16mBo9oJq0WKzD14gU1LGjb8FnoJIAmAgXQy3Boz7cRQ",
     gid: "967767400",
-    sheet: "R_OP02_EL_ZORRO",
+    sheet: "R_OP02_ZORRO",
     label: "Partes — El Zorro",
     proyecto: "EL ZORRO",
     headerRow: 4
