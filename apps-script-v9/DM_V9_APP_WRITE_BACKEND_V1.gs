@@ -12,7 +12,7 @@ var SHEETS_CONFIG = {
   rop02_fs: {
     id: "1jURr3m0t_-bYe-MpfErhLg2K7HuFqjTwFONGPeGWwbc",
     gid: "396764804",
-    sheet: "R_OP02_FS",
+    sheet: "R_OP02_FDS",
     label: "Partes — Filo del Sol",
     proyecto: "FILO DEL SOL",
     headerRow: 4
@@ -28,7 +28,7 @@ var SHEETS_CONFIG = {
   rop02_filosur: {
     id: "1qBMYf0Z5oF54LAhjmNIj5IEDPRZdqGbJrMhFMkouIyc",
     gid: "1301566995",
-    sheet: "R_OP2_",
+    sheet: "R_OP02_FILO_SUR",
     label: "Partes — Filo Sur",
     proyecto: "FILO SUR",
     headerRow: 4
@@ -95,7 +95,7 @@ var SHEETS_CONFIG = {
   lista_equipos: {
     id: "1rJ1WoKloz6Jb4VEu5E3I77yD_MqsqZqpRKoTaJNgtwM",
     gid: "952415879",
-    sheet: "lista equipos",
+    sheet: "RMA20-LIsta maestra",
     label: "Lista Maestra de Equipos",
     proyecto: null,
     headerRow: 5
