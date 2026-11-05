@@ -2,7 +2,9 @@
 import {requestV9,currentSession} from "../session.js";
 import {ROP02_SOURCE_KEYS,ROP02_SOURCES} from "../../config/rop02Sources.js";
 export const SUPABASE_TYPED_SOURCES=new Set([...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","lista_equipos","insumos","mantenimiento_programado","combustible","raba03"]);
-const PAGE=500,MAX_ROWS=60000;
+// El relay V9 admite 1.000 filas por página. Usar ese tamaño reduce a la mitad los
+// viajes autenticados sin cambiar el orden, el contenido ni los permisos de lectura.
+const PAGE=1000,MAX_ROWS=60000;
 const TIME=()=>new Date().toISOString();
 function adaptSourceRecord(source,p,recordId){
  const result={...p,_sourceDataset:source,_sourceKey:recordId};
@@ -159,5 +161,33 @@ export async function fetchSupabasePmSnapshot(){
   rows:rows.length,serverTime:TIME()};
 }
 export async function fetchSupabaseRop02LatestByEquipmentProject(){
-  return {ok:true,source:"supabase-v9",data:[],rows:0,total:0,referenceDate:""};
+  // La pantalla de bienvenida usa este snapshot para sus tarjetas. Antes V9
+  // respondía un arreglo vacío, por lo que OD, FS y disponibilidad quedaban
+  // permanentemente en "Cargando" aunque los ROP02 ya estuvieran disponibles.
+  const results=await Promise.all(ROP02_SOURCE_KEYS.map(fetchSupabaseSource));
+  const latest=new Map();
+  const asDate=value=>String(value??"").slice(0,10);
+  const asText=value=>String(value??"").trim();
+  for(const source of results){
+    for(const row of source?.data||[]){
+      const interno=asText(row.Interno??row.interno);
+      const proyecto=asText(row.Proyecto??row.proyecto);
+      const fecha=asDate(row.Fecha??row.fecha);
+      if(!interno||!proyecto||!fecha)continue;
+      const key=`${interno.toUpperCase()}|${proyecto.toUpperCase()}`;
+      const current=latest.get(key);
+      if(!current||fecha>current.ULTIMA_FECHA){
+        latest.set(key,{
+          INTERNO:interno,PROYECTO:proyecto,ULTIMA_FECHA:fecha,
+          ULTIMO_ESTADO:row["OD o FS"]??row.Estado??row.estado??"",
+          HORAS:row["Cant. Hs."]??row.cantidad_horas??row.horas??0,
+          SUPERVISOR:row["Supervisor Delta"]??row.supervisor_delta??"",
+          CARGAS_7D:1
+        });
+      }
+    }
+  }
+  const data=[...latest.values()].sort((a,b)=>String(a.INTERNO).localeCompare(String(b.INTERNO),"es"));
+  const referenceDate=data.reduce((max,row)=>row.ULTIMA_FECHA>max?row.ULTIMA_FECHA:max,"");
+  return {ok:true,source:"supabase-v9",data,rows:data.length,total:data.length,referenceDate};
 }

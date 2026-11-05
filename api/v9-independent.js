@@ -73,7 +73,7 @@ export default async function handler(req,res){
   const entity=String(body.entity||"").trim().toUpperCase();
   const limit=Number(body.limit||100);
   const offset=Number(body.offset||0);
-  if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>500||!Number.isInteger(offset)||offset<0||offset>100000||(entity&&(dataset!=="raba03"||entity!=="STOCK_EXCEL")))return bad(res,400,"INVALID_DATASET_OR_PAGE");
+  if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>1000||!Number.isInteger(offset)||offset<0||offset>100000||(entity&&(dataset!=="raba03"||entity!=="STOCK_EXCEL")))return bad(res,400,"INVALID_DATASET_OR_PAGE");
   // Mirror sources are PREPARED separately; never mix partial historical snapshots.
   // Only an audited, explicit is_migrated=true switch in the sandbox catalog
   // allows the app to read mirror_* datasets. No application-side toggle.
