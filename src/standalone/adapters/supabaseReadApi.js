@@ -54,13 +54,14 @@ function adaptSourceRecord(source,p,recordId){
    };
  }
  if(source.startsWith("rma15_")){
-   return {...result,"Fecha de OT":p.fecha_ot,Fecha:p.fecha_ot,
+   const pick=(...keys)=>keys.map(key=>p[key]??original[key]).find(value=>value!==undefined&&value!==null&&value!=="");
+   return {...result,"Fecha de OT":pick("fecha_ot","Fecha de OT"),Fecha:pick("fecha_ot","Fecha de OT"),
      Proyecto:p.proyecto,EQUIPO:p.equipo,Equipo:p.equipo,
      "CODIGO N° INTERNO":p.interno,Interno:p.interno,
      "Km / hs":p.km_hs,"TIPO DE MANTENIMIENTO":p.tipo_mantenimiento,
      "¿EQUIPO QUEDO OPERATIVO?":p.equipo_operativo===true?"SI":p.equipo_operativo===false?"NO":"",
-     "TURNO EN QUE SE HIZO LA OT":p.turno,
-     "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":p.intervencion,
+     "TURNO EN QUE SE HIZO LA OT":pick("turno","TURNO EN QUE SE HIZO LA OT"),
+     "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":pick("intervencion","INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)","INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE"),
      OBSERVACIONES:p.observaciones,"MAIL AVISADO":p.mail_avisado
    };
  }
