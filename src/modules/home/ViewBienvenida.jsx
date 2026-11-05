@@ -228,11 +228,8 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     if(cancelled)return;
     bienvenidaSummaryCache={data:nextData,loading:{
       flota:rop.length===0,
-      // Los movimientos de Taller complementan el cálculo (por ejemplo, bajas),
-      // pero no pueden bloquear las tarjetas cuando la fuente todavía se está
-      // sincronizando. ROP02 y RMA15 son suficientes para un resultado válido.
-      disponibilidad:rop.length===0,
-      ot:rma.length===0,
+      disponibilidad:rop.length===0||!movimientosLoaded||Boolean(movimientosError),
+      ot:rma.length===0||!movimientosLoaded||Boolean(movimientosError),
       stock:bienvenidaStockCache===null,
     }};
     startTransition(()=>setSummaryState(bienvenidaSummaryCache));
