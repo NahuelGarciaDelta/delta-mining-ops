@@ -2,7 +2,7 @@
 // Auth tokens are issued by the independent V9 Supabase Auth project.
 // This gateway is read-only and never writes operational records.
 const REF="biztlietuvvonigcfdwy";
-const ALLOWED=new Set(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro","rop02_fierro","rop05","rma15_jm","rma15_fs","lista_equipos","insumos","mantenimiento_programado","raba03","combustible"]);
+const ALLOWED=new Set(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro","rop02_fierro","rop05","rma15_jm","rma15_fs","lista_equipos","insumos","mantenimiento_programado","raba03","combustible","movimientos_equipos"]);
 export const config={maxDuration:30};
 function respond(res,status,body){res.setHeader("Cache-Control","no-store, max-age=0");res.setHeader("X-Content-Type-Options","nosniff");return res.status(status).json(body);}
 function bad(res,status,error){return respond(res,status,{ok:false,error});}

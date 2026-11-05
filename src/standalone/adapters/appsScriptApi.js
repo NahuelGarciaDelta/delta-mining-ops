@@ -24,6 +24,10 @@ export async function fetchAction(_url,action,{params={}}={}){
  if(k==="health"||k==="diag")return fetchSupabaseHealth();
  if(["versions","get_data_versions"].includes(k))return fetchSupabaseVersions();
  if(k==="mantenimiento_programado")return fetchSupabasePmSnapshot();
+ if(k==="get_equipment_movements"||k==="get_taller_movements"){
+  const source=await fetchSupabaseSource("movimientos_equipos");
+  return {...source,data:source.data||[],rows:(source.data||[]).length,total:(source.data||[]).length,hasMore:false};
+ }
  if(k==="raba03"){
   const source=await fetchSupabaseSource("raba03");
   const rows=Array.isArray(source.data)?source.data:[];
