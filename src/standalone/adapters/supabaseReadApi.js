@@ -7,7 +7,11 @@ export const SUPABASE_TYPED_SOURCES=new Set([...ROP02_SOURCE_KEYS,"rop05","rma15
 const PAGE=1000,MAX_ROWS=60000;
 const TIME=()=>new Date().toISOString();
 function adaptSourceRecord(source,p,recordId){
- const result={...p,_sourceDataset:source,_sourceKey:recordId};
+ // V9 snapshots may contain both typed fields and original Sheets headers in raw_data.
+ // Restore the original columns for legacy screens (notably insumos/costs),
+ // while keeping normalized typed values authoritative on key collisions.
+ const original=p.raw_data&&typeof p.raw_data==="object"&&!Array.isArray(p.raw_data)?p.raw_data:{};
+ const result={...original,...p,_sourceDataset:source,_sourceKey:recordId};
  if(source==="rop05"){
    // Los registros del nuevo Supabase guardan las columnas tipadas en minúsculas.
    // La app original consume encabezados de Sheets: preservar ambos nombres.
