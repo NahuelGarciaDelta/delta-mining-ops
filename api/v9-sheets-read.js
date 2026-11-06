@@ -20,5 +20,5 @@ export default async function handler(req,res){
   if(data?.ok!==true){const code=String(data?.error?.code||data?.error||"V9_GAS_ERROR");return reply(res,502,{ok:false,error:/^[A-Z][A-Z0-9_]{2,80}$/.test(code)?code:"V9_GAS_ERROR"});}
   if(!Array.isArray(data.data)||!Number.isInteger(Number(data.totalRows)))return reply(res,502,{ok:false,error:"V9_SHEETS_CONTRACT_INVALID"});
   return reply(res,200,{ok:true,dataset,rows:data.data,total:Number(data.totalRows),offset,limit,hasMore:data.hasMore===true,nextOffset:data.nextOffset??null,meta:data.meta??null,source:"GOOGLE_SHEETS_ORIGINAL"});
- }catch{return reply(res,502,{ok:false,error:"V9_SHEETS_BRIDGE_UNAVAILABLE"});}
+ }catch(error){return reply(res,502,{ok:false,error:error?.name==="AbortError"?"V9_SHEETS_TIMEOUT":"V9_SHEETS_BRIDGE_UNAVAILABLE"});}
 }
