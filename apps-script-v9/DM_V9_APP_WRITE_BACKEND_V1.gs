@@ -6628,6 +6628,27 @@ function dmV9ReadDataset_(dataset, payload) {
     var movementPage = movementRows.slice(offset,offset + limit);
     return {ok:true,dataset:dataset,data:movementPage,totalRows:movementRows.length,offset:offset,limit:limit,hasMore:offset+movementPage.length<movementRows.length,nextOffset:offset+movementPage.length<movementRows.length?offset+movementPage.length:null,source:"GOOGLE_SHEETS_ORIGINAL"};
   }
+  // RABA03 stores purchase requests, shared statuses, and delivery notes in
+  // different tabs. Never derive statuses from the purchase-sheet payload.
+  if (dataset === "raba03" && String(payload && payload.entity || "").toUpperCase() === "ESTADOS_SOLICITUDES") {
+    var states = handleGetEstadosSolicitudes_();
+    if (!states || states.ok !== true) return {ok:false,error:{code:"V9_STATES_READ_FAILED"}};
+    var stateRows = states.data || [],statePage = stateRows.slice(offset,offset+limit);
+    return {ok:true,dataset:dataset,data:statePage,totalRows:stateRows.length,offset:offset,limit:limit,
+      hasMore:offset+statePage.length<stateRows.length,nextOffset:offset+statePage.length<stateRows.length?offset+statePage.length:null,
+      source:"GOOGLE_SHEETS_ORIGINAL",meta:{entity:"ESTADOS_SOLICITUDES"}};
+  }
+  if (dataset === "raba03" && String(payload && payload.entity || "").toUpperCase() === "REMITOS_CARGADOS") {
+    var remitoTarget=getRemitosCargadosSheet_(),remitoSheet=remitoTarget.sheet,remitoHeaderRow=Number(remitoTarget.config.headerRow||1);
+    var remitoHeaders=getRemitosCargadosHeaders_(remitoSheet,remitoTarget.config);
+    var remitoTotal=Math.max(0,remitoSheet.getLastRow()-remitoHeaderRow);
+    var remitoCount=Math.max(0,Math.min(limit,remitoTotal-offset));
+    var remitoCells=remitoCount?remitoSheet.getRange(remitoHeaderRow+1+offset,1,remitoCount,remitoHeaders.length).getValues():[];
+    var remitoData=remitoCells.map(function(row){var record={};remitoHeaders.forEach(function(h,i){var value=row[i];record[h]=value instanceof Date?value.toISOString():(value==null?"":value);});return record;});
+    return {ok:true,dataset:dataset,data:remitoData,totalRows:remitoTotal,offset:offset,limit:limit,
+      hasMore:offset+remitoData.length<remitoTotal,nextOffset:offset+remitoData.length<remitoTotal?offset+remitoData.length:null,
+      source:"GOOGLE_SHEETS_ORIGINAL",meta:{entity:"REMITOS_CARGADOS"}};
+  }
   if (dataset === "raba03" && String(payload && payload.entity || "").toUpperCase() === "STOCK_EXCEL") {
     var stock = handleStockExcelData_(), stockRows = stock.rows || [];
     var stockPage = stockRows.slice(offset,offset + limit);
