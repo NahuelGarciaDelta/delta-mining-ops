@@ -2,7 +2,7 @@
 import {ROP02_SOURCE_KEYS} from "../../config/rop02Sources.js";
 import {requestV9,currentSession} from "../session.js";
 import {
- SUPABASE_TYPED_SOURCES,fetchSupabaseSource,fetchSupabaseHealth,
+ SUPABASE_TYPED_SOURCES,fetchSupabaseSource,fetchSupabaseRaba03Entity,fetchSupabaseHealth,
  fetchSupabasePmSnapshot,fetchSupabaseDatasetQuery,fetchSupabaseVersions
 } from "./supabaseReadApi.js";
 export function expandCompactSource(src){
@@ -39,14 +39,7 @@ export async function fetchAction(_url,action,{params={}}={}){
   return {...source,data,total:data.length,rows:data.length,hasMore:false};
  }
  if(k==="estados_solicitudes"||k==="remitos_cargados"){
-  const source=await fetchSupabaseSource("raba03");
-  const rows=Array.isArray(source.data)?source.data:[];
-  const data=rows.filter(row=>{
-   const kind=String(row?._entity||row?.entity||row?.tipo_registro||"").trim().toUpperCase();
-   if(k==="estados_solicitudes")return ["ESTADO","ESTADOS","ESTADOS_SOLICITUDES"].includes(kind)||(!kind&&("CLAVE_SOLICITUD" in row||"clave_solicitud" in row));
-   return ["REMITO","REMITOS","REMITOS_CARGADOS"].includes(kind)||(!kind&&("ID_REMITO" in row||"id_remito" in row));
-  });
-  return {...source,data,total:data.length,hasMore:false};
+  return fetchSupabaseRaba03Entity(k==="estados_solicitudes"?"ESTADOS_SOLICITUDES":"REMITOS_CARGADOS");
  }
  if(k==="query_dataset")return fetchSupabaseDatasetQuery(params);
  if(SUPABASE_TYPED_SOURCES.has(k))return fetchSupabaseSource(k);
