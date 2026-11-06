@@ -8,6 +8,8 @@ const FORM_FIELDS={
  MOVILIZACION:[["INTERNO_ORIGEN","Interno"],["EQUIPO","Equipo"],["PROYECTO_ORIGEN","Proyecto origen"],["PROYECTO_DESTINO","Proyecto destino"],["INTERNO_DESTINO","Interno destino"],["HOROMETRO","Horómetro"]],
  CAMBIO_EQUIPO:[["INTERNO_ORIGEN","Interno que sale"],["EQUIPO","Equipo"],["INTERNO_ENTRA","Interno que entra"],["EQUIPO_ENTRA","Equipo entrante"],["PROYECTO_ORIGEN","Proyecto origen"],["MOTIVO","Motivo"]]
 };
+const SUBIDA_PROPIEDADES=["ALEQUIP","ARRENDADORA","CGM","DELTA","DIESEL LANGE","FARO","FIMA","FINNING","GINER DANIEL","MAXIKLAK","MTZ","NATALIO","NOAR","SULLAIR","OTRO"];
+const SUBIDA_PROYECTOS=["EL FIERRO","EL ZORRO","FILO DEL SOL","FILO SUR","JOSE MARIA"];
 const TABLE_FIELDS=[["FECHA_HORA","Fecha"],["INTERNO_ORIGEN","Interno"],["EQUIPO","Equipo"],["PROYECTO_ORIGEN","Origen"],["PROYECTO_DESTINO","Destino"],["INTERNO_DESTINO","Interno destino"],["MOTIVO","Motivo"],["USUARIO","Usuario"]];
 const norm=s=>String(s??"").trim();
 const date=s=>{const v=norm(s);return /^\\d{4}-\\d{2}-\\d{2}/.test(v)?v.slice(0,10):v||"—";};
@@ -17,7 +19,7 @@ const th={padding:"9px 8px",textAlign:"left",whiteSpace:"nowrap",fontSize:10,col
 const td={padding:"7px 8px",fontSize:10,color:"#e7e7e9",borderBottom:"1px solid #303035",whiteSpace:"nowrap"};
 export default function TallerMovimientosV9({tipo}){
  const[rows,setRows]=useState([]),[busy,setBusy]=useState(true),[error,setError]=useState("");
- const[reload,setReload]=useState(0),[form,setForm]=useState({}),[filter,setFilter]=useState("");
+ const[reload,setReload]=useState(0),[form,setForm]=useState({}),[filter,setFilter]=useState(""),[filterVisible,setFilterVisible]=useState(false);
  useEffect(()=>{setForm({});setFilter("");},[tipo]);
  useEffect(()=>{
   let cancelled=false;
@@ -53,11 +55,11 @@ export default function TallerMovimientosV9({tipo}){
  return <div style={{display:"flex",flexDirection:"column",gap:10,padding:"0 0 18px",color:"#f0f0f0",fontFamily:"inherit",fontSize:12}}>
   <div style={box}>
    <div style={{fontWeight:800,fontSize:14,marginBottom:3}}>Registrar {title.toLowerCase()}</div>
-   <div style={{fontSize:11,color:"#a2a2a5",marginBottom:14}}>Los movimientos de bajada, movilización y cambio de equipo se vinculan automáticamente con Atraso en el sistema original.</div>
+   <div style={{fontSize:11,color:"#a2a2a5",marginBottom:14}}>Los movimientos de bajada, movilización y cambio de equipo se vinculan automáticamente con Atraso .</div>
    <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:10}}>
     {(FORM_FIELDS[tipo]||[]).map(([key,label])=><label key={key} style={{display:"flex",flexDirection:"column",gap:5,fontSize:11,color:"#a7a7aa",fontWeight:650}}>{label}
-     {key==="PROPIEDAD"?<select style={field} value={form[key]??"DELTA"} onChange={e=>set(key,e.target.value)}><option>DELTA</option><option>ALQUILADO</option><option>OTRO</option></select>:
-      key==="PROYECTO_DESTINO"?<select style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)}><option value="">Seleccionar...</option>{projects.map(p=><option key={p} value={p}>{p}</option>)}</select>:
+     {key==="PROPIEDAD"?<select style={field} value={form[key]??"DELTA"} onChange={e=>set(key,e.target.value)}>{(tipo==="SUBIDA"?SUBIDA_PROPIEDADES:["DELTA","ALQUILADO","OTRO"]).map(p=><option key={p} value={p}>{p}</option>)}</select>:
+      key==="PROYECTO_DESTINO"?<select style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)}><option value="">Seleccionar...</option>{(tipo==="SUBIDA"?SUBIDA_PROYECTOS:projects).map(p=><option key={p} value={p}>{p}</option>)}</select>:
       <input style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)} type={key==="HOROMETRO"?"number":"text"}/>}
     </label>)}
    </div>
@@ -71,11 +73,7 @@ export default function TallerMovimientosV9({tipo}){
   </div>
   <div style={{...box,padding:0,overflow:"hidden"}}>
    <div style={{padding:"12px 12px 10px",fontWeight:850,fontSize:14}}>Últimos 100 movimientos</div>
-   <div style={{padding:"0 10px 12px",display:"flex",gap:10,alignItems:"center"}}>
-    
-    
-    
-   </div>
+   <div style={{padding:"0 10px 12px",display:"flex",gap:10,alignItems:"center"}}><button type="button" onClick={()=>setFilterVisible(v=>!v)} title="Mostrar u ocultar filtros individuales para cada columna">Filtro por columna</button>{filterVisible&&<input style={{...field,maxWidth:300}} value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Buscar movimientos"/>}</div>
    {error&&<div role="alert" style={{color:"#f47b83",padding:14}}>{error}</div>}
    {!busy&&!error&&<div style={{overflowX:"auto",maxHeight:325,overflowY:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
     <thead><tr>{TABLE_FIELDS.map(([k,l])=><th key={k} style={th}>{l}</th>)}<th style={th}>Acciones</th></tr></thead>
