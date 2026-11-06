@@ -12,9 +12,9 @@ const TABLE_FIELDS=[["FECHA_HORA","Fecha"],["INTERNO_ORIGEN","Interno"],["EQUIPO
 const norm=s=>String(s??"").trim();
 const date=s=>{const v=norm(s);return /^\\d{4}-\\d{2}-\\d{2}/.test(v)?v.slice(0,10):v||"—";};
 const box={background:"rgba(22,22,22,.94)",border:"1px solid #363638",borderRadius:13,padding:15};
-const field={width:"100%",height:36,boxSizing:"border-box",background:"#141414",border:"1px solid #303035",borderRadius:8,color:"#e5e5e5",padding:"0 11px",fontSize:12};
-const th={padding:"11px 9px",textAlign:"left",whiteSpace:"nowrap",fontSize:11,color:"#a6a6aa",background:"#141414"};
-const td={padding:"10px 9px",fontSize:11,color:"#e7e7e9",borderBottom:"1px solid #303035",whiteSpace:"nowrap"};
+const field={width:"100%",height:34,boxSizing:"border-box",background:"#141414",border:"1px solid #303035",borderRadius:8,color:"#e5e5e5",padding:"0 11px",fontSize:12};
+const th={padding:"9px 8px",textAlign:"left",whiteSpace:"nowrap",fontSize:10,color:"#a6a6aa",background:"#141414"};
+const td={padding:"7px 8px",fontSize:10,color:"#e7e7e9",borderBottom:"1px solid #303035",whiteSpace:"nowrap"};
 export default function TallerMovimientosV9({tipo}){
  const[rows,setRows]=useState([]),[busy,setBusy]=useState(true),[error,setError]=useState("");
  const[reload,setReload]=useState(0),[form,setForm]=useState({}),[filter,setFilter]=useState("");
@@ -50,11 +50,11 @@ export default function TallerMovimientosV9({tipo}){
  const projects=useMemo(()=>[...new Set(rows.flatMap(r=>[norm(r.PROYECTO_ORIGEN),norm(r.PROYECTO_DESTINO)]).filter(Boolean))].sort(),[rows]);
  const set=(k,v)=>setForm(prev=>({...prev,[k]:v}));
  const title=TYPES[tipo]||tipo;
- return <div style={{display:"flex",flexDirection:"column",gap:13,padding:"14px 12px 28px",color:"#f0f0f0",fontFamily:"inherit",fontSize:12}}>
+ return <div style={{display:"flex",flexDirection:"column",gap:10,padding:"0 0 18px",color:"#f0f0f0",fontFamily:"inherit",fontSize:12}}>
   <div style={box}>
-   <div style={{fontWeight:800,fontSize:15,marginBottom:3}}>Registrar {title.toLowerCase()}{tipo==="SUBIDA"?" de equipo":""}</div>
+   <div style={{fontWeight:800,fontSize:14,marginBottom:3}}>Registrar {title.toLowerCase()}</div>
    <div style={{fontSize:11,color:"#a2a2a5",marginBottom:14}}>Los movimientos de bajada, movilización y cambio de equipo se vinculan automáticamente con Atraso en el sistema original.</div>
-   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(175px,1fr))",gap:11}}>
+   <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:10}}>
     {(FORM_FIELDS[tipo]||[]).map(([key,label])=><label key={key} style={{display:"flex",flexDirection:"column",gap:5,fontSize:11,color:"#a7a7aa",fontWeight:650}}>{label}
      {key==="PROPIEDAD"?<select style={field} value={form[key]??"DELTA"} onChange={e=>set(key,e.target.value)}><option>DELTA</option><option>ALQUILADO</option><option>OTRO</option></select>:
       key==="PROYECTO_DESTINO"?<select style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)}><option value="">Seleccionar...</option>{projects.map(p=><option key={p} value={p}>{p}</option>)}</select>:
@@ -70,16 +70,16 @@ export default function TallerMovimientosV9({tipo}){
    </div>
   </div>
   <div style={{...box,padding:0,overflow:"hidden"}}>
-   <div style={{padding:"14px 14px 10px",fontWeight:850,fontSize:15}}>Últimos 100 movimientos</div>
+   <div style={{padding:"12px 12px 10px",fontWeight:850,fontSize:14}}>Últimos 100 movimientos</div>
    <div style={{padding:"0 10px 12px",display:"flex",gap:10,alignItems:"center"}}>
-    <input aria-label="Filtrar movimientos" placeholder="Filtro por columna" value={filter} onChange={e=>setFilter(e.target.value)} style={{...field,maxWidth:240,height:32}}/>
-    <button type="button" onClick={()=>setReload(n=>n+1)} disabled={busy} style={{...field,width:"auto",cursor:"pointer"}}>{busy?"Cargando…":"Actualizar"}</button>
-    <span style={{color:"#a8a8a8"}}>{busy?"Cargando registros…":error?"Error":rows.length+" movimientos"}</span>
+    
+    
+    
    </div>
    {error&&<div role="alert" style={{color:"#f47b83",padding:14}}>{error}</div>}
-   {!busy&&!error&&<div style={{overflowX:"auto",maxHeight:420,overflowY:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
+   {!busy&&!error&&<div style={{overflowX:"auto",maxHeight:325,overflowY:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
     <thead><tr>{TABLE_FIELDS.map(([k,l])=><th key={k} style={th}>{l}</th>)}<th style={th}>Acciones</th></tr></thead>
-    <tbody>{filtered.slice(0,100).map((r,i)=><tr key={r.ID||i}>{TABLE_FIELDS.map(([k])=><td key={k} style={td}>{k==="FECHA_HORA"?date(r[k]):norm(r[k])||"—"}</td>)}<td style={td}><button disabled title="Edición pendiente de validar" style={{border:"1px solid #438be7",color:"#438be7",background:"transparent",borderRadius:7,padding:"7px 9px",marginRight:5,opacity:.55}}>Editar</button><button disabled title="Eliminación pendiente de validar" style={{border:"1px solid #e33653",color:"#e33653",background:"transparent",borderRadius:7,padding:"7px 9px",opacity:.55}}>Eliminar</button></td></tr>)}
+    <tbody>{filtered.slice(0,100).map((r,i)=><tr key={r.ID||i}>{TABLE_FIELDS.map(([k])=><td key={k} style={td}>{k==="FECHA_HORA"?date(r[k]):k==="INTERNO_ORIGEN"?<span style={{color:"#b178f2",fontWeight:750}}>{norm(r[k])||"—"}</span>:norm(r[k])||"—"}</td>)}<td style={td}><button disabled title="Edición pendiente de validar" style={{border:"1px solid #438be7",color:"#438be7",background:"transparent",borderRadius:7,padding:"6px 9px",marginRight:5,opacity:.55}}>Editar</button><button disabled title="Eliminación pendiente de validar" style={{border:"1px solid #e33653",color:"#e33653",background:"transparent",borderRadius:7,padding:"7px 9px",opacity:.55}}>Eliminar</button></td></tr>)}
      {!filtered.length&&<tr><td colSpan={TABLE_FIELDS.length+1} style={{...td,textAlign:"center"}}>No hay movimientos para mostrar.</td></tr>}
     </tbody>
    </table></div>}
