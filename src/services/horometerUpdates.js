@@ -58,7 +58,7 @@ export async function submitHorometerOperation(url, operation, { verifyOnly = fa
       try {
         response = await requestAppsScript(url, { action: "verify_lista_horometros", ...batch });
       } catch {
-        response = { status: "pending" };
+        response = { status: "pending", error: { code: "V9_WRITE_CONFIRMATION_UNAVAILABLE", message: "No se pudo confirmar el resultado; verificar la Lista Maestra antes de reenviar." } };
       }
     }
     if (
