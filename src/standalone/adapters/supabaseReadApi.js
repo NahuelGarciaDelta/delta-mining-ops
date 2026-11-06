@@ -6,72 +6,71 @@ export const SUPABASE_TYPED_SOURCES=new Set([...ROP02_SOURCE_KEYS,"rop05","rma15
 // viajes autenticados sin cambiar el orden, el contenido ni los permisos de lectura.
 const PAGE=1000,MAX_ROWS=60000;
 const TIME=()=>new Date().toISOString();
+// Original Sheets return display headers; sandbox snapshots return typed keys.
+// Normalize both without replacing a populated original field with undefined.
+const normHeader=value=>String(value??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"");
 function adaptSourceRecord(source,p,recordId){
- // V9 snapshots may contain both typed fields and original Sheets headers in raw_data.
- // Restore the original columns for legacy screens (notably insumos/costs),
- // while keeping normalized typed values authoritative on key collisions.
  const original=p.raw_data&&typeof p.raw_data==="object"&&!Array.isArray(p.raw_data)?p.raw_data:{};
  const result={...original,...p,_sourceDataset:source,_sourceKey:recordId};
+ const index=new Map(Object.entries(result).map(([key,value])=>[normHeader(key),value]));
+ const pick=(...keys)=>{
+   for(const key of keys){const v=result[key]??index.get(normHeader(key));if(v!==undefined&&v!==null&&v!=="")return v;}
+   return undefined;
+ };
+ const set=(key,...aliases)=>{const v=pick(key,...aliases);if(v!==undefined)result[key]=v;};
  if(source==="rop05"){
-   // Los registros del nuevo Supabase guardan las columnas tipadas en minúsculas.
-   // La app original consume encabezados de Sheets: preservar ambos nombres.
-   return {...result,
-     "Fecha del Parte Diario":p.fecha,Fecha:p.fecha,
-     Supervisor:p.supervisor,Proyecto:p.proyecto,
-     "Codigo Int":p.interno,"Código Interno del Equipo":p.interno,Interno:p.interno,
-     "N° de Parte":p.numero_parte,
-     "Tipo Equipo":p.tipo_equipo,Tarea:p.tarea,
-     "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)":p.horas_productivas,
-     Hs:p.horas_productivas,
-     LARGO:p.largo,ANCHO:p.ancho,PROFUNDIDAD:p.profundidad,
-     "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)":p.cantidad_produccion,
-     Cantidad:p.cantidad_produccion,"UNIDAD DE PRODUCTIVIDAD":p.unidad,
-     Unidad:p.unidad,Observaciones:p.observaciones,Mes:p.mes
-   };
+   for(const [key,aliases] of Object.entries({
+     "Fecha del Parte Diario":["fecha","Fecha"],Fecha:["fecha","Fecha del Parte Diario"],
+     Supervisor:["supervisor"],Proyecto:["proyecto"],"Codigo Int":["interno","Código Interno del Equipo"],
+     "Código Interno del Equipo":["interno","Codigo Int"],Interno:["interno","Codigo Int"],
+     "N° de Parte":["numero_parte","N° Parte"],"Tipo Equipo":["tipo_equipo"],Tarea:["tarea"],
+     "CANTIDAD DE HS PRODUCTIVAS EFECTIVAS (SOLO CANTIDAD)":["horas_productivas","Hs"],
+     Hs:["horas_productivas"],LARGO:["largo"],ANCHO:["ancho"],PROFUNDIDAD:["profundidad"],
+     "CANTIDAD DE PRODUCCIÓN DE LA TAREA REALIZADA (SIN UNIDADES DE MEDIDA)":["cantidad_produccion","Cantidad"],
+     Cantidad:["cantidad_produccion"],"UNIDAD DE PRODUCTIVIDAD":["unidad","Unidad"],
+     Unidad:["unidad"],Observaciones:["observaciones"],Mes:["mes"]
+   }))set(key,...aliases);
+ }else if(source.startsWith("rop02_")){
+   for(const [key,aliases] of Object.entries({
+     Fecha:["fecha"],Interno:["interno","Codigo Int"],Equipo:["equipo","Equipos"],
+     Operador:["operador"],"Supervisor Delta":["supervisor_delta"],
+     "Supervisor Vial Cliente":["supervisor_vial_cliente"],
+     "Turno de trabajo":["turno_trabajo","Turno"],Turno:["turno_trabajo","Turno de trabajo"],
+     "N° Parte":["numero_parte"],Proyecto:["proyecto","Proyecto "],
+     "Horómetro inicial":["horometro_inicial","HI"],"Horómetro final":["horometro_final","HF"],
+     HI:["horometro_inicial","Horómetro inicial"],HF:["horometro_final","Horómetro final"],
+     "Cant. Hs.":["cantidad_horas"],Combustible:["combustible"],Aceite:["aceite_text","aceite"],
+     "Descripción de los trabajos realizados":["descripcion_trabajos"],
+     "Información sobre Desgaste":["informacion_desgaste","Desgaste"],
+     Desgaste:["informacion_desgaste","Información sobre Desgaste"],
+     Observaciones:["observaciones"],"OD o FS":["od_fs","od_o_fs","estado","status"],
+     Estado:["od_fs","od_o_fs","OD o FS","estado","status"]
+   }))set(key,...aliases);
+ }else if(source.startsWith("rma15_")){
+   for(const [key,aliases] of Object.entries({
+     "Fecha de OT":["fecha_ot","Fecha OT","Fecha"],Fecha:["fecha_ot","Fecha de OT"],
+     Proyecto:["proyecto"],EQUIPO:["equipo","Equipo"],Equipo:["equipo","EQUIPO"],
+     "CODIGO N° INTERNO":["interno","Código interno","Codigo interno","CODIGO INTERNO"],
+     Interno:["interno","CODIGO N° INTERNO","Código interno"],
+     "Km / hs":["km_hs","Km/hs"],"TIPO DE MANTENIMIENTO":["tipo_mantenimiento","Tipo de mantenimiento"],
+     "TURNO EN QUE SE HIZO LA OT":["turno"],
+     "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":["intervencion","INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE"],
+     OBSERVACIONES:["observaciones"],"MAIL AVISADO":["mail_avisado"]
+   }))set(key,...aliases);
+   const operativo=pick("¿EQUIPO QUEDO OPERATIVO?","equipo_operativo");
+   if(typeof operativo==="boolean")result["¿EQUIPO QUEDO OPERATIVO?"]=operativo?"SI":"NO";
+   else if(operativo!==undefined)result["¿EQUIPO QUEDO OPERATIVO?"]=operativo;
+ }else if(source==="lista_equipos"){
+   for(const [key,aliases] of Object.entries({
+     "Código nuevo":["codigo_nuevo","Codigo nuevo","CODIGO NUEVO"],
+     "Código anterior":["codigo_anterior","Codigo anterior"],
+     "Código de Drusila":["codigo_drusila","Código Drusila","CODIGO DRUSILA"],
+     Familia:["familia","Familia (Topadora, Retro Pala, etc.)"],
+     Marca:["marca"],Modelo:["modelo"],Propiedad:["propiedad"],
+     Lugar:["lugar_alquiler","Lugar de alquiler"],"Lugar de alquiler":["lugar_alquiler","Lugar"],
+     "Ubicación":["lugar_alquiler","Lugar de alquiler"]
+   }))set(key,...aliases);
  }
- if(source.startsWith("rop02_")){
-   // Algunas copias V9 conservan los encabezados de la planilla y otras las
-   // claves normalizadas. Nunca sobrescribir un valor válido por undefined.
-   const pick=(...keys)=>keys.map(key=>p[key]).find(value=>value!==undefined&&value!==null&&value!=="");
-   const fecha=pick("fecha","Fecha"),interno=pick("interno","Interno"),equipo=pick("equipo","Equipo","Equipos");
-   const operador=pick("operador","Operador"),supervisor=pick("supervisor_delta","Supervisor Delta");
-   const supervisorCliente=pick("supervisor_vial_cliente","Supervisor Vial Cliente"),turno=pick("turno_trabajo","Turno de trabajo","Turno");
-   const parte=pick("numero_parte","N° Parte"),proyecto=pick("proyecto","Proyecto","Proyecto ");
-   const hi=pick("horometro_inicial","Horómetro inicial","HI"),hf=pick("horometro_final","Horómetro final","HF");
-   const horas=pick("cantidad_horas","Cant. Hs."),combustible=pick("combustible","Combustible"),aceite=pick("aceite_text","aceite","Aceite");
-   const trabajos=pick("descripcion_trabajos","Descripción de los trabajos realizados"),desgaste=pick("informacion_desgaste","Información sobre Desgaste","Desgaste");
-   return {...result,Fecha:fecha,Interno:interno,Equipo:equipo,
-     Operador:operador,"Supervisor Delta":supervisor,
-     "Supervisor Vial Cliente":supervisorCliente,
-     "Turno de trabajo":turno,Turno:turno,
-     "N° Parte":parte,Proyecto:proyecto,
-     "Horómetro inicial":hi,"Horómetro final":hf,HI:hi,HF:hf,
-     "Cant. Hs.":horas,Combustible:combustible,Aceite:aceite,
-     "Descripción de los trabajos realizados":trabajos,
-     "Información sobre Desgaste":desgaste,Desgaste:desgaste,Observaciones:pick("observaciones","Observaciones"),
-     "OD o FS":p.od_fs??p.od_o_fs??p["OD o FS"]??p.estado??p.status??"",
-     Estado:p.od_fs??p.od_o_fs??p["OD o FS"]??p.estado??p.status??""
-   };
- }
- if(source.startsWith("rma15_")){
-   const pick=(...keys)=>keys.map(key=>p[key]??original[key]).find(value=>value!==undefined&&value!==null&&value!=="");
-   return {...result,"Fecha de OT":pick("fecha_ot","Fecha de OT"),Fecha:pick("fecha_ot","Fecha de OT"),
-     Proyecto:p.proyecto,EQUIPO:p.equipo,Equipo:p.equipo,
-     "CODIGO N° INTERNO":p.interno,Interno:p.interno,
-     "Km / hs":p.km_hs,"TIPO DE MANTENIMIENTO":p.tipo_mantenimiento,
-     "¿EQUIPO QUEDO OPERATIVO?":p.equipo_operativo===true?"SI":p.equipo_operativo===false?"NO":"",
-     "TURNO EN QUE SE HIZO LA OT":pick("turno","TURNO EN QUE SE HIZO LA OT"),
-     "INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)":pick("intervencion","INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE)","INTERVENCIÓN O REPARACIÓN REALIZADA (Si es PM, especificar cual) LOS SOPLETEOS DE FILTROS VAN EN ESTA SECCION O CUALQUIER SERVICIO QUE SE REALICE"),
-     OBSERVACIONES:p.observaciones,"MAIL AVISADO":p.mail_avisado
-   };
- }
- if(source==="lista_equipos")return {...result,
-   "Código nuevo":p.codigo_nuevo,"Código anterior":p.codigo_anterior,
-   "Código de Drusila":p.codigo_drusila,Familia:p.familia,
-   Marca:p.marca,Modelo:p.modelo,
-   Lugar:p.lugar_alquiler,"Lugar de alquiler":p.lugar_alquiler,
-   "Ubicación":p.lugar_alquiler,
-   Propiedad:p.propiedad};
  return result;
 }
 function active(){const s=currentSession();if(!s)throw Error("V9_SESSION_REQUIRED");return s;}
