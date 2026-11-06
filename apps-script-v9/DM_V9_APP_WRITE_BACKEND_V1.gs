@@ -6556,7 +6556,7 @@ function dmV9WriteAllowed_(action, user) {
 var DM_V9_READ_DATASETS_ = [
   "rop02_jm","rop02_fs","rop02_filosur","rop02_zorro","rop02_fierro",
   "rop05","rma15_jm","rma15_fs","lista_equipos","insumos",
-  "raba03","mantenimiento_programado","movimientos_equipos","combustible"
+  "raba03","mantenimiento_programado","movimientos_equipos","movimientos_taller","combustible"
 ];
 function dmV9ReadAllowed_(dataset, user) {
   return !!user && DM_V9_READ_DATASETS_.indexOf(String(dataset || "")) >= 0;
@@ -6578,6 +6578,12 @@ function dmV9ReadDataset_(dataset, payload) {
     if (!pm[0].ok || !pm[1].ok) return {ok:false,error:{code:"V9_PM_READ_FAILED",message:"No se pudo leer mantenimiento programado."}};
     var all = pm[0].data.concat(pm[1].data), page = all.slice(offset,offset + limit);
     return {ok:true,dataset:dataset,data:page,totalRows:all.length,offset:offset,limit:limit,hasMore:offset+page.length<all.length,nextOffset:offset+page.length<all.length?offset+page.length:null,source:"GOOGLE_SHEETS_ORIGINAL"};
+  }
+  if (dataset === "movimientos_taller") {
+    var taller = handleGetTallerMovements_();
+    var tallerRows = taller && taller.data || [];
+    var tallerPage = tallerRows.slice(offset,offset + limit);
+    return {ok:true,dataset:dataset,data:tallerPage,totalRows:tallerRows.length,offset:offset,limit:limit,hasMore:offset+tallerPage.length<tallerRows.length,nextOffset:offset+tallerPage.length<tallerRows.length?offset+tallerPage.length:null,source:"GOOGLE_SHEETS_ORIGINAL"};
   }
   if (dataset === "movimientos_equipos") {
     var movements = handleGetEquipmentMovements_(false);
