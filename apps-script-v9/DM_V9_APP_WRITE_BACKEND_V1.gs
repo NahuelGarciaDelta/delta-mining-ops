@@ -4808,7 +4808,7 @@ function handleDeleteLicitacionCompartida_(id) {
  * MANTENIMIENTO PROGRAMADO — PM / RMA24
  * Base: 1Wg22I8CdfKScF60CKcmXzNnqx5yzLoDdv4b2kXdTnJ4
  *******************************************************/
-var PM_DB_ID_ = "1Wg22I8CdfKScF60CKcmXzNnqx5yzLoDdv4b2kXdTnJ4";
+var PM_DB_ID_ = "1jmTZ2_aJai-t1uj-sZB8MK1a6J47oXeiG5GIO_Gk6u4";
 
 function getPMDatabase_() {
   var ss = SpreadsheetApp.openById(PM_DB_ID_);
@@ -4893,6 +4893,13 @@ function pmReadRows_(target) {
   });
 }
 
+// Parse Sheets display dates in Argentina locale without losing day/month order.
+function pmV9IsoDate_(value){
+  if(value instanceof Date && !isNaN(value.getTime()))return Utilities.formatDate(value,Session.getScriptTimeZone(),"yyyy-MM-dd");
+  var str=String(value||"").trim(),m=str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m)return m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2);
+  return /^\d{4}-\d{2}-\d{2}/.test(str)?str.slice(0,10):str;
+}
 function pmConfigToClient_(row) {
   return {
     interno: String(row.INTERNO || "").trim(),
@@ -4902,7 +4909,7 @@ function pmConfigToClient_(row) {
     alertaDesde: Number(row.ALERTA_DESDE_HS || 200),
     atrasadoDesde: Number(row.ATRASADO_DESDE_HS || 350),
     horometroUltimoPM: Number(row.HOROMETRO_ULTIMO_PM || 0),
-    fechaUltimoPM: String(row.FECHA_ULTIMO_PM || "").slice(0, 10),
+    fechaUltimoPM: pmV9IsoDate_(row.FECHA_ULTIMO_PM),
     tipoUltimoPM: String(row.TIPO_ULTIMO_PM || "PM 250").trim(),
     horometroActualManual: Number(row.HOROMETRO_ACTUAL_MANUAL || 0),
     activo: String(row.ACTIVO || "SI").trim().toUpperCase(),
@@ -4916,7 +4923,7 @@ function pmRegistroToClient_(row) {
     interno: String(row.INTERNO || "").trim(),
     equipo: String(row.EQUIPO || "").trim(),
     proyecto: String(row.PROYECTO || "").trim(),
-    fecha: String(row.FECHA || "").slice(0, 10),
+    fecha: pmV9IsoDate_(row.FECHA),
     horometro: Number(row.HOROMETRO || 0),
     tipoPM: String(row.TIPO_PM || "PM 250").trim(),
     tecnico: String(row.TECNICO || "").trim(),
