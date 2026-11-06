@@ -62,11 +62,11 @@ function adaptSourceRecord(source,p,recordId){
    else if(operativo!==undefined)result["¿EQUIPO QUEDO OPERATIVO?"]=operativo;
  }else if(source==="lista_equipos"){
    for(const [key,aliases] of Object.entries({
-     "Código nuevo":["codigo_nuevo","Codigo nuevo","CODIGO NUEVO"],
+     "Código nuevo":["codigo_nuevo","Codigo nuevo","CODIGO NUEVO","Codigo nuevo "],
      "Código anterior":["codigo_anterior","Codigo anterior"],
      "Código de Drusila":["codigo_drusila","Código Drusila","CODIGO DRUSILA"],
-     Familia:["familia","Familia (Topadora, Retro Pala, etc.)"],
-     Marca:["marca"],Modelo:["modelo"],Propiedad:["propiedad"],
+     Familia:["familia","Familia (Topadora, Retro Pala, etc.)","Familia (Topadora, Retro, Pala, etc.)","Familia \n(Topadora, Retro, Pala, etc.)"],
+     Marca:["marca"],Modelo:["modelo"],Propiedad:["propiedad","Propiedad (nombre de la empresa, o si es propio)"],
      Lugar:["lugar_alquiler","Lugar de alquiler"],"Lugar de alquiler":["lugar_alquiler","Lugar"],
      "Ubicación":["lugar_alquiler","Lugar de alquiler"]
    }))set(key,...aliases);
