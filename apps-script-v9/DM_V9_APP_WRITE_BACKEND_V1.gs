@@ -6596,6 +6596,17 @@ function dmV9ReadDataset_(dataset, payload) {
     var stockPage = stockRows.slice(offset,offset + limit);
     return {ok:true,dataset:dataset,data:stockPage,totalRows:stockRows.length,offset:offset,limit:limit,hasMore:offset+stockPage.length<stockRows.length,nextOffset:offset+stockPage.length<stockRows.length?offset+stockPage.length:null,meta:stock.meta || {},source:"GOOGLE_SHEETS_ORIGINAL"};
   }
+  // V9 reads live AppSheet ROP02 sources; existing write handlers retain their own targets.
+  if (dataset === "rop02_jm" || dataset === "rop02_fs") {
+    var liveSource = dataset === "rop02_jm"
+      ? {id:"1bDDPy-_h7JYSU6rNMy38w_q_V3YgbFT33oz0KHPSIVs",sheet:"R_OP02_JM",gid:"151543963",headerRow:1,proyecto:"JOSE MARIA"}
+      : {id:"1CWmlm94rj27ZWdmB0J_FMPJp4zN_EbA8c51ZfPUjoEY",sheet:"R_OP02_FS",gid:"151543963",headerRow:1,proyecto:"FILO DEL SOL"};
+    var liveResult = fetchSheetData(liveSource,{limit:limit,offset:offset,compact:false});
+    if (!liveResult.ok) return liveResult;
+    liveResult.dataset = dataset;
+    liveResult.source = "GOOGLE_SHEETS_APPSHEET_ORIGINAL";
+    return liveResult;
+  }
   var config = SHEETS_CONFIG[dataset];
   if (!config) return {ok:false,error:{code:"V9_READ_DATASET_UNKNOWN",message:"Dataset V9 no configurado."}};
   var result = fetchSheetData(config,{limit:limit,offset:offset,compact:false});
