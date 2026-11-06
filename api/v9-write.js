@@ -78,6 +78,36 @@ async function verifiedUser(db,token) {
     return { email:String(u.email||"").toLowerCase(), role, area };
   } finally { clearTimeout(timer); }
 }
+// Verify the *deployed* Google Apps Script supports UUID-deduplicated writes.
+// Source-controlled code alone is not proof that the /exec version was updated.
+async function deployedTallerCapability(gasUrl,token){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),9000);
+  try{
+    let upstream=await fetch(gasUrl,{
+      method:"POST",redirect:"manual",cache:"no-store",signal:controller.signal,
+      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8",Accept:"application/json"},
+      body:new URLSearchParams({payload:JSON.stringify({action:"v9_write_capabilities",authToken:token})})
+    });
+    if([301,302,303,307,308].includes(upstream.status)){
+      const loc=upstream.headers.get("location");
+      let uri;
+      try{uri=new URL(loc);}catch{return false;}
+      if(uri.protocol!=="https:"||uri.hostname!=="script.googleusercontent.com")return false;
+      upstream=await fetch(uri.toString(),{method:"GET",redirect:"error",cache:"no-store",signal:controller.signal,headers:{Accept:"application/json"}});
+    }
+    if(!upstream.ok)return false;
+    const raw=await upstream.text();
+    if(raw.length>10000)return false;
+    let result;
+    try{result=JSON.parse(raw);}catch{return false;}
+    return result?.ok===true &&
+      result?.action==="v9_write_capabilities" &&
+      result?.schema==="taller-uuid-primary-key-v1" &&
+      result?.idempotentSave===true &&
+      result?.target==="GOOGLE_SHEETS_ORIGINAL";
+  }catch{return false;}finally{clearTimeout(timer);}
+}
 export default async function handler(req,res) {
   if (req.method !== "POST") { res.setHeader("Allow","POST"); return json(res,405,{ok:false,error:"METHOD_NOT_ALLOWED"}); }
   const dbUrl=String(process.env.DELTA_V9_STANDALONE_SB_URL||"").replace(/\/+$/,"");
@@ -106,9 +136,9 @@ export default async function handler(req,res) {
       /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(sandboxGas) &&
       sandboxGas!==gasUrl &&
       process.env.DELTA_V9_TALLER_SANDBOX_VERIFIED==="true";
-    const productionReady=configuredMode==="production" &&
-      process.env.DELTA_V9_TALLER_IDEMPOTENCY_VERIFIED==="true" &&
+    const approvalReady=configuredMode==="production" &&
       process.env.DELTA_V9_TALLER_PRODUCTION_APPROVED==="true";
+    const productionReady=approvalReady && await deployedTallerCapability(gasUrl,token);
     const writeMode=sandboxReady?"sandbox":productionReady?"production":"disabled";
     if (action===TALLER_STATUS_ACTION)
       return json(res,200,{ok:true,mode:writeMode,canWrite:writeMode!=="disabled",requiresConfirmation:true});
