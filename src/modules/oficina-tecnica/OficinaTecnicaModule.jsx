@@ -20,6 +20,7 @@ import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 import {qualityProjectsFromSources,selectedQualityProject,qualityMonthPeriod,qualityRowsForProject} from "./chcQualityProjects.js";
 import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
 import {getMonthlyCutoffRange} from "../analytics/monthlyCutoffRange.js";
+import {rop02ControlType} from "../../shared/rop02ControlRules.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
 const DEFAULT_COLORS={
@@ -3594,11 +3595,13 @@ function calcularErroresControlEquipo(rows){
 
 // ─── ControlDeErrores ───────────────────────────────────────────────────────
 function ControlDeErrores({rop02All,extState,setExtState}){
-  const rop02Prod=useMemo(()=>rop02All.filter(r=>!r._excluded),[rop02All]);
-  const rop02ControlRows=useMemo(()=>rop02Prod.filter(r=>{
-    const m=String(r.maquina||"").trim();
-    return !/^CAA[-_\s]*0002(?:[-_\s]*JM)?$/i.test(m) && normalizeMachineCode(m)!=="CAA-0002";
-  }),[rop02Prod]);
+  // Control de errores abarca TODOS los equipos que generan ROP02, incluidos
+  // vehículos que otros módulos marcan como _excluded para indicadores viales.
+  const rop02ControlRows=useMemo(()=>(rop02All||[]).filter(row=>{
+    if(!row||!row.fecha||!String(row.maquina||row._internoRaw||"").trim())return false;
+    const vehicle=rop02ControlType(row);
+    return !row._excluded||vehicle==="Camiones"||vehicle==="Camionetas";
+  }),[rop02All]);
   const MESES=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
   const hoy=new Date();
   const {proyecto,maquina,año,mesIdx,tipo,tipoMaquina="todas",fechaDesde="",fechaHasta=""}=extState;
