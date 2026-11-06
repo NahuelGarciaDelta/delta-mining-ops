@@ -52,8 +52,11 @@ async function perform(action,details){
   if(action==="update_taller_movement"){
    const expected=details.movement||{};
    const row=matches[0];
-   const same=(field,value)=>String(row[field]??"").trim().toUpperCase()===String(value??"").trim().toUpperCase();
-   if(!same("OBSERVACION",expected.observacion)||!same("INTERNO_ORIGEN",expected.interno))
+   const normalize=value=>String(value??"").trim().toUpperCase();
+   const storedObservation=row.OBSERVACION??row.observacion;
+   const storedInterno=row.INTERNO??row.interno;
+   if(normalize(storedObservation)!==normalize(expected.observacion)||
+      normalize(storedInterno)!==normalize(expected.interno))
      return {ok:true,status:"confirmation_pending",operationId,id};
   }
   return {ok:true,status:"confirmed",operationId,id};
