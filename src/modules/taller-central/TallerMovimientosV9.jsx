@@ -6,7 +6,7 @@ const FORM_FIELDS={
  SUBIDA:[["EQUIPO","Equipo"],["MARCA","Marca"],["MODELO","Modelo"],["PROPIEDAD","Propiedad"],["INTERNO_ORIGEN","Interno"],["HOROMETRO","Horómetro"],["PROYECTO_DESTINO","Proyecto destino"]],
  BAJA:[["INTERNO_ORIGEN","Interno"],["EQUIPO","Equipo"],["PROYECTO_ORIGEN","Proyecto origen"],["HOROMETRO","Horómetro"],["MOTIVO","Motivo de baja"]],
  MOVILIZACION:[["INTERNO_ORIGEN","Interno"],["EQUIPO","Equipo"],["PROYECTO_ORIGEN","Proyecto origen"],["PROYECTO_DESTINO","Proyecto destino"],["INTERNO_DESTINO","Interno destino"],["HOROMETRO","Horómetro"]],
- CAMBIO_EQUIPO:[["INTERNO_ORIGEN","Interno que sale"],["EQUIPO","Equipo"],["INTERNO_ENTRA","Interno que entra"],["EQUIPO_ENTRA","Equipo entrante"],["PROYECTO_ORIGEN","Proyecto origen"],["MOTIVO","Motivo"]]
+ CAMBIO_EQUIPO:[["INTERNO_ORIGEN","Equipo trabajando"],["PROYECTO_ORIGEN","Proyecto"],["HOROMETRO_ORIGEN","Horómetro"],["EQUIPO_ENTRA","Equipo"],["MARCA","Marca"],["MODELO","Modelo"],["PROPIEDAD","Propiedad"],["INTERNO_DESTINO","Interno"],["HOROMETRO","Horómetro"]]
 };
 const SUBIDA_PROPIEDADES=["ALEQUIP","ARRENDADORA","CGM","DELTA","DIESEL LANGE","FARO","FIMA","FINNING","GINER DANIEL","MAXIKLAK","MTZ","NATALIO","NOAR","SULLAIR","OTRO"];
 const SUBIDA_PROYECTOS=["EL FIERRO","EL ZORRO","FILO DEL SOL","FILO SUR","JOSE MARIA"];
@@ -56,9 +56,10 @@ export default function TallerMovimientosV9({tipo}){
   <div style={box}>
    <div style={{fontWeight:800,fontSize:14,marginBottom:3}}>Registrar {title.toLowerCase()}</div>
    <div style={{fontSize:11,color:"#a2a2a5",marginBottom:14}}>Los movimientos de bajada, movilización y cambio de equipo se vinculan automáticamente con Atraso .</div>
+   {tipo==="CAMBIO_EQUIPO"&&<div style={{fontWeight:700,marginBottom:8}}>Equipo que sale de operación</div>}
    <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:10}}>
     {(FORM_FIELDS[tipo]||[]).map(([key,label])=><label key={key} style={{display:"flex",flexDirection:"column",gap:5,fontSize:11,color:"#a7a7aa",fontWeight:650}}>{label}
-     {key==="PROPIEDAD"?<select style={field} value={form[key]??"DELTA"} onChange={e=>set(key,e.target.value)}>{(tipo==="SUBIDA"?SUBIDA_PROPIEDADES:["DELTA","ALQUILADO","OTRO"]).map(p=><option key={p} value={p}>{p}</option>)}</select>:
+     {key==="INTERNO_ORIGEN"&&tipo==="CAMBIO_EQUIPO"?<select style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)}><option value="">Seleccionar...</option>{[...new Set(rows.map(r=>norm(r.INTERNO_ORIGEN)).filter(Boolean))].sort().map(p=><option key={p} value={p}>{p}</option>)}</select>:key==="PROPIEDAD"?<select style={field} value={form[key]??"DELTA"} onChange={e=>set(key,e.target.value)}>{(tipo==="SUBIDA"?SUBIDA_PROPIEDADES:["DELTA","ALQUILADO","OTRO"]).map(p=><option key={p} value={p}>{p}</option>)}</select>:
       key==="PROYECTO_DESTINO"?<select style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)}><option value="">Seleccionar...</option>{(tipo==="SUBIDA"?SUBIDA_PROYECTOS:projects).map(p=><option key={p} value={p}>{p}</option>)}</select>:
       <input style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)} type={key==="HOROMETRO"?"number":"text"}/>}
     </label>)}
