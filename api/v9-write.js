@@ -14,6 +14,9 @@ const ALLOWED = new Set([
   "stock_excel_clear","stock_excel_upload","stock_excel_replace","upload_stock",
   "save_user_preferences","upload_user_background"
 ]);
+// Movement writes remain server-gated until sandbox and idempotency are verified.
+const TALLER_ACTIONS = new Set(["save_taller_movement","update_taller_movement","delete_taller_movement"]);
+const TALLER_STATUS_ACTION = "v9_taller_write_status";
 const ADMIN_ONLY = new Set([
   "update_user_profile","stock_excel_clear","delete_remito_cargado","delete_raba03_solicitud_numero",
   "delete_estado_solicitud","delete_estados_solicitudes_bulk","delete_licitacion","eliminar_licitacion"
@@ -89,15 +92,38 @@ export default async function handler(req,res) {
   let payload;
   try { payload=parsePayload(req); } catch { return json(res,400,{ok:false,error:"INVALID_WRITE_PAYLOAD"}); }
   const action=String(payload?.action||"").trim().toLowerCase();
-  if (!ALLOWED.has(action)) return json(res,400,{ok:false,error:"V9_WRITE_ACTION_NOT_ALLOWED"});
+  if (!ALLOWED.has(action) && action !== TALLER_STATUS_ACTION) return json(res,400,{ok:false,error:"V9_WRITE_ACTION_NOT_ALLOWED"});
   try {
     const user=await verifiedUser({url:dbUrl,key:dbKey},token);
     if (!user) return json(res,401,{ok:false,error:"V9_SESSION_EXPIRED_OR_INACTIVE"});
-    if (!allowed(user.role,user.area,action)) return json(res,403,{ok:false,error:"V9_WRITE_FORBIDDEN"});
+    if (action !== TALLER_STATUS_ACTION && !allowed(user.role,user.area,action))
+      return json(res,403,{ok:false,error:"V9_WRITE_FORBIDDEN"});
+    // Never enable Taller movement writes by merely activating frontend buttons.
+    // Sandbox and production must each be explicitly configured server-side.
+    const configuredMode=String(process.env.DELTA_V9_TALLER_WRITE_MODE||"disabled").toLowerCase();
+    const sandboxGas=String(process.env.DELTA_V9_TALLER_SANDBOX_GAS_URL||"").trim();
+    const sandboxReady=configuredMode==="sandbox" &&
+      /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(sandboxGas) &&
+      sandboxGas!==gasUrl &&
+      process.env.DELTA_V9_TALLER_SANDBOX_VERIFIED==="true";
+    const productionReady=configuredMode==="production" &&
+      process.env.DELTA_V9_TALLER_IDEMPOTENCY_VERIFIED==="true" &&
+      process.env.DELTA_V9_TALLER_PRODUCTION_APPROVED==="true";
+    const writeMode=sandboxReady?"sandbox":productionReady?"production":"disabled";
+    if (action===TALLER_STATUS_ACTION)
+      return json(res,200,{ok:true,mode:writeMode,canWrite:writeMode!=="disabled",requiresConfirmation:true});
+    if (TALLER_ACTIONS.has(action)){
+      if(writeMode==="disabled")return json(res,423,{ok:false,error:"V9_TALLER_WRITES_NOT_VERIFIED"});
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(payload.operationId||"")))
+        return json(res,400,{ok:false,error:"V9_OPERATION_ID_REQUIRED"});
+      if((action==="update_taller_movement"||action==="delete_taller_movement")&&!String(payload.id||"").trim())
+        return json(res,400,{ok:false,error:"V9_MOVEMENT_ID_REQUIRED"});
+    }
+    const destinationUrl=TALLER_ACTIONS.has(action)&&writeMode==="sandbox"?sandboxGas:gasUrl;
     const outgoing={...payload,action,authToken:token};
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
     try {
-      let upstream=await fetch(gasUrl,{
+      let upstream=await fetch(destinationUrl,{
         method:"POST",redirect:"manual",cache:"no-store",signal:controller.signal,
         headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8","Accept":"application/json"},
         body:new URLSearchParams({payload:JSON.stringify(outgoing)})
