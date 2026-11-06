@@ -4,6 +4,7 @@ import { PM_INITIAL_SEED } from "./pmInitialSeed.js";
 import { rangoTurnoPorFecha } from "../analytics/OperationalAnalytics.jsx";
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
+import { postToAppsScript } from "../../services/writeActions.js";
 import {
   TRUCK_PM_ALERT_FROM_HOURS,
   TRUCK_PM_INTERVAL_HOURS,
@@ -197,13 +198,10 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
 
   const post = useCallback(async payload => {
     if (readOnly) throw new Error("Modo solo lectura: no tiene permiso para modificar Mantenimiento Programado.");
-    if (!APPS_SCRIPT_URL) throw new Error("No está configurada la URL del Apps Script.");
-    const body = new URLSearchParams({ payload: JSON.stringify(payload) });
-    const response = await fetch(APPS_SCRIPT_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body });
-    const json = await readJsonResponse(response, "Guardado PM");
-    if (!json?.ok) throw new Error(json?.error?.message || "No se pudo guardar.");
-    return json;
-  }, [APPS_SCRIPT_URL, readOnly]);
+    // V9 resolves writeActions to its authenticated independent relay.
+    // Never POST to the legacy URL (or the blocked GET-only compatibility route).
+    return postToAppsScript(payload);
+  }, [readOnly]);
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
