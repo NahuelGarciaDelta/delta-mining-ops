@@ -192,9 +192,9 @@ export async function fetchSupabaseDatasetQuery(params={}){
 export function normalizeV9PmDate(value){
  const raw=String(value??"").trim();
  if(!raw)return "";
- const iso=raw.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})/);
+ const iso=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
  if(iso)return iso[1]+"-"+iso[2].padStart(2,"0")+"-"+iso[3].padStart(2,"0");
- const local=raw.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})(?:\\s|$)/);
+ const local=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s|$)/);
  if(local)return local[3]+"-"+local[2].padStart(2,"0")+"-"+local[1].padStart(2,"0");
  return raw;
 }
