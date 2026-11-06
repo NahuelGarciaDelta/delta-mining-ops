@@ -6592,14 +6592,22 @@ function dmV9ReadDataset_(dataset, payload) {
   if (!isFinite(offset) || offset < 0 || Math.floor(offset) !== offset)
     return {ok:false,error:{code:"V9_READ_OFFSET_INVALID",message:"Offset de lectura inválido."}};
   if (dataset === "mantenimiento_programado") {
-    var pm = ["pm_config","pm_registros"].map(function(key){
-      var part = fetchSheetData(SHEETS_CONFIG[key],{limit:null,offset:0,compact:false});
-      if (!part.ok) return part;
-      return {ok:true,data:(part.data || []).map(function(row){ row._entity=key === "pm_config" ? "PM_CONFIG" : "PM_REGISTROS"; return row; })};
-    });
-    if (!pm[0].ok || !pm[1].ok) return {ok:false,error:{code:"V9_PM_READ_FAILED",message:"No se pudo leer mantenimiento programado."}};
-    var all = pm[0].data.concat(pm[1].data), page = all.slice(offset,offset + limit);
-    return {ok:true,dataset:dataset,data:page,totalRows:all.length,offset:offset,limit:limit,hasMore:offset+page.length<all.length,nextOffset:offset+page.length<all.length?offset+page.length:null,source:"GOOGLE_SHEETS_ORIGINAL"};
+    // Preserve the original application's four PM collections and its normalized
+    // field contracts. The previous bridge omitted scheduled PMs and spare parts.
+    var snapshot=handleGetMantenimientoProgramado_();
+    if (!snapshot || snapshot.ok!==true) return {ok:false,error:{code:"V9_PM_READ_FAILED",message:"No se pudo leer Mantenimiento Programado."}};
+    var groups=[
+      ["PM_CONFIG",snapshot.config||[]],
+      ["PM_REGISTROS",snapshot.registros||[]],
+      ["PM_PROGRAMACION",snapshot.programaciones||[]],
+      ["PM_REPUESTOS",snapshot.repuestos||[]]
+    ];
+    var all=[];
+    groups.forEach(function(group){group[1].forEach(function(row){all.push(Object.assign({_entity:group[0]},row));});});
+    var page=all.slice(offset,offset+limit);
+    return {ok:true,dataset:dataset,data:page,totalRows:all.length,offset:offset,limit:limit,
+      hasMore:offset+page.length<all.length,nextOffset:offset+page.length<all.length?offset+page.length:null,
+      source:"GOOGLE_SHEETS_ORIGINAL"};
   }
   if (dataset === "movimientos_taller") {
     var taller = handleGetTallerMovements_();
