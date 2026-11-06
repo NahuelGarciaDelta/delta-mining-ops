@@ -41,6 +41,14 @@ var SHEETS_CONFIG = {
     proyecto: "EL ZORRO",
     headerRow: 4
   },
+  rop02_fierro: {
+    id: "1KfNjCpn-RedESmVBOM6mXq9eU-deu9tAoqNyvwGcFWQ",
+    gid: "151543963",
+    sheet: "R_OP02_EL_FIERRO",
+    label: "Partes — El Fierro",
+    proyecto: "EL FIERRO",
+    headerRow: 1
+  },
   rma15_fs: {
     id: "1WZEwuUTE8r-wUgTKeMsr1tsV1Ylq8fMULQjE-omCMOU",
     gid: "1444625212",
