@@ -483,7 +483,7 @@ function doPost(e) {
     }
 
     if (action === "save_taller_movement") {
-      return buildResponse(handleSaveTallerMovement_(payload.movement || payload.movimiento || payload));
+      return buildResponse(handleSaveTallerMovement_(payload.movement || payload.movimiento || payload, payload.operationId || ""));
     }
     if (action === "update_taller_movement") {
       return buildResponse(handleUpdateTallerMovement_(payload.id || "", payload.movement || payload.movimiento || payload));
@@ -6056,10 +6056,24 @@ function handleGetTallerMovements_(){
   var data=[];Object.keys(TALLER_MOV_SHEETS_).forEach(function(type){var sheet=ensureTallerSheet_(type);if(sheet.getLastRow()<2)return;var rows=sheet.getRange(2,1,sheet.getLastRow()-1,TALLER_MOV_HEADERS_.length).getValues();rows.forEach(function(r){if(String(r[21]||"").toUpperCase()!=="ELIMINADO")data.push(tallerRowObject_(r));});});
   data.sort(function(a,b){return String(b.FECHA_HORA).localeCompare(String(a.FECHA_HORA));});return{ok:true,action:"get_taller_movements",data:data,rows:data.length,meta:{serverVersion:getDatasetVersion_("movimientos_taller")},fetchedAt:new Date().toISOString()};
 }
-function handleSaveTallerMovement_(m){
+function handleSaveTallerMovement_(m,operationId){
   m=m||{};var type=normalizeTallerType_(m.tipo||m.tipoMovimiento),interno=String(m.interno||m.internoOrigen||"").trim();if(!interno)throw new Error("INTERNO es obligatorio.");
   if(type==="MOVILIZACION"&&!String(m.proyectoDestino||"").trim())throw new Error("Proyecto destino obligatorio.");if(type==="CAMBIO_EQUIPO"&&!String(m.internoEntra||"").trim())throw new Error("Interno del equipo reemplazante obligatorio.");
-  var lock=LockService.getScriptLock();lock.waitLock(30000);try{var values=tallerMovementValues_("",m),sheet=ensureTallerSheet_(type);sheet.appendRow(values);upsertGenericMovementFromTaller_(values);SpreadsheetApp.flush();bumpDatasetVersion_("movimientos_taller",true);return{ok:true,action:"save_taller_movement",movement:tallerRowObject_(values),savedAt:new Date().toISOString()};}finally{lock.releaseLock();}
+  // Caller-generated UUID is the deterministic primary key. Lost HTTP ACKs
+  // cannot duplicate an already appended movement. The check is under lock.
+  var id=String(operationId||"").trim();
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))throw new Error("V9_OPERATION_ID_REQUIRED");
+  var lock=LockService.getScriptLock();lock.waitLock(30000);
+  try{
+    var found=findTallerMovementById_(id);
+    if(found)return{ok:true,action:"save_taller_movement",movement:tallerRowObject_(found.values),deduplicated:true,savedAt:new Date().toISOString()};
+    var values=tallerMovementValues_(id,m),sheet=ensureTallerSheet_(type);
+    sheet.appendRow(values);
+    upsertGenericMovementFromTaller_(values);
+    SpreadsheetApp.flush();
+    bumpDatasetVersion_("movimientos_taller",true);
+    return{ok:true,action:"save_taller_movement",movement:tallerRowObject_(values),savedAt:new Date().toISOString()};
+  }finally{lock.releaseLock();}
 }
 function findTallerMovementById_(id){
   var found=null;Object.keys(TALLER_MOV_SHEETS_).some(function(type){var sheet=ensureTallerSheet_(type);if(sheet.getLastRow()<2)return false;var ids=sheet.getRange(2,1,sheet.getLastRow()-1,1).getDisplayValues();for(var i=0;i<ids.length;i++){if(String(ids[i][0])===String(id)){found={type:type,sheet:sheet,row:i+2,values:sheet.getRange(i+2,1,1,TALLER_MOV_HEADERS_.length).getValues()[0]};return true;}}return false;});return found;
