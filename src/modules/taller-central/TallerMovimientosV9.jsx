@@ -4,8 +4,8 @@ import {currentSession,refreshV9} from "../../standalone/session.js";
 const TYPES={SUBIDA:"Subida",BAJA:"Bajada",MOVILIZACION:"Movilización",CAMBIO_EQUIPO:"Cambio de equipo"};
 const FORM_FIELDS={
  SUBIDA:[["EQUIPO","Equipo"],["MARCA","Marca"],["MODELO","Modelo"],["PROPIEDAD","Propiedad"],["INTERNO_ORIGEN","Interno"],["HOROMETRO","Horómetro"],["PROYECTO_DESTINO","Proyecto destino"]],
- BAJA:[["INTERNO_ORIGEN","Interno"],["EQUIPO","Equipo"],["PROYECTO_ORIGEN","Proyecto origen"],["HOROMETRO","Horómetro"],["MOTIVO","Motivo de baja"]],
- MOVILIZACION:[["INTERNO_ORIGEN","Interno"],["EQUIPO","Equipo"],["PROYECTO_ORIGEN","Proyecto origen"],["PROYECTO_DESTINO","Proyecto destino"],["INTERNO_DESTINO","Interno destino"],["HOROMETRO","Horómetro"]],
+ BAJA:[["INTERNO_ORIGEN","Equipo trabajando"],["PROYECTO_ORIGEN","Proyecto"],["HOROMETRO","Horómetro"],["MOTIVO","Motivo de baja"]],
+ MOVILIZACION:[["INTERNO_ORIGEN","Equipo trabajando"],["PROYECTO_ORIGEN","Proyecto origen"],["PROYECTO_DESTINO","Proyecto destino"],["INTERNO_DESTINO","Interno destino"],["HOROMETRO","Horómetro"]],
  CAMBIO_EQUIPO:[["INTERNO_ORIGEN","Equipo trabajando"],["PROYECTO_ORIGEN","Proyecto"],["HOROMETRO_ORIGEN","Horómetro"],["EQUIPO_ENTRA","Equipo"],["MARCA","Marca"],["MODELO","Modelo"],["PROPIEDAD","Propiedad"],["INTERNO_DESTINO","Interno"],["HOROMETRO","Horómetro"]]
 };
 const SUBIDA_PROPIEDADES=["ALEQUIP","ARRENDADORA","CGM","DELTA","DIESEL LANGE","FARO","FIMA","FINNING","GINER DANIEL","MAXIKLAK","MTZ","NATALIO","NOAR","SULLAIR","OTRO"];
@@ -19,8 +19,8 @@ const th={padding:"9px 8px",textAlign:"left",whiteSpace:"nowrap",fontSize:10,col
 const td={padding:"7px 8px",fontSize:10,color:"#e7e7e9",borderBottom:"1px solid #303035",whiteSpace:"nowrap"};
 export default function TallerMovimientosV9({tipo}){
  const[rows,setRows]=useState([]),[busy,setBusy]=useState(true),[error,setError]=useState("");
- const[reload,setReload]=useState(0),[form,setForm]=useState({}),[filter,setFilter]=useState(""),[filterVisible,setFilterVisible]=useState(false);
- useEffect(()=>{setForm({});setFilter("");},[tipo]);
+ const[reload,setReload]=useState(0),[form,setForm]=useState({}),[filters,setFilters]=useState({}),[filterVisible,setFilterVisible]=useState(false);
+ useEffect(()=>{setForm({});setFilters({});},[tipo]);
  useEffect(()=>{
   let cancelled=false;
   (async()=>{
@@ -48,18 +48,18 @@ export default function TallerMovimientosV9({tipo}){
   })();
   return()=>{cancelled=true;};
  },[tipo,reload]);
- const filtered=useMemo(()=>rows.filter(r=>!filter||Object.values(r).some(v=>norm(v).toLowerCase().includes(filter.toLowerCase()))),[rows,filter]);
+ const filtered=useMemo(()=>rows.filter(r=>Object.entries(filters).every(([k,v])=>!v||norm(k==="FECHA_HORA"?date(r[k]):r[k]).toLowerCase().includes(v.toLowerCase()))),[rows,filters]);
  const projects=useMemo(()=>[...new Set(rows.flatMap(r=>[norm(r.PROYECTO_ORIGEN),norm(r.PROYECTO_DESTINO)]).filter(Boolean))].sort(),[rows]);
  const set=(k,v)=>setForm(prev=>({...prev,[k]:v}));
  const title=TYPES[tipo]||tipo;
  return <div style={{display:"flex",flexDirection:"column",gap:10,padding:"0 0 18px",color:"#f0f0f0",fontFamily:"inherit",fontSize:12}}>
   <div style={box}>
    <div style={{fontWeight:800,fontSize:14,marginBottom:3}}>Registrar {title.toLowerCase()}</div>
-   <div style={{fontSize:11,color:"#a2a2a5",marginBottom:14}}>Los movimientos de bajada, movilización y cambio de equipo se vinculan automáticamente con Atraso .</div>
+   <div style={{fontSize:11,color:"#a2a2a5",marginBottom:14}}>Los movimientos de bajada, movilización y cambio de equipo se vinculan automáticamente con Atraso.</div>
    {tipo==="CAMBIO_EQUIPO"&&<div style={{fontWeight:700,marginBottom:8}}>Equipo que sale de operación</div>}
-   <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:10}}>
+   <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(110px,1fr))",gap:10}}>
     {(FORM_FIELDS[tipo]||[]).map(([key,label])=><label key={key} style={{display:"flex",flexDirection:"column",gap:5,fontSize:11,color:"#a7a7aa",fontWeight:650}}>{label}
-     {key==="INTERNO_ORIGEN"&&tipo==="CAMBIO_EQUIPO"?<select style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)}><option value="">Seleccionar...</option>{[...new Set(rows.map(r=>norm(r.INTERNO_ORIGEN)).filter(Boolean))].sort().map(p=><option key={p} value={p}>{p}</option>)}</select>:key==="PROPIEDAD"?<select style={field} value={form[key]??"DELTA"} onChange={e=>set(key,e.target.value)}>{(tipo==="SUBIDA"?SUBIDA_PROPIEDADES:["DELTA","ALQUILADO","OTRO"]).map(p=><option key={p} value={p}>{p}</option>)}</select>:
+     {key==="INTERNO_ORIGEN"&&tipo!=="SUBIDA"?<select style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)}><option value="">Seleccionar...</option>{[...new Set(rows.map(r=>norm(r.INTERNO_ORIGEN)).filter(Boolean))].sort().map(p=><option key={p} value={p}>{p}</option>)}</select>:key==="PROPIEDAD"?<select style={field} value={form[key]??"DELTA"} onChange={e=>set(key,e.target.value)}>{(SUBIDA_PROPIEDADES).map(p=><option key={p} value={p}>{p}</option>)}</select>:
       key==="PROYECTO_DESTINO"?<select style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)}><option value="">Seleccionar...</option>{(tipo==="SUBIDA"?SUBIDA_PROYECTOS:projects).map(p=><option key={p} value={p}>{p}</option>)}</select>:
       <input style={field} value={form[key]||""} onChange={e=>set(key,e.target.value)} type={key==="HOROMETRO"?"number":"text"}/>}
     </label>)}
@@ -74,10 +74,10 @@ export default function TallerMovimientosV9({tipo}){
   </div>
   <div style={{...box,padding:0,overflow:"hidden"}}>
    <div style={{padding:"12px 12px 10px",fontWeight:850,fontSize:14}}>Últimos 100 movimientos</div>
-   <div style={{padding:"0 10px 12px",display:"flex",gap:10,alignItems:"center"}}><button type="button" onClick={()=>setFilterVisible(v=>!v)} title="Mostrar u ocultar filtros individuales para cada columna">Filtro por columna</button>{filterVisible&&<input style={{...field,maxWidth:300}} value={filter} onChange={e=>setFilter(e.target.value)} placeholder="Buscar movimientos"/>}</div>
+   <div style={{padding:"0 10px 12px",display:"flex",gap:10,alignItems:"center"}}><button type="button" onClick={()=>setFilterVisible(v=>!v)} title="Mostrar u ocultar filtros individuales para cada columna">Filtro por columna</button></div>
    {error&&<div role="alert" style={{color:"#f47b83",padding:14}}>{error}</div>}
    {!busy&&!error&&<div style={{overflowX:"auto",maxHeight:325,overflowY:"auto"}}><table style={{width:"100%",borderCollapse:"collapse"}}>
-    <thead><tr>{TABLE_FIELDS.map(([k,l])=><th key={k} style={th}>{l}</th>)}<th style={th}>Acciones</th></tr></thead>
+    <thead><tr>{TABLE_FIELDS.map(([k,l])=><th key={k} style={th}>{l}</th>)}<th style={th}>Acciones</th></tr>{filterVisible&&<tr>{TABLE_FIELDS.map(([k,l])=><th key={k} style={th}><input aria-label={"Filtrar "+l} style={{...field,minWidth:80,height:28}} value={filters[k]||""} onChange={e=>setFilters(p=>({...p,[k]:e.target.value}))}/></th>)}<th style={th}><button type="button" onClick={()=>setFilters({})}>Limpiar</button></th></tr>}</thead>
     <tbody>{filtered.slice(0,100).map((r,i)=><tr key={r.ID||i}>{TABLE_FIELDS.map(([k])=><td key={k} style={td}>{k==="FECHA_HORA"?date(r[k]):k==="INTERNO_ORIGEN"?<span style={{color:"#b178f2",fontWeight:750}}>{norm(r[k])||"—"}</span>:norm(r[k])||"—"}</td>)}<td style={td}><button disabled title="Edición pendiente de validar" style={{border:"1px solid #438be7",color:"#438be7",background:"transparent",borderRadius:7,padding:"6px 9px",marginRight:5,opacity:.55}}>Editar</button><button disabled title="Eliminación pendiente de validar" style={{border:"1px solid #e33653",color:"#e33653",background:"transparent",borderRadius:7,padding:"7px 9px",opacity:.55}}>Eliminar</button></td></tr>)}
      {!filtered.length&&<tr><td colSpan={TABLE_FIELDS.length+1} style={{...td,textAlign:"center"}}>No hay movimientos para mostrar.</td></tr>}
     </tbody>
