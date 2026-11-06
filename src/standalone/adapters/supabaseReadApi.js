@@ -89,26 +89,46 @@ async function getPage(source,limit=PAGE,offset=0,entity=""){
   const rows=Array.isArray(body.rows)?body.rows:[];
   return {...body,rows:rows.map((payload,index)=>({record_id:String(payload?._sourceRow??(offset+index+1)),payload,updated_at:""}))};
 }
-export async function fetchSupabaseSource(source){
-  if(!SUPABASE_TYPED_SOURCES.has(source))throw Error("V9_SOURCE_NOT_MIGRATED:"+source);
-  const data=[];let latest=0,total=0;
-  for(let offset=0;offset<MAX_ROWS;offset+=PAGE){
-    const result=await getPage(source,PAGE,offset);
-    const rows=Array.isArray(result.rows)?result.rows:[];
-    for(const r of rows){
-      const payload=r?.payload;
-      if(!payload||typeof payload!=="object"||Array.isArray(payload))
-        throw Error("V9_INVALID_PAYLOAD:"+source);
-      const row=adaptSourceRecord(source,payload,r.record_id);
-      if(Number.isInteger(Number(payload._sourceRow)))row._sourceRow=Number(payload._sourceRow);
-      data.push(row);
-      const t=Date.parse(r.updated_at||"")||0;if(t>latest)latest=t;
+// Reuse in-flight reads so simultaneous dashboard/widgets do not fetch the same dataset twice.
+const sourceInFlight=new Map();
+export function fetchSupabaseSource(source){
+  if(!SUPABASE_TYPED_SOURCES.has(source))return Promise.reject(Error("V9_SOURCE_NOT_MIGRATED:"+source));
+  if(sourceInFlight.has(source))return sourceInFlight.get(source);
+  const promise=(async()=>{
+    const first=await getPage(source,PAGE,0);
+    const total=Number(first.total??first.rows?.length??0);
+    if(total>MAX_ROWS)throw Error("V9_ROW_LIMIT:"+source);
+    const pageCount=Math.ceil(total/PAGE);
+    const pages=new Array(Math.max(1,pageCount));pages[0]=first;
+    // Limit parallel Apps Script calls to three to avoid exhausting GAS quotas.
+    let cursor=1;
+    const workers=Array.from({length:Math.min(3,Math.max(0,pageCount-1))},async()=>{
+      while(cursor<pageCount){
+        const index=cursor++;
+        pages[index]=await getPage(source,PAGE,index*PAGE);
+      }
+    });
+    await Promise.all(workers);
+    const data=[];let latest=0;
+    for(const page of pages){
+      const rows=Array.isArray(page?.rows)?page.rows:[];
+      for(const r of rows){
+        const payload=r?.payload;
+        if(!payload||typeof payload!=="object"||Array.isArray(payload))
+          throw Error("V9_INVALID_PAYLOAD:"+source);
+        const row=adaptSourceRecord(source,payload,r.record_id);
+        if(Number.isInteger(Number(payload._sourceRow)))row._sourceRow=Number(payload._sourceRow);
+        data.push(row);
+        const t=Date.parse(r.updated_at||"")||0;if(t>latest)latest=t;
+      }
     }
-    total=Number(result.total??data.length);
-    if(!result.hasMore||rows.length===0)break;
-    if(offset+rows.length>=MAX_ROWS)throw Error("V9_ROW_LIMIT:"+source);
-  }
-  return {ok:true,source:"google-sheets-original",data,meta:{source,rows:data.length,returnedRows:data.length,total,hasMore:false,serverVersion:latest,serverTime:TIME()}};
+    if(data.length!==total)throw Error("V9_PAGE_COUNT_MISMATCH:"+source);
+    return {ok:true,source:"google-sheets-original",data,meta:{source,rows:data.length,returnedRows:data.length,total,hasMore:false,serverVersion:latest,serverTime:TIME()}};
+  })();
+  sourceInFlight.set(source,promise);
+  // Remove when settled: subsequent explicit refreshes still read live Sheets.
+  promise.then(()=>{if(sourceInFlight.get(source)===promise)sourceInFlight.delete(source);},()=>{if(sourceInFlight.get(source)===promise)sourceInFlight.delete(source);});
+  return promise;
 }
 export async function fetchSupabaseStockSnapshot(){
  const data=[];let total=0,latestUpdatedAt=null;
