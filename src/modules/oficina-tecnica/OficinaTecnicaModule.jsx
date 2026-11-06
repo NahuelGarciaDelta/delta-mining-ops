@@ -20,6 +20,7 @@ import {ROP02_SOURCES} from "../../config/rop02Sources.js";
 import {qualityProjectsFromSources,selectedQualityProject,qualityMonthPeriod,qualityRowsForProject} from "./chcQualityProjects.js";
 import {buildRop02TdTnHorometerError} from "../../shared/rop02HorometerContinuity.js";
 import {getMonthlyCutoffRange} from "../analytics/monthlyCutoffRange.js";
+import {normalizeRop02Shift,shouldIncludeRop02ErrorControlRow} from "../../shared/rop02ControlRules.js";
 import {rop02ControlType} from "../../shared/rop02ControlRules.js";
 
 // Dependencias compartidas inyectadas desde App mientras se completa la modularización.
