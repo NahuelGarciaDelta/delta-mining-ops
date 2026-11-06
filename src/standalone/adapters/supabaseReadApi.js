@@ -2,9 +2,9 @@
 import {requestV9,currentSession} from "../session.js";
 import {ROP02_SOURCE_KEYS,ROP02_SOURCES} from "../../config/rop02Sources.js";
 export const SUPABASE_TYPED_SOURCES=new Set([...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","lista_equipos","insumos","mantenimiento_programado","combustible","raba03","movimientos_equipos","movimientos_taller"]);
-// El relay V9 admite 1.000 filas por página. Usar ese tamaño reduce a la mitad los
-// viajes autenticados sin cambiar el orden, el contenido ni los permisos de lectura.
-const PAGE=1000,MAX_ROWS=60000;
+// Read bounded pages to reduce Apps Script execution time and response sizes.
+// Keep MAX_ROWS and full-page aggregation to preserve complete data integrity.
+const PAGE=300,MAX_ROWS=60000;
 const TIME=()=>new Date().toISOString();
 // Original Sheets return display headers; sandbox snapshots return typed keys.
 // Normalize both without replacing a populated original field with undefined.
