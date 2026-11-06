@@ -129,6 +129,30 @@ export function fetchSupabaseSource(source){
   promise.then(()=>{if(sourceInFlight.get(source)===promise)sourceInFlight.delete(source);},()=>{if(sourceInFlight.get(source)===promise)sourceInFlight.delete(source);});
   return promise;
 }
+// Read shared procurement sub-tables directly from the original RABA03 workbook.
+// The same paginated relay is used, but the entity selects its own Sheets tab.
+const entityInFlight=new Map();
+export function fetchSupabaseRaba03Entity(entity){
+  const key=String(entity||"").trim().toUpperCase();
+  if(!["ESTADOS_SOLICITUDES","REMITOS_CARGADOS"].includes(key))
+    return Promise.reject(Error("V9_RABA_ENTITY_NOT_ALLOWED"));
+  if(entityInFlight.has(key))return entityInFlight.get(key);
+  const pending=(async()=>{
+    const first=await getPage("raba03",PAGE,0,key);
+    const total=Number(first.total??first.rows?.length??0);
+    if(!Number.isSafeInteger(total)||total<0||total>MAX_ROWS)throw Error("V9_RABA_ENTITY_ROW_LIMIT");
+    const pages=[first],count=Math.ceil(total/PAGE);
+    for(let offset=PAGE;offset<count*PAGE;offset+=PAGE){
+      pages.push(await getPage("raba03",PAGE,offset,key));
+    }
+    const data=pages.flatMap(page=>page.rows.map(r=>r.payload));
+    if(data.length!==total)throw Error("V9_RABA_ENTITY_PAGE_MISMATCH");
+    return {ok:true,source:"google-sheets-original",data,rows:data.length,total,hasMore:false};
+  })();
+  entityInFlight.set(key,pending);
+  pending.finally(()=>{if(entityInFlight.get(key)===pending)entityInFlight.delete(key);}).catch(()=>{});
+  return pending;
+}
 export async function fetchSupabaseStockSnapshot(){
  const data=[];let total=0,latestUpdatedAt=null;
  for(let offset=0;offset<MAX_ROWS;offset+=PAGE){
