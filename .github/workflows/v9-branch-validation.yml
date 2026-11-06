@@ -21,8 +21,10 @@ jobs:
           cache: npm
       - name: Instalar dependencias
         run: npm ci --no-audit --no-fund
-      - name: Validar proxy V9 sin secretos
-        run: node --test tests/v9-ops-proxy.test.mjs tests/v9-gas-sources.test.mjs tests/v9-taller-write-gates.test.mjs
+      # v9-ops is intentionally retired (HTTP 410). Its legacy proxy contract tests
+      # are not valid for the active independent V9 read/write gateways.
+      - name: Validar fuentes y controles de escritura V9 actuales
+        run: node --test tests/v9-gas-sources.test.mjs tests/v9-taller-write-gates.test.mjs
       - name: Validar compilación de la app V9
         run: npm run build
       - name: Verificar base de pruebas
