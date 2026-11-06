@@ -76,7 +76,19 @@ function adaptSourceRecord(source,p,recordId){
 }
 function active(){const s=currentSession();if(!s)throw Error("V9_SESSION_REQUIRED");return s;}
 async function getPage(source,limit=PAGE,offset=0,entity=""){
-  return requestV9({action:"rows",dataset:source,limit,offset,...(entity?{entity}:{})},active());
+  // Operational V9 data comes directly from the original Sheets through the
+  // authenticated Apps Script V9 bridge. Supabase is intentionally not used as
+  // a live source here; it remains the disposable sandbox used by tests.
+  if(entity) throw Error("V9_SHEETS_ENTITY_NOT_SUPPORTED:"+entity);
+  const session=active();
+  const response=await fetch("/api/v9-sheets-read",{
+    method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
+    body:JSON.stringify({dataset:source,limit,offset})
+  });
+  const body=await response.json().catch(()=>null);
+  if(!response.ok||body?.ok!==true)throw Error(body?.error||"V9_SHEETS_READ_FAILED");
+  const rows=Array.isArray(body.rows)?body.rows:[];
+  return {...body,rows:rows.map((payload,index)=>({record_id:String(payload?._sourceRow??(offset+index+1)),payload,updated_at:""}))};
 }
 export async function fetchSupabaseSource(source){
   if(!SUPABASE_TYPED_SOURCES.has(source))throw Error("V9_SOURCE_NOT_MIGRATED:"+source);
@@ -97,7 +109,7 @@ export async function fetchSupabaseSource(source){
     if(!result.hasMore||rows.length===0)break;
     if(offset+rows.length>=MAX_ROWS)throw Error("V9_ROW_LIMIT:"+source);
   }
-  return {ok:true,source:"supabase-v9",data,meta:{source,rows:data.length,returnedRows:data.length,total,hasMore:false,serverVersion:latest,serverTime:TIME()}};
+  return {ok:true,source:"google-sheets-original",data,meta:{source,rows:data.length,returnedRows:data.length,total,hasMore:false,serverVersion:latest,serverTime:TIME()}};
 }
 export async function fetchSupabaseStockSnapshot(){
  const data=[];let total=0,latestUpdatedAt=null;

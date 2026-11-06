@@ -331,6 +331,16 @@ function doPost(e) {
     var action = String(payload.action || "").toLowerCase().trim();
     var v9User = dmV9VerifyWriteSession_(payload.authToken || "");
     if (!v9User) return buildResponse({ok:false,error:{code:"V9_SESSION_REQUIRED",message:"La sesión V9 no es válida."}});
+
+    // V9 reads travel through the same authenticated bridge as writes, but this
+    // branch is deliberately allowlisted and has no mutation handlers.  It lets
+    // the independent UI read the original Sheets without exposing doGet or a
+    // spreadsheet URL to unauthenticated callers.
+    if (action === "v9_read_dataset") {
+      if (!dmV9ReadAllowed_(payload.dataset || "", v9User))
+        return buildResponse({ok:false,error:{code:"V9_READ_FORBIDDEN",message:"La sesión no tiene permiso de lectura V9."}});
+      return buildResponse(dmV9ReadDataset_(payload.dataset, payload));
+    }
     if (!dmV9WriteAllowed_(action, v9User)) return buildResponse({ok:false,error:{code:"V9_WRITE_FORBIDDEN",message:"La sesión no tiene permiso para esta operación."}});
     payload.email = v9User.email;
     payload.v9Actor = {email:v9User.email,role:v9User.role,area:v9User.area};
@@ -6539,4 +6549,47 @@ function dmV9WriteAllowed_(action, user) {
   if (action === "save_licitacion" || action === "guardar_licitacion") return user.role === "OFICINA_TECNICA" || user.area === "OFICINA TECNICA";
   if (action.indexOf("movement") >= 0) return user.role === "MECANICO" || user.role === "OFICINA_TECNICA" || user.area === "TALLER CENTRAL";
   return ["ADMINISTRATIVO","OFICINA_TECNICA","MECANICO"].indexOf(user.role) >= 0;
+}
+
+// Read-only contract consumed only by api/v9-sheets-read.js.  Keep the source
+// names aligned with the standalone adapter; unknown datasets fail closed.
+var DM_V9_READ_DATASETS_ = [
+  "rop02_jm","rop02_fs","rop02_filosur","rop02_zorro","rop02_fierro",
+  "rop05","rma15_jm","rma15_fs","lista_equipos","insumos",
+  "raba03","mantenimiento_programado","movimientos_equipos","combustible"
+];
+function dmV9ReadAllowed_(dataset, user) {
+  return !!user && DM_V9_READ_DATASETS_.indexOf(String(dataset || "")) >= 0;
+}
+function dmV9ReadDataset_(dataset, payload) {
+  dataset = String(dataset || "");
+  var limit = Number(payload && payload.limit);
+  var offset = Number(payload && payload.offset);
+  if (!isFinite(limit) || limit < 1 || limit > 1000 || Math.floor(limit) !== limit)
+    return {ok:false,error:{code:"V9_READ_LIMIT_INVALID",message:"Límite de lectura inválido."}};
+  if (!isFinite(offset) || offset < 0 || Math.floor(offset) !== offset)
+    return {ok:false,error:{code:"V9_READ_OFFSET_INVALID",message:"Offset de lectura inválido."}};
+  if (dataset === "mantenimiento_programado") {
+    var pm = ["pm_config","pm_registros"].map(function(key){
+      var part = fetchSheetData(SHEETS_CONFIG[key],{limit:null,offset:0,compact:false});
+      if (!part.ok) return part;
+      return {ok:true,data:(part.data || []).map(function(row){ row._entity=key === "pm_config" ? "PM_CONFIG" : "PM_REGISTROS"; return row; })};
+    });
+    if (!pm[0].ok || !pm[1].ok) return {ok:false,error:{code:"V9_PM_READ_FAILED",message:"No se pudo leer mantenimiento programado."}};
+    var all = pm[0].data.concat(pm[1].data), page = all.slice(offset,offset + limit);
+    return {ok:true,dataset:dataset,data:page,totalRows:all.length,offset:offset,limit:limit,hasMore:offset+page.length<all.length,nextOffset:offset+page.length<all.length?offset+page.length:null,source:"GOOGLE_SHEETS_ORIGINAL"};
+  }
+  if (dataset === "movimientos_equipos") {
+    var movements = handleGetEquipmentMovements_(false);
+    var movementRows = movements && movements.data || [];
+    var movementPage = movementRows.slice(offset,offset + limit);
+    return {ok:true,dataset:dataset,data:movementPage,totalRows:movementRows.length,offset:offset,limit:limit,hasMore:offset+movementPage.length<movementRows.length,nextOffset:offset+movementPage.length<movementRows.length?offset+movementPage.length:null,source:"GOOGLE_SHEETS_ORIGINAL"};
+  }
+  var config = SHEETS_CONFIG[dataset];
+  if (!config) return {ok:false,error:{code:"V9_READ_DATASET_UNKNOWN",message:"Dataset V9 no configurado."}};
+  var result = fetchSheetData(config,{limit:limit,offset:offset,compact:false});
+  if (!result.ok) return result;
+  result.dataset = dataset;
+  result.source = "GOOGLE_SHEETS_ORIGINAL";
+  return result;
 }
