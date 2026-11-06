@@ -79,11 +79,10 @@ async function getPage(source,limit=PAGE,offset=0,entity=""){
   // Operational V9 data comes directly from the original Sheets through the
   // authenticated Apps Script V9 bridge. Supabase is intentionally not used as
   // a live source here; it remains the disposable sandbox used by tests.
-  if(entity) throw Error("V9_SHEETS_ENTITY_NOT_SUPPORTED:"+entity);
   const session=active();
   const response=await fetch("/api/v9-sheets-read",{
     method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
-    body:JSON.stringify({dataset:source,limit,offset})
+    body:JSON.stringify({dataset:source,limit,offset,...(entity?{entity}:{})})
   });
   const body=await response.json().catch(()=>null);
   if(!response.ok||body?.ok!==true)throw Error(body?.error||"V9_SHEETS_READ_FAILED");

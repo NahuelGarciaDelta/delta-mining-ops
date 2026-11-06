@@ -11,13 +11,13 @@ export default async function handler(req,res){
  const db=validDb(),token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,"");
  if(!db)return reply(res,503,{ok:false,error:"V9_BACKEND_NOT_CONFIGURED"});
  if(token.length<60||token.length>4096)return reply(res,401,{ok:false,error:"V9_SESSION_REQUIRED"});
- const body=req.body&&typeof req.body==="object"&&!Array.isArray(req.body)?req.body:{};const dataset=String(body.dataset||"");const limit=Number(body.limit||1000),offset=Number(body.offset||0);
+ const body=req.body&&typeof req.body==="object"&&!Array.isArray(req.body)?req.body:{};const dataset=String(body.dataset||""),entity=String(body.entity||"").toUpperCase();const limit=Number(body.limit||1000),offset=Number(body.offset||0);
  if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>1000||!Number.isInteger(offset)||offset<0)return reply(res,400,{ok:false,error:"V9_INVALID_SHEETS_QUERY"});
  const gas=String(process.env.DELTA_V9_GAS_WRITE_URL||"").trim();if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(gas))return reply(res,503,{ok:false,error:"V9_SHEETS_BRIDGE_NOT_CONFIGURED"});
  try {if(!await userFor(db,token))return reply(res,401,{ok:false,error:"V9_SESSION_EXPIRED_OR_INACTIVE"});
-  const upstream=await fetch(gas,{method:"POST",redirect:"follow",cache:"no-store",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8",Accept:"application/json"},body:new URLSearchParams({payload:JSON.stringify({action:"v9_read_dataset",dataset,limit,offset,authToken:token})})});
+  const upstream=await fetch(gas,{method:"POST",redirect:"follow",cache:"no-store",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8",Accept:"application/json"},body:new URLSearchParams({payload:JSON.stringify({action:"v9_read_dataset",dataset,entity,limit,offset,authToken:token})})});
   const text=await upstream.text();if(!upstream.ok||text.length>5000000)return reply(res,502,{ok:false,error:"V9_SHEETS_READ_FAILED"});let data;try{data=JSON.parse(text);}catch{return reply(res,502,{ok:false,error:"V9_SHEETS_INVALID_REPLY"});}
   if(data?.ok!==true||!Array.isArray(data.data)||!Number.isInteger(Number(data.totalRows)))return reply(res,502,{ok:false,error:"V9_SHEETS_CONTRACT_INVALID"});
-  return reply(res,200,{ok:true,dataset,rows:data.data,total:Number(data.totalRows),offset,limit,hasMore:data.hasMore===true,nextOffset:data.nextOffset??null,source:"GOOGLE_SHEETS_ORIGINAL"});
+  return reply(res,200,{ok:true,dataset,rows:data.data,total:Number(data.totalRows),offset,limit,hasMore:data.hasMore===true,nextOffset:data.nextOffset??null,meta:data.meta??null,source:"GOOGLE_SHEETS_ORIGINAL"});
  }catch{return reply(res,502,{ok:false,error:"V9_SHEETS_BRIDGE_UNAVAILABLE"});}
 }

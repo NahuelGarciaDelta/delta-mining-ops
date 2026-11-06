@@ -6585,6 +6585,11 @@ function dmV9ReadDataset_(dataset, payload) {
     var movementPage = movementRows.slice(offset,offset + limit);
     return {ok:true,dataset:dataset,data:movementPage,totalRows:movementRows.length,offset:offset,limit:limit,hasMore:offset+movementPage.length<movementRows.length,nextOffset:offset+movementPage.length<movementRows.length?offset+movementPage.length:null,source:"GOOGLE_SHEETS_ORIGINAL"};
   }
+  if (dataset === "raba03" && String(payload && payload.entity || "").toUpperCase() === "STOCK_EXCEL") {
+    var stock = handleStockExcelData_(), stockRows = stock.rows || [];
+    var stockPage = stockRows.slice(offset,offset + limit);
+    return {ok:true,dataset:dataset,data:stockPage,totalRows:stockRows.length,offset:offset,limit:limit,hasMore:offset+stockPage.length<stockRows.length,nextOffset:offset+stockPage.length<stockRows.length?offset+stockPage.length:null,meta:stock.meta || {},source:"GOOGLE_SHEETS_ORIGINAL"};
+  }
   var config = SHEETS_CONFIG[dataset];
   if (!config) return {ok:false,error:{code:"V9_READ_DATASET_UNKNOWN",message:"Dataset V9 no configurado."}};
   var result = fetchSheetData(config,{limit:limit,offset:offset,compact:false});
