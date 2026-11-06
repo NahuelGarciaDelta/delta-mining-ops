@@ -25,7 +25,7 @@ export async function fetchAction(_url,action,{params={}}={}){
  if(["versions","get_data_versions"].includes(k))return fetchSupabaseVersions();
  if(k==="mantenimiento_programado")return fetchSupabasePmSnapshot();
  if(k==="get_equipment_movements"||k==="get_taller_movements"){
-  const source=await fetchSupabaseSource("movimientos_equipos");
+  const source=await fetchSupabaseSource(k==="get_taller_movements"?"movimientos_taller":"movimientos_equipos");
   return {...source,data:source.data||[],rows:(source.data||[]).length,total:(source.data||[]).length,hasMore:false};
  }
  if(k==="raba03"){
