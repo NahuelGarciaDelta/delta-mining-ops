@@ -26,6 +26,6 @@ jobs:
       - name: Validar fuentes y controles de escritura V9 actuales
         run: node --test tests/v9-gas-sources.test.mjs tests/v9-taller-write-gates.test.mjs
       - name: Validar compilación de la app V9
-        run: npm run build
+        run: npm run build -- --config vite.v9.config.js
       - name: Verificar base de pruebas
         run: npm run check
