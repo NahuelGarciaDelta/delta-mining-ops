@@ -76,6 +76,34 @@ test("Production mode requires both explicit approval flags",async()=>{
  assert.equal(calls.length,1);
 });
 
+test("Production remains disabled when live Apps Script lacks version proof",async()=>{
+ const calls=setup("production");
+ process.env.DELTA_V9_TALLER_PRODUCTION_APPROVED="true";
+ const response=await request({action:"v9_taller_write_status"});
+ assert.equal(response.code,200);
+ assert.equal(response.body.mode,"disabled");
+ assert.equal(response.body.canWrite,false);
+ assert.deepEqual(calls,[ "https://biztlietuvvonigcfdwy.supabase.co/auth/v1/user",gas ]);
+});
+
+test("Production enables only after deployed Apps Script proves UUID deduplication",async()=>{
+ const calls=setup("production");
+ process.env.DELTA_V9_TALLER_PRODUCTION_APPROVED="true";
+ globalThis.fetch=async(url)=>{
+  calls.push(String(url));
+  if(String(url).endsWith("/auth/v1/user"))
+   return new Response(JSON.stringify({email:"operator@example.test",app_metadata:{v9_active:true,v9_role:"ADMIN",v9_area:"OFICINA TECNICA"}}),{status:200});
+  if(String(url)===gas)
+   return new Response(JSON.stringify({ok:true,action:"v9_write_capabilities",schema:"taller-uuid-primary-key-v1",idempotentSave:true,target:"GOOGLE_SHEETS_ORIGINAL"}),{status:200});
+  throw Error("Unexpected external call");
+ };
+ const response=await request({action:"v9_taller_write_status"});
+ assert.equal(response.code,200);
+ assert.equal(response.body.mode,"production");
+ assert.equal(response.body.canWrite,true);
+ assert.equal(calls.length,2);
+});
+
 test.after(()=>{
  globalThis.fetch=savedFetch;
  for(const [key,value] of Object.entries(original)){
