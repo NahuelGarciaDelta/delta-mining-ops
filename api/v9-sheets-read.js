@@ -17,7 +17,8 @@ export default async function handler(req,res){
  try {if(!await userFor(db,token))return reply(res,401,{ok:false,error:"V9_SESSION_EXPIRED_OR_INACTIVE"});
   const upstream=await fetch(gas,{method:"POST",redirect:"follow",cache:"no-store",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8",Accept:"application/json"},body:new URLSearchParams({payload:JSON.stringify({action:"v9_read_dataset",dataset,entity,limit,offset,authToken:token})})});
   const text=await upstream.text();if(!upstream.ok||text.length>5000000)return reply(res,502,{ok:false,error:"V9_SHEETS_READ_FAILED"});let data;try{data=JSON.parse(text);}catch{return reply(res,502,{ok:false,error:"V9_SHEETS_INVALID_REPLY"});}
-  if(data?.ok!==true||!Array.isArray(data.data)||!Number.isInteger(Number(data.totalRows)))return reply(res,502,{ok:false,error:"V9_SHEETS_CONTRACT_INVALID"});
+  if(data?.ok!==true){const code=String(data?.error?.code||data?.error||"V9_GAS_ERROR");return reply(res,502,{ok:false,error:/^[A-Z][A-Z0-9_]{2,80}$/.test(code)?code:"V9_GAS_ERROR"});}
+  if(!Array.isArray(data.data)||!Number.isInteger(Number(data.totalRows)))return reply(res,502,{ok:false,error:"V9_SHEETS_CONTRACT_INVALID"});
   return reply(res,200,{ok:true,dataset,rows:data.data,total:Number(data.totalRows),offset,limit,hasMore:data.hasMore===true,nextOffset:data.nextOffset??null,meta:data.meta??null,source:"GOOGLE_SHEETS_ORIGINAL"});
  }catch{return reply(res,502,{ok:false,error:"V9_SHEETS_BRIDGE_UNAVAILABLE"});}
 }
