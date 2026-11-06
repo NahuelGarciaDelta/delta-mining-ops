@@ -1,5 +1,7 @@
 import {defineConfig} from "vite";
 import react from "@vitejs/plugin-react";
+import {atrasoIchcFixesVitePlugin} from "./scripts/atraso-ichc-fixes-vite-plugin.mjs";
+import {rop02ControlVehicleFiltersVitePlugin} from "./scripts/rop02-control-vehicle-filters-vite-plugin.mjs";
 import {resolve,dirname,normalize} from "node:path";
 const root=process.cwd();
 const target=Object.fromEntries(Object.entries({
@@ -52,7 +54,7 @@ function isolateV9(){
  }
 }
 export default defineConfig({
- plugins:[isolateV9(),react()],
+ plugins:[atrasoIchcFixesVitePlugin(),rop02ControlVehicleFiltersVitePlugin(),isolateV9(),react()],
  build:{
   outDir:"dist",
   chunkSizeWarningLimit:900,
