@@ -1,8 +1,8 @@
-var DELTA_BACKEND_VERSION_ = "2026-11-05-V9-SANDBOX-SHEETS";
+var DELTA_BACKEND_VERSION_ = "2026-11-06-V9-ORIGINAL-SHEETS";
 
 var SHEETS_CONFIG = {
   rop05: {
-    id: "1GpCp0PzSWg7SD9a4x6Fo7jZwxZabQaUl_7gDjss7gx4",
+    id: "1HYlylloC0TMsOWTpwvZ8YaXk5RLRKZ2PmOlhc7TCovw",
     gid: "260616594",
     sheet: "ROP05 nuevo",
     label: "Productividad (ROP05)",
@@ -10,15 +10,15 @@ var SHEETS_CONFIG = {
     headerRow: 1
   },
   rop02_fs: {
-    id: "1jURr3m0t_-bYe-MpfErhLg2K7HuFqjTwFONGPeGWwbc",
+    id: "1dt5THoDndDM9pBZYkNR0gjkPrSrunnkMA8DgqQZB2OU",
     gid: "396764804",
-    sheet: "R_OP02_FDS",
+    sheet: "R_OP02_FS",
     label: "Partes — Filo del Sol",
     proyecto: "FILO DEL SOL",
     headerRow: 4
   },
   rop02_jm: {
-    id: "1fxDrQmjzr1ENy0I2Vw0_bB_5EM9Sh5Nq_pDgjEoncbE",
+    id: "1RzOwDSmd1fw48hvPCfoauPnZGE44G9NgSazMdjVxj4Q",
     gid: "967767400",
     sheet: "R_OP02_JM",
     label: "Partes — José María",
@@ -26,23 +26,23 @@ var SHEETS_CONFIG = {
     headerRow: 4
   },
   rop02_filosur: {
-    id: "1qBMYf0Z5oF54LAhjmNIj5IEDPRZdqGbJrMhFMkouIyc",
+    id: "1RpKLXTQNxlqoRy9c5FXI23ZV-OatlsRCvu4CuNWBt0w",
     gid: "1301566995",
-    sheet: "R_OP02_FILO_SUR",
+    sheet: "R_OP2_",
     label: "Partes — Filo Sur",
     proyecto: "FILO SUR",
     headerRow: 4
   },
   rop02_zorro: {
-    id: "16mBo9oJq0WKzD14gU1LGjb8FnoJIAmAgXQy3Boz7cRQ",
+    id: "1HUSJBcMgOkSnMxul5QHWruIS3Jwx2Oyenf6VFWma4YI",
     gid: "967767400",
-    sheet: "R_OP02_ZORRO",
+    sheet: "R_OP02_EL_ZORRO",
     label: "Partes — El Zorro",
     proyecto: "EL ZORRO",
     headerRow: 4
   },
   rma15_fs: {
-    id: "18sCxey8kKcNtt0oZc2u2WqoCmfxFWkltpH5ayCOcbdE",
+    id: "1WZEwuUTE8r-wUgTKeMsr1tsV1Ylq8fMULQjE-omCMOU",
     gid: "1444625212",
     sheet: "FICHA DE VIDA EQUIPOS",
     label: "Mantenimiento — Filo del Sol",
@@ -50,7 +50,7 @@ var SHEETS_CONFIG = {
     headerRow: 5
   },
   rma15_jm: {
-    id: "1aau4bb_Kd1Beuc3hfJusD8yLP1AEh7ExwfrMG16xX00",
+    id: "1ZAZ8r1gtz6pBobJ7Nv1mQNtIWuNhckQxI6SkGxKWt_I",
     gid: "839351017",
     sheet: "FICHA DE VIDA EQUIPOS",
     label: "Mantenimiento — José María",
@@ -58,7 +58,7 @@ var SHEETS_CONFIG = {
     headerRow: 5
   },
   insumos: {
-    id: "1Av_Svqng0HR2KS8eO6WuNN1ZR2q4xyoLqI-WmbR6y6E",
+    id: "1MKrJA-W_pj_Z1Dmk9ec9614oA9nnSy3SXn1b2iokpr8",
     gid: "",
     sheet: "Hoja 1",
     label: "Informe de insumos comprados — Hoja 1",
@@ -66,7 +66,7 @@ var SHEETS_CONFIG = {
     headerRow: 1
   },
   articulos_desgaste: {
-    id: "1Av_Svqng0HR2KS8eO6WuNN1ZR2q4xyoLqI-WmbR6y6E",
+    id: "1MKrJA-W_pj_Z1Dmk9ec9614oA9nnSy3SXn1b2iokpr8",
     gid: "",
     sheet: "Articulos de desgaste",
     label: "Articulos de desgaste",
@@ -75,7 +75,7 @@ var SHEETS_CONFIG = {
     autoHeader: false
   },
   raba03: {
-    id: "1-NbHeU_j5YCYackHG7pXlrv3WF0yfZJKwUTS_viaUfo",
+    id: "1CYXvmXk7XknGWq4TUJyTAaXz_TH1JOWcl2Zm7XurFTI",
     gid: "",
     sheet: "Seguimiento Compra",
     label: "RABA03 — Abastecimiento",
@@ -84,7 +84,7 @@ var SHEETS_CONFIG = {
     autoHeader: false
   },
   remitos_cargados: {
-    id: "1-NbHeU_j5YCYackHG7pXlrv3WF0yfZJKwUTS_viaUfo",
+    id: "1CYXvmXk7XknGWq4TUJyTAaXz_TH1JOWcl2Zm7XurFTI",
     gid: "58335550",
     sheet: "Remitos cargados",
     label: "Remitos cargados — RABA08",
@@ -93,15 +93,15 @@ var SHEETS_CONFIG = {
     autoHeader: false
   },
   lista_equipos: {
-    id: "1rJ1WoKloz6Jb4VEu5E3I77yD_MqsqZqpRKoTaJNgtwM",
+    id: "1cEbCIkt0GM4EPU86CluvDyRzAN2c1K8tfG9TXLFzQc4",
     gid: "952415879",
-    sheet: "RMA20-LIsta maestra",
+    sheet: "lista equipos",
     label: "Lista Maestra de Equipos",
     proyecto: null,
     headerRow: 5
   },
   licitaciones_db: {
-    id: "1k2_iNn5CddRapGa7py_jyY0p1fCrzJpPdlDDmu0_j9Y",
+    id: "1F3pPrhKSKQHHPln8o5n-M1NuHhZA--LKj93wa596_sk",
     gid: "1690860578",
     sheet: "LICITACIONES",
     label: "Base compartida — Licitaciones",
@@ -110,7 +110,7 @@ var SHEETS_CONFIG = {
     autoHeader: false
   },
   licitacion_hitos_db: {
-    id: "1k2_iNn5CddRapGa7py_jyY0p1fCrzJpPdlDDmu0_j9Y",
+    id: "1F3pPrhKSKQHHPln8o5n-M1NuHhZA--LKj93wa596_sk",
     gid: "",
     sheet: "HITOS",
     label: "Base compartida — Hitos de licitaciones",
@@ -119,7 +119,7 @@ var SHEETS_CONFIG = {
     autoHeader: false
   },
   licitacion_equipos_db: {
-    id: "1k2_iNn5CddRapGa7py_jyY0p1fCrzJpPdlDDmu0_j9Y",
+    id: "1F3pPrhKSKQHHPln8o5n-M1NuHhZA--LKj93wa596_sk",
     gid: "",
     sheet: "EQUIPOS",
     label: "Base compartida — Equipos de licitaciones",
@@ -128,7 +128,7 @@ var SHEETS_CONFIG = {
     autoHeader: false
   },
   pm_config: {
-    id: "1Wg22I8CdfKScF60CKcmXzNnqx5yzLoDdv4b2kXdTnJ4",
+    id: "1jmTZ2_aJai-t1uj-sZB8MK1a6J47oXeiG5GIO_Gk6u4",
     gid: "",
     sheet: "PM_CONFIG",
     label: "Mantenimiento programado — configuración",
@@ -137,7 +137,7 @@ var SHEETS_CONFIG = {
     autoHeader: false
   },
   pm_registros: {
-    id: "1Wg22I8CdfKScF60CKcmXzNnqx5yzLoDdv4b2kXdTnJ4",
+    id: "1jmTZ2_aJai-t1uj-sZB8MK1a6J47oXeiG5GIO_Gk6u4",
     gid: "",
     sheet: "PM_REGISTROS",
     label: "Mantenimiento programado — historial",
