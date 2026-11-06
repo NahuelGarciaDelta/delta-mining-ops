@@ -3,7 +3,7 @@ var DELTA_BACKEND_VERSION_ = "2026-11-06-V9-ORIGINAL-SHEETS";
 var SHEETS_CONFIG = {
   rop05: {
     id: "1HYlylloC0TMsOWTpwvZ8YaXk5RLRKZ2PmOlhc7TCovw",
-    gid: "260616594",
+    gid: "230972854",
     sheet: "ROP05 nuevo",
     label: "Productividad (ROP05)",
     proyecto: null,
