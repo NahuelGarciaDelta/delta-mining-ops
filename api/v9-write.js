@@ -121,6 +121,12 @@ export default async function handler(req,res) {
     }
     const destinationUrl=TALLER_ACTIONS.has(action)&&writeMode==="sandbox"?sandboxGas:gasUrl;
     const outgoing={...payload,action,authToken:token};
+    // Never trust the actor name supplied by the browser for movement writes.
+    if(TALLER_ACTIONS.has(action)){
+      outgoing.usuario=user.email;
+      if(action!=="delete_taller_movement")
+        outgoing.movement={...(payload.movement||{}),usuario:user.email};
+    }
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
     try {
       let upstream=await fetch(destinationUrl,{
