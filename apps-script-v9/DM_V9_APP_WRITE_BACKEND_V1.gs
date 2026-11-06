@@ -344,6 +344,19 @@ function doPost(e) {
     // branch is deliberately allowlisted and has no mutation handlers.  It lets
     // the independent UI read the original Sheets without exposing doGet or a
     // spreadsheet URL to unauthenticated callers.
+    // Read-only production capability handshake. Vercel checks this deployed
+    // version before exposing any original-Sheets Taller mutations.
+    if (action === "v9_write_capabilities") {
+      return buildResponse({
+        ok:true,
+        action:"v9_write_capabilities",
+        schema:"taller-uuid-primary-key-v1",
+        idempotentSave:true,
+        target:"GOOGLE_SHEETS_ORIGINAL",
+        actor:v9User.email
+      });
+    }
+
     if (action === "v9_read_dataset") {
       if (!dmV9ReadAllowed_(payload.dataset || "", v9User))
         return buildResponse({ok:false,error:{code:"V9_READ_FORBIDDEN",message:"La sesión no tiene permiso de lectura V9."}});
