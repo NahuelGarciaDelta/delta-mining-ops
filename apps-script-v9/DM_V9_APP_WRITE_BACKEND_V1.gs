@@ -42,12 +42,12 @@ var SHEETS_CONFIG = {
     headerRow: 4
   },
   rop02_fierro: {
-    id: "1KfNjCpn-RedESmVBOM6mXq9eU-deu9tAoqNyvwGcFWQ",
-    gid: "151543963",
+    id: "1Ud7GerplVfoV5YpVxhipg2hDZ-JTjBTyCux66R2caL0",
+    gid: "967767400",
     sheet: "R_OP02_EL_FIERRO",
     label: "Partes — El Fierro",
     proyecto: "EL FIERRO",
-    headerRow: 1
+    headerRow: 4
   },
   rma15_fs: {
     id: "1WZEwuUTE8r-wUgTKeMsr1tsV1Ylq8fMULQjE-omCMOU",
@@ -103,7 +103,7 @@ var SHEETS_CONFIG = {
   lista_equipos: {
     id: "1cEbCIkt0GM4EPU86CluvDyRzAN2c1K8tfG9TXLFzQc4",
     gid: "952415879",
-    sheet: "lista equipos",
+    sheet: "RMA20-LIsta maestra",
     label: "Lista Maestra de Equipos",
     proyecto: null,
     headerRow: 5
