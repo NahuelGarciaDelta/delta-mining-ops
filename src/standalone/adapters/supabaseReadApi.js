@@ -187,19 +187,38 @@ export async function fetchSupabaseDatasetQuery(params={}){
   const rows=data.slice(offset,offset+limit);
   return {ok:true,source:"supabase-v9",data:rows,rows:rows.length,total:data.length,hasMore:offset+rows.length<data.length,nextOffset:offset+rows.length<data.length?offset+rows.length:null,offset,limit};
 }
+// Google Sheets dates can be display-formatted DD/MM/YYYY, while the PM module
+// compares ISO YYYY-MM-DD dates. Preserve dates already in ISO format.
+export function normalizeV9PmDate(value){
+ const raw=String(value??"").trim();
+ if(!raw)return "";
+ const iso=raw.match(/^(\\d{4})-(\\d{1,2})-(\\d{1,2})/);
+ if(iso)return iso[1]+"-"+iso[2].padStart(2,"0")+"-"+iso[3].padStart(2,"0");
+ const local=raw.match(/^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})(?:\\s|$)/);
+ if(local)return local[3]+"-"+local[2].padStart(2,"0")+"-"+local[1].padStart(2,"0");
+ return raw;
+}
 export async function fetchSupabasePmSnapshot(){
  const r=await fetchSupabaseSource("mantenimiento_programado");
  const rows=Array.isArray(r.data)?r.data:[];
  const kind=row=>String(row?._entity||row?.entity||row?.tipo_registro||row?.tipo||"").trim().toUpperCase();
+ const normalize=row=>{
+  const item={...row};
+  for(const key of ["fecha","FECHA","fechaUltimoPM","FECHA_ULTIMO_PM","fechaCarga","FECHA_CARGA"]){
+   if(item[key]!=null&&item[key]!=="")item[key]=normalizeV9PmDate(item[key]);
+  }
+  return item;
+ };
  const config=[],registros=[],programaciones=[],repuestos=[];
- for(const row of rows){
+ for(const entry of rows){
+  const row=normalize(entry);
   const k=kind(row);
   if(k==="CONFIG"||k==="PM_CONFIG"||(!k&&("INTERVALO_HS" in row||"intervalo_hs" in row)))config.push(row);
   else if(k==="REGISTRO"||k==="REGISTROS"||k==="PM_REGISTROS"||(!k&&("ID_PM" in row||"id_pm" in row)))registros.push(row);
   else if(k==="PROGRAMACION"||k==="PROGRAMACIONES"||k==="PM_PROGRAMACION"||(!k&&("DURACION_HS" in row||"duracion_hs" in row)))programaciones.push(row);
   else if(k==="REPUESTO"||k==="REPUESTOS"||k==="PM_REPUESTOS"||(!k&&("CANTIDAD_MINIMA" in row||"cantidad_minima" in row)))repuestos.push(row);
  }
- return {ok:true,source:"supabase-v9",config,registros,programaciones,repuestos,
+ return {ok:true,source:"google-sheets-original",config,registros,programaciones,repuestos,
   rows:rows.length,serverTime:TIME()};
 }
 export async function fetchSupabaseRop02LatestByEquipmentProject(){
