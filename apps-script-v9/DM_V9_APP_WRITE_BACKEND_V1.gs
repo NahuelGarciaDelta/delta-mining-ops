@@ -6275,11 +6275,23 @@ function listaMeterPrune_(props) {
   if (live.length > 500) listaMutationError_("RECEIPT_CAPACITY", "Hay demasiadas operaciones recientes. No se escribió; intentá más tarde.");
 }
 function authorizeListaMeters_(payload) {
+  // In V9 doPost verifies the Supabase JWT and assigns v9Actor server-side.
+  // Never require the legacy V8 token/auth mirror for an already verified V9
+  // user. The submitted actor.email and actor.token are not trusted.
+  var verified = payload && payload.v9Actor;
+  if (verified && verified.email) {
+    var role = String(verified.role || "").toUpperCase();
+    var area = String(verified.area || "").toUpperCase();
+    if(role==="ADMIN" || role==="OFICINA_TECNICA" ||
+      area==="TALLER CENTRAL" || area==="OFICINA TECNICA")return;
+    listaMutationError_("FORBIDDEN", "La sesión V9 no tiene permiso para actualizar horómetros.");
+  }
+  // Compatibility for legacy callers outside the authenticated V9 bridge.
   var actor = payload.actor || {}, email = stockExcelVerifyAuthToken_(actor.token || actor.authToken);
   if(!email || email !== String(actor.email || "").trim().toLowerCase()) listaMutationError_("AUTH_REQUIRED", "La sesión expiró. Volvé a iniciar sesión.");
   var user = getAuthMirrorUser_(email);
   if(!user || !user.activo || user.mustChangePassword) listaMutationError_("AUTH_REQUIRED", "Se requiere una sesión activa con contraseña personal.");
-  if(["ADMIN","ADMINISTRADOR"].indexOf(user.rol) < 0 && ["taller central","oficina tecnica"].indexOf(normUsuarioHeader_(user.area)) < 0) listaMutationError_("FORBIDDEN", "Sólo Taller Central puede actualizar estas lecturas.");
+  if(["ADMIN","ADMINISTRADOR"].indexOf(user.rol) < 0 && ["taller central","oficina tecnica"].indexOf(normUsuarioHeader_(user.area)) < 0) listaMutationError_("FORBIDDEN", "No tenés permiso para actualizar estas lecturas.");
 }
 function handleListaHorometros_(payload, verifyOnly) {
   var lock = LockService.getScriptLock();
@@ -6583,7 +6595,7 @@ function dmV9WriteAllowed_(action, user) {
   if (adminOnly.indexOf(action) >= 0) return false;
   if (action === "update_rop02_row") return user.role === "OFICINA_TECNICA" || user.area === "OFICINA TECNICA";
   var taller = ["add_lista_equipo","update_lista_equipo","update_lista_horometros","verify_lista_horometros","bulk_update_lista_equipos_from_app","save_taller_movement","update_taller_movement","delete_taller_movement"];
-  if (taller.indexOf(action) >= 0) return user.area === "TALLER CENTRAL";
+  if (taller.indexOf(action) >= 0) return user.area === "TALLER CENTRAL" || (["update_lista_horometros","verify_lista_horometros","bulk_update_lista_equipos_from_app"].indexOf(action)>=0 && (user.role === "OFICINA_TECNICA" || user.area === "OFICINA TECNICA"));
   var supply = ["add_raba03_rows_append_only","upsert_raba03_rows_safe_v2","add_raba03_rows","upsert_raba03_rows","save_remito_cargado","delete_remito_cargado","delete_raba03_solicitud_numero","save_estado_solicitud","save_estados_solicitudes_bulk","delete_estado_solicitud","delete_estados_solicitudes_bulk","save_raba03_cant_enviada","save_raba03_codigos","stock_excel_clear","stock_excel_upload","stock_excel_replace","upload_stock"];
   if (supply.indexOf(action) >= 0) return user.role === "ADMINISTRATIVO" || user.area === "ABASTECIMIENTO";
   var maintenance = ["save_pm_programacion","save_pm_repuesto","save_pm_config","registrar_pm_realizado","save_articulos_desgaste"];
