@@ -9,6 +9,7 @@ const target=Object.fromEntries(Object.entries({
  "src/services/appsScriptApi.js":"src/standalone/adapters/appsScriptApi.js",
  "src/services/supabaseReadApi.js":"src/standalone/adapters/supabaseReadApi.js",
  "src/services/confirmedWrites.js":"src/standalone/adapters/confirmedWrites.js",
+ "src/services/horometerUpdates.js":"src/standalone/adapters/horometerUpdates.js",
  "src/services/writeActions.js":"src/standalone/adapters/writeActions.js",
  "src/services/stockService.js":"src/standalone/adapters/stockService.js"
 }).map(([k,v])=>[normalize(resolve(root,k)),resolve(root,v)]));
@@ -32,6 +33,11 @@ function isolateV9(){
      .replaceAll("/api/supabase-read","/api/v9-blocked")
      .replaceAll("/api/v9-ops","/api/v9-blocked")
      .replaceAll("sb_publishable_XZAcQcWEDdgtZY_NWADy1g_HxoV0UZ2","V8_PUBLISHABLE_KEY_DISABLED");
+   if(path.endsWith("/src/modules/oficina-tecnica/OficinaTecnicaModule.jsx")){
+     // A second click verifies the same operation; it must never resend writes.
+     result=result.replace("let operation=meterOperationRef.current;","let operation=meterOperationRef.current;const meterVerifyOnly=Boolean(operation);");
+     result=result.replace("submitHorometerOperation(METER_API_URL,operation);","submitHorometerOperation(METER_API_URL,operation,{verifyOnly:meterVerifyOnly});");
+   }
    return result===code?null:{code:result,map:null};
   },
   generateBundle(_opts,bundle){
