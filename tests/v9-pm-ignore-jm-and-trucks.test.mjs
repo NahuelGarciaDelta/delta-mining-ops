@@ -32,6 +32,7 @@ test("V9 PM treats -JM as temporary code alias, without changing source identifi
   ["CTA-1834-JM","CTA-1834"]
  ])assert.equal(canonical(rop),canonical(master));
  assert.match(transformed,/const codeVariants = value => \{/);
+ assert.match(transformed,/const norm = v => [^\n]*replace\(\/\(\\d\)\(\?:\[-_\\s\]\?JM\)\$\/i, "\$1"\)/);
  assert.match(transformed,/\.replace\(\/\(\?<=\\d\)\(\?:\[-_\\s\]\?JM\)\$\/i, ''\)/);
 });
 
