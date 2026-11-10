@@ -37,6 +37,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
   const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
   const [snapshotRop02,setSnapshotRop02]=useState(null);
+  const [welcomeSnapshotSettled,setWelcomeSnapshotSettled]=useState(false);
   const [openOtSummary,setOpenOtSummary]=useState(null);
   const [fallbackRma15,setFallbackRma15]=useState(null);
   useEffect(()=>{
@@ -53,7 +54,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         _snapshotActive:Number(row.CARGAS_7D??row.cargas7d??0)>0,
       }});
       startTransition(()=>setSnapshotRop02(rows));
-    }).catch(()=>{});
+    }).catch(()=>{}).finally(()=>{if(alive)setWelcomeSnapshotSettled(true);});
     return()=>{alive=false;};
   },[]);
   useEffect(()=>{let alive=true;getRma15OpenOtSummary({}).then(response=>{if(alive&&Array.isArray(response?.data))setOpenOtSummary(response.data);}).catch(()=>getRma15({limit:"all",sortBy:"fecha",sortDirection:"asc"}).then(response=>{if(alive)setFallbackRma15(response.data||[]);}).catch(()=>{}));return()=>{alive=false;};},[]);
@@ -63,7 +64,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const summaryRef=useRef(null);
   useEffect(()=>{const id=setInterval(()=>setNow(new Date()),30000);return()=>clearInterval(id);},[]);
   useEffect(()=>{
-    if(bienvenidaStockCache)return;
+    if(!welcomeSnapshotSettled||bienvenidaStockCache)return;
     let alive=true;
     const run=()=>fetchStockData(APPS_SCRIPT_URL).then(r=>{
       if(!alive)return;
@@ -72,7 +73,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     }).catch(()=>{});
     const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(run,{timeout:900}):window.setTimeout(run,120);
     return()=>{alive=false;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
-  },[]);
+  },[welcomeSnapshotSettled]);
   useEffect(()=>{
     const close=event=>{if(summaryRef.current&&!summaryRef.current.contains(event.target))setActiveSummaryKey(null);};
     const onKey=event=>{if(event.key==="Escape")setActiveSummaryKey(null);};
@@ -261,6 +262,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const [agendaMonth,setAgendaMonth]=useState(()=>new Date(new Date().getFullYear(),new Date().getMonth(),1));
   const [agendaData,setAgendaData]=useState({programaciones:[],licitaciones:[],loading:true,error:""});
   useEffect(()=>{
+    if(!welcomeSnapshotSettled)return;
     let alive=true;
     Promise.allSettled([
       fetchAction(APPS_SCRIPT_URL,"mantenimiento_programado"),
@@ -276,7 +278,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       });
     });
     return()=>{alive=false;};
-  },[]);
+  },[welcomeSnapshotSettled]);
   const favoriteOptions=[
     {id:"rop02",label:"ROP02",icon:"fileBarChart",color:"#38bdf8"},
     {id:"rma15CtrlEquipo",label:"RMA15",icon:"wrench",color:"#f59e0b"},
