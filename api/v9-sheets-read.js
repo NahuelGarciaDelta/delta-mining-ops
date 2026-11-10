@@ -17,15 +17,18 @@ export default async function handler(req,res){
  try {if(!await userFor(db,token))return reply(res,401,{ok:false,error:"V9_SESSION_EXPIRED_OR_INACTIVE"});
   // Bound upstream reads below the Vercel function limit so the client gets
   // a typed timeout instead of an opaque 30-second platform termination.
+  const started=Date.now();
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),22000);
-  let upstream;
+  let upstream,bodyText;
   try{
    upstream=await fetch(gas,{method:"POST",redirect:"follow",cache:"no-store",signal:controller.signal,headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8",Accept:"application/json"},body:new URLSearchParams({payload:JSON.stringify({action:"v9_read_dataset",dataset,entity,limit,offset,authToken:token})})});
+   bodyText=await upstream.text();
   }finally{clearTimeout(timer);}
-  const text=await upstream.text();if(!upstream.ok||text.length>5000000)return reply(res,502,{ok:false,error:"V9_SHEETS_READ_FAILED"});let data;try{data=JSON.parse(text);}catch{return reply(res,502,{ok:false,error:"V9_SHEETS_INVALID_REPLY"});}
-  if(data?.ok!==true){const code=String(data?.error?.code||data?.error||"V9_GAS_ERROR");return reply(res,502,{ok:false,error:/^[A-Z][A-Z0-9_]{2,80}$/.test(code)?code:"V9_GAS_ERROR"});}
+  const text=bodyText;
+  if(!upstream.ok)console.warn("V9_SHEETS_UPSTREAM_HTTP",{dataset,offset,limit,status:upstream.status,elapsedMs:Date.now()-started});if(!upstream.ok||text.length>5000000)return reply(res,502,{ok:false,error:"V9_SHEETS_READ_FAILED"});let data;try{data=JSON.parse(text);}catch{return reply(res,502,{ok:false,error:"V9_SHEETS_INVALID_REPLY"});}
+  if(data?.ok!==true){const code=String(data?.error?.code||data?.error||"V9_GAS_ERROR");console.warn("V9_SHEETS_SOURCE_ERROR",{dataset,offset,limit,code,elapsedMs:Date.now()-started});return reply(res,502,{ok:false,error:/^[A-Z][A-Z0-9_]{2,80}$/.test(code)?code:"V9_GAS_ERROR"});}
   if(!Array.isArray(data.data)||!Number.isInteger(Number(data.totalRows)))return reply(res,502,{ok:false,error:"V9_SHEETS_CONTRACT_INVALID"});
   return reply(res,200,{ok:true,dataset,rows:data.data,total:Number(data.totalRows),offset,limit,hasMore:data.hasMore===true,nextOffset:data.nextOffset??null,meta:data.meta??null,source:"GOOGLE_SHEETS_ORIGINAL"});
- }catch(error){return reply(res,502,{ok:false,error:error?.name==="AbortError"?"V9_SHEETS_TIMEOUT":"V9_SHEETS_BRIDGE_UNAVAILABLE"});}
+ }catch(error){const reason=error?.name==="AbortError"?"V9_SHEETS_TIMEOUT":"V9_SHEETS_BRIDGE_UNAVAILABLE";console.warn("V9_SHEETS_READ_ERROR",{dataset,offset,limit,reason});return reply(res,502,{ok:false,error:reason});}
 }
