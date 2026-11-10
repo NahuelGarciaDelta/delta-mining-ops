@@ -245,34 +245,109 @@ export async function fetchSupabasePmSnapshot(){
  return {ok:true,source:"google-sheets-original",config,registros,programaciones,repuestos,
   rows:rows.length,serverTime:TIME()};
 }
+// The welcome page only needs the latest operational day and last-seven-day
+// activity, not the entire history of every AppSheet ROP02 sheet. Read bounded
+// pages from the TAIL of the ORIGINAL Sheets and scan backwards through the
+// seven-day window. Full historical sources are still fetched on demand by
+// their modules, without caching this partial snapshot as a full ROP02 source.
+let v9WelcomeSnapshotPending=null;
+let v9WelcomeSnapshotCache=null;
 export async function fetchSupabaseRop02LatestByEquipmentProject(){
-  // La pantalla de bienvenida usa este snapshot para sus tarjetas. Antes V9
-  // respondía un arreglo vacío, por lo que OD, FS y disponibilidad quedaban
-  // permanentemente en "Cargando" aunque los ROP02 ya estuvieran disponibles.
-  const results=await Promise.all(ROP02_SOURCE_KEYS.map(fetchSupabaseSource));
-  const latest=new Map();
-  const asDate=value=>normalizeV9PmDate(value);
-  const asText=value=>String(value??"").trim();
-  for(const source of results){
-    for(const row of source?.data||[]){
-      const interno=asText(row.Interno??row.interno);
-      const proyecto=asText(row.Proyecto??row.proyecto);
-      const fecha=asDate(row.Fecha??row.fecha);
-      if(!interno||!proyecto||!fecha)continue;
-      const key=`${interno.toUpperCase()}|${proyecto.toUpperCase()}`;
-      const current=latest.get(key);
-      if(!current||fecha>current.ULTIMA_FECHA){
-        latest.set(key,{
-          INTERNO:interno,PROYECTO:proyecto,ULTIMA_FECHA:fecha,
-          ULTIMO_ESTADO:row["OD o FS"]??row.Estado??row.estado??"",
-          HORAS:row["Cant. Hs."]??row.cantidad_horas??row.horas??0,
-          SUPERVISOR:row["Supervisor Delta"]??row.supervisor_delta??"",
-          CARGAS_7D:1
-        });
+  if(v9WelcomeSnapshotCache&&Date.now()-v9WelcomeSnapshotCache.at<60000)
+    return v9WelcomeSnapshotCache.value;
+  if(v9WelcomeSnapshotPending)return v9WelcomeSnapshotPending;
+  const job=(async()=>{
+    const pageSize=300;
+    const sources=[];
+    // Two live Sheets readers at a time to avoid multiplying GAS load.
+    let nextSource=0;
+    const firstResults=new Array(ROP02_SOURCE_KEYS.length);
+    await Promise.all(Array.from({length:Math.min(2,ROP02_SOURCE_KEYS.length)},async()=>{
+      while(nextSource<ROP02_SOURCE_KEYS.length){
+        const idx=nextSource++;
+        const source=ROP02_SOURCE_KEYS[idx];
+        const initial=await getPage(source,1,0);
+        const total=Number(initial.total??0);
+        if(!Number.isSafeInteger(total)||total<0||total>MAX_ROWS)throw Error("V9_WELCOME_INVALID_ROW_COUNT:"+source);
+        const offset=Math.max(0,total-pageSize);
+        const page=total?await getPage(source,total-offset,offset):{rows:[]};
+        firstResults[idx]={source,total,offset,rows:(page.rows||[]).map(x=>x.payload)};
+      }
+    }));
+    const asDate=row=>normalizeV9PmDate(row?.Fecha??row?.fecha??"");
+    const dateMillis=iso=>/^\d{4}-\d{2}-\d{2}$/.test(iso)?Date.parse(iso+"T00:00:00Z"):NaN;
+    const maxDate=firstResults.reduce((max,item)=>{
+      for(const row of item.rows){
+        const iso=asDate(row);
+        if(Number.isFinite(dateMillis(iso))&&iso>max)max=iso;
+      }
+      return max;
+    },"");
+    if(!maxDate)throw Error("V9_WELCOME_NO_DATED_ROP02");
+    const since=new Date(dateMillis(maxDate)-6*86400000).toISOString().slice(0,10);
+    const records=[];
+    // Backward pagination stops once an older date is reached. The AppSheet
+    // sheets are chronological; check order and fall back to full history when
+    // a source is unsorted instead of silently omitting records.
+    for(const item of firstResults){
+      let offset=item.offset;
+      let pageRows=item.rows;
+      let previousDate="";
+      let outOfOrder=false;
+      const accepted=[];
+      while(true){
+        let oldest="";
+        for(const row of pageRows){
+          const iso=asDate(row);
+          if(!Number.isFinite(dateMillis(iso)))continue;
+          if(previousDate&&iso>previousDate)outOfOrder=true;
+          previousDate=iso;
+          if(!oldest||iso<oldest)oldest=iso;
+          if(iso>=since&&iso<=maxDate)accepted.push(row);
+        }
+        if(outOfOrder)break;
+        if(offset===0||oldest&&oldest<since)break;
+        const earlier=Math.max(0,offset-pageSize);
+        const page=await getPage(item.source,offset-earlier,earlier);
+        pageRows=(page.rows||[]).map(x=>x.payload);
+        if(!pageRows.length)break;
+        offset=earlier;
+      }
+      if(outOfOrder){
+        const full=await fetchSupabaseSource(item.source);
+        records.push(...(full.data||[]).filter(row=>{const date=asDate(row);return date>=since&&date<=maxDate;}));
+      }else{
+        records.push(...accepted);
       }
     }
+    const latest=new Map();
+    const asText=value=>String(value??"").trim();
+    for(const row of records){
+      const interno=asText(row.Interno??row.interno);
+      const proyecto=asText(row.Proyecto??row.proyecto);
+      const fecha=asDate(row);
+      if(!interno||!proyecto||!fecha)continue;
+      const key=interno.toUpperCase().replace(/[-_\s]*JM$/,"")+"|"+proyecto.toUpperCase();
+      const current=latest.get(key);
+      const candidate={
+        INTERNO:interno,PROYECTO:proyecto,ULTIMA_FECHA:fecha,
+        ULTIMO_ESTADO:row["OD o FS"]??row.Estado??row.estado??"",
+        HORAS:row["Cant. Hs."]??row.cantidad_horas??row.horas??0,
+        SUPERVISOR:row["Supervisor Delta"]??row.supervisor_delta??"",
+        CARGAS_7D:(current?.CARGAS_7D||0)+1
+      };
+      if(!current||fecha>=current.ULTIMA_FECHA)latest.set(key,candidate);
+      else current.CARGAS_7D++;
+    }
+    const data=[...latest.values()].sort((a,b)=>String(a.INTERNO).localeCompare(String(b.INTERNO),"es"));
+    return {ok:true,source:"google-sheets-original-recent",data,rows:data.length,total:data.length,referenceDate:maxDate};
+  })();
+  v9WelcomeSnapshotPending=job;
+  try{
+    const value=await job;
+    v9WelcomeSnapshotCache={at:Date.now(),value};
+    return value;
+  }finally{
+    if(v9WelcomeSnapshotPending===job)v9WelcomeSnapshotPending=null;
   }
-  const data=[...latest.values()].sort((a,b)=>String(a.INTERNO).localeCompare(String(b.INTERNO),"es"));
-  const referenceDate=data.reduce((max,row)=>row.ULTIMA_FECHA>max?row.ULTIMA_FECHA:max,"");
-  return {ok:true,source:"supabase-v9",data,rows:data.length,total:data.length,referenceDate};
 }
