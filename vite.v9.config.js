@@ -2,6 +2,10 @@ import {defineConfig} from "vite";
 import react from "@vitejs/plugin-react";
 import {atrasoIchcFixesVitePlugin} from "./scripts/atraso-ichc-fixes-vite-plugin.mjs";
 import {rop02ControlVehicleFiltersVitePlugin} from "./scripts/rop02-control-vehicle-filters-vite-plugin.mjs";
+import {vehicleKmMaintenanceVitePlugin} from "./scripts/vehicle-km-maintenance-vite-plugin.mjs";
+import {pmVehicleScopeVitePlugin} from "./scripts/pm-vehicle-scope-vite-plugin.mjs";
+import {pmVehicleDisplayVitePlugin} from "./scripts/pm-vehicle-display-vite-plugin.mjs";
+import {pmPanelActive7DaysVitePlugin} from "./scripts/pm-panel-active-7-days-vite-plugin.mjs";
 import {resolve,dirname,normalize} from "node:path";
 const root=process.cwd();
 const target=Object.fromEntries(Object.entries({
@@ -60,7 +64,7 @@ function isolateV9(){
  }
 }
 export default defineConfig({
- plugins:[atrasoIchcFixesVitePlugin(),rop02ControlVehicleFiltersVitePlugin(),isolateV9(),react()],
+ plugins:[atrasoIchcFixesVitePlugin(),rop02ControlVehicleFiltersVitePlugin(),pmPanelActive7DaysVitePlugin(),vehicleKmMaintenanceVitePlugin(),pmVehicleScopeVitePlugin(),pmVehicleDisplayVitePlugin(),isolateV9(),react()],
  build:{
   outDir:"dist",
   chunkSizeWarningLimit:900,
