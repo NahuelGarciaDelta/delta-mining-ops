@@ -5,7 +5,10 @@ export const VIEW_SOURCES = Object.freeze({
   // FDS/JM + RMA15 FDS/JM salen en la primera tanda; el resto queda listo detrás.
   // ROP05 también se precarga para que Productividad/Control abran sin espera.
   v9Ops:[], // Panel V9: su API es independiente, no necesita precargar datasets pesados.
-  // V9 welcome uses a recent AppSheet tail snapshot for the current-day KPIs.\n  // Full ROP02 history loads when an operational module is opened; do not\n  // transfer thousands of historic rows simply to enter the home screen.\n  bienvenida:["lista_equipos","rma15_fs","rma15_jm"],
+  // V9 welcome uses a recent AppSheet tail snapshot for the current-day KPIs.
+  // Full ROP02 history loads when an operational module is opened; do not
+  // transfer thousands of historic rows simply to enter the home screen.
+  bienvenida:["lista_equipos","rma15_fs","rma15_jm"],
   equipmentProfile:["lista_equipos",...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","insumos"],
   // Dashboard usa los mismos datasets hidratados por App desde Supabase.
   // No existe una segunda carga monolítica ni un snapshot bloqueante de Apps Script.
