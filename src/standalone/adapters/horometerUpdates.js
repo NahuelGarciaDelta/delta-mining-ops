@@ -1,5 +1,5 @@
 import { newOperationId, requestAppsScript } from "./confirmedWrites.js";
-import { getAuthenticatedUser, getAuthenticatedSessionRevision } from "./authSession.js";
+import { getAuthenticatedUser, getAuthenticatedSessionRevision } from "../../services/authSession.js";
 
 export function meterNumber(value) {
   if (value === "" || value === null || value === undefined) return null;
