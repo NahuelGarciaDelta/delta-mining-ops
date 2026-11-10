@@ -58,7 +58,10 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     return()=>{alive=false;};
   },[]);
   useEffect(()=>{let alive=true;getRma15OpenOtSummary({}).then(response=>{if(alive&&Array.isArray(response?.data))setOpenOtSummary(response.data);}).catch(()=>getRma15({limit:"all",sortBy:"fecha",sortDirection:"asc"}).then(response=>{if(alive)setFallbackRma15(response.data||[]);}).catch(()=>{}));return()=>{alive=false;};},[]);
-  const effectiveRop02=summaryDayFiltered&&Array.isArray(rop02All)?rop02All:(Array.isArray(snapshotRop02)?snapshotRop02:(Array.isArray(rop02All)?rop02All:[]));
+  // The V9 welcome summary is atomic: never show FS-only totals while JM
+  // and secondary project reads are still in flight. Only the fully assembled
+  // cross-project snapshot can populate overview KPIs.
+  const effectiveRop02=Array.isArray(snapshotRop02)?snapshotRop02:[];
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
   const summaryRef=useRef(null);
