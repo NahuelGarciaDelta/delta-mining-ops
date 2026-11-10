@@ -24,7 +24,7 @@ jobs:
       # v9-ops is intentionally retired (HTTP 410). Its legacy proxy contract tests
       # are not valid for the active independent V9 read/write gateways.
       - name: Validar fuentes y controles de escritura V9 actuales
-        run: node --test tests/v9-gas-sources.test.mjs tests/v9-taller-write-gates.test.mjs tests/v9-errors-atraso-all-equipment.test.mjs tests/v9-rop02-all-vehicles-and-pm.test.mjs tests/v9-meters-movement-reconciliation.test.mjs
+        run: node --test tests/v9-gas-sources.test.mjs tests/v9-taller-write-gates.test.mjs tests/v9-errors-atraso-all-equipment.test.mjs tests/v9-rop02-all-vehicles-and-pm.test.mjs tests/v9-pm-ignore-jm-and-trucks.test.mjs tests/v9-meters-movement-reconciliation.test.mjs
       - name: Validar compilación de la app V9
         run: npm run build -- --config vite.v9.config.js
       - name: Verificar base de pruebas
