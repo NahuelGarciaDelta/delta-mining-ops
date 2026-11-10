@@ -399,7 +399,7 @@ function doPost(e) {
     }
 
     if (action === "bulk_update_lista_equipos_from_app") {
-      return buildResponse(handleBulkUpdateListaEquiposFromApp_(payload.updates || [], payload.operationId, payload.actor));
+      return buildResponse(handleBulkUpdateListaEquiposFromApp_(payload.updates || [], payload.operationId, payload.actor, payload.v9Actor));
     }
 
     if (action === "update_rop02_row") {
@@ -6386,9 +6386,9 @@ function handleListaHorometros_(payload, verifyOnly) {
     return {ok:false,status:"failed",error:{code:error.code || "VALIDATION_UNAVAILABLE",message:error.code ? error.message : "No se pudo preparar la operación; no se escribió ninguna celda."}};
   } finally { lock.releaseLock(); }
 }
-function handleBulkUpdateListaEquiposFromApp_(updates, operationId, actor) {
-  // Old clients must not silently invoke a broad equipment update.
-  return handleListaHorometros_({operationId:operationId,updates:updates,actor:actor}, false);
+function handleBulkUpdateListaEquiposFromApp_(updates, operationId, actor, v9Actor) {
+  // Both legacy and V9 callers use the same guarded, idempotent write logic.
+  return handleListaHorometros_({operationId:operationId,updates:updates,actor:actor,v9Actor:v9Actor}, false);
 }
 function handleUpdateListaEquipo_(originalKeys, rowObj) {
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
