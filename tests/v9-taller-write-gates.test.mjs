@@ -104,6 +104,45 @@ test("Production enables only after deployed Apps Script proves UUID deduplicati
  assert.equal(calls.length,2);
 });
 
+test("Oficina Técnica can receive structured meter receipts without false pending states",async()=>{
+ const calls=setup();
+ const responseRows=[
+  {index:0,status:"confirmed",identity:{codigoNuevo:"CAC-0040"},changed:true},
+  {index:1,status:"failed",identity:{codigoNuevo:"CAC-0060"},code:"CONFLICT",message:"Value changed"}
+ ];
+ globalThis.fetch=async(url)=>{
+  calls.push(String(url));
+  if(String(url).endsWith("/auth/v1/user"))
+   return new Response(JSON.stringify({email:"operator@example.test",app_metadata:{v9_active:true,v9_role:"OFICINA_TECNICA",v9_area:"OFICINA TECNICA"}}),{status:200});
+  if(String(url)===gas)
+   return new Response(JSON.stringify({ok:false,status:"partial",results:responseRows,updatedRows:1,failedRows:1,pendingRows:0}),{status:200});
+  throw Error("Unexpected upstream");
+ };
+ const response=await request({action:"update_lista_horometros",operationId:"operation-123456789",updates:[
+  {identity:{codigoNuevo:"CAC-0040"},expectedValue:100,value:101},
+  {identity:{codigoNuevo:"CAC-0060"},expectedValue:200,value:201}
+ ]});
+ assert.equal(response.code,200);
+ assert.equal(response.body.results[0].status,"confirmed");
+ assert.equal(response.body.results[1].status,"failed");
+ assert.equal(response.body.results[1].code,"CONFLICT");
+ assert.equal(calls.length,2);
+});
+
+test("Meter write fails closed for unauthorized V9 role without contacting GAS",async()=>{
+ const calls=setup();
+ globalThis.fetch=async(url)=>{
+  calls.push(String(url));
+  if(String(url).endsWith("/auth/v1/user"))
+   return new Response(JSON.stringify({email:"unauthorized@example.test",app_metadata:{v9_active:true,v9_role:"ADMINISTRATIVO",v9_area:"ABASTECIMIENTO"}}),{status:200});
+  throw Error("Unexpected GAS call");
+ };
+ const response=await request({action:"update_lista_horometros",updates:[]});
+ assert.equal(response.code,403);
+ assert.equal(response.body.error,"V9_WRITE_FORBIDDEN");
+ assert.equal(calls.length,1);
+});
+
 test.after(()=>{
  globalThis.fetch=savedFetch;
  for(const [key,value] of Object.entries(original)){
