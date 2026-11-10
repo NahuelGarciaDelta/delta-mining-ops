@@ -297,7 +297,8 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
       const accepted=[];
       while(true){
         let oldest="";
-        for(const row of pageRows){
+        for(let rowIdx=pageRows.length-1;rowIdx>=0;rowIdx--){
+          const row=pageRows[rowIdx];
           const iso=asDate(row);
           if(!Number.isFinite(dateMillis(iso)))continue;
           if(previousDate&&iso>previousDate)outOfOrder=true;
@@ -336,7 +337,7 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
         SUPERVISOR:row["Supervisor Delta"]??row.supervisor_delta??"",
         CARGAS_7D:(current?.CARGAS_7D||0)+1
       };
-      if(!current||fecha>=current.ULTIMA_FECHA)latest.set(key,candidate);
+      if(!current||fecha>current.ULTIMA_FECHA)latest.set(key,candidate);
       else current.CARGAS_7D++;
     }
     const data=[...latest.values()].sort((a,b)=>String(a.INTERNO).localeCompare(String(b.INTERNO),"es"));
