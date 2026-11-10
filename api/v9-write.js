@@ -54,6 +54,8 @@ function allowed(role,area,action) {
   if (role === "ADMIN") return true;
   if (ADMIN_ONLY.has(action)) return false;
   if (OFFICETECH.has(action)) return role === "OFICINA_TECNICA" || area === "OFICINA TECNICA";
+  if (action === "update_lista_horometros" || action === "verify_lista_horometros" || action === "bulk_update_lista_equipos_from_app")
+    return role === "OFICINA_TECNICA" || area === "OFICINA TECNICA" || area === "TALLER CENTRAL";
   if (TALLER.has(action)) return area === "TALLER CENTRAL";
   if (SUPPLY.has(action)) return role === "ADMINISTRATIVO" || area === "ABASTECIMIENTO";
   if (MAINT.has(action)) return role === "MECANICO" || role === "OFICINA_TECNICA" || area === "MANTENIMIENTO";
@@ -176,7 +178,14 @@ export default async function handler(req,res) {
       if (!upstream.ok || text.length>100000) return json(res,502,{ok:false,error:"V9_GAS_WRITE_FAILED"});
       let result; try { result=JSON.parse(text); } catch { return json(res,502,{ok:false,error:"V9_GAS_INVALID_REPLY"}); }
       if (typeof result?.ok !== "boolean") return json(res,502,{ok:false,error:"V9_GAS_INVALID_REPLY"});
-      return json(res,result.ok?200:409,result);
+      // A valid per-row meter receipt can contain confirmed, failed and pending
+      // entries; return it intact so the UI never disguises backend validation
+      // failures as 79 unknown writes due to an HTTP 409.
+      const meterReceipt=(action==="update_lista_horometros"||action==="verify_lista_horometros"||
+        action==="bulk_update_lista_equipos_from_app") &&
+        Array.isArray(result.results) &&
+        result.results.every(row=>["confirmed","failed","pending"].includes(row?.status));
+      return json(res,(result.ok||meterReceipt)?200:409,result);
     } finally { clearTimeout(timer); }
   } catch {
     return json(res,502,{ok:false,error:"V9_WRITE_BRIDGE_UNAVAILABLE"});
