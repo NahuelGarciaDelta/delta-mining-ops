@@ -1,6 +1,7 @@
 import { newOperationId, requestAppsScript } from "./confirmedWrites.js";
 import { getAuthenticatedUser, getAuthenticatedSessionRevision } from "../../services/authSession.js";
 import {fetchSupabaseSource} from "./supabaseReadApi.js";
+import {reconcileHorometerReadback} from "./horometerReadback.js";
 
 export function meterNumber(value) {
   if (value === "" || value === null || value === undefined) return null;
@@ -27,40 +28,6 @@ export function summarizeHorometerResults(operation, results) {
     failedRows: failed.length,
     pendingRows: uncertain.length
   };
-}
-
-// Reconcile unknown relay responses against current cells in the ORIGINAL
-// Lista Maestra. This is read-only: it never resends a timed-out mutation.
-export function reconcileHorometerReadback(results,rows){
- const normCode=v=>String(v??"").toUpperCase().replace(/[^A-Z0-9]/g,"");
- const codeIndex=new Map();
- for(const row of rows||[]){
-  const values=[row["Código nuevo"],row["Codigo nuevo "],row.codigo_nuevo,row["Código de Drusila"],row["Código Drusila"],row["Codigo de Drusila"],row.codigo_drusila];
-  for(const raw of values){
-   const key=normCode(raw);if(!key)continue;
-   if(!codeIndex.has(key))codeIndex.set(key,[]);
-   const candidates=codeIndex.get(key);if(!candidates.includes(row))candidates.push(row);
-  }
- }
- return results.map(result=>{
-  if(result.status!=="pending")return result;
-  const update=result._requested;
-  if(!update||!Number.isFinite(meterNumber(update.value)))return result;
-  const identity=update.identity||{};
-  const keys=[identity.codigoNuevo,identity.codigoDrusila].map(normCode).filter(Boolean);
-  if(!keys.length)return result;
-  const matches=keys.map(k=>codeIndex.get(k)||[]);
-  if(matches.some(arr=>arr.length!==1))return result;
-  const row=matches[0][0];
-  if(matches.some(arr=>arr[0]!==row))return result;
-  const meterKey=["HORAS","Horas","horas","Horómetro","Horometro"].find(k=>Object.prototype.hasOwnProperty.call(row,k));
-  if(!meterKey)return result;
-  const stored=meterNumber(row[meterKey]),expected=meterNumber(update.value);
-  if(!Number.isFinite(stored)||stored!==expected)return result;
-  return {...result,status:"confirmed",changed:meterNumber(update.expectedValue)!==expected,
-    column:meterKey,currentValue:row[meterKey],value:update.value,confirmation:"original_sheet_readback",
-    verificationWarning:null,code:undefined,message:undefined};
- });
 }
 
 export async function submitHorometerOperation(url, operation, { verifyOnly = false } = {}) {
