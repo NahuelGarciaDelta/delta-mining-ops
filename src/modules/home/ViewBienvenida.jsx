@@ -293,7 +293,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const favoritesBadge=favorites.length;
   const sidebarSectionsBase=[
     {key:"home",label:"Inicio",icon:"dashboard",active:activeView==="home",badge:null,action:()=>setActiveView("home")},
-    {key:"dashboard",label:"Dashboard",icon:"barChart",active:activeView==="dashboard",badge:null,action:()=>setActiveView("dashboard")},
+    {key:"dashboard",label:"Dashboard",icon:"barChart",active:activeView==="dashboard",badge:null,action:()=>onNavigate?.("dashboard")},
     {key:"agenda",label:"Agenda",icon:"calendar",active:activeView==="agenda",badge:null,action:()=>setActiveView("agenda")},
     {key:"weather",label:"Clima",icon:"alert",active:activeView==="weather",badge:null,action:()=>setActiveView("weather")},
     {key:"profile",label:"Mi Perfil",icon:"person",active:activeView==="profile",badge:null,action:()=>onOpenProfile?.()},
