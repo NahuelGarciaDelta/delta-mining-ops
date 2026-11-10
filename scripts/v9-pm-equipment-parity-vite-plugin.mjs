@@ -8,6 +8,13 @@ export function v9PmEquipmentParityVitePlugin(){
   transform(source,id){
    const path=String(id||"").replace(/\\/g,"/").split("?")[0];
    if(!path.endsWith("/src/modules/mantenimiento/MantenimientoProgramadoView.jsx"))return null;
+   // Canonicalize only equipment IDs: -JM is ignored for PM seed,
+   // configuration lookup, ROP02 activity and deduplication, without changing
+   // the stored code or the project label.
+   const oldNorm='const norm = v => String(v ?? "").toUpperCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[^A-Z0-9]+/g, "").trim();';
+   const newNorm='const norm = v => String(v ?? "").toUpperCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/(\\d)(?:[-_\\s]?JM)$/i, "$1").replace(/[^A-Z0-9]+/g, "").trim();';
+   if(!source.includes(oldNorm))throw Error("[v9-pm-parity] PM norm anchor missing");
+   source=source.replace(oldNorm,newNorm);
    const codeOld="const raw = text(value).toUpperCase().replace(/\\s*\\(.*?\\)/g, '').trim();";
    const codeNew="const raw = text(value).toUpperCase().replace(/\\s*\\(.*?\\)/g, '').trim().replace(/(?<=\\d)(?:[-_\\s]?JM)$/i, '');";
    // Only replace the codeVariants helper, never unrelated input fields.
