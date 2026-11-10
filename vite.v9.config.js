@@ -5,6 +5,7 @@ import {rop02ControlVehicleFiltersVitePlugin} from "./scripts/rop02-control-vehi
 import {vehicleKmMaintenanceVitePlugin} from "./scripts/vehicle-km-maintenance-vite-plugin.mjs";
 import {pmVehicleScopeVitePlugin} from "./scripts/pm-vehicle-scope-vite-plugin.mjs";
 import {pmVehicleDisplayVitePlugin} from "./scripts/pm-vehicle-display-vite-plugin.mjs";
+import {v9PmEquipmentParityVitePlugin} from "./scripts/v9-pm-equipment-parity-vite-plugin.mjs";
 import {pmPanelActive7DaysVitePlugin} from "./scripts/pm-panel-active-7-days-vite-plugin.mjs";
 import {v9UnifiedControlSourcesVitePlugin} from "./scripts/v9-unified-control-sources-vite-plugin.mjs";
 import {resolve,dirname,normalize} from "node:path";
@@ -65,7 +66,7 @@ function isolateV9(){
  }
 }
 export default defineConfig({
- plugins:[v9UnifiedControlSourcesVitePlugin(),atrasoIchcFixesVitePlugin(),rop02ControlVehicleFiltersVitePlugin(),pmPanelActive7DaysVitePlugin(),vehicleKmMaintenanceVitePlugin(),pmVehicleScopeVitePlugin(),pmVehicleDisplayVitePlugin(),isolateV9(),react()],
+ plugins:[v9UnifiedControlSourcesVitePlugin(),atrasoIchcFixesVitePlugin(),rop02ControlVehicleFiltersVitePlugin(),pmPanelActive7DaysVitePlugin(),vehicleKmMaintenanceVitePlugin(),pmVehicleScopeVitePlugin(),pmVehicleDisplayVitePlugin(),v9PmEquipmentParityVitePlugin(),isolateV9(),react()],
  build:{
   outDir:"dist",
   chunkSizeWarningLimit:900,
