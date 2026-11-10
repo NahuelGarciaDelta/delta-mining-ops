@@ -140,7 +140,9 @@ export default async function handler(req,res) {
       process.env.DELTA_V9_TALLER_SANDBOX_VERIFIED==="true";
     const approvalReady=configuredMode==="production" &&
       process.env.DELTA_V9_TALLER_PRODUCTION_APPROVED==="true";
-    // Only Taller movements need the extra deployed-version handshake.\n    // Do not add another Apps Script roundtrip before meter batches or PM writes.\n    const productionReady=approvalReady && (TALLER_ACTIONS.has(action)||action===TALLER_STATUS_ACTION) && await deployedTallerCapability(gasUrl,token);
+    // Only Taller movements need the extra deployed-version handshake.
+    // Do not add another Apps Script roundtrip before meter batches or PM writes.
+    const productionReady=approvalReady && (TALLER_ACTIONS.has(action)||action===TALLER_STATUS_ACTION) && await deployedTallerCapability(gasUrl,token);
     const writeMode=sandboxReady?"sandbox":productionReady?"production":"disabled";
     if (action===TALLER_STATUS_ACTION)
       return json(res,200,{ok:true,mode:writeMode,canWrite:writeMode!=="disabled",requiresConfirmation:true});
