@@ -485,7 +485,7 @@ function doPost(e) {
       return buildResponse(handleSavePMRepuesto_(payload.repuesto || {}));
     }
     if (action === "save_equipment_movement") {
-      return buildResponse(handleSaveEquipmentMovement_(payload.movement || payload.movimiento || payload));
+      return buildResponse(handleSaveEquipmentMovement_(payload.movement || payload.movimiento || payload, payload.operationId || "", payload.v9Actor));
     }
     if (action === "cancel_equipment_movement") {
       return buildResponse(handleCancelEquipmentMovement_(payload.id || payload.movementId || "", payload.usuario || ""));
@@ -1356,7 +1356,7 @@ function handleGetEquipmentMovements_(onlyActive) {
   return {ok:true, action:onlyActive?"get_active_equipment_movements":"get_equipment_movements", data:data, activeMovementByEquipment:activeMap, rows:data.length, meta:{serverVersion:getDatasetVersion_("movimientos_equipos")}, fetchedAt:new Date().toISOString()};
 }
 
-function handleSaveEquipmentMovement_(movement) {
+function handleSaveEquipmentMovement_(movement, operationId, v9Actor) {
   movement = movement || {};
   var interno = String(movement.interno || "").trim();
   var motivo = String(movement.motivo || "").trim();
@@ -1369,9 +1369,29 @@ function handleSaveEquipmentMovement_(movement) {
   if (!normalized) throw new Error("INTERNO_NORMALIZADO inválido.");
   var origin = normalizeMovementProject_(movement.proyectoOrigen);
   var destination = normalizeMovementProject_(movement.proyectoDestino || (tipo === "BAJO_SAN_JUAN" ? "SAN JUAN" : ""));
+  // Browser-provided user is never authoritative in V9. The JWT was verified
+  // by doPost before this handler, and this operation ID is the permanent row ID.
+  var fixedId = String(operationId || "").trim();
+  if (fixedId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(fixedId))
+    throw new Error("Identificador de operación inválido.");
+  var operator = v9Actor && v9Actor.email ? String(v9Actor.email) : String(movement.usuario||"Usuario").trim();
   var lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     var sheet = ensureMovimientosEquiposSheet();
+    if(fixedId && sheet.getLastRow()>=2){
+      var existingIds=sheet.getRange(2,1,sheet.getLastRow()-1,1).getDisplayValues();
+      for(var k=0;k<existingIds.length;k++){
+        if(String(existingIds[k][0])===fixedId){
+          var sameRow=sheet.getRange(k+2,1,1,MOVIMIENTOS_EQUIPOS_HEADERS_.length).getValues()[0];
+          var recovered=movementRowObject_(MOVIMIENTOS_EQUIPOS_HEADERS_,sameRow);
+          if(recovered.internoNormalizado!==normalized || recovered.proyectoOrigen!==origin ||
+             recovered.tipoMovimiento!==tipo || recovered.motivo!==motivo)
+            throw new Error("Identificador de movimiento reutilizado con otros datos.");
+          return {ok:true,action:"save_equipment_movement",movement:recovered,
+            recovered:true,version:getDatasetVersion_("movimientos_equipos")};
+        }
+      }
+    }
     if (sheet.getLastRow() >= 2) {
       var headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getDisplayValues()[0];
       var codeCol = headers.indexOf("INTERNO_NORMALIZADO") + 1, stateCol = headers.indexOf("ESTADO") + 1, activeCol = headers.indexOf("ACTIVO") + 1;
@@ -1385,7 +1405,7 @@ function handleSaveEquipmentMovement_(movement) {
         }
       });
     }
-    var values = [Utilities.getUuid(),new Date(),interno,normalized,origin,destination,tipo,motivo,String(movement.observacion||"").trim(),String(movement.usuario||"Usuario").trim(),String(movement.fechaUltimoRop02||"").slice(0,10),"ACEPTADO",true];
+    var values = [fixedId||Utilities.getUuid(),new Date(),interno,normalized,origin,destination,tipo,motivo,String(movement.observacion||"").trim(),operator,String(movement.fechaUltimoRop02||"").slice(0,10),"ACEPTADO",true];
     sheet.appendRow(values);
     SpreadsheetApp.flush();
     var movementVersion = bumpDatasetVersion_("movimientos_equipos", true);
