@@ -198,8 +198,8 @@ export async function fetchSupabaseDatasetQuery(params={}){
   const results=await Promise.all(keys.map(fetchSupabaseSource));
   let data=results.flatMap(x=>x.data||[]);
   const normal=v=>String(v??"").trim().toUpperCase();
-  const date=v=>String(v??"").slice(0,10);
-  const from=String(params.desde||"").slice(0,10),to=String(params.hasta||"").slice(0,10);
+  const date=v=>normalizeV9PmDate(v);
+  const from=normalizeV9PmDate(params.desde),to=normalizeV9PmDate(params.hasta);
   data=data.filter(x=>{
     const fecha=date(x.Fecha||x.fecha||x["Fecha del Parte Diario"]||x["Fecha de OT"]);
     if(from&&fecha<from)return false;if(to&&fecha>to)return false;
@@ -251,7 +251,7 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
   // permanentemente en "Cargando" aunque los ROP02 ya estuvieran disponibles.
   const results=await Promise.all(ROP02_SOURCE_KEYS.map(fetchSupabaseSource));
   const latest=new Map();
-  const asDate=value=>String(value??"").slice(0,10);
+  const asDate=value=>normalizeV9PmDate(value);
   const asText=value=>String(value??"").trim();
   for(const source of results){
     for(const row of source?.data||[]){
