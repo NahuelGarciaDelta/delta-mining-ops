@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {reconcileHorometerReadback} from "../src/standalone/adapters/horometerUpdates.js";
+import {reconcileHorometerReadback} from "../src/standalone/adapters/horometerReadback.js";
 import {readFileSync} from "node:fs";
 
 const pending=(identity,value,expectedValue)=>({
