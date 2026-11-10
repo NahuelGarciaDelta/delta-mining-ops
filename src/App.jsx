@@ -613,7 +613,30 @@ export default function App(){
     try{
       // No saturar Apps Script: las fuentes comparten el mismo runtime y las
       // solicitudes masivas hacían que ROP02_JM venciera antes de empezar a responder.
-      const results=await runWithConcurrency_(toCheck,2,key=>fetchOneSource(key,{force,cacheRecords}));
+      // Publish each fully validated source as soon as it is available.
+      // Previously Promise.all waited for every ROP02 history and kept even
+      // the fast RMA15/lista datasets invisible until the slowest finished.
+      const results=await runWithConcurrency_(toCheck,2,async key=>{
+        const item=await fetchOneSource(key,{force,cacheRecords});
+        if(!item.skipped){
+          startTransition(()=>{
+            setRawSources(prev=>{
+              if(prev[key]===item.value)return prev;
+              const next={...prev,[key]:item.value};
+              rawSourcesRef.current=next;
+              return next;
+            });
+            setLoadedSources(prev=>{
+              if(prev[key])return prev;
+              const next={...prev,[key]:true};
+              loadedSourcesRef.current=next;
+              return next;
+            });
+          });
+          setLastUpdate(new Date());
+        }
+        return item;
+      });
 
       // A missing/expired V9 token invalidates the whole session. Do not leave
       // the legacy shell visible with one V9_SESSION_REQUIRED banner per source.
