@@ -21,13 +21,14 @@ export function v9UnifiedControlSourcesVitePlugin(){
     return {code:next,map:null};
    }
    if(path.endsWith(TARGET_ROUTE)){
-    const begin='  useEffect(()=>{\n  if(!controlErrorsView)return;\n  let active=true;\n  refreshHistoricalDataset("rop02",historicalQuery)';
-    const endMarker=' },[controlErrorsView,historicalQuery,assignedProjectsKey]);';
-    const start=source.indexOf(begin);
-    const end=start<0?-1:source.indexOf(endMarker,start);
-    if(start<0||end<0)throw Error("[v9-unified-control] Control errors remote refresh block missing");
+    const refresh=source.indexOf('refreshHistoricalDataset("rop02",historicalQuery).then');
+    const start=refresh<0?-1:source.lastIndexOf('useEffect(()=>{',refresh);
+    const endMarker='},[controlErrorsView,historicalQuery,assignedProjectsKey]);';
+    const end=refresh<0?-1:source.indexOf(endMarker,refresh);
+    if(start<0||end<0||refresh-start>180)
+      throw Error("[v9-unified-control] Control errors remote refresh block missing");
     // Preserve hook order while skipping an unnecessary second full ROP02 read.
-    const next=source.slice(0,start)+"  useEffect(()=>{},[controlErrorsView,historicalQuery,assignedProjectsKey]);"+source.slice(end+endMarker.length);
+    const next=source.slice(0,start)+"useEffect(()=>{},[controlErrorsView,historicalQuery,assignedProjectsKey]);"+source.slice(end+endMarker.length);
     return {code:next,map:null};
    }
    return null;
