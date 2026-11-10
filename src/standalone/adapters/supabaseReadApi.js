@@ -222,29 +222,94 @@ export function normalizeV9PmDate(value){
  if(local)return local[3]+"-"+local[2].padStart(2,"0")+"-"+local[1].padStart(2,"0");
  return raw;
 }
+// Google Sheets publishes original uppercase column headers. V9 must return
+// exactly the camelCase client contract produced by handleGetMantenimientoProgramado_
+// in the original Apps Script; PM component does not consume raw Sheets rows.
+export function mapV9PmSourceRows(rows){
+ const pick=(row,...keys)=>{
+  for(const key of keys){
+   const v=row?.[key];
+   if(v!==undefined&&v!==null&&v!=="")return v;
+  }
+  return undefined;
+ };
+ const asText=value=>String(value??"").trim();
+ const asNum=(value,fallback=0)=>{
+  if(value===undefined||value===null||value==="")return fallback;
+  const n=Number(typeof value==="string"?value.trim().replace(",","."):value);
+  return Number.isFinite(n)?n:fallback;
+ };
+ const classify=row=>asText(pick(row,"_entity","entity","tipo_registro","tipo")).toUpperCase();
+ const config=[],registros=[],programaciones=[],repuestos=[];
+ for(const row of rows||[]){
+  const kind=classify(row);
+  if(kind==="CONFIG"||kind==="PM_CONFIG"||(!kind&&("INTERVALO_HS" in row||"intervalo_hs" in row||"horometroUltimoPM" in row))){
+   config.push({
+    interno:asText(pick(row,"interno","INTERNO")),
+    equipo:asText(pick(row,"equipo","EQUIPO")),
+    proyecto:asText(pick(row,"proyecto","PROYECTO")),
+    intervalo:asNum(pick(row,"intervalo","INTERVALO_HS","intervalo_hs"),250),
+    alertaDesde:asNum(pick(row,"alertaDesde","ALERTA_DESDE_HS"),200),
+    atrasadoDesde:asNum(pick(row,"atrasadoDesde","ATRASADO_DESDE_HS"),350),
+    horometroUltimoPM:asNum(pick(row,"horometroUltimoPM","HOROMETRO_ULTIMO_PM")),
+    fechaUltimoPM:normalizeV9PmDate(pick(row,"fechaUltimoPM","FECHA_ULTIMO_PM")),
+    tipoUltimoPM:asText(pick(row,"tipoUltimoPM","TIPO_ULTIMO_PM"))||"PM 250",
+    horometroActualManual:asNum(pick(row,"horometroActualManual","HOROMETRO_ACTUAL_MANUAL")),
+    activo:asText(pick(row,"activo","ACTIVO")||"SI").toUpperCase(),
+    observaciones:asText(pick(row,"observaciones","OBSERVACIONES"))
+   });
+  }else if(kind==="REGISTRO"||kind==="REGISTROS"||kind==="PM_REGISTROS"||(!kind&&("ID_PM" in row||"idPM" in row))){
+   registros.push({
+    idPM:asText(pick(row,"idPM","ID_PM")),
+    interno:asText(pick(row,"interno","INTERNO")),
+    equipo:asText(pick(row,"equipo","EQUIPO")),
+    proyecto:asText(pick(row,"proyecto","PROYECTO")),
+    fecha:normalizeV9PmDate(pick(row,"fecha","FECHA")),
+    horometro:asNum(pick(row,"horometro","HOROMETRO")),
+    tipoPM:asText(pick(row,"tipoPM","TIPO_PM"))||"PM 250",
+    tecnico:asText(pick(row,"tecnico","TECNICO")),
+    ot:asText(pick(row,"ot","N_OT")),
+    observaciones:asText(pick(row,"observaciones","OBSERVACIONES")),
+    estado:asText(pick(row,"estado","ESTADO"))||"REALIZADO"
+   });
+  }else if(kind==="PROGRAMACION"||kind==="PROGRAMACIONES"||kind==="PM_PROGRAMACION"||(!kind&&("DURACION_HS" in row||"duracionHs" in row))){
+   programaciones.push({
+    id:asText(pick(row,"id","ID")),
+    interno:asText(pick(row,"interno","INTERNO")),
+    equipo:asText(pick(row,"equipo","EQUIPO")),
+    proyecto:asText(pick(row,"proyecto","PROYECTO")),
+    fecha:normalizeV9PmDate(pick(row,"fecha","FECHA")),
+    turno:asText(pick(row,"turno","TURNO"))||"TURNO DIA",
+    tecnico:asText(pick(row,"tecnico","TECNICO")),
+    duracionHs:asNum(pick(row,"duracionHs","DURACION_HS")),
+    ubicacion:asText(pick(row,"ubicacion","UBICACION")),
+    observaciones:asText(pick(row,"observaciones","OBSERVACIONES")),
+    estado:asText(pick(row,"estado","ESTADO"))||"PROGRAMADO"
+   });
+  }else if(kind==="REPUESTO"||kind==="REPUESTOS"||kind==="PM_REPUESTOS"||(!kind&&("CANTIDAD_MINIMA" in row||"cantidadMinima" in row))){
+   repuestos.push({
+    id:asText(pick(row,"id","ID")),
+    codigo:asText(pick(row,"codigo","CODIGO")),
+    descripcion:asText(pick(row,"descripcion","DESCRIPCION")),
+    tipoPM:asText(pick(row,"tipoPM","TIPO_PM"))||"PM 250",
+    cantidadMinima:asNum(pick(row,"cantidadMinima","CANTIDAD_MINIMA")),
+    stockActual:asNum(pick(row,"stockActual","STOCK_ACTUAL")),
+    proyecto:asText(pick(row,"proyecto","PROYECTO"))||"TODOS",
+    observaciones:asText(pick(row,"observaciones","OBSERVACIONES"))
+   });
+  }
+ }
+ registros.sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||b.horometro-a.horometro);
+ return {config,registros,programaciones,repuestos};
+}
 export async function fetchSupabasePmSnapshot(){
  const r=await fetchSupabaseSource("mantenimiento_programado");
  const rows=Array.isArray(r.data)?r.data:[];
- const kind=row=>String(row?._entity||row?.entity||row?.tipo_registro||row?.tipo||"").trim().toUpperCase();
- const normalize=row=>{
-  const item={...row};
-  for(const key of ["fecha","FECHA","fechaUltimoPM","FECHA_ULTIMO_PM","fechaCarga","FECHA_CARGA"]){
-   if(item[key]!=null&&item[key]!=="")item[key]=normalizeV9PmDate(item[key]);
-  }
-  return item;
- };
- const config=[],registros=[],programaciones=[],repuestos=[];
- for(const entry of rows){
-  const row=normalize(entry);
-  const k=kind(row);
-  if(k==="CONFIG"||k==="PM_CONFIG"||(!k&&("INTERVALO_HS" in row||"intervalo_hs" in row)))config.push(row);
-  else if(k==="REGISTRO"||k==="REGISTROS"||k==="PM_REGISTROS"||(!k&&("ID_PM" in row||"id_pm" in row)))registros.push(row);
-  else if(k==="PROGRAMACION"||k==="PROGRAMACIONES"||k==="PM_PROGRAMACION"||(!k&&("DURACION_HS" in row||"duracion_hs" in row)))programaciones.push(row);
-  else if(k==="REPUESTO"||k==="REPUESTOS"||k==="PM_REPUESTOS"||(!k&&("CANTIDAD_MINIMA" in row||"cantidad_minima" in row)))repuestos.push(row);
- }
- return {ok:true,source:"google-sheets-original",config,registros,programaciones,repuestos,
+ const normalized=mapV9PmSourceRows(rows);
+ return {ok:true,source:"google-sheets-original",...normalized,
   rows:rows.length,serverTime:TIME()};
 }
+
 // The welcome page only needs the latest operational day and last-seven-day
 // activity, not the entire history of every AppSheet ROP02 sheet. Read bounded
 // pages from the TAIL of the ORIGINAL Sheets and scan backwards through the
