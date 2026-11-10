@@ -331,12 +331,14 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
       while(nextSource<ROP02_SOURCE_KEYS.length){
         const idx=nextSource++;
         const source=ROP02_SOURCE_KEYS[idx];
-        const initial=await getPage(source,1,0);
+        // Recent JM and FS: original AppSheet sheets, not historical mirrors.
+        const entity=(source==="rop02_jm"||source==="rop02_fs")?"LIVE":"";
+        const initial=await getPage(source,1,0,entity);
         const total=Number(initial.total??0);
         if(!Number.isSafeInteger(total)||total<0||total>MAX_ROWS)throw Error("V9_WELCOME_INVALID_ROW_COUNT:"+source);
         const offset=Math.max(0,total-pageSize);
-        const page=total?await getPage(source,total-offset,offset):{rows:[]};
-        firstResults[idx]={source,total,offset,rows:(page.rows||[]).map(x=>x.payload)};
+        const page=total?await getPage(source,total-offset,offset,entity):{rows:[]};
+        firstResults[idx]={source,entity,total,offset,rows:(page.rows||[]).map(x=>x.payload)};
       }
     }));
     const asDate=row=>normalizeV9PmDate(row?.Fecha??row?.fecha??"");
@@ -374,14 +376,24 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
         if(outOfOrder)break;
         if(offset===0||oldest&&oldest<since)break;
         const earlier=Math.max(0,offset-pageSize);
-        const page=await getPage(item.source,offset-earlier,earlier);
+        const page=await getPage(item.source,offset-earlier,earlier,item.entity);
         pageRows=(page.rows||[]).map(x=>x.payload);
         if(!pageRows.length)break;
         offset=earlier;
       }
       if(outOfOrder){
-        const full=await fetchSupabaseSource(item.source);
-        records.push(...(full.data||[]).filter(row=>{const date=asDate(row);return date>=since&&date<=maxDate;}));
+        if(item.entity==="LIVE"){
+          // Read every page of the live sheet rather than falling back to a stale mirror.
+          const all=[];
+          for(let off=0;off<item.total;off+=PAGE){
+            const page=await getPage(item.source,Math.min(PAGE,item.total-off),off,item.entity);
+            all.push(...(page.rows||[]).map(entry=>entry.payload));
+          }
+          records.push(...all.filter(row=>{const date=asDate(row);return date>=since&&date<=maxDate;}));
+        }else{
+          const full=await fetchSupabaseSource(item.source);
+          records.push(...(full.data||[]).filter(row=>{const date=asDate(row);return date>=since&&date<=maxDate;}));
+        }
       }else{
         records.push(...accepted);
       }
