@@ -54,7 +54,10 @@ export async function requestAppsScript(url,payload,{timeoutMs=60000}={}){
       throw new Error("Respuesta de confirmación inválida");
     if(!response.ok){
       const message=typeof result.error==="string"?result.error:result.error?.message;
-      throw new Error(message||"HTTP "+response.status);
+      const error=new Error(message||"HTTP "+response.status);
+      error.httpStatus=response.status;
+      error.code=typeof result.error==="string"?result.error:(result.error?.code||"V9_WRITE_HTTP_"+response.status);
+      throw error;
     }
     return result;
   }finally{
