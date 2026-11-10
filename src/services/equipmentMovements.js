@@ -97,7 +97,27 @@ export async function saveEquipmentMovement(movement){
       prepared.observacion=appendEquipmentMovementLinkMetadata(prepared.observacion,prepared.internoDestino,prepared.fechaPrimerRop02Destino);
     }
   }
-  const response=await postToAppsScript({action:"save_equipment_movement",movement:prepared});
+  // Stable operation identity for safe reconciliation after a lost HTTP reply.
+  // Never submit a second movement automatically when the commit is uncertain.
+  const operationId=globalThis.crypto?.randomUUID?.();
+  if(!operationId)throw new Error("No se pudo crear un identificador seguro para el movimiento.");
+  let response;
+  try {
+    response=await postToAppsScript({action:"save_equipment_movement",operationId,movement:prepared});
+  } catch(error) {
+    // The GAS bridge might have committed before Vercel timed out. Read back
+    // by exact UUID; do not retry appendRow with a new movement ID.
+    try{
+      const rows=(await fetchAction(APPS_SCRIPT_URL,"get_equipment_movements",{force:true,compact:false}))?.data||[];
+      const saved=rows.find(row=>String(row.id||row.ID||"")===operationId);
+      if(saved)response={ok:true,action:"save_equipment_movement",movement:saved,verifiedBy:"original_sheet_readback"};
+    }catch(_){}
+    if(!response){
+      const err=new Error("No se pudo confirmar el movimiento en la planilla original. Verificá el historial antes de volver a guardarlo.");
+      err.code="V9_MOVEMENT_CONFIRMATION_PENDING";
+      throw err;
+    }
+  }
   if(typeof window!=="undefined")window.__dmPendingEquipmentMovementLink=null;
   const saved=response?.movement;
   if(saved){
