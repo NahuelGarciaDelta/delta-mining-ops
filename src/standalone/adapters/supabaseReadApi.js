@@ -4,7 +4,7 @@ import {ROP02_SOURCE_KEYS,ROP02_SOURCES} from "../../config/rop02Sources.js";
 export const SUPABASE_TYPED_SOURCES=new Set([...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","lista_equipos","insumos","mantenimiento_programado","combustible","raba03","movimientos_equipos","movimientos_taller"]);
 // Read bounded pages to reduce Apps Script execution time and response sizes.
 // Keep MAX_ROWS and full-page aggregation to preserve complete data integrity.
-const PAGE=300,MAX_ROWS=60000;
+const PAGE=600,MAX_ROWS=60000;
 const TIME=()=>new Date().toISOString();
 // Original Sheets return display headers; sandbox snapshots return typed keys.
 // Normalize both without replacing a populated original field with undefined.
@@ -101,7 +101,7 @@ export function fetchSupabaseSource(source){
     const pages=new Array(Math.max(1,pageCount));pages[0]=first;
     // Limit parallel Apps Script calls to three to avoid exhausting GAS quotas.
     let cursor=1;
-    const workers=Array.from({length:Math.min(3,Math.max(0,pageCount-1))},async()=>{
+    const workers=Array.from({length:Math.min(2,Math.max(0,pageCount-1))},async()=>{
       while(cursor<pageCount){
         const index=cursor++;
         pages[index]=await getPage(source,PAGE,index*PAGE);
