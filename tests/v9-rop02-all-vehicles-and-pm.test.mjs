@@ -36,7 +36,7 @@ test("V9 applies all original PM vehicle plugins in correct sequence",()=>{
 
 test("V9 paged ROP02 snapshot and date-filtered history convert DD/MM/YYYY to ISO",()=>{
  const src=read("src/standalone/adapters/supabaseReadApi.js");
- assert.match(src,/const asDate=value=>normalizeV9PmDate\(value\)/);
+ assert.match(src,/const asDate=row=>normalizeV9PmDate\(row\?\.Fecha/);
  assert.match(src,/const date=v=>normalizeV9PmDate\(v\)/);
  assert.match(src,/const from=normalizeV9PmDate\(params\.desde\),to=normalizeV9PmDate\(params\.hasta\)/);
  assert.match(src,/const local=raw\.match\(/);
