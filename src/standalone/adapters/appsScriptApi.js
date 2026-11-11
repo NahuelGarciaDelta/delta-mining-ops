@@ -27,6 +27,7 @@ export async function fetchAction(_url,action,{params={}}={}){
  if(k==="health"||k==="diag")return fetchSupabaseHealth();
  if(["versions","get_data_versions"].includes(k))return fetchSupabaseVersions();
  if(k==="mantenimiento_programado")return fetchSupabasePmSnapshot();
+ if(ROP02_SOURCE_KEYS.includes(k))return fetchV9OriginalSheetsDataset(k,{limit:1000});
  if(k==="lista_equipos")return fetchV9OriginalSheetsDataset("lista_equipos");
  if(k==="get_equipment_movements"||k==="get_taller_movements"){
   const source=await fetchSupabaseSource(k==="get_taller_movements"?"movimientos_taller":"movimientos_equipos");
@@ -53,7 +54,10 @@ export async function fetchSource(_url,source,options={}){return fetchAction(_ur
 export async function fetchHealth(_url){return fetchSupabaseHealth()}
 export async function fetchSyncVersions(_url){return fetchSupabaseVersions()}
 export async function fetchRop02Bundle(){
- const sources={};const all=await Promise.all(ROP02_SOURCE_KEYS.map(fetchSupabaseSource));
+ const sources={};const all=new Array(ROP02_SOURCE_KEYS.length);let cursor=0;
+ await Promise.all(Array.from({length:Math.min(2,ROP02_SOURCE_KEYS.length)},async()=>{
+  while(cursor<ROP02_SOURCE_KEYS.length){const i=cursor++;all[i]=await fetchV9OriginalSheetsDataset(ROP02_SOURCE_KEYS[i],{limit:1000});}
+ }));
  ROP02_SOURCE_KEYS.forEach((key,i)=>{sources[key]=all[i]});
  return {ok:true,source:"supabase-v9",bundleId:"v9-"+Date.now(),sources};
 }

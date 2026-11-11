@@ -560,7 +560,7 @@ export default function App(){
       const fetched=await fetchSource(APPS_SCRIPT_URL,key,{force,since:force?'':getCachedSourceTimestamp(cacheRecord),retries:isRop02Source?0:1,timeoutMs:isRop02Source?45000:20000});
       if(!fetched?.ok||!Array.isArray(fetched.data))throw new Error(fetched?.error?.message||'Respuesta sin datos válidos');
       const previous=localSource?.ok&&Array.isArray(localSource.data)?localSource:null;
-      const value=mergeIncrementalSource(previous,fetched);
+      const value=fetched?.source==="google-sheets-original-live"?fetched:mergeIncrementalSource(previous,fetched);
       const confirmsEmpty=Number(fetched?.meta?.rows)===0||fetched?.empty===true;
       if(previous?.data?.length>0&&value?.data?.length===0&&!confirmsEmpty)throw new Error('El servidor devolvió una respuesta vacía no confirmada');
       await writeCachedSource(key,value);
@@ -598,7 +598,7 @@ export default function App(){
     // Verificar un manifiesto pequeño antes de volver a descargar miles de filas.
     // Si falla el manifiesto, prevalece la lectura normal para no ocultar novedades.
     if(!force&&toCheck.some(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
-      const liveSheetKeys=window.__DELTA_OPS_V9_INDEPENDENT__?new Set(["lista_equipos"]):new Set();
+      const liveSheetKeys=window.__DELTA_OPS_V9_INDEPENDENT__?new Set(["lista_equipos",...ROP02_SOURCE_KEYS]):new Set();
       const manifestCandidates=toCheck.filter(key=>!liveSheetKeys.has(key));
       try{
         if(manifestCandidates.length){

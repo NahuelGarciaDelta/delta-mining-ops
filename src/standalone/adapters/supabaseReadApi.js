@@ -310,24 +310,43 @@ export async function fetchOriginalSheetsDataset(dataset,{limit=1000}={}){
  if(!session?.access_token)throw Error("V9_SESSION_REQUIRED");
  if(Number(session.expires_at||0)*1000<Date.now()+60000&&session.refresh_token)session=await refreshV9(session);
  const pageSize=Math.min(1000,Math.max(1,Number(limit)||1000));
- const all=[];let offset=0,total=null,refreshed=false;
- while(offset<=MAX_ROWS){
+ let refreshPromise=null,refreshed=false;
+ const readPage=async offset=>{
   const request=async()=>{
    const response=await fetch("/api/v9-sheets-read",{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token},body:JSON.stringify({dataset:key,limit:pageSize,offset})});
    const body=await response.json().catch(()=>null);
-   if(response.status===401&&session.refresh_token&&!refreshed){refreshed=true;session=await refreshV9(session);return request();}
+   if(response.status===401&&session.refresh_token&&!refreshed){
+    refreshed=true;
+    refreshPromise=refreshPromise||refreshV9(session);
+    session=await refreshPromise;
+    return request();
+   }
    if(!response.ok||body?.ok!==true)throw Error(body?.error||"V9_SHEETS_READ_FAILED");
    return body;
   };
-  const page=await request();const rows=Array.isArray(page.rows)?page.rows:[];
-  const pageTotal=Number(page.total??rows.length);
-  if(!Number.isSafeInteger(pageTotal)||pageTotal<0||pageTotal>MAX_ROWS)throw Error("V9_SHEETS_ROW_LIMIT:"+key);
-  if(total===null)total=pageTotal;else if(total!==pageTotal)throw Error("V9_SHEETS_TOTAL_CHANGED_DURING_READ:"+key);
-  all.push(...rows);if(all.length>MAX_ROWS)throw Error("V9_SHEETS_ROW_LIMIT:"+key);
-  if(!page.hasMore)break;if(!rows.length)throw Error("V9_SHEETS_EMPTY_PAGE:"+key);
-  offset=Number(page.nextOffset??(offset+rows.length));
+  return request();
+ };
+ const first=await readPage(0);
+ const total=Number(first.total??first.rows?.length??0);
+ if(!Number.isSafeInteger(total)||total<0||total>MAX_ROWS)throw Error("V9_SHEETS_ROW_LIMIT:"+key);
+ const pageCount=Math.max(1,Math.ceil(total/pageSize));
+ const pages=new Array(pageCount);pages[0]=first;
+ let cursor=1;
+ await Promise.all(Array.from({length:Math.min(3,Math.max(0,pageCount-1))},async()=>{
+  while(cursor<pageCount){
+   const index=cursor++;
+   pages[index]=await readPage(index*pageSize);
+  }
+ }));
+ const all=[];
+ for(let index=0;index<pageCount;index++){
+  const page=pages[index],rows=Array.isArray(page?.rows)?page.rows:[];
+  if(Number(page?.total??total)!==total)throw Error("V9_SHEETS_TOTAL_CHANGED_DURING_READ:"+key);
+  const expected=Math.min(pageSize,Math.max(0,total-index*pageSize));
+  if(rows.length!==expected)throw Error("V9_SHEETS_PAGE_COUNT_MISMATCH:"+key);
+  all.push(...rows);
  }
- if(total===null||all.length!==total)throw Error("V9_SHEETS_PAGE_COUNT_MISMATCH:"+key);
+ if(all.length!==total)throw Error("V9_SHEETS_PAGE_COUNT_MISMATCH:"+key);
  return {ok:true,source:"google-sheets-original-live",data:all,rows:all.length,total,hasMore:false,meta:{source:key,rows:all.length,total,live:true,serverTime:TIME()}};
 }
 

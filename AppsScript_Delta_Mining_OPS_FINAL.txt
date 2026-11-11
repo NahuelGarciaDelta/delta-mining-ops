@@ -1,4 +1,4 @@
-var DELTA_BACKEND_VERSION_ = "2026-10-14-AUTH-METER-INTEGRITY-V9";
+var DELTA_BACKEND_VERSION_ = "2026-11-11-V9-ORIGINAL-ROP02-REFRESH";
 
 var SHEETS_CONFIG = {
   rop05: {
@@ -10,16 +10,16 @@ var SHEETS_CONFIG = {
     headerRow: 1
   },
   rop02_fs: {
-    id: "1dt5THoDndDM9pBZYkNR0gjkPrSrunnkMA8DgqQZB2OU",
+    id: "1aNtTkIh8CE1f1bgBVENbYv7lzzctqHXLUp-rFK-9UVM",
     gid: "396764804",
-    sheet: "R_OP02_FS",
+    sheet: "R_OP02_FDS",
     label: "Partes — Filo del Sol",
     proyecto: "FILO DEL SOL",
     headerRow: 4
   },
   rop02_jm: {
-    id: "1RzOwDSmd1fw48hvPCfoauPnZGE44G9NgSazMdjVxj4Q",
-    gid: "967767400",
+    id: "1Rw2wJH8B1TEOgxmpggYvS_xmoIg-AJqo64y9IhQ-hNk",
+    gid: "396764804",
     sheet: "R_OP02_JM",
     label: "Partes — José María",
     proyecto: "JOSE MARIA",
