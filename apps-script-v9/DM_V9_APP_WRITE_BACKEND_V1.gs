@@ -10,16 +10,16 @@ var SHEETS_CONFIG = {
     headerRow: 1
   },
   rop02_fs: {
-    id: "1dt5THoDndDM9pBZYkNR0gjkPrSrunnkMA8DgqQZB2OU",
+    id: "1aNtTkIh8CE1f1bgBVENbYv7lzzctqHXLUp-rFK-9UVM",
     gid: "396764804",
-    sheet: "R_OP02_FS",
+    sheet: "R_OP02_FDS",
     label: "Partes — Filo del Sol",
     proyecto: "FILO DEL SOL",
     headerRow: 4
   },
   rop02_jm: {
-    id: "1RzOwDSmd1fw48hvPCfoauPnZGE44G9NgSazMdjVxj4Q",
-    gid: "967767400",
+    id: "1Rw2wJH8B1TEOgxmpggYvS_xmoIg-AJqo64y9IhQ-hNk",
+    gid: "396764804",
     sheet: "R_OP02_JM",
     label: "Partes — José María",
     proyecto: "JOSE MARIA",
@@ -6639,7 +6639,7 @@ function dmV9WriteAllowed_(action, user) {
 var DM_V9_READ_DATASETS_ = [
   "rop02_jm","rop02_fs","rop02_filosur","rop02_zorro","rop02_fierro",
   "rop05","rma15_jm","rma15_fs","lista_equipos","insumos",
-  "raba03","mantenimiento_programado","movimientos_equipos","movimientos_taller","combustible"
+  "articulos_desgaste","raba03","mantenimiento_programado","movimientos_equipos","movimientos_taller","combustible"
 ];
 function dmV9ReadAllowed_(dataset, user) {
   return !!user && DM_V9_READ_DATASETS_.indexOf(String(dataset || "")) >= 0;
@@ -6708,11 +6708,10 @@ function dmV9ReadDataset_(dataset, payload) {
     var stockPage = stockRows.slice(offset,offset + limit);
     return {ok:true,dataset:dataset,data:stockPage,totalRows:stockRows.length,offset:offset,limit:limit,hasMore:offset+stockPage.length<stockRows.length,nextOffset:offset+stockPage.length<stockRows.length?offset+stockPage.length:null,meta:stock.meta || {},source:"GOOGLE_SHEETS_ORIGINAL"};
   }
-  // V9 reads live AppSheet ROP02 sources; existing write handlers retain their own targets.
+  // Use the same original Google Sheets as Delta OPS. The former AppSheet-import
+  // files below had a different row set and caused dashboard/PM drift.
   if (dataset === "rop02_jm" || dataset === "rop02_fs") {
-    var liveSource = dataset === "rop02_jm"
-      ? {id:"1bDDPy-_h7JYSU6rNMy38w_q_V3YgbFT33oz0KHPSIVs",sheet:"R_OP02_JM",gid:"151543963",headerRow:1,proyecto:"JOSE MARIA"}
-      : {id:"1CWmlm94rj27ZWdmB0J_FMPJp4zN_EbA8c51ZfPUjoEY",sheet:"R_OP02_FS",gid:"151543963",headerRow:1,proyecto:"FILO DEL SOL"};
+    var liveSource = SHEETS_CONFIG[dataset];
     var liveResult = fetchSheetData(liveSource,{limit:limit,offset:offset,compact:false});
     if (!liveResult.ok) return liveResult;
     liveResult.dataset = dataset;
