@@ -598,17 +598,23 @@ export default function App(){
     // Verificar un manifiesto pequeño antes de volver a descargar miles de filas.
     // Si falla el manifiesto, prevalece la lectura normal para no ocultar novedades.
     if(!force&&toCheck.some(key=>knownSources[key]?.ok&&Array.isArray(knownSources[key].data))){
+      const liveSheetKeys=window.__DELTA_OPS_V9_INDEPENDENT__?new Set(["lista_equipos"]):new Set();
+      const manifestCandidates=toCheck.filter(key=>!liveSheetKeys.has(key));
       try{
-        const manifest=await fetchSyncVersions(APPS_SCRIPT_URL);
-        if(manifest?.ok)toCheck=planVersionedRefresh(toCheck,knownSources,manifest.versions,manifest.rowCounts);
+        if(manifestCandidates.length){
+          const manifest=await fetchSyncVersions(APPS_SCRIPT_URL);
+          const planned=manifest?.ok?planVersionedRefresh(manifestCandidates,knownSources,manifest.versions,manifest.rowCounts):manifestCandidates;
+          toCheck=[...new Set([...planned,...toCheck.filter(key=>liveSheetKeys.has(key))])];
+        }
       }catch(error){
         console.warn("Manifest no disponible; lectura de respaldo conservada.",error);
       }
     }
     if(!toCheck.length)return;
 
-    const hasVisible=toCheck.some(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data));
-    if(background||hasVisible)beginBackgroundSync();else setLoading(true);
+    const hasCompleteVisible=requested.every(key=>rawSourcesRef.current?.[key]?.ok&&Array.isArray(rawSourcesRef.current[key].data));
+    const showBackgroundIndicator=background&&!hasCompleteVisible;
+    if(showBackgroundIndicator)beginBackgroundSync();else if(!background)setLoading(true);
 
     try{
       // No saturar Apps Script: las fuentes comparten el mismo runtime y las
@@ -715,7 +721,7 @@ export default function App(){
       }else setFatalError(err.message);
     }finally{
       setLoading(false);
-      if(background||hasVisible)endBackgroundSync();
+      if(showBackgroundIndicator)endBackgroundSync();
     }
   },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
 

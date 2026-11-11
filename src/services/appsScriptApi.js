@@ -53,6 +53,10 @@ export async function runWithConcurrency_(items,limit,worker){
 
 // Apps Script queda reservado para acciones que todavía no fueron migradas y para
 // escrituras. Los datasets pesados ya no pasan por este camino.
+export async function fetchOriginalSheetsDataset(url,dataset,{limit="all"}={}){
+  return fetchAction(url,dataset,{force:true,compact:false,params:{limit}});
+}
+
 export async function fetchAction(url,action,{force=false,compact=true,retries=2,since="",timeoutMs=45000,params:extraParams={}}={}){
   if(String(action||"")==="mantenimiento_programado")return fetchSupabasePmSnapshot();
   if(SUPABASE_TYPED_SOURCES.has(String(action||"")))return fetchTypedSupabaseSource_(String(action||""));

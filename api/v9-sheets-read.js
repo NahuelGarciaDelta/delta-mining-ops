@@ -1,7 +1,7 @@
 // Authenticated read relay for the original Google Sheets managed by Apps Script V9.
 // Supabase V9 remains isolated for sandbox-only tests; no production row is read here.
 const REF="biztlietuvvonigcfdwy";
-const ALLOWED=new Set(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro","rop02_fierro","rop05","rma15_jm","rma15_fs","lista_equipos","insumos","raba03","mantenimiento_programado","movimientos_equipos","movimientos_taller","combustible"]);
+const ALLOWED=new Set(["rop02_jm","rop02_fs","rop02_filosur","rop02_zorro","rop02_fierro","rop05","rma15_jm","rma15_fs","lista_equipos","insumos","raba03","mantenimiento_programado","articulos_desgaste","movimientos_equipos","movimientos_taller","combustible"]);
 export const config={maxDuration:30};
 function reply(res,status,body){res.setHeader("Cache-Control","no-store, max-age=0");res.setHeader("X-Content-Type-Options","nosniff");return res.status(status).json(body);}
 function validDb(){const url=String(process.env.DELTA_V9_STANDALONE_SB_URL||"").replace(/\/+$/,"");const key=String(process.env.DELTA_V9_STANDALONE_SB_PUBLISHABLE_KEY||"");return url==="https://"+REF+".supabase.co"&&/^sb_publishable_[A-Za-z0-9_-]{15,}$/.test(key)?{url,key}:null;}

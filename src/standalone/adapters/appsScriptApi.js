@@ -3,7 +3,7 @@ import {ROP02_SOURCE_KEYS} from "../../config/rop02Sources.js";
 import {requestV9,currentSession} from "../session.js";
 import {
  SUPABASE_TYPED_SOURCES,fetchSupabaseSource,fetchSupabaseRaba03Entity,fetchSupabaseHealth,
- fetchSupabasePmSnapshot,fetchSupabaseDatasetQuery,fetchSupabaseVersions
+ fetchSupabasePmSnapshot,fetchOriginalSheetsDataset as fetchV9OriginalSheetsDataset,fetchSupabaseDatasetQuery,fetchSupabaseVersions
 } from "./supabaseReadApi.js";
 export function expandCompactSource(src){
  if(!src?.compact||!Array.isArray(src.headers)||!Array.isArray(src.rows))return src;
@@ -19,11 +19,15 @@ export async function runWithConcurrency_(items,limit,worker){
  while(i<items.length){const n=i++;try{out[n]={status:"fulfilled",value:await worker(items[n],n)}}catch(e){out[n]={status:"rejected",reason:e}}}
  }));return out;
 }
+export async function fetchOriginalSheetsDataset(_url,dataset,options={}){
+ return fetchV9OriginalSheetsDataset(dataset,options);
+}
 export async function fetchAction(_url,action,{params={}}={}){
  const k=String(action||"");
  if(k==="health"||k==="diag")return fetchSupabaseHealth();
  if(["versions","get_data_versions"].includes(k))return fetchSupabaseVersions();
  if(k==="mantenimiento_programado")return fetchSupabasePmSnapshot();
+ if(k==="lista_equipos")return fetchV9OriginalSheetsDataset("lista_equipos");
  if(k==="get_equipment_movements"||k==="get_taller_movements"){
   const source=await fetchSupabaseSource(k==="get_taller_movements"?"movimientos_taller":"movimientos_equipos");
   return {...source,data:source.data||[],rows:(source.data||[]).length,total:(source.data||[]).length,hasMore:false};

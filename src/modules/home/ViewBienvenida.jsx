@@ -61,7 +61,9 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   // The V9 welcome summary is atomic: never show FS-only totals while JM
   // and secondary project reads are still in flight. Only the fully assembled
   // cross-project snapshot can populate overview KPIs.
-  const effectiveRop02=Array.isArray(snapshotRop02)?snapshotRop02:[];
+  const effectiveRop02=Array.isArray(snapshotRop02)&&snapshotRop02.length
+    ?snapshotRop02
+    :(welcomeSnapshotSettled&&Array.isArray(rop02All)?rop02All:[]);
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
   const summaryRef=useRef(null);
@@ -231,11 +233,10 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     };
     if(cancelled)return;
     bienvenidaSummaryCache={data:nextData,loading:{
-      flota:rop.length===0,
-      // Los movimientos de Taller complementan el cálculo (por ejemplo, bajas),
-      // pero no pueden bloquear las tarjetas cuando la fuente todavía se está
-      // sincronizando. ROP02 y RMA15 son suficientes para un resultado válido.
-      disponibilidad:rop.length===0,
+      flota:rop.length===0&&!welcomeSnapshotSettled,
+      // Al completarse la consulta rápida, un resultado vacío o fallido no deja
+      // las tarjetas bloqueadas indefinidamente; se usa ROP02 ya disponible.
+      disponibilidad:rop.length===0&&!welcomeSnapshotSettled,
       ot:rma.length===0,
       stock:bienvenidaStockCache===null,
     }};
@@ -243,7 +244,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     };
     const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:700}):window.setTimeout(calculate,40);
     return()=>{cancelled=true;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
-  },[listaEquipos,effectiveRop02,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
+  },[listaEquipos,effectiveRop02,rop02All,welcomeSnapshotSettled,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
   const stats=summaryState.data||EMPTY_SUMMARY;
   const summaryLoading=summaryState.loading||{};
 

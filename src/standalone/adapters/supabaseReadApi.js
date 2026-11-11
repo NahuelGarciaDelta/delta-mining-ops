@@ -1,5 +1,5 @@
 // ADAPTADOR V9: conserva los contratos de datos que consume el frontend Delta OPS.
-import {requestV9,currentSession} from "../session.js";
+import {requestV9,currentSession,refreshV9} from "../session.js";
 import {ROP02_SOURCE_KEYS,ROP02_SOURCES} from "../../config/rop02Sources.js";
 export const SUPABASE_TYPED_SOURCES=new Set([...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","lista_equipos","insumos","mantenimiento_programado","combustible","raba03","movimientos_equipos","movimientos_taller"]);
 // Read bounded pages to reduce Apps Script execution time and response sizes.
@@ -302,8 +302,37 @@ export function mapV9PmSourceRows(rows){
  registros.sort((a,b)=>String(b.fecha||"").localeCompare(String(a.fecha||""))||b.horometro-a.horometro);
  return {config,registros,programaciones,repuestos};
 }
+// Read original Google Sheets through the authenticated V9 relay.
+export async function fetchOriginalSheetsDataset(dataset,{limit=1000}={}){
+ const key=String(dataset||"").trim();
+ if(!key)throw Error("V9_SHEETS_DATASET_REQUIRED");
+ let session=currentSession();
+ if(!session?.access_token)throw Error("V9_SESSION_REQUIRED");
+ if(Number(session.expires_at||0)*1000<Date.now()+60000&&session.refresh_token)session=await refreshV9(session);
+ const pageSize=Math.min(1000,Math.max(1,Number(limit)||1000));
+ const all=[];let offset=0,total=null,refreshed=false;
+ while(offset<=MAX_ROWS){
+  const request=async()=>{
+   const response=await fetch("/api/v9-sheets-read",{method:"POST",cache:"no-store",headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token},body:JSON.stringify({dataset:key,limit:pageSize,offset})});
+   const body=await response.json().catch(()=>null);
+   if(response.status===401&&session.refresh_token&&!refreshed){refreshed=true;session=await refreshV9(session);return request();}
+   if(!response.ok||body?.ok!==true)throw Error(body?.error||"V9_SHEETS_READ_FAILED");
+   return body;
+  };
+  const page=await request();const rows=Array.isArray(page.rows)?page.rows:[];
+  const pageTotal=Number(page.total??rows.length);
+  if(!Number.isSafeInteger(pageTotal)||pageTotal<0||pageTotal>MAX_ROWS)throw Error("V9_SHEETS_ROW_LIMIT:"+key);
+  if(total===null)total=pageTotal;else if(total!==pageTotal)throw Error("V9_SHEETS_TOTAL_CHANGED_DURING_READ:"+key);
+  all.push(...rows);if(all.length>MAX_ROWS)throw Error("V9_SHEETS_ROW_LIMIT:"+key);
+  if(!page.hasMore)break;if(!rows.length)throw Error("V9_SHEETS_EMPTY_PAGE:"+key);
+  offset=Number(page.nextOffset??(offset+rows.length));
+ }
+ if(total===null||all.length!==total)throw Error("V9_SHEETS_PAGE_COUNT_MISMATCH:"+key);
+ return {ok:true,source:"google-sheets-original-live",data:all,rows:all.length,total,hasMore:false,meta:{source:key,rows:all.length,total,live:true,serverTime:TIME()}};
+}
+
 export async function fetchSupabasePmSnapshot(){
- const r=await fetchSupabaseSource("mantenimiento_programado");
+ const r=await fetchOriginalSheetsDataset("mantenimiento_programado");
  const rows=Array.isArray(r.data)?r.data:[];
  const normalized=mapV9PmSourceRows(rows);
  return {ok:true,source:"google-sheets-original",...normalized,
