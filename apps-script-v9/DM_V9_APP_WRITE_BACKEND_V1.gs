@@ -1924,6 +1924,15 @@ function fetchSheetData(config, options) {
       headerRow = detectHeaderRow_(sheet, lastRow, lastCol);
     }
 
+    // ROP05 tiene 15 columnas con encabezado, pero la planilla conserva
+    // columnas auxiliares/formateadas a la derecha. Leerlas en cada página
+    // multiplica el trabajo del puente para más de 10.000 registros sin aportar
+    // campos al contrato que consume la aplicación.
+    if (config.sheet === "ROP05 nuevo") {
+      var headerCells = sheet.getRange(headerRow, 1, 1, lastCol).getValues()[0];
+      while (lastCol > 1 && String(headerCells[lastCol - 1] || "").trim() === "") lastCol--;
+    }
+
     if (lastRow < headerRow) {
       return {
         ok: false,

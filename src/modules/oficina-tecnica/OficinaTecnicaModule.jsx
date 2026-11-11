@@ -3619,7 +3619,7 @@ function ControlDeErrores({rop02All,extState,setExtState}){
   },[rop02ControlRows]);
   const rop02ControlTipo=useMemo(()=>rop02ControlRows.filter(row=>dmMatchTipoMaquinaSeleccion(row.maquina,tipoMaquina)),[rop02ControlRows,tipoMaquina]);
   const proyectos=useMemo(()=>uniq([...ROP02_SOURCES.map(source=>source.project),...rop02ControlTipo.map(row=>row.proyecto).filter(Boolean)]).sort(),[rop02ControlTipo]);
-  const proyectosAutorizados=useMemo(()=>uniq(rop02Prod.map(row=>normalizeRop02Project(row.proyecto||"")).filter(Boolean)),[rop02Prod]);
+  const proyectosAutorizados=useMemo(()=>uniq(rop02ControlTipo.map(row=>normalizeRop02Project(row.proyecto||"")).filter(Boolean)),[rop02ControlTipo]);
   const rangoDesde=fechaDesde||periodo.fechaD;
   const rangoHasta=fechaHasta||periodo.fechaH;
   const maquinas=useMemo(()=>{

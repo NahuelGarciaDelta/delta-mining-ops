@@ -121,7 +121,7 @@ export function abastecimientoInstantVitePlugin(){
       if(next.includes('fetchRaba03FromSupabase')||next.includes('fetchAbastecimientoSnapshot')){
         throw new Error('Abastecimiento no debe reinyectar lecturas Supabase');
       }
-      if(!next.includes('45000,"RABA03"')||!next.includes('hasCachedRaba03')){
+      if(!next.includes('timeoutMs:45000')||!next.includes('hasCachedRaba03')){
         throw new Error('RABA03 debe tolerar backend lento y conservar caché válida');
       }
       if(!next.includes('fechaSalidaFuente:formatDateLocal(pick(r,["Fecha de salida","Fecha salida"]))')){

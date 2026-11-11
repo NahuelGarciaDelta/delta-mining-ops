@@ -79,8 +79,8 @@ function transformApp(code){
   );
   code=replaceOnce(
     code,
-    '    }finally{\n      setLoading(false);\n      if(background||hasVisible)endBackgroundSync();\n    }\n  },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);\n',
-    '    }finally{\n      finishSourcesPerf({checked:toCheck.length,cacheOnly:false});\n      setLoading(false);\n      if(background||hasVisible)endBackgroundSync();\n    }\n  },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);\n',
+    '    }finally{\n      setLoading(false);\n      if(showBackgroundIndicator)endBackgroundSync();\n    }\n  },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);\n',
+    '    }finally{\n      finishSourcesPerf({checked:toCheck.length,cacheOnly:false});\n      setLoading(false);\n      if(showBackgroundIndicator)endBackgroundSync();\n    }\n  },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);\n',
     "fin de loadSources",
   );
   code=replaceOnce(

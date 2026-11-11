@@ -48,7 +48,7 @@ function transformOffice(code){
     oldControlRows,
     '  const rop02ControlRows=useMemo(()=>rop02Prod,[rop02Prod]);',
     "filtros especiales CAA-0002 en controles ROP02",
-    2
+    1
   );
 
   if(out.includes('normalizeMachineCode(m)!=="CAA-0002"')||out.includes('normalizeMachineCode(machine)==="CAA-0002"')){
