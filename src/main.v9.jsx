@@ -14,7 +14,33 @@ import {installLegacyRefreshIntervalPolicy} from "./services/dataRefreshPolicy.j
 import {clearAuthenticatedSession} from "./services/authSession.js";
 import {currentSession,refreshV9} from "./standalone/session.js";
 
+// Una pestaña que quedó abierta durante un deploy conserva el mapa de chunks
+// anterior. Si Vite no encuentra un módulo con ese hash, carga el HTML nuevo
+// una sola vez para alinear la pestaña con los archivos publicados.
+const CHUNK_RECOVERY_KEY="dm_v9_chunk_recovery_at";
+const CHUNK_RECOVERY_WINDOW_MS=90000;
+const CHUNK_ERROR_RE=/failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|loading chunk .* failed|unable to preload css/i;
+function chunkErrorText(value){
+ if(!value)return"";
+ if(typeof value==="string")return value;
+ return String(value?.message||value?.reason?.message||value?.reason||value?.payload?.message||value?.payload||value||"");
+}
+function recoverChunkLoad(value,event){
+ if(!CHUNK_ERROR_RE.test(chunkErrorText(value)))return false;
+ const now=Date.now();let last=0;
+ try{last=Number(sessionStorage.getItem(CHUNK_RECOVERY_KEY)||0)||0;}catch{}
+ if(now-last<CHUNK_RECOVERY_WINDOW_MS)return false;
+ try{sessionStorage.setItem(CHUNK_RECOVERY_KEY,String(now));}catch{}
+ event?.preventDefault?.();
+ const url=new URL(window.location.href);url.searchParams.set("_dm_chunk",String(now));
+ window.location.replace(url.toString());
+ return true;
+}
+
 if(typeof window!=="undefined"){
+ window.addEventListener("vite:preloadError",event=>recoverChunkLoad(event?.payload||event,event));
+ window.addEventListener("unhandledrejection",event=>recoverChunkLoad(event?.reason||event,event));
+ window.addEventListener("error",event=>recoverChunkLoad(event?.error||event?.message||event,event),true);
  // Add the V9 bearer token only to this same-origin, action-allowlisted relay.
  // Existing modules can keep their form-urlencoded write contracts.
  const nativeFetch=window.fetch.bind(window);
