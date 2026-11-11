@@ -2,8 +2,8 @@ import React,{useEffect,useMemo,useRef,useState} from "react";
 import {createPortal} from "react-dom";
 import * as XLSX from "xlsx";
 import {C,Icon,StatCard,MultiSel,Sel,DateIn,TabBtn,matchMulti} from "../../components/ui/index.jsx";
-import {APPS_SCRIPT_URL} from "../../config/app.js";
-import {fetchOriginalSheetsDataset} from "../../services/appsScriptApi.js";
+import {fetchOriginalSheetsDataset} from "../../standalone/adapters/appsScriptApi.js";
+import {postToAppsScript} from "../../standalone/adapters/writeActions.js";
 import {fmtNum,fmtUSD,normalizeInsumoCode,normDate} from "../../shared/domain/index.jsx";
 
 const STORAGE_KEY="dm_desgaste_catalog_v2";
@@ -27,16 +27,11 @@ function parseCatalogRows(raw){
 }
 
 async function postCentralCatalog(rows){
-  const payload={action:"save_articulos_desgaste",rows};
-  const response=await fetch(APPS_SCRIPT_URL,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:new URLSearchParams({payload:JSON.stringify(payload)}),redirect:"follow",cache:"no-store"});
-  if(!response.ok)throw new Error(`HTTP ${response.status}`);
-  const text=await response.text();let json;try{json=JSON.parse(text);}catch(_){throw new Error("El Apps Script no devolvió JSON válido");}
-  if(!json?.ok)throw new Error(json?.error?.message||"No se pudo guardar el catálogo central");
-  return json;
+  return postToAppsScript({action:"save_articulos_desgaste",rows});
 }
 
 async function getCentralCatalog(){
-  const json=await fetchOriginalSheetsDataset(APPS_SCRIPT_URL,"articulos_desgaste",{limit:1000});
+  const json=await fetchOriginalSheetsDataset("","articulos_desgaste",{limit:1000});
   if(!json?.ok)throw new Error(json?.error?.message||"Catálogo central no disponible");
   return parseCatalogRows(json.data||[]);
 }
