@@ -50,20 +50,26 @@ function transformAnalytics(code){
 
 function transformOffice(code){
   let out=code;
-  out=requiredReplace(
-    out,
-    'import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";',
-    'import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";\nimport {normalizeRop02Shift,shouldIncludeRop02ErrorControlRow} from "../../shared/rop02ControlRules.js";',
-    "import de reglas ROP02"
-  );
+  if(!out.includes('import {normalizeRop02Shift,shouldIncludeRop02ErrorControlRow} from "../../shared/rop02ControlRules.js";')){
+    out=requiredReplace(
+      out,
+      'import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";',
+      'import {detectRop02DuplicateLoads} from "./rop02DuplicateLoads.js";\nimport {normalizeRop02Shift,shouldIncludeRop02ErrorControlRow} from "../../shared/rop02ControlRules.js";',
+      "import de reglas ROP02"
+    );
+  }
 
   const marker='function ControlDeErrores({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>isRop02HourlyEquipment(r)),[rop02All]);';
-  out=requiredReplace(
-    out,
-    marker,
-    'function ControlDeErrores({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>shouldIncludeRop02ErrorControlRow(r,isRop02HourlyEquipment)),[rop02All]);',
-    "camionetas en Control de errores desde 12/09/2026"
-  );
+  if(out.includes(marker)){
+    out=requiredReplace(
+      out,
+      marker,
+      'function ControlDeErrores({rop02All,extState,setExtState}){\n  const rop02Prod=useMemo(()=>rop02All.filter(r=>shouldIncludeRop02ErrorControlRow(r,isRop02HourlyEquipment)),[rop02All]);',
+      "camionetas en Control de errores desde 12/09/2026"
+    );
+  }else if(!out.includes('const rop02ControlRows=useMemo(()=>(rop02All||[]).filter(row=>')){
+    throw new Error('[delta-rop02-daily-control] No se encontró el universo de filas de Control de errores');
+  }
 
   out=requiredReplaceAll(
     out,
