@@ -124,9 +124,9 @@ const activityForCode = (map, value) => {
 
       out = requiredReplace(
         out,
-        `      const cfg = configMap.get(key) || {};
+        `      const cfg = configForEquipment(e.interno);
       const pmEsCamion = esCamionPM(e);`,
-        `      const cfg = configMap.get(key) || {};
+        `      const cfg = configForEquipment(e.interno);
       const pmEsCamion = esCamionPM(e);
       const pmEsCamioneta = isRoadVehicle(e);`,
         'clasificación PM camion/camioneta'

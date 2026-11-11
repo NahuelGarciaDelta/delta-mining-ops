@@ -11,6 +11,14 @@ export function normalizePmEquipmentCode(value) {
     : compact;
 }
 
+// Keep the exact history identity for configuration and event records. The
+// comparison normalizer above remains available for cross-source aliases.
+export function normalizePmHistoryCode(value) {
+  return String(value ?? "").toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]+/g, "").trim();
+}
+
 const lastPmDate = config => {
   const value = String(config?.fechaUltimoPM ?? "").trim();
   const iso = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
