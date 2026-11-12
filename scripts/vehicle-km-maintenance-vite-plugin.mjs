@@ -72,6 +72,26 @@ const activityForCode = (map, value) => {
         'aliases de Lista Maestra'
       )
 
+      // La Lista Maestra coloca "Código de Drusila" (patente) antes de
+      // "Codigo nuevo". pick() recorre las columnas en orden, así que incluir
+      // ambos nombres en una sola llamada elegía la patente como identidad PM.
+      // PM_CONFIG está indexado por Código nuevo; priorizarlo explícitamente
+      // conserva la patente como alias para cruzar ROP02 sin perder la base.
+      out = requiredReplace(
+        out,
+        '  const interno = text(pick(row, ["Codigo nuevo", "Código nuevo", "Código de Drusila", "Codigo de Drusila", "Interno", "Código interno", "Codigo interno"]));',
+        `  const internoCandidates = [
+    pick(row, ["Codigo nuevo", "Código nuevo"]),
+    pick(row, ["Código de Drusila", "Codigo de Drusila", "Código Drusila", "Codigo Drusila"]),
+    pick(row, ["Interno", "Código interno", "Codigo interno"]),
+  ];
+  const interno = internoCandidates.map(text).find(value => {
+    const key = norm(value);
+    return key && !["NA", "SD", "SINCODIGO", "SININTERNO", "NODISPONIBLE"].includes(key);
+  }) || "";`,
+        'identidad canónica Código nuevo antes de patente'
+      )
+
       // Los alias de un camión también deben quedar marcados como camión para que nunca
       // se tome kilometraje por error cuando ROP02 usa un código alternativo.
       out = requiredReplace(

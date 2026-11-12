@@ -28,6 +28,33 @@ test("V9 resolves Lista Maestra identity aliases while preserving the original P
  assert.match(transformed,/const codeVariants = value => \{/);
  assert.match(transformed,/listaMatch\?\.codigoNuevo \|\| listaMatch\?\.interno \|\| internoRop/);
  assert.match(transformed,/configMap\.get\(keyFinal\) \|\| configMap\.get\(norm\(listaMatch\?\.codigoNuevo\)\)/);
+ assert.match(transformed,/const internoCandidates = \[\s*pick\(row, \["Codigo nuevo", "Código nuevo"\]\),/);
+});
+
+test("Lista Maestra patente-first resolves the PM_CONFIG base by Código nuevo",()=>{
+ const start=transformed.indexOf("const internoCandidates = [");
+ const end=transformed.indexOf("const familia =",start);
+ assert.ok(start>=0&&end>start,"El transform V9 debe seleccionar explícitamente la identidad canónica");
+ const selectInternal=new Function("row","text","norm","pick",`${transformed.slice(start,end)}return interno;`);
+ const normKey=value=>String(value??"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9]+/g,"").trim();
+ const pickRow=(row,candidates)=>{
+  const wanted=candidates.map(normKey);
+  for(const [key,value] of Object.entries(row))if(wanted.includes(normKey(key))&&String(value??"").trim()!=="")return value;
+  return "";
+ };
+ const config=new Map([
+  ["CAR0089",3122],["CAC0040",8367],["CAC0060",780],["CAT0073",3700],["CAV0114",1707]
+ ]);
+ const fixtures=[
+  ["CAR-0089","AG661LM"],["CAC-0040","AG661LL"],["CAC-0060","AI100VX"],
+  ["CAT-0073","AE823BH"],["CAV-0114","AH574ZG"]
+ ];
+ for(const [code,plate] of fixtures){
+  const row={"Código de Drusila":plate,"Codigo nuevo ":code};
+  const identity=selectInternal(row,value=>String(value??"").trim(),normKey,pickRow);
+  assert.equal(identity,code,`${plate} debe resolverse como ${code}`);
+  assert.ok(config.has(normKey(identity)),`${code} debe encontrar su base PM`);
+ }
 });
 
 test("V9 PM panel uses the already period-scoped active list, not a second exact raw-code filter",()=>{
