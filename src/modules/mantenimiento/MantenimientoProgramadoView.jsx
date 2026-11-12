@@ -5,7 +5,7 @@ import { rangoTurnoPorFecha } from "../analytics/OperationalAnalytics.jsx";
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
 import { postToAppsScript } from "../../services/writeActions.js";
-import { normalizePmEquipmentCode, normalizePmHistoryCode, preferredPmConfig } from "./pmEquipmentIdentity.js";
+import { normalizePmEquipmentCode, preferredPmConfig } from "./pmEquipmentIdentity.js";
 import {
   TRUCK_PM_ALERT_FROM_HOURS,
   TRUCK_PM_INTERVAL_HOURS,
@@ -21,7 +21,6 @@ const DEFAULTS = Object.freeze({ intervalo: 250, alertaDesde: 200, atrasadoDesde
 const ALL = "todos";
 
 const norm = normalizePmEquipmentCode;
-const historyNorm = normalizePmHistoryCode;
 const text = v => String(v ?? "").trim();
 const num = v => {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
@@ -279,18 +278,18 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   }, [loading, rop02All, fechaDesde, fechaHasta, truckInternos]);
 
   const mergedConfigs = useMemo(() => {
-    const map = new Map(PM_INITIAL_SEED.map(item => [historyNorm(item.interno), {
+    const map = new Map(PM_INITIAL_SEED.map(item => [norm(item.interno), {
       ...DEFAULTS,
       tipoUltimoPM: "PM 250",
       activo: "SI",
       observaciones: "Importado desde Ultimos_PM_Equipos.xlsx",
       ...item,
     }]));
-    // Merge only rows with the same history identifier. A -JM suffix can
-    // distinguish independently maintained PM histories and must be kept.
+    // The legacy -JM suffix is an alias for the same physical equipment.
+    // Merge those rows before calculating status so the newest PM reading wins.
     const latestConfigs = new Map();
     (configs || []).forEach(cfg => {
-      const key = historyNorm(cfg?.interno);
+      const key = norm(cfg?.interno);
       if (!key) return;
       latestConfigs.set(key, preferredPmConfig(latestConfigs.get(key), cfg));
     });
@@ -308,28 +307,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     return [...map.values()];
   }, [configs]);
 
-  const configMap = useMemo(() => new Map(mergedConfigs.map(c => [historyNorm(c.interno), c])), [mergedConfigs]);
-  const sourceConfigMap = useMemo(() => {
-    const map = new Map();
-    (configs || []).forEach(cfg => {
-      const key = historyNorm(cfg?.interno);
-      if (key) map.set(key, preferredPmConfig(map.get(key), cfg));
-    });
-    return map;
-  }, [configs]);
-  const configForEquipment = interno => {
-    const exact = historyNorm(interno);
-    const exactConfig = sourceConfigMap.get(exact);
-    if (exactConfig) return configMap.get(exact) || exactConfig;
-    // Fall back to the legacy alias only when no exact source config exists.
-    const alias = norm(interno);
-    const aliasConfigs = [...sourceConfigMap.values()].filter(c => norm(c.interno) === alias);
-    if (aliasConfigs.length) {
-      const selectedConfig = aliasConfigs.reduce((best, candidate) => preferredPmConfig(best, candidate), null);
-      return configMap.get(historyNorm(selectedConfig.interno)) || selectedConfig;
-    }
-    return configMap.get(exact) || mergedConfigs.find(c => norm(c.interno) === alias) || {};
-  };
+  const configMap = useMemo(() => new Map(mergedConfigs.map(c => [norm(c.interno), c])), [mergedConfigs]);
   const categoriaPorInterno = useMemo(() => {
     const map = new Map();
     (listaEquipos || []).forEach(raw => {
@@ -348,7 +326,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       const actividad = actividad7Dias.get(key);
       if (!key || seen.has(key) || !actividad) return;
       seen.add(key);
-      const cfg = configForEquipment(e.interno);
+      const cfg = configMap.get(key) || {};
       const pmEsCamion = esCamionPM(e);
       base.push(statusFor({
         ...e,
@@ -371,7 +349,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     });
     const rank = { "REVISAR DATOS": 0, "PM ATRASADO": 1, "PM URGENTE": 2, "PM PRÓXIMO": 3, "SIN BASE": 4, "AL DÍA": 5 };
     return base.sort((a, b) => (rank[a.estado] ?? 9) - (rank[b.estado] ?? 9) || a.interno.localeCompare(b.interno, "es", { numeric: true }));
-  }, [listaEquipos, actividad7Dias, configMap, sourceConfigMap]);
+  }, [listaEquipos, actividad7Dias, configMap]);
 
   const proyectos = useMemo(() => uniq(equipos.map(e => e.proyecto)).sort(), [equipos]);
   const tipos = useMemo(() => uniq(equipos.map(e => e.familia)).sort(), [equipos]);
@@ -424,7 +402,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       if (!fecha || !interno) return;
       const fechaKey = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}-${String(fecha.getDate()).padStart(2, "0")}`;
       const horometro = num(evento?.horometro);
-      const key = `${historyNorm(interno)}|${fechaKey}|${horometro || 0}`;
+      const key = `${norm(interno)}|${fechaKey}|${horometro || 0}`;
       if (!eventosMap.has(key)) eventosMap.set(key, { ...evento, interno, fecha: fechaKey, horometro });
     };
     registros.forEach(r => addEvento({ ...r, fuente: "PM_REGISTROS" }));

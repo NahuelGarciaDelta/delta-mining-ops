@@ -214,8 +214,16 @@ export async function fetchSupabaseDatasetQuery(params={}){
 // Google Sheets dates can be display-formatted DD/MM/YYYY, while the PM module
 // compares ISO YYYY-MM-DD dates. Preserve dates already in ISO format.
 export function normalizeV9PmDate(value){
+ if(typeof value==="number"&&Number.isFinite(value)&&value>=20000&&value<100000){
+  const date=new Date(Date.UTC(1899,11,30)+Math.round(value)*86400000);
+  return date.toISOString().slice(0,10);
+ }
  const raw=String(value??"").trim();
  if(!raw)return "";
+ if(/^\d{5,6}$/.test(raw)&&Number(raw)>=20000&&Number(raw)<100000){
+  const date=new Date(Date.UTC(1899,11,30)+Number(raw)*86400000);
+  return date.toISOString().slice(0,10);
+ }
  const iso=raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
  if(iso)return iso[1]+"-"+iso[2].padStart(2,"0")+"-"+iso[3].padStart(2,"0");
  const local=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s|$)/);
