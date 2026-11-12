@@ -13,7 +13,10 @@ export default async function handler(req,res){
  if(token.length<60||token.length>4096)return reply(res,401,{ok:false,error:"V9_SESSION_REQUIRED"});
  const body=req.body&&typeof req.body==="object"&&!Array.isArray(req.body)?req.body:{};const dataset=String(body.dataset||""),entity=String(body.entity||"").toUpperCase();const limit=Number(body.limit||1000),offset=Number(body.offset||0);
  if(!ALLOWED.has(dataset)||!Number.isInteger(limit)||limit<1||limit>1000||!Number.isInteger(offset)||offset<0)return reply(res,400,{ok:false,error:"V9_INVALID_SHEETS_QUERY"});
- const gas=String(process.env.DELTA_V9_GAS_WRITE_URL||"").trim();if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(gas))return reply(res,503,{ok:false,error:"V9_SHEETS_BRIDGE_NOT_CONFIGURED"});
+ // Read-only access has its own environment variable. Do not make production
+ // reads depend on DELTA_V9_GAS_WRITE_URL: that credential also unlocks write
+ // actions and intentionally remains unavailable in production until approved.
+ const gas=String(process.env.DELTA_V9_GAS_READ_URL||"").trim();if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(gas))return reply(res,503,{ok:false,error:"V9_SHEETS_BRIDGE_NOT_CONFIGURED"});
  try {if(!await userFor(db,token))return reply(res,401,{ok:false,error:"V9_SESSION_EXPIRED_OR_INACTIVE"});
   // Bound upstream reads below the Vercel function limit so the client gets
   // a typed timeout instead of an opaque 30-second platform termination.

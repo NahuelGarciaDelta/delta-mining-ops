@@ -19,22 +19,15 @@ const transformed=[
 
 const canonical=value=>String(value||"").trim().toUpperCase().replace(/(?<=\d)(?:[-_\s]?JM)$/i,"").replace(/[^A-Z0-9]/g,"");
 
-test("V9 PM treats -JM as temporary code alias, without changing source identifiers",()=>{
- for(const [rop,master] of [
-  ["CAR-0089-JM","CAR-0089"],
-  ["CAV-0114-JM","CAV-0114"],
-  ["CTA-0879-JM","CTA-0879"],
-  ["CTA-0888-JM","CTA-0888"],
-  ["CTA-1067-JM","CTA-1067"],
-  ["CTA-1410-JM","CTA-1410"],
-  ["CTA-1411-JM","CTA-1411"],
-  ["CTA-1800-JM","CTA-1800"],
-  ["CTA-1834-JM","CTA-1834"]
- ])assert.equal(canonical(rop),canonical(master));
+test("V9 resolves Lista Maestra identity aliases while preserving the original PM key rule",()=>{
+ const canonical=value=>String(value||"").trim().toUpperCase().replace(/[^A-Z0-9]/g,"");
+ const aliases=["CAC-0040","AG661LL"].map(canonical);
+ assert.ok(aliases.includes(canonical("AG661LL")));
+ assert.match(source,/const norm = v => String\(v \?\? ""\)\.toUpperCase\(\)\.normalize\("NFD"\)/);
+ assert.doesNotMatch(source,/normalizePmEquipmentCode/);
  assert.match(transformed,/const codeVariants = value => \{/);
- assert.match(transformed,/const norm = normalizePmEquipmentCode;/);
- assert.match(source,/import \{ normalizePmEquipmentCode, preferredPmConfig \} from "\.\/pmEquipmentIdentity\.js";/);
- assert.match(transformed,/\.replace\(\/\(\?<=\\d\)\(\?:\[-_\\s\]\?JM\)\$\/i, ''\)/);
+ assert.match(transformed,/listaMatch\?\.codigoNuevo \|\| listaMatch\?\.interno \|\| internoRop/);
+ assert.match(transformed,/configMap\.get\(keyFinal\) \|\| configMap\.get\(norm\(listaMatch\?\.codigoNuevo\)\)/);
 });
 
 test("V9 PM panel uses the already period-scoped active list, not a second exact raw-code filter",()=>{

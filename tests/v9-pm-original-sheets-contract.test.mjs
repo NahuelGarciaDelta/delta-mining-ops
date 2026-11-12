@@ -4,7 +4,7 @@ import {readFileSync} from "node:fs";
 
 const source=readFileSync(new URL("../src/standalone/adapters/supabaseReadApi.js",import.meta.url),"utf8");
 const from=source.indexOf("export function mapV9PmSourceRows(rows){");
-const to=source.indexOf("\nexport async function fetchSupabasePmSnapshot",from);
+const to=source.indexOf("\n// Read original Google Sheets through the authenticated V9 relay.",from);
 assert.ok(from>=0&&to>from);
 const normalizedDate=value=>{
  const raw=String(value??"").trim();
