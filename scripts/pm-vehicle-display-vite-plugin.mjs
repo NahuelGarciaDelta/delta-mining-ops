@@ -38,8 +38,8 @@ export function pmVehicleDisplayVitePlugin() {
       out = requiredReplace(
         out,
         'const internoFinal = listaMatch?.interno || internoRop;',
-        'const internoFinal = internoRop;',
-        'interno canónico de camioneta desde ROP02'
+        'const internoFinal = listaMatch?.codigoNuevo || listaMatch?.interno || internoRop;',
+        'código interno canónico de Lista Maestra, con ROP02 como respaldo'
       )
 
       out = requiredReplace(
@@ -55,8 +55,8 @@ export function pmVehicleDisplayVitePlugin() {
       out = requiredReplace(
         out,
         "const familiaRop = text(row?._tipo || row?.equipo || 'CAMIONETA');",
-        `const familiaRop = text(row?._tipo || row?.equipo || 'CAMIONETA');\n      const patente = text(listaMatch?.codigoDrusila || '');\n      const internoDisplay = patente && norm(patente) !== norm(internoRop) ? \`${'${internoRop} (${patente})'}\` : internoRop;`,
-        'declaración de internoDisplay y patente'
+        `const familiaRop = text(row?._tipo || row?.equipo || 'CAMIONETA');\n      const patente = text(listaMatch?.codigoDrusila || '');\n      const internoDisplay = internoFinal;`,
+        'visualización del código interno canónico'
       )
 
       out = requiredReplace(
