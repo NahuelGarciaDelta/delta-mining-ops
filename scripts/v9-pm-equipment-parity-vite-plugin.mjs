@@ -1,6 +1,6 @@
-// V9-only patch: PM identity ignores terminal -JM at lookup time, not in Sheets.
-// The full active PM equipment set was already built from ROP02 with the
-// selected date range. A second exact-code panel filter wrongly hid trucks.
+// V9-only patch: keep the fleet panel consistent with the PM dashboard.
+// PM equipment identity itself must follow the original app's exact normalized
+// key; suffix aliases are not merged when selecting PM_CONFIG baselines.
 export function v9PmEquipmentParityVitePlugin(){
  return {
   name:"v9-pm-equipment-parity",
@@ -8,19 +8,10 @@ export function v9PmEquipmentParityVitePlugin(){
   transform(source,id){
    const path=String(id||"").replace(/\\/g,"/").split("?")[0];
    if(!path.endsWith("/src/modules/mantenimiento/MantenimientoProgramadoView.jsx"))return null;
-   // Code identity is now shared by the PM component and its pure helper.
-   // Do not rewrite the norm expression at build time.
-   if(!source.includes("const norm = normalizePmEquipmentCode;"))
-     throw Error("[v9-pm-parity] canonical PM identity helper missing");
-   const codeOld="const raw = text(value).toUpperCase().replace(/\\s*\\(.*?\\)/g, '').trim();";
-   const codeNew="const raw = text(value).toUpperCase().replace(/\\s*\\(.*?\\)/g, '').trim().replace(/(?<=\\d)(?:[-_\\s]?JM)$/i, '');";
-   // Only replace the codeVariants helper, never unrelated input fields.
-   const start=source.indexOf("const codeVariants = value => {");
-   const stop=source.indexOf("const activityForCode =",start);
-   if(start<0||stop<0)throw Error("[v9-pm-parity] codeVariants missing");
-   const helper=source.slice(start,stop);
-   if(!helper.includes(codeOld))throw Error("[v9-pm-parity] codeVariants raw input missing");
-   let next=source.slice(0,start)+helper.replace(codeOld,codeNew)+source.slice(stop);
+   // Fail the V9 build if this component regresses to alias-merging PM keys.
+   if(!source.includes("const norm = v => String(v ?? \"\").toUpperCase().normalize(\"NFD\")"))
+     throw Error("[v9-pm-parity] original PM identity normalization missing");
+   let next=source;
    const oldPanel="const panelVisibles = useMemo(() => visibles.filter(e => panelInternosActivos7Dias.has(norm(e.interno))), [visibles, panelInternosActivos7Dias]);";
    const newPanel="const panelVisibles = useMemo(() => visibles, [visibles]);";
    if(!next.includes(oldPanel))throw Error("[v9-pm-parity] exact code panel filter missing");
