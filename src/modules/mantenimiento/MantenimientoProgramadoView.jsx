@@ -5,7 +5,6 @@ import { rangoTurnoPorFecha } from "../analytics/OperationalAnalytics.jsx";
 import { registerRefreshTask } from "../../services/refreshManager.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
 import { postToAppsScript } from "../../services/writeActions.js";
-import { normalizePmEquipmentCode, preferredPmConfig } from "./pmEquipmentIdentity.js";
 import {
   TRUCK_PM_ALERT_FROM_HOURS,
   TRUCK_PM_INTERVAL_HOURS,
@@ -20,7 +19,10 @@ import {
 const DEFAULTS = Object.freeze({ intervalo: 250, alertaDesde: 200, atrasadoDesde: 350 });
 const ALL = "todos";
 
-const norm = normalizePmEquipmentCode;
+// Match the original Delta OPS PM identity rules. Legacy -JM and unsuffixed
+// PM_CONFIG rows are separate records in the original app and must not be
+// collapsed into one baseline here.
+const norm = v => String(v ?? "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]+/g, "").trim();
 const text = v => String(v ?? "").trim();
 const num = v => {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
@@ -285,15 +287,9 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
       observaciones: "Importado desde Ultimos_PM_Equipos.xlsx",
       ...item,
     }]));
-    // The legacy -JM suffix is an alias for the same physical equipment.
-    // Merge those rows before calculating status so the newest PM reading wins.
-    const latestConfigs = new Map();
     (configs || []).forEach(cfg => {
       const key = norm(cfg?.interno);
       if (!key) return;
-      latestConfigs.set(key, preferredPmConfig(latestConfigs.get(key), cfg));
-    });
-    latestConfigs.forEach((cfg, key) => {
       const seeded = map.get(key) || {};
       map.set(key, {
         ...seeded,
