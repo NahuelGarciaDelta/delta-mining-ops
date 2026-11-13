@@ -4,10 +4,11 @@ import { APP_BUILD_LABEL } from "../../app/version.js";
 import { APPS_SCRIPT_URL } from "../../config/app.js";
 import { fetchAction } from "../../services/appsScriptApi.js";
 import { fetchStockData } from "../../services/stockService.js";
-import { canonicalEquivalentMachineCode } from "../../shared/domain/index.jsx";
+import { canonicalEquivalentMachineCode, getMachineType } from "../../shared/domain/index.jsx";
+import { ROP02_SOURCE_KEYS } from "../../config/rop02Sources.js";
 import WeatherModule,{useBatideroWeather} from "../weather/WeatherModule.jsx";
 import ExecutiveDashboard from "./ExecutiveDashboard.jsx";
-import { equipmentProjectKey, normalizeRop02Project, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap } from "./homeAvailability.js";
+import { equipmentProjectKey, normalizeRop02Project, calculateHomeAvailabilityFromRop02, calculateOpenOtItems, getBajoSanJuanExclusionMap, classifyHomeEquipment } from "./homeAvailability.js";
 import {useEquipmentMovements} from "../../services/equipmentMovements.js";
 import {getRma15,getRma15OpenOtSummary,getRop02LatestByEquipmentProject} from "../../data/historicalDataService.js";
 
@@ -31,18 +32,19 @@ let bienvenidaStockCache=null;
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
 
-export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false,summaryDayFiltered=false}){
+export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,onLoadWelcomeRop02,esAdministrativo=false,summaryDayFiltered=false}){
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
   const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
   const [snapshotRop02,setSnapshotRop02]=useState(null);
   const [welcomeSnapshotSettled,setWelcomeSnapshotSettled]=useState(false);
+  const [fallbackRop02Settled,setFallbackRop02Settled]=useState(false);
   const [openOtSummary,setOpenOtSummary]=useState(null);
   const [fallbackRma15,setFallbackRma15]=useState(null);
   useEffect(()=>{
     let alive=true;
-    getRop02LatestByEquipmentProject({}).then(response=>{
+    getRop02LatestByEquipmentProject({welcomeBootstrap:true}).then(response=>{
       if(!alive||!Array.isArray(response?.data))return;
       const rows=response.data.map(row=>{const stateText=norm(row.ULTIMO_ESTADO||row.ultimoEstado||"");const estado=stateText==="fs"||stateText.includes("fuera de servicio")?"FS":stateText==="od"||stateText.includes("orden del dia")?"OD":stateText==="em"||stateText.includes("mantenimiento")?"EM":"TRABAJO";return{
         fecha:String(row.ULTIMA_FECHA||row.ultimaCarga||"").slice(0,10),
@@ -54,16 +56,25 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         _snapshotActive:Number(row.CARGAS_7D??row.cargas7d??0)>0,
       }});
       startTransition(()=>setSnapshotRop02(rows));
-    }).catch(()=>{}).finally(()=>{if(alive)setWelcomeSnapshotSettled(true);});
+    }).catch(()=>{
+      if(!alive)return;
+      if(typeof onLoadWelcomeRop02==="function"){
+        Promise.resolve(onLoadWelcomeRop02()).catch(()=>{}).finally(()=>{if(alive)setFallbackRop02Settled(true);});
+      }
+    }).finally(()=>{if(alive)setWelcomeSnapshotSettled(true);});
     return()=>{alive=false;};
-  },[]);
+  },[onLoadWelcomeRop02]);
   useEffect(()=>{let alive=true;getRma15OpenOtSummary({}).then(response=>{if(alive&&Array.isArray(response?.data))setOpenOtSummary(response.data);}).catch(()=>getRma15({limit:"all",sortBy:"fecha",sortDirection:"asc"}).then(response=>{if(alive)setFallbackRma15(response.data||[]);}).catch(()=>{}));return()=>{alive=false;};},[]);
   // The V9 welcome summary is atomic: never show FS-only totals while JM
   // and secondary project reads are still in flight. Only the fully assembled
   // cross-project snapshot can populate overview KPIs.
-  const effectiveRop02=Array.isArray(snapshotRop02)&&snapshotRop02.length
-    ?snapshotRop02
-    :(welcomeSnapshotSettled&&Array.isArray(rop02All)?rop02All:[]);
+  const fullRop02Ready=ROP02_SOURCE_KEYS.every(key=>rawSources?.[key]?.ok&&Array.isArray(rawSources[key].data));
+  const listaEquiposReady=Boolean(rawSources?.lista_equipos?.ok&&Array.isArray(rawSources.lista_equipos.data))||listaEquipos.length>0;
+  const effectiveRop02=fullRop02Ready
+    ?(Array.isArray(rop02All)?rop02All:[])
+    :(Array.isArray(snapshotRop02)?snapshotRop02:(fallbackRop02Settled&&Array.isArray(rop02All)?rop02All:[]));
+  const flotaInputsReady=(fullRop02Ready||Array.isArray(snapshotRop02)||fallbackRop02Settled)&&listaEquiposReady;
+  const otInputsReady=Array.isArray(openOtSummary)||fallbackRma15!==null||rma15.length>0||Boolean(rawSources?.rma15_fs?.ok&&rawSources?.rma15_jm?.ok);
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
   const summaryRef=useRef(null);
@@ -99,25 +110,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     // externo de día, ropSource ya viene reducido; sin filtro toma el último día disponible.
     const rop=maxRopDateISO?ropSource.filter(row=>isoOfDate(dateOf(row))===maxRopDateISO):[];
 
-    const normalizeCode=v=>String(v||"").trim().toUpperCase().replace(/\s+/g,"").replace(/-JM$/i,"");
-    const listaByCode=new Map();
-    equipos.forEach(row=>{
-      const codes=[
-        getVal(row,["Codigo nuevo","Código nuevo"]),
-        getVal(row,["Codigo de Drusila","Código de Drusila"]),
-        getVal(row,["Interno","Código Interno","Codigo Interno"]),
-      ].map(normalizeCode).filter(Boolean);
-      codes.forEach(c=>{if(!listaByCode.has(c))listaByCode.set(c,row);});
-    });
-    const classifyActive=code=>{
-      const row=listaByCode.get(normalizeCode(code))||{};
-      const familia=norm(getVal(row,["Familia","Tipo","Tipo de máquina","Tipo de maquina","Equipo"]));
-      const modelo=norm(getVal(row,["Modelo","Marca"]));
-      const c=normalizeCode(code);
-      if(familia.includes("camioneta")||familia.includes("pick")||modelo.includes("hilux")||/^CTA/.test(c)||/^(AG|AH|AI)[0-9A-Z]/.test(c))return "camioneta";
-      if((familia.includes("camion")||familia.includes("camión"))&&!familia.includes("camioneta"))return "camion";
-      return "vial";
-    };
+    const classifyActive=code=>classifyHomeEquipment(code,equipos,{getMachineType,canonicalize:canonicalEquivalentMachineCode});
 
     const activos=new Map();
     rop.forEach(r=>{const d=dateOf(r), rawCode=codeOf(r), c=canonicalEquivalentMachineCode(rawCode);if(c&&d&&(r._snapshotActive!==false)&&!activos.has(c))activos.set(c,{interno:c,lugar:r.proyecto||""});});
@@ -233,20 +226,25 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     };
     if(cancelled)return;
     bienvenidaSummaryCache={data:nextData,loading:{
-      flota:rop.length===0&&!welcomeSnapshotSettled,
+      flota:!flotaInputsReady,
       // Al completarse la consulta rápida, un resultado vacío o fallido no deja
       // las tarjetas bloqueadas indefinidamente; se usa ROP02 ya disponible.
-      disponibilidad:rop.length===0&&!welcomeSnapshotSettled,
-      ot:rma.length===0,
+      disponibilidad:!flotaInputsReady||!movimientosLoaded,
+      ot:!otInputsReady,
       stock:bienvenidaStockCache===null,
     }};
     startTransition(()=>setSummaryState(bienvenidaSummaryCache));
     };
     const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:700}):window.setTimeout(calculate,40);
     return()=>{cancelled=true;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
-  },[listaEquipos,effectiveRop02,rop02All,welcomeSnapshotSettled,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
+  },[listaEquipos,effectiveRop02,rop02All,welcomeSnapshotSettled,flotaInputsReady,otInputsReady,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
   const stats=summaryState.data||EMPTY_SUMMARY;
-  const summaryLoading=summaryState.loading||{};
+  const summaryLoading={
+    ...(summaryState.loading||{}),
+    flota:!flotaInputsReady||Boolean(summaryState.loading?.flota),
+    disponibilidad:!flotaInputsReady||!movimientosLoaded||Boolean(summaryState.loading?.disponibilidad),
+    ot:!otInputsReady||Boolean(summaryState.loading?.ot),
+  };
 
   const quick=esAdministrativo?[
     {label:"Control",desc:"Errores, consistencia y solicitudes.",icon:"shieldCheck",color:"#3b82f6",module:"administrativoErrores",view:"controlErrores"},

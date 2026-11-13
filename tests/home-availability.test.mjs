@@ -5,12 +5,23 @@ import {
   calculateHomeAvailabilityFromRop02,
   calculateOpenOtItems,
   currentAtrasoJustificationForEquipment,
+  classifyHomeEquipment,
   getBajoSanJuanExclusionMap,
   getMaxRop02Date,
   isBajoSanJuanJustification,
 } from "../src/modules/home/homeAvailability.js";
 
 const row=(maquina,fecha,horas,estado="TRABAJO")=>({maquina,fecha,horas,estado});
+
+test("la familia de Lista Maestra identifica como camión una patente AG",()=>{
+  const list=[{"Código nuevo":"AG661LM","Código viejo":"CAR-0089","Familia":"Camión regador"}];
+  assert.equal(classifyHomeEquipment("AG661LM",list,{getMachineType:()=>"",canonicalize:value=>String(value||"")}),"camion");
+});
+
+test("el clasificador usa el tipo canónico del código antes del respaldo por patente",()=>{
+  assert.equal(classifyHomeEquipment("CAR-0089",[],{getMachineType:()=>"CAMION REGADOR"}),"camion");
+  assert.equal(classifyHomeEquipment("AG201HG",[],{getMachineType:()=>"CAMIONETA"}),"camioneta");
+});
 
 test("sin ROP02 devuelve colecciones completas y seguras para el primer render",()=>{
   const result=calculateHomeAvailabilityFromRop02(undefined,undefined);

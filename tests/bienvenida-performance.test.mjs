@@ -25,5 +25,22 @@ test("Bienvenida reutiliza cache de métricas y stock entre montajes",()=>{
   assert.match(home,/let bienvenidaSummaryCache=null/);
   assert.match(home,/let bienvenidaStockCache=null/);
   assert.match(home,/useState\(\(\)=>bienvenidaSummaryCache/);
-  assert.match(home,/if\(bienvenidaStockCache\)return/);
+  assert.match(home,/if\(!welcomeSnapshotSettled\|\|bienvenidaStockCache\)return/);
+});
+
+test("el Resumen General conserva Cargando hasta disponer de ROP02 y Lista Maestra",()=>{
+  const service=fs.readFileSync(new URL("../src/data/historicalDataService.js",import.meta.url),"utf8");
+  assert.match(home,/getRop02LatestByEquipmentProject\(\{welcomeBootstrap:true\}\)/);
+  assert.match(home,/const flotaInputsReady=\(fullRop02Ready\|\|Array\.isArray\(snapshotRop02\)\|\|fallbackRop02Settled\)&&listaEquiposReady/);
+  assert.match(home,/flota:!flotaInputsReady/);
+  assert.match(home,/disponibilidad:!flotaInputsReady\|\|!movimientosLoaded/);
+  assert.match(service,/usesExternalHomeFilter_\(\)&&!params\?\.welcomeBootstrap/);
+  assert.match(service,/params\?\.welcomeBootstrap\?filtered:filterEquipmentOnlySnapshot_\(filtered\)/);
+});
+
+test("Bienvenida prioriza la familia/tipo de Lista Maestra sobre el prefijo de patente",()=>{
+  assert.match(home,/classifyHomeEquipment\(code,equipos,\{getMachineType,canonicalize:canonicalEquivalentMachineCode\}\)/);
+  assert.match(home,/onLoadWelcomeRop02/);
+  const app=fs.readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
+  assert.match(app,/onLoadWelcomeRop02=\{loadWelcomeRop02Fallback\}/);
 });

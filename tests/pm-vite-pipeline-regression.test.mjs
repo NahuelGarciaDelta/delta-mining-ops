@@ -54,3 +54,10 @@ test("actividad ROP02 decide camión con aliases canónicos y mantiene horómetr
   assert.match(code, /const horas = ropHoras\(row, esCamion\);/);
   assert.match(code, /if \(next\) keys\.forEach\(key => map\.set\(key, next\)\);/);
 });
+
+test("Panel PM toma el último HF del período y no retiene el máximo anterior", () => {
+  const code = transformedPmSource();
+  assert.match(code, /fecha\.getTime\(\) === prev\.fecha\.getTime\(\) && sourceIndex > prev\.sourceIndex/);
+  assert.match(code, /next = \{ horas, fecha, proyecto: proyecto \|\| prev\?\.proyecto \|\| "", sourceIndex \}/);
+  assert.doesNotMatch(code, /Math\.max\(horas, prev\?\.horas \|\| 0\)/);
+});

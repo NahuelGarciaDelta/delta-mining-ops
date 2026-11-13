@@ -262,18 +262,21 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
     desde.setHours(0, 0, 0, 0);
     if (!fechaDesde) desde.setDate(desde.getDate() - 6);
     const map = new Map();
-    (rop02All || []).forEach(row => {
+    (rop02All || []).forEach((row, sourceIndex) => {
       const fecha = ropFecha(row);
       if (!fecha || fecha < desde || fecha > hasta) return;
       const key = norm(ropInterno(row));
       if (!key) return;
       const horas = ropHoras(row, truckInternos.has(key));
+      // El panel original usa el último HF disponible del período. No retener
+      // un máximo histórico dentro de la ventana: puede ocultar una lectura
+      // posterior corregida. Las filas llegan ordenadas por fecha y source_key;
+      // el índice desempata dos partes del mismo día.
+      if (!(horas > 0)) return;
       const proyecto = ropProyecto(row);
       const prev = map.get(key);
-      if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && horas > prev.horas)) {
-        map.set(key, { horas: Math.max(horas, prev?.horas || 0), fecha, proyecto: proyecto || prev?.proyecto || "" });
-      } else if (horas > prev.horas) {
-        map.set(key, { ...prev, horas });
+      if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && sourceIndex > prev.sourceIndex)) {
+        map.set(key, { horas, fecha, proyecto: proyecto || prev?.proyecto || "", sourceIndex });
       }
     });
     return map;

@@ -192,7 +192,15 @@ export const refreshHistoricalDataset=(dataset,params={})=>fetchDatasetPage(data
 export const HISTORICAL_DATASET_UPDATED_EVENT=HISTORICAL_UPDATED_EVENT;
 export async function refreshCommonHistoricalDatasets(){return Promise.allSettled([fetchDatasetPage("rop02",COMMON_HISTORICAL_QUERY),fetchDatasetPage("rop05",COMMON_HISTORICAL_QUERY),fetchDatasetPage("rma15",COMMON_HISTORICAL_QUERY)]);}
 async function fetchSpecialAction_(action,params={}){const key=`special:${buildDatasetQueryKey(action,params)}`;const record=await readCachedSource(key).catch(()=>null);if(record?.data?.ok){const sync=await fetchSyncVersions(APPS_SCRIPT_URL).catch(()=>null);const local=record.data.versions||{},remote=sync?.versions||{};if(sync&&!versionsDiffer_(local,remote))return{...record.data,cacheHit:true,cacheLevel:"indexeddb"};}const started=performance.now(),response=await fetch(`${APPS_SCRIPT_URL}?${new URLSearchParams({action,...params,_t:String(Date.now())})}`,{cache:"no-store",redirect:"follow"});if(!response.ok)throw new Error(`HTTP ${response.status} desde Apps Script`);const text=await response.text();let json;try{json=JSON.parse(text);}catch(_){throw new Error("Apps Script no devolvió JSON válido");}if(!json?.ok)throw new Error(json?.error?.message||`Falló ${action}`);const value={...json,elapsedMs:Math.round(performance.now()-started),payloadBytes:new Blob([text]).size};await writeCachedSource(key,value);return value;}
-export async function getRop02LatestByEquipmentProject(params={}){if(usesExternalHomeFilter_())throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");const response=await fetchSupabaseRop02LatestByEquipmentProject(params);return filterAssignedProjectsResponse_(filterEquipmentOnlySnapshot_(filterHomeProjectResponse_(response)));}
+export async function getRop02LatestByEquipmentProject(params={}){
+  if(usesExternalHomeFilter_()&&!params?.welcomeBootstrap)throw new Error("Snapshot de bienvenida desactivado: usar ROP02 ya cargado");
+  const response=await fetchSupabaseRop02LatestByEquipmentProject(params);
+  const filtered=filterHomeProjectResponse_(response);
+  // Oficina Técnica pide el snapshot sin vehículos para algunos paneles; Bienvenida
+  // necesita camiones y camionetas para clasificar el Resumen General completo.
+  const withVehicles=params?.welcomeBootstrap?filtered:filterEquipmentOnlySnapshot_(filtered);
+  return filterAssignedProjectsResponse_(withVehicles);
+}
 export const getRop02MonthlySummary=params=>fetchSpecialAction_("get_rop02_monthly_summary",params);
 export const getRma15EquipmentUniverse=params=>fetchSpecialAction_("get_rma15_equipment_universe",params);
 export async function getRma15OpenOtSummary(params={}){if(usesExternalHomeFilter_())return{ok:true,data:null,externalFilter:true};const response=await fetchSpecialAction_("get_rma15_open_ot_summary",params);const project=currentHomeProject_();const filtered=filterHomeProjectResponse_(response);if(project!=="TODOS")return filtered;if(!Array.isArray(response?.data)||response.data.length===0)throw new Error("Resumen de OT abiertas vacío; recalcular desde RMA15 completo");return response;}

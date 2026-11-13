@@ -725,6 +725,8 @@ export default function App(){
     }
   },[hydrateSourcesFromCache,fetchOneSource,beginBackgroundSync,endBackgroundSync]);
 
+  const loadWelcomeRop02Fallback=useCallback(()=>loadSources(ROP02_SOURCE_KEYS,{background:true}),[loadSources]);
+
   const onMetersConfirmed=useCallback(result=>{
     const source=rawSourcesRef.current.lista_equipos;
     if(!result.results?.some(item=>item.status==="confirmed"))return;
@@ -1202,7 +1204,7 @@ export default function App(){
             )}
             {!fatalError&&(view==="bienvenida"||lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
+                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} onLoadWelcomeRop02={loadWelcomeRop02Fallback} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
                 {({tallerSubida:"SUBIDA",tallerBaja:"BAJA",tallerMovilizacion:"MOVILIZACION",tallerCambioEquipo:"CAMBIO_EQUIPO"})[view]&&<ModuleErrorBoundary name="Movimientos de Taller Central" onRetry={loadData}><TallerMovimientosV9 tipo={({tallerSubida:"SUBIDA",tallerBaja:"BAJA",tallerMovilizacion:"MOVILIZACION",tallerCambioEquipo:"CAMBIO_EQUIPO"})[view]} listaEquipos={listaEquipos} rop02All={rop02All}/></ModuleErrorBoundary>}
                 {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
                 {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}

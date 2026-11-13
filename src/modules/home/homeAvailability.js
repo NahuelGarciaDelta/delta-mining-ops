@@ -71,6 +71,42 @@ export function isHomeAvailabilityVehicleCode(value){
   return false;
 }
 
+export function classifyHomeEquipment(code,equipmentRows=[],{getMachineType=()=>"",canonicalize=canonicalEquipmentCode}={}){
+  const normalize=value=>canonicalize(value).replace(/[^A-Z0-9]/g,"");
+  const keys=new Set([normalize(code)]);
+  const aliases=["Codigo nuevo","Código nuevo","Codigo de Drusila","Código de Drusila","Interno","Código Interno","Codigo Interno","Codigo viejo","Código viejo","Código anterior","Codigo anterior","Código antiguo","Codigo antiguo"];
+  const pick=(row,names)=>{
+    const source=Object.keys(row||{});
+    for(const name of names){
+      const target=normText(name);
+      const key=source.find(candidate=>normText(candidate)===target);
+      if(key)return row[key];
+    }
+    for(const name of names){
+      const target=normText(name);
+      const key=source.find(candidate=>normText(candidate).includes(target)||target.includes(normText(candidate)));
+      if(key)return row[key];
+    }
+    return "";
+  };
+  let master=null;
+  for(const row of Array.isArray(equipmentRows)?equipmentRows:[]){
+    const rowCodes=aliases.map(name=>pick(row,[name])).filter(Boolean).map(normalize);
+    if(rowCodes.some(value=>keys.has(value))){master=row;break;}
+  }
+  const family=normText(pick(master,["Familia","Tipo","Tipo de máquina","Tipo de maquina","Equipo"]));
+  const model=normText(pick(master,["Modelo","Marca"]));
+  // La Lista Maestra y el mapa de tipos tienen prioridad sobre el prefijo de patente:
+  // algunas patentes AG/AH identifican camiones y no camionetas.
+  if(family.includes("camion")&&!family.includes("camioneta"))return "camion";
+  const configuredType=normText(getMachineType(code)||"");
+  if(configuredType.includes("camion")&&!configuredType.includes("camioneta"))return "camion";
+  const canonical=normalize(code);
+  if(/^(CAC|CAR|CAV|CAT|CAA|CDC)/.test(canonical))return "camion";
+  if(family.includes("camioneta")||family.includes("pick")||configuredType.includes("camioneta")||model.includes("hilux")||/^CTA/.test(canonical)||/^(AG|AH|AI)[0-9A-Z]/.test(canonical))return "camioneta";
+  return "vial";
+}
+
 export function isBajoSanJuanJustification(value){
   return normText(value)===BAJO_SAN_JUAN_NORM;
 }

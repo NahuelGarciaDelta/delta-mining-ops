@@ -77,10 +77,8 @@ const activityForCode = (map, value) => {
       // ambos nombres en una sola llamada elegía la patente como identidad PM.
       // PM_CONFIG está indexado por Código nuevo; priorizarlo explícitamente
       // conserva la patente como alias para cruzar ROP02 sin perder la base.
-      out = requiredReplace(
-        out,
-        '  const interno = text(pick(row, ["Codigo nuevo", "Código nuevo", "Código de Drusila", "Codigo de Drusila", "Interno", "Código interno", "Codigo interno"]));',
-        `  const internoCandidates = [
+      const legacyIdentity = '  const interno = text(pick(row, ["Codigo nuevo", "Código nuevo", "Código de Drusila", "Codigo de Drusila", "Interno", "Código interno", "Codigo interno"]));'
+      const canonicalIdentity = `  const internoCandidates = [
     pick(row, ["Codigo nuevo", "Código nuevo"]),
     pick(row, ["Código de Drusila", "Codigo de Drusila", "Código Drusila", "Codigo Drusila"]),
     pick(row, ["Interno", "Código interno", "Codigo interno"]),
@@ -88,9 +86,12 @@ const activityForCode = (map, value) => {
   const interno = internoCandidates.map(text).find(value => {
     const key = norm(value);
     return key && !["NA", "SD", "SINCODIGO", "SININTERNO", "NODISPONIBLE"].includes(key);
-  }) || "";`,
-        'identidad canónica Código nuevo antes de patente'
-      )
+  }) || "";`
+      if (out.includes(legacyIdentity)) {
+        out = requiredReplace(out, legacyIdentity, canonicalIdentity, 'identidad canónica Código nuevo antes de patente')
+      } else if (!out.includes('const internoCandidates = [') || !out.includes('pick(row, ["Codigo nuevo", "Código nuevo"])')) {
+        throw new Error('[delta-vehicle-km-maintenance] No se encontró la identidad canónica Código nuevo antes de patente')
+      }
 
       // Los alias de un camión también deben quedar marcados como camión para que nunca
       // se tome kilometraje por error cuando ROP02 usa un código alternativo.
@@ -106,34 +107,37 @@ const activityForCode = (map, value) => {
 
       // Transformación atómica del bloque de actividad. Antes se reemplazaba sólo la
       // segunda mitad y quedaba "keys" sin declarar, causando el crash en producción.
-      out = requiredReplace(
-        out,
-        `      const key = norm(ropInterno(row));
+      const sourceActivity = `      const key = norm(ropInterno(row));
       if (!key) return;
       const horas = ropHoras(row, truckInternos.has(key));
+      // El panel original usa el último HF disponible del período. No retener
+      // un máximo histórico dentro de la ventana: puede ocultar una lectura
+      // posterior corregida. Las filas llegan ordenadas por fecha y source_key;
+      // el índice desempata dos partes del mismo día.
+      if (!(horas > 0)) return;
       const proyecto = ropProyecto(row);
       const prev = map.get(key);
-      if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && horas > prev.horas)) {
-        map.set(key, { horas: Math.max(horas, prev?.horas || 0), fecha, proyecto: proyecto || prev?.proyecto || "" });
-      } else if (horas > prev.horas) {
-        map.set(key, { ...prev, horas });
-      }`,
-        `      const rawInterno = ropInterno(row);
+      if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && sourceIndex > prev.sourceIndex)) {
+        map.set(key, { horas, fecha, proyecto: proyecto || prev?.proyecto || "", sourceIndex });
+      }`;
+      const aliasActivity = `      const rawInterno = ropInterno(row);
       const keys = codeVariants(rawInterno);
       if (!keys.length) return;
       const esCamion = keys.some(key => truckInternos.has(key));
       const horas = ropHoras(row, esCamion);
+      if (!(horas > 0)) return;
       const proyecto = ropProyecto(row);
       const prev = keys.map(key => map.get(key)).find(Boolean);
       let next = prev;
-      if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && horas > prev.horas)) {
-        next = { horas: Math.max(horas, prev?.horas || 0), fecha, proyecto: proyecto || prev?.proyecto || "" };
-      } else if (horas > prev.horas) {
-        next = { ...prev, horas };
+      if (!prev || fecha > prev.fecha || (fecha.getTime() === prev.fecha.getTime() && sourceIndex > prev.sourceIndex)) {
+        next = { horas, fecha, proyecto: proyecto || prev?.proyecto || "", sourceIndex };
       }
-      if (next) keys.forEach(key => map.set(key, next));`,
-        'actividad ROP02 con aliases'
-      )
+      if (next) keys.forEach(key => map.set(key, next));`;
+      if (out.includes(sourceActivity)) {
+        out = requiredReplace(out, sourceActivity, aliasActivity, 'actividad ROP02 con aliases')
+      } else if (!out.includes(aliasActivity)) {
+        throw new Error('[delta-vehicle-km-maintenance] No se encontró la actividad ROP02 con aliases')
+      }
 
       out = requiredReplace(
         out,
