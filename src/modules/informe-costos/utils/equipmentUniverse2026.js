@@ -23,6 +23,22 @@ export function buildEquipmentWithMaintenance2026(rows) {
   return result;
 }
 
+// El informe horario sólo tiene sentido para equipos que efectivamente
+// trabajaron en ROP02.  Se usa la misma definición de hora efectiva que el
+// resto del informe: una guardia OD/FS/EM no aporta horas al denominador.
+export function buildEquipmentWithRop02Activity2026(rows) {
+  const result = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const date = String(row?._dateKey || row?.fecha || "").slice(0, 10);
+    const hours = Number(row?._effectiveHours ?? row?.horas) || 0;
+    const status = String(row?.estado || "").trim().toUpperCase();
+    if (!date.startsWith(`${INFORME_COSTOS_YEAR}-`) || hours <= 0 || ["OD", "FS", "EM"].includes(status)) continue;
+    const code = row?._canonicalEquipment || maintenanceEquipmentCode(row);
+    if (code) result.add(code);
+  }
+  return result;
+}
+
 export function prepareMaintenanceCostRows(rows) {
   return (Array.isArray(rows) ? rows : []).map(row => {
     const dateKey = String(row?.fecha || "").slice(0, 10);

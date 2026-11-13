@@ -22,7 +22,7 @@ test("Informe de Costos consolida RCP-0039 dentro de RPC-0039",()=>{
   assert.equal(resolveEquipmentCodeAlias("RCP-0039"),"RPC-0039");
 });
 import { sumRoundedMonthlyTotals } from "../src/modules/informe-costos/utils/monthlyCostTotals.js";
-import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, indexMaintenanceCostRows, prepareMaintenanceCostRows, queryEquipmentRangeIndex, sumEffectiveRop02Hours2026 } from "../src/modules/informe-costos/utils/equipmentUniverse2026.js";
+import { buildEquipmentRangeIndex, buildEquipmentWithMaintenance2026, buildEquipmentWithRop02Activity2026, indexMaintenanceCostRows, prepareMaintenanceCostRows, prepareRop02CostRows, queryEquipmentRangeIndex, sumEffectiveRop02Hours2026 } from "../src/modules/informe-costos/utils/equipmentUniverse2026.js";
 import { buildCostEquipmentOptions, buildCostPropertyOptions } from "../src/modules/informe-costos/utils/costGroups.js";
 
 test("los resúmenes ordenan equipos y propiedades de forma compartida",()=>{
@@ -48,6 +48,16 @@ test("el universo 2026 y las horas ROP02 respetan las reglas globales",()=>{
   ],universe);
   assert.equal(hours.get("EXC0001"),8);
   assert.equal(hours.has("TOP0002"),false);
+});
+
+test("Costo mensual sólo incluye equipos con actividad efectiva en ROP02",()=>{
+  const activity=buildEquipmentWithRop02Activity2026(prepareRop02CostRows([
+    {maquina:"EXC-0001",fecha:"2026-02-11",horas:8,estado:""},
+    {maquina:"TOP-0002",fecha:"2026-02-12",horas:7,estado:"OD"},
+    {maquina:"MOT-0003",fecha:"2026-02-13",horas:0,estado:""},
+    {maquina:"PCA-0004",fecha:"2025-12-31",horas:5,estado:""},
+  ]));
+  assert.deepEqual([...activity],["EXC0001"]);
 });
 
 test("el preprocesamiento de costos normaliza fecha, equipo e importe una sola vez",()=>{
