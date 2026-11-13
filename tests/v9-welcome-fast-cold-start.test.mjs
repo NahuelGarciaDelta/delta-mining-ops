@@ -56,7 +56,11 @@ test("Cold welcome reads last 7 days without downloading all historical ROP02",a
 
 test("Welcome keeps full ROP02 history out of initial source list",()=>{
  const sources=readFileSync(new URL("../src/config/viewSources.js",import.meta.url),"utf8");
- assert.match(sources,/bienvenida:\["lista_equipos","rma15_fs","rma15_jm"\]/);
+ assert.match(sources,/bienvenida:\["lista_equipos"\]/);
+});
+test("Welcome snapshot reads project tails and their seven-day pages concurrently",()=>{
+ assert.match(file,/Math\.min\(5,ROP02_SOURCE_KEYS\.length\)/);
+ assert.match(file,/Math\.min\(5,firstResults\.length\)/);
 });
 test("UI applies data as each source completes rather than waiting all sources",()=>{
  const app=readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");

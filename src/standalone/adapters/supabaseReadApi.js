@@ -380,10 +380,11 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
   const job=(async()=>{
     const pageSize=300;
     const sources=[];
-    // Two live Sheets readers at a time to avoid multiplying GAS load.
+    // Each request reads one bounded page. Read the five project tails together
+    // so the welcome summary does not wait for a serial chain of Sheets roundtrips.
     let nextSource=0;
     const firstResults=new Array(ROP02_SOURCE_KEYS.length);
-    await Promise.all(Array.from({length:Math.min(2,ROP02_SOURCE_KEYS.length)},async()=>{
+    await Promise.all(Array.from({length:Math.min(5,ROP02_SOURCE_KEYS.length)},async()=>{
       while(nextSource<ROP02_SOURCE_KEYS.length){
         const idx=nextSource++;
         const source=ROP02_SOURCE_KEYS[idx];
@@ -410,7 +411,10 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
     // Backward pagination stops once an older date is reached. The AppSheet
     // sheets are chronological; check order and fall back to full history when
     // a source is unsorted instead of silently omitting records.
-    for(const item of firstResults){
+    let nextScan=0;
+    await Promise.all(Array.from({length:Math.min(5,firstResults.length)},async()=>{
+     while(nextScan<firstResults.length){
+      const item=firstResults[nextScan++];
       let offset=item.offset;
       let pageRows=item.rows;
       let previousDate="";
@@ -441,7 +445,8 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
       }else{
         records.push(...accepted);
       }
-    }
+     }
+    }));
     const latest=new Map();
     const asText=value=>String(value??"").trim();
     for(const row of records){
