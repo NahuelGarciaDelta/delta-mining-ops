@@ -29,6 +29,36 @@ const EMPTY_SUMMARY_DETAILS={
 const EMPTY_SUMMARY={viales:null,camiones:null,camionetas:null,equiposOD:null,equiposFS:null,disponibilidad:null,otAbiertas:null,stockCritico:null,details:EMPTY_SUMMARY_DETAILS};
 let bienvenidaSummaryCache=null;
 let bienvenidaStockCache=null;
+const WELCOME_SUMMARY_CACHE_PREFIX="dm_welcome_summary_v1:";
+const WELCOME_SUMMARY_CACHE_MAX_AGE_MS=24*60*60*1000;
+
+function welcomeSummaryCacheKey_(){
+  try{
+    const email=String(sessionStorage.getItem("dm_user")||"").trim().toLowerCase();
+    if(!email)return"";
+    const project=String(sessionStorage.getItem("dm_project")||"TODO").trim().toUpperCase()||"TODO";
+    return`${WELCOME_SUMMARY_CACHE_PREFIX}${encodeURIComponent(email)}:${encodeURIComponent(project)}`;
+  }catch(_){return"";}
+}
+
+function readWelcomeSummaryCache_(){
+  const key=welcomeSummaryCacheKey_();
+  if(!key)return null;
+  try{
+    const saved=JSON.parse(localStorage.getItem(key)||"null");
+    const age=Date.now()-Number(saved?.savedAt||0);
+    if(saved?.version!==1||!saved?.data||!Number.isFinite(age)||age<0||age>WELCOME_SUMMARY_CACHE_MAX_AGE_MS)return null;
+    return{data:saved.data,loading:{flota:false,disponibilidad:false,ot:false,stock:false},fromCache:true,cacheUpdatedAt:saved.savedAt};
+  }catch(_){return null;}
+}
+
+function saveWelcomeSummaryCache_(data){
+  const key=welcomeSummaryCacheKey_();
+  if(!key||!data)return 0;
+  const savedAt=Date.now();
+  try{localStorage.setItem(key,JSON.stringify({version:1,savedAt,data}));return savedAt;}
+  catch(_){return 0;}
+}
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
 
@@ -36,7 +66,8 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
-  const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
+  const [summaryState,setSummaryState]=useState(()=>bienvenidaSummaryCache||readWelcomeSummaryCache_()||{data:EMPTY_SUMMARY,loading:{flota:true,disponibilidad:true,ot:true,stock:true}});
+  const cachedSummaryOnStart=useRef(Boolean(summaryState.fromCache));
   const [snapshotRop02,setSnapshotRop02]=useState(null);
   const [welcomeSnapshotSettled,setWelcomeSnapshotSettled]=useState(false);
   const [fallbackRop02Settled,setFallbackRop02Settled]=useState(false);
@@ -101,6 +132,9 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   useEffect(()=>{
     let cancelled=false;
     const calculate=()=>{
+    // Mientras revalidamos las fuentes, conserva los últimos indicadores buenos
+    // de este usuario/proyecto; no reemplazarlos por ceros parciales.
+    if(cachedSummaryOnStart.current&&!(flotaInputsReady&&otInputsReady))return;
     const equipos=Array.isArray(listaEquipos)?listaEquipos:[];
     const ropSource=effectiveRop02;
     const rma=Array.isArray(fallbackRma15)?fallbackRma15:(Array.isArray(rma15)?rma15:[]);
@@ -225,6 +259,9 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       }
     };
     if(cancelled)return;
+    const authoritative=flotaInputsReady&&otInputsReady;
+    cachedSummaryOnStart.current=false;
+    const savedAt=authoritative?saveWelcomeSummaryCache_(nextData):0;
     bienvenidaSummaryCache={data:nextData,loading:{
       flota:!flotaInputsReady,
       // Al completarse la consulta rápida, un resultado vacío o fallido no deja
@@ -232,18 +269,19 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       disponibilidad:!flotaInputsReady||!movimientosLoaded,
       ot:!otInputsReady,
       stock:bienvenidaStockCache===null,
-    }};
+    },fromCache:false,cacheUpdatedAt:savedAt||Date.now()};
     startTransition(()=>setSummaryState(bienvenidaSummaryCache));
     };
-    const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:700}):window.setTimeout(calculate,40);
+    const id=typeof window.requestIdleCallback==="function"?window.requestIdleCallback(calculate,{timeout:150}):window.setTimeout(calculate,0);
     return()=>{cancelled=true;if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);else window.clearTimeout(id);};
   },[listaEquipos,effectiveRop02,rop02All,welcomeSnapshotSettled,flotaInputsReady,otInputsReady,rma15,fallbackRma15,openOtSummary,sharedStockRows,admitidosAtraso,movimientosLoaded,movimientosError]);
   const stats=summaryState.data||EMPTY_SUMMARY;
+  const hasCachedSummary=Boolean(summaryState.fromCache&&summaryState.data);
   const summaryLoading={
     ...(summaryState.loading||{}),
-    flota:!flotaInputsReady||Boolean(summaryState.loading?.flota),
-    disponibilidad:!flotaInputsReady||!movimientosLoaded||Boolean(summaryState.loading?.disponibilidad),
-    ot:!otInputsReady||Boolean(summaryState.loading?.ot),
+    flota:(!flotaInputsReady&&!hasCachedSummary)||Boolean(summaryState.loading?.flota),
+    disponibilidad:((!flotaInputsReady||!movimientosLoaded)&&!hasCachedSummary)||Boolean(summaryState.loading?.disponibilidad),
+    ot:(!otInputsReady&&!hasCachedSummary)||Boolean(summaryState.loading?.ot),
   };
 
   const quick=esAdministrativo?[
@@ -360,7 +398,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
             </div>
 
             <div ref={summaryRef} className="dm-home-summary" style={{position:"absolute",right:0,top:"50%",transform:"translateY(-45%)",width:252,borderRadius:10,background:"rgba(5,18,29,.62)",border:"1px solid rgba(255,255,255,.10)",boxShadow:"0 18px 45px rgba(0,0,0,.26)",overflow:"visible",backdropFilter:"blur(18px) saturate(115%)",WebkitBackdropFilter:"blur(18px) saturate(115%)"}}>
-              <div style={{padding:"17px 18px",fontSize:14,fontWeight:900,borderBottom:"1px solid rgba(255,255,255,.07)",display:"flex",alignItems:"center",gap:8}}><Icon name="dashboard" size={16} color="#fff"/>RESUMEN GENERAL</div>
+              <div style={{padding:"17px 18px",fontSize:14,fontWeight:900,borderBottom:"1px solid rgba(255,255,255,.07)",display:"flex",alignItems:"center",gap:8}}><Icon name="dashboard" size={16} color="#fff"/>RESUMEN GENERAL{summaryState.fromCache&&<span style={{marginLeft:"auto",fontSize:9,fontWeight:700,color:"#93c5fd"}}>Actualizando…</span>}</div>
               <div style={{padding:"9px 14px 13px"}}>
                 <SummaryRow active={activeSummaryKey==="equiposViales"} onClick={()=>setActiveSummaryKey(k=>k==="equiposViales"?null:"equiposViales")} icon="truck" color="#e7edf2" label="Equipos viales operativos" value={summaryLoading.flota?"Cargando…":stats.viales}/>
                 <SummaryRow active={activeSummaryKey==="camiones"} onClick={()=>setActiveSummaryKey(k=>k==="camiones"?null:"camiones")} icon="truck" color="#60a5fa" label="Camiones operativos" value={summaryLoading.flota?"Cargando…":stats.camiones}/>

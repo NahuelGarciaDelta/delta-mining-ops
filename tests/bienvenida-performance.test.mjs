@@ -24,8 +24,17 @@ test("Resumen difiere cálculos y muestra loading granular sin ceros falsos",()=
 test("Bienvenida reutiliza cache de métricas y stock entre montajes",()=>{
   assert.match(home,/let bienvenidaSummaryCache=null/);
   assert.match(home,/let bienvenidaStockCache=null/);
-  assert.match(home,/useState\(\(\)=>bienvenidaSummaryCache/);
+  assert.match(home,/useState\(\(\)=>bienvenidaSummaryCache\|\|readWelcomeSummaryCache_\(\)/);
   assert.match(home,/if\(!welcomeSnapshotSettled\|\|bienvenidaStockCache\)return/);
+  assert.match(home,/WELCOME_SUMMARY_CACHE_MAX_AGE_MS=24\*60\*60\*1000/);
+  assert.match(home,/Actualizando…/);
+  assert.match(home,/cachedSummaryOnStart\.current&&!\(flotaInputsReady&&otInputsReady\)/);
+});
+
+test("Inicio evita precargar historiales completos que no necesita y arranca su carga sin idle delay",()=>{
+  const viewSources=fs.readFileSync(new URL("../src/config/viewSources.js",import.meta.url),"utf8");
+  assert.match(viewSources,/bienvenida:\["lista_equipos"\]/);
+  assert.match(app,/if\(view==="bienvenida"\)\{\s*run\(\);\s*return/);
 });
 
 test("el Resumen General conserva Cargando hasta disponer de ROP02 y Lista Maestra",()=>{

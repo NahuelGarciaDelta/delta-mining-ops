@@ -8,7 +8,9 @@ export const VIEW_SOURCES = Object.freeze({
   // V9 welcome uses a recent AppSheet tail snapshot for the current-day KPIs.
   // Full ROP02 history loads when an operational module is opened; do not
   // transfer thousands of historic rows simply to enter the home screen.
-  bienvenida:["lista_equipos","rma15_fs","rma15_jm"],
+  // Inicio usa el resumen liviano de OT; cargar el historial completo de RMA15
+  // al entrar duplicaba esa consulta y retrasaba la primera pantalla.
+  bienvenida:["lista_equipos"],
   equipmentProfile:["lista_equipos",...ROP02_SOURCE_KEYS,"rop05","rma15_fs","rma15_jm","insumos"],
   // Dashboard usa los mismos datasets hidratados por App desde Supabase.
   // No existe una segunda carga monolítica ni un snapshot bloqueante de Apps Script.

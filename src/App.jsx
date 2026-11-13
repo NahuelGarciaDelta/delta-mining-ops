@@ -779,6 +779,10 @@ export default function App(){
     if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){loadInitial();return;}
     let cancelled=false;
     const run=()=>{if(!cancelled)loadSources(VIEW_SOURCES[view]||[],{background:true});};
+    if(view==="bienvenida"){
+      run();
+      return()=>{cancelled=true;};
+    }
     const id=typeof window.requestIdleCallback==="function"
       ?window.requestIdleCallback(run,{timeout:250})
       :window.setTimeout(run,60);
