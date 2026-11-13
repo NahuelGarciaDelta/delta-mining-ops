@@ -50,14 +50,14 @@ test("el universo 2026 y las horas ROP02 respetan las reglas globales",()=>{
   assert.equal(hours.has("TOP0002"),false);
 });
 
-test("Costo mensual sólo incluye equipos con actividad efectiva en ROP02",()=>{
+test("Costo mensual sólo incluye equipos con horas registradas en ROP02",()=>{
   const activity=buildEquipmentWithRop02Activity2026(prepareRop02CostRows([
     {maquina:"EXC-0001",fecha:"2026-02-11",horas:8,estado:""},
     {maquina:"TOP-0002",fecha:"2026-02-12",horas:7,estado:"OD"},
     {maquina:"MOT-0003",fecha:"2026-02-13",horas:0,estado:""},
     {maquina:"PCA-0004",fecha:"2025-12-31",horas:5,estado:""},
   ]));
-  assert.deepEqual([...activity],["EXC0001"]);
+  assert.deepEqual([...activity],["EXC0001","TOP0002"]);
 });
 
 test("el preprocesamiento de costos normaliza fecha, equipo e importe una sola vez",()=>{

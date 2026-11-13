@@ -728,7 +728,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const byEquipment=new Map();
     (rop02||[]).forEach(row=>{
       const date=String(row?._dateKey||row?.fecha||"").slice(0,10);
-      const hours=Math.max(0,Number(row?._effectiveHours ?? row?.horas)||0);
+      const hours=Math.max(0,Number(row?.horas)||0);
       const code=codigoCanonicoEquipo(row?.maquina||row?.interno||row?.equipo);
       if(!date.startsWith("2026-")||!code||code==="—"||hours<=0)return;
       if(!byEquipment.has(code))byEquipment.set(code,new Map());
@@ -3246,7 +3246,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           </table>
         </div>
         <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
-          Sólo se muestran equipos con horas efectivas registradas en ROP02. El costo mensual usa Promedio / Total y las horas del mes visible; el acumulado usa todo el período filtrado. Ambos incluyen la mano de obra distribuida.
+          Sólo se muestran equipos con horas registradas en ROP02. El costo mensual usa Promedio / Total y las horas del mes visible; el acumulado usa todo el período filtrado. Ambos incluyen la mano de obra distribuida.
         </div>
       </Card>
     );
