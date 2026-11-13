@@ -113,7 +113,15 @@ function mountApp(){
   );
   preloadFrequentModules();
 }
-bootstrapRop02Catalog().then(()=>mountApp(),()=>mountApp());
+// La consulta del catálogo agrega fuentes opcionales, pero no debe bloquear el
+// primer render ni la carga de la bienvenida. Se resuelve en segundo plano;
+// App vuelve a consultar la vista activa si descubre proyectos nuevos.
+mountApp();
+bootstrapRop02Catalog().then(result=>{
+  if(typeof window==="undefined")return;
+  window.__dmRop02CatalogReady=result;
+  window.dispatchEvent(new CustomEvent("dm-rop02-catalog-ready",{detail:result}));
+});
 
 // Solo dispara la política de actualización. Ya NO vuelve a descargar por la fuerza
 // ROP02 + ROP05 + RMA15 completos cada 5 minutos: esa precarga competía con la vista

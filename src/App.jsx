@@ -793,6 +793,17 @@ export default function App(){
     };
   },[view,loadSources,loadInitial]);
 
+  useEffect(()=>{
+    const syncCatalogSources=result=>{
+      if(!(Number(result?.newSources)>0)||view==="bienvenida")return;
+      loadSources(VIEW_SOURCES[view]||[],{background:true});
+    };
+    const onCatalogReady=event=>syncCatalogSources(event?.detail);
+    window.addEventListener("dm-rop02-catalog-ready",onCatalogReady);
+    syncCatalogSources(window.__dmRop02CatalogReady);
+    return()=>window.removeEventListener("dm-rop02-catalog-ready",onCatalogReady);
+  },[view,loadSources]);
+
   // ─── Auto-refresh global: recarga la vista activa cada 5 minutos ─────────────
   // Verifica versiones antes de descargar fuentes; el botón manual sí fuerza la carga.
   // Si la pestaña del navegador está oculta,

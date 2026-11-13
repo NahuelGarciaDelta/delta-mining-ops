@@ -4,6 +4,7 @@ import fs from "node:fs";
 
 const app=fs.readFileSync(new URL("../src/App.jsx",import.meta.url),"utf8");
 const home=fs.readFileSync(new URL("../src/modules/home/ViewBienvenida.jsx",import.meta.url),"utf8");
+const main=fs.readFileSync(new URL("../src/main.jsx",import.meta.url),"utf8");
 
 test("Bienvenida se monta aunque la carga global todavía esté activa",()=>{
   assert.match(app,/view!=="bienvenida"&&\(loading/);
@@ -35,6 +36,12 @@ test("Inicio evita precargar historiales completos que no necesita y arranca su 
   const viewSources=fs.readFileSync(new URL("../src/config/viewSources.js",import.meta.url),"utf8");
   assert.match(viewSources,/bienvenida:\["lista_equipos"\]/);
   assert.match(app,/if\(view==="bienvenida"\)\{\s*run\(\);\s*return/);
+});
+
+test("la bienvenida se monta sin esperar el catálogo dinámico de ROP02",()=>{
+  assert.match(main,/mountApp\(\);\s*bootstrapRop02Catalog\(\)\.then/);
+  assert.match(main,/dm-rop02-catalog-ready/);
+  assert.match(app,/addEventListener\("dm-rop02-catalog-ready"/);
 });
 
 test("el Resumen General conserva Cargando hasta disponer de ROP02 y Lista Maestra",()=>{
