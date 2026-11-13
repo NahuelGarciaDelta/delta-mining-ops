@@ -101,10 +101,17 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   // cross-project snapshot can populate overview KPIs.
   const fullRop02Ready=ROP02_SOURCE_KEYS.every(key=>rawSources?.[key]?.ok&&Array.isArray(rawSources[key].data));
   const listaEquiposReady=Boolean(rawSources?.lista_equipos?.ok&&Array.isArray(rawSources.lista_equipos.data))||listaEquipos.length>0;
-  const effectiveRop02=fullRop02Ready
-    ?(Array.isArray(rop02All)?rop02All:[])
-    :(Array.isArray(snapshotRop02)?snapshotRop02:(fallbackRop02Settled&&Array.isArray(rop02All)?rop02All:[]));
-  const flotaInputsReady=(fullRop02Ready||Array.isArray(snapshotRop02)||fallbackRop02Settled)&&listaEquiposReady;
+  // The outer welcome filter already supplies ROP02 rows for its selected day.
+  // Use them immediately instead of waiting for the snapshot endpoint and the
+  // equipment catalog; the latter only improves classification as it arrives.
+  const visibleRop02Ready=summaryDayFiltered&&Array.isArray(rop02All)&&rop02All.length>0;
+  const effectiveRop02=visibleRop02Ready
+    ?rop02All
+    :fullRop02Ready
+      ?(Array.isArray(rop02All)?rop02All:[])
+      :(Array.isArray(snapshotRop02)?snapshotRop02:(fallbackRop02Settled&&Array.isArray(rop02All)?rop02All:[]));
+  const flotaDataReady=visibleRop02Ready||fullRop02Ready||Array.isArray(snapshotRop02)||fallbackRop02Settled;
+  const flotaInputsReady=flotaDataReady&&listaEquiposReady;
   const otInputsReady=Array.isArray(openOtSummary)||fallbackRma15!==null||rma15.length>0||Boolean(rawSources?.rma15_fs?.ok&&rawSources?.rma15_jm?.ok);
   const {admitidos:admitidosAtraso,loaded:movimientosLoaded,error:movimientosError}=useEquipmentMovements(effectiveRop02,["bienvenida"]);
   const [activeSummaryKey,setActiveSummaryKey]=useState(null);
@@ -259,14 +266,14 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
       }
     };
     if(cancelled)return;
-    const authoritative=flotaInputsReady&&otInputsReady;
+    const authoritative=flotaInputsReady&&otInputsReady&&movimientosLoaded;
     cachedSummaryOnStart.current=false;
     const savedAt=authoritative?saveWelcomeSummaryCache_(nextData):0;
     bienvenidaSummaryCache={data:nextData,loading:{
-      flota:!flotaInputsReady,
-      // Al completarse la consulta rápida, un resultado vacío o fallido no deja
-      // las tarjetas bloqueadas indefinidamente; se usa ROP02 ya disponible.
-      disponibilidad:!flotaInputsReady||!movimientosLoaded,
+      // Render the ROP02 calculation as soon as usable rows exist. Equipment
+      // movements and Lista Maestra can refine it later without hiding the KPIs.
+      flota:!flotaDataReady,
+      disponibilidad:!flotaDataReady,
       ot:!otInputsReady,
       stock:bienvenidaStockCache===null,
     },fromCache:false,cacheUpdatedAt:savedAt||Date.now()};
@@ -279,8 +286,8 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
   const hasCachedSummary=Boolean(summaryState.fromCache&&summaryState.data);
   const summaryLoading={
     ...(summaryState.loading||{}),
-    flota:(!flotaInputsReady&&!hasCachedSummary)||Boolean(summaryState.loading?.flota),
-    disponibilidad:((!flotaInputsReady||!movimientosLoaded)&&!hasCachedSummary)||Boolean(summaryState.loading?.disponibilidad),
+    flota:(!flotaDataReady&&!hasCachedSummary)||Boolean(summaryState.loading?.flota),
+    disponibilidad:(!flotaDataReady&&!hasCachedSummary)||Boolean(summaryState.loading?.disponibilidad),
     ot:(!otInputsReady&&!hasCachedSummary)||Boolean(summaryState.loading?.ot),
   };
 

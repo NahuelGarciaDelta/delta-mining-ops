@@ -44,12 +44,15 @@ test("la bienvenida se monta sin esperar el catálogo dinámico de ROP02",()=>{
   assert.match(app,/addEventListener\("dm-rop02-catalog-ready"/);
 });
 
-test("el Resumen General conserva Cargando hasta disponer de ROP02 y Lista Maestra",()=>{
+test("el Resumen General calcula con ROP02 del día seleccionado sin esperar el catálogo",()=>{
   const service=fs.readFileSync(new URL("../src/data/historicalDataService.js",import.meta.url),"utf8");
   assert.match(home,/getRop02LatestByEquipmentProject\(\{welcomeBootstrap:true\}\)/);
-  assert.match(home,/const flotaInputsReady=\(fullRop02Ready\|\|Array\.isArray\(snapshotRop02\)\|\|fallbackRop02Settled\)&&listaEquiposReady/);
-  assert.match(home,/flota:!flotaInputsReady/);
-  assert.match(home,/disponibilidad:!flotaInputsReady\|\|!movimientosLoaded/);
+  assert.match(home,/const visibleRop02Ready=summaryDayFiltered&&Array\.isArray\(rop02All\)&&rop02All\.length>0/);
+  assert.match(home,/const effectiveRop02=visibleRop02Ready\s*\?rop02All/);
+  assert.match(home,/const flotaDataReady=visibleRop02Ready\|\|fullRop02Ready\|\|Array\.isArray\(snapshotRop02\)\|\|fallbackRop02Settled/);
+  assert.match(home,/flota:!flotaDataReady/);
+  assert.match(home,/disponibilidad:!flotaDataReady/);
+  assert.match(home,/const authoritative=flotaInputsReady&&otInputsReady&&movimientosLoaded/);
   assert.match(service,/usesExternalHomeFilter_\(\)&&!params\?\.welcomeBootstrap/);
   assert.match(service,/params\?\.welcomeBootstrap\?filtered:filterEquipmentOnlySnapshot_\(filtered\)/);
 });
