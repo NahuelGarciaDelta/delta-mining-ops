@@ -2846,7 +2846,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       if(mesHasta&&m.key>mesHasta)return false;
       return true;
     });
-    const rowsCM=(costoMensualAcumulado||[]).map(x=>{
+    let rowsCM=(costoMensualAcumulado||[]).map(x=>{
       // Solo se conserva la fila si el interno consolidado tiene al menos un registro en 2026.
       const tieneRegistro2026=Object.entries(x.months||{}).some(([key,d])=>{
         if(!String(key).startsWith("2026-"))return false;
@@ -2937,6 +2937,10 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       const hs=getHsEfectivasMesCM(x);
       return hs>0?(cost+getManoObraMensualCM(x))/hs:0;
     };
+    // El universo general evita arrastrar equipos sin ROP02; este segundo
+    // corte respeta además el período actualmente seleccionado en la tabla.
+    // Una fila sin horas reales en ese rango no debe exponerse con USD/h vacío.
+    rowsCM=rowsCM.filter(x=>getHsEfectivasCM(x)>0);
     // Los subtotales se pedían decenas de veces durante cada render y cada
     // llamada volvía a recorrer todas las filas. Se calculan una sola vez.
     const sumCMCache=React.useMemo(()=>{
