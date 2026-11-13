@@ -2935,14 +2935,6 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       },{prev:0,corr:0,total:0,nPrev:0,nCorr:0,nTotal:0});
       return {prev:acc.nPrev?acc.prev/acc.nPrev:0,corr:acc.nCorr?acc.corr/acc.nCorr:0,total:acc.nTotal?acc.total/acc.nTotal:0};
     };
-    const getManoObraMensualCM=(x)=>{
-      const monthCost=Number(currentMonth&&x.months?.[currentMonth.key]?.total)||0;
-      const periodCost=Number(x.total)||0;
-      const manoObra=Number(getManoObraCostoMensual(x))||0;
-      // La mano de obra ya se calcula y distribuye en el Worker. Para la
-      // lectura mensual se prorratea con el costo del propio equipo.
-      return periodCost>0?manoObra*(monthCost/periodCost):0;
-    };
     const getHsEfectivasCM=(x)=>{
       return hoursForRange(x,filteredRange.from,filteredRange.to);
     };
@@ -2956,9 +2948,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       return hs>0?((Number(x.total)||0)+(Number(getManoObraCostoMensual(x))||0))/hs:0;
     };
     const getUsdHoraMensualCM=(x)=>{
-      const cost=Number(currentMonth&&x.months?.[currentMonth.key]?.total)||0;
+      // El valor mensual se construye desde la misma columna visible
+      // "Promedio / Total", no desde el último mes individual.
+      const cost=Number(promedioCM(x).total)||0;
       const hs=getHsEfectivasMesCM(x);
-      return hs>0?(cost+getManoObraMensualCM(x))/hs:0;
+      return hs>0?(cost+(Number(getManoObraCostoMensual(x))||0))/hs:0;
     };
     // El universo general evita arrastrar equipos sin ROP02; este segundo
     // corte respeta además el período actualmente seleccionado en la tabla.
@@ -2975,8 +2969,8 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         const values={
           totalB:Math.round(Number(x.total)||0),
           mo:Math.round(Number(getManoObraCostoMensual(x))||0),
-          monthlyCost:Number(currentMonth&&x.months?.[currentMonth.key]?.total)||0,
-          laborMonthly:Number(getManoObraMensualCM(x))||0,
+          monthlyCost:Number(promedioCM(x).total)||0,
+          laborMonthly:Number(getManoObraCostoMensual(x))||0,
           hsEf:Math.round(Number(getHsEfectivasCM(x))||0),
           hsEfMonthly:Math.round(Number(getHsEfectivasMesCM(x))||0),
           prev:Math.round(Number(p.prev)||0),
@@ -3252,7 +3246,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           </table>
         </div>
         <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
-          Sólo se muestran equipos con horas efectivas registradas en ROP02. El costo mensual usa el último mes visible; el acumulado, todo el período filtrado. Ambos incluyen la mano de obra distribuida.
+          Sólo se muestran equipos con horas efectivas registradas en ROP02. El costo mensual usa Promedio / Total y las horas del mes visible; el acumulado usa todo el período filtrado. Ambos incluyen la mano de obra distribuida.
         </div>
       </Card>
     );
