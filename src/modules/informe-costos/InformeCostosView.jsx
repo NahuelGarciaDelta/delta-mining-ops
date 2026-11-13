@@ -2908,7 +2908,6 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       from:mesesCM[0]?rangeForMonth(mesesCM[0].key).from:"",
       to:mesesCM.length?rangeForMonth(mesesCM[mesesCM.length-1].key).to:"",
     };
-    const currentMonth=mesesCM[mesesCM.length-1]||null;
     const mkTot=()=>({prev:0,corr:0,total:0,months:Object.fromEntries((mesesCM||[]).map(m=>[m.key,{prev:0,corr:0,total:0}]))});
     const totalesCM={FS:mkTot(),JM:mkTot(),TOTAL:mkTot()};
     rowsCM.forEach(x=>{
@@ -2938,20 +2937,22 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const getHsEfectivasCM=(x)=>{
       return hoursForRange(x,filteredRange.from,filteredRange.to);
     };
-    const getHsEfectivasMesCM=(x)=>{
-      if(!currentMonth)return 0;
-      const range=rangeForMonth(currentMonth.key);
-      return hoursForRange(x,range.from,range.to);
+    const getPromedioHsMensualesCM=(x)=>{
+      const total=getHsEfectivasCM(x);
+      return mesesCM.length>0?total/mesesCM.length:0;
     };
     const getUsdHoraAcumuladoCM=(x)=>{
-      const hs=getHsEfectivasCM(x);
-      return hs>0?((Number(x.total)||0)+(Number(getManoObraCostoMensual(x))||0))/hs:0;
+      const hsAcumuladas=getHsEfectivasCM(x);
+      const hsPromedioMensuales=getPromedioHsMensualesCM(x);
+      const totalB=Number(x.total)||0;
+      const manoObra=Number(getManoObraCostoMensual(x))||0;
+      return (hsAcumuladas>0?totalB/hsAcumuladas:0)+(hsPromedioMensuales>0?manoObra/hsPromedioMensuales:0);
     };
     const getUsdHoraMensualCM=(x)=>{
       // El valor mensual se construye desde la misma columna visible
       // "Promedio / Total", no desde el último mes individual.
       const cost=Number(promedioCM(x).total)||0;
-      const hs=getHsEfectivasMesCM(x);
+      const hs=getPromedioHsMensualesCM(x);
       return hs>0?(cost+(Number(getManoObraCostoMensual(x))||0))/hs:0;
     };
     // El universo general evita arrastrar equipos sin ROP02; este segundo
@@ -2972,7 +2973,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           monthlyCost:Number(promedioCM(x).total)||0,
           laborMonthly:Number(getManoObraCostoMensual(x))||0,
           hsEf:Math.round(Number(getHsEfectivasCM(x))||0),
-          hsEfMonthly:Math.round(Number(getHsEfectivasMesCM(x))||0),
+          hsEfMonthly:Number(getPromedioHsMensualesCM(x))||0,
           prev:Math.round(Number(p.prev)||0),
           corr:Math.round(Number(p.corr)||0),
           total:Math.round(Number(p.total)||0),
@@ -2989,7 +2990,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         });
       });
       return out;
-    },[rowsCM,mesesCM,currentMonth,filteredRange,rop02RangeIndex,manoObraPorEquipoCostoMensual]);
+    },[rowsCM,mesesCM,filteredRange,rop02RangeIndex,manoObraPorEquipoCostoMensual]);
     const sumCM=(section,kind,monthKey=null)=>monthKey
       ?(sumCMCache?.[section]?.months?.[monthKey]?.[kind]||0)
       :(sumCMCache?.[section]?.[kind]||0);
@@ -2999,9 +3000,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       return hours>0?total/hours:0;
     };
     const usdHsAcumuladoTotal=(section)=>{
-      const total=sumCM(section,"totalB")+sumCM(section,"mo");
-      const hours=sumCM(section,"hsEf");
-      return hours>0?total/hours:0;
+      const hsAcumuladas=sumCM(section,"hsEf");
+      const hsPromedioMensuales=sumCM(section,"hsEfMonthly");
+      const totalB=sumCM(section,"totalB");
+      const manoObra=sumCM(section,"mo");
+      return (hsAcumuladas>0?totalB/hsAcumuladas:0)+(hsPromedioMensuales>0?manoObra/hsPromedioMensuales:0);
     };
     const sections=[{id:"FS",label:"FILO DEL SOL"},{id:"JM",label:"JOSE MARIA"}].filter(sec=>
       rowsCM.some(x=>x.section===sec.id)
@@ -3163,7 +3166,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                 <SortableTH sortId="costoMensual" sortKey="promTotal" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Total</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="mo" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Mano de Obra</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="hsEf" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Hs efectivas</SortableTH>
-                <SortableTH sortId="costoMensual" sortKey="usdHsMensual" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/h mensual{currentMonth?` (${currentMonth.label})`:""}</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="usdHsMensual" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/h mensual (prom.)</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="usdHsAcumulado" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/h acumulado</SortableTH>
               </tr>
             </thead>
@@ -3246,7 +3249,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           </table>
         </div>
         <div style={{padding:"8px 14px",fontSize:11,color:C.textMuted,borderTop:`1px solid ${C.border}22`}}>
-          Sólo se muestran equipos con horas registradas en ROP02. El costo mensual usa Promedio / Total y las horas del mes visible; el acumulado usa todo el período filtrado. Ambos incluyen la mano de obra distribuida.
+          Sólo se muestran equipos con horas registradas en ROP02. USD/h mensual usa Promedio / Total y el promedio mensual de horas ROP02; USD/h acumulado suma Total B / horas acumuladas + Mano de Obra / promedio mensual de horas.
         </div>
       </Card>
     );
