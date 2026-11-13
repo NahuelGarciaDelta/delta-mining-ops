@@ -721,6 +721,23 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
 
   const equipoCostoDisplay=React.useCallback((maquina)=>codigoCanonicoEquipo(maquina),[codigoCanonicoEquipo]);
 
+  // ROP02 y RMA15 no siempre conservan el mismo interno (código viejo,
+  // Drusila o el actual). Este acumulador usa la identidad canónica visible
+  // en el informe, de modo que el divisor horario coincide con cada fila.
+  const horasRop02PorEquipoCanonico=React.useMemo(()=>{
+    const byEquipment=new Map();
+    (rop02||[]).forEach(row=>{
+      const date=String(row?._dateKey||row?.fecha||"").slice(0,10);
+      const hours=Math.max(0,Number(row?._effectiveHours ?? row?.horas)||0);
+      const code=codigoCanonicoEquipo(row?.maquina||row?.interno||row?.equipo);
+      if(!date.startsWith("2026-")||!code||code==="—"||hours<=0)return;
+      if(!byEquipment.has(code))byEquipment.set(code,new Map());
+      const days=byEquipment.get(code);
+      days.set(date,(days.get(date)||0)+hours);
+    });
+    return byEquipment;
+  },[rop02,codigoCanonicoEquipo]);
+
   const getPropiedadFromListaRow=React.useCallback((eq)=>{
     const keys=Object.keys(eq||{});
     const k=findColumnKey(keys,"Propiedad",["PROPIEDAD","Dueño","Dueno","Empresa","Proveedor","Propietario","Titular","Empresa Propietaria","Empresa propietaria","Owner","Rental","Arrendadora"]);
@@ -2877,9 +2894,15 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       return {from:`${monthKey}-01`,to:`${monthKey}-${String(endDay).padStart(2,"0")}`};
     };
     const hoursForRange=(x,from,to)=>{
-      const code=maintenanceEquipmentCode(x?.equipo);
+      const code=codigoCanonicoEquipo(x?.equipo);
       if(!code||!from||!to)return 0;
-      return Number(queryEquipmentRangeIndex(rop02RangeIndex,from,to).get(code))||0;
+      const days=horasRop02PorEquipoCanonico.get(code);
+      if(!days)return 0;
+      let total=0;
+      for(const [date,hours] of days){
+        if(date>=from&&date<=to)total+=Number(hours)||0;
+      }
+      return total;
     };
     const filteredRange={
       from:mesesCM[0]?rangeForMonth(mesesCM[0].key).from:"",
