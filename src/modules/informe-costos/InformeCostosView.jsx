@@ -3015,11 +3015,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       const mesesDesdeEnero=mesesCM;
       const round=v=>Math.round(Number(v)||0);
       const emptyRow=()=>[];
-      const rowLen=2+(mesesDesdeEnero.length*3)+1+3+4;
+      const rowLen=2+(mesesDesdeEnero.length*3)+1+3+5;
 
       const head1=["Equipo","Propiedad"];
       mesesDesdeEnero.forEach(m=>head1.push(m.label,"",""));
-      head1.push("Total B","Promedio","","","MO","Hs efectivas","USD/Hs mensual","USD/Hs acumulado");
+      head1.push("Total B","Promedio","","","MO","Hs efectivas acumuladas","Hs promedio mensual","USD/Hs mensual","USD/Hs acumulado");
 
       const head2=["",""];
       mesesDesdeEnero.forEach(()=>head2.push("Preventivo","Correctivo","Total"));
@@ -3047,6 +3047,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           round(p.total||0),
           round(getManoObraCostoMensual(x)||0),
           round(getHsEfectivasCM(x)||0),
+          round(getPromedioHsMensualesCM(x)||0),
           round(getUsdHoraMensualCM(x)||0),
           round(getUsdHoraAcumuladoCM(x)||0)
         );
@@ -3066,6 +3067,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
           round(sumCM(sectionId,"total")),
           round(sumCM(sectionId,"mo")),
           round(sumCM(sectionId,"hsEf")),
+          round(sumCM(sectionId,"hsEfMonthly")),
           round(usdHsMensualTotal(sectionId)),
           round(usdHsAcumuladoTotal(sectionId))
         );
@@ -3090,6 +3092,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       promTotal:x=>promedioCM(x).total,
       mo:x=>getManoObraCostoMensual(x),
       hsEf:x=>getHsEfectivasCM(x),
+      hsPromedio:x=>getPromedioHsMensualesCM(x),
       usdHsMensual:x=>getUsdHoraMensualCM(x),
       usdHsAcumulado:x=>getUsdHoraAcumuladoCM(x),
     };
@@ -3122,7 +3125,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       >
         {renderCostosQuickFilters("t6",true,{note:`Meses: ${mesesCM.length}`})}
         <div ref={costoMensualScrollRef} onScroll={rememberCostoMensualScroll} style={{overflowX:"auto",overflowY:"scroll",maxHeight:620,scrollbarGutter:"stable",borderTop:`1px solid ${C.border}`}}>
-          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,minWidth:Math.max(1370,300+(mesesCM.length*270)+120+270+220),width:"max-content",tableLayout:"fixed"}}>
+          <table style={{borderCollapse:"separate",borderSpacing:0,fontSize:12,minWidth:Math.max(1480,300+(mesesCM.length*270)+120+270+330),width:"max-content",tableLayout:"fixed"}}>
             <thead>
               <tr>
                 <th style={{...thL,position:"sticky",left:0,top:0,zIndex:8,minWidth:170,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</th>
@@ -3136,7 +3139,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                 })}
                 <th style={{...thS,position:"sticky",top:0,zIndex:6,minWidth:110,background:"#166534",color:"#fff"}}>Total B</th>
                 <th colSpan={3} style={{...thS,textAlign:"center",background:"#7c2d12",color:"#fff",top:0,position:"sticky",zIndex:6}}>Promedio</th>
-                <th colSpan={4} style={{...thS,textAlign:"center",background:"#312e81",color:"#fff",top:0,position:"sticky",zIndex:6}}>Mano de obra y costo horario</th>
+                <th colSpan={5} style={{...thS,textAlign:"center",background:"#312e81",color:"#fff",top:0,position:"sticky",zIndex:6}}>Mano de obra y costo horario</th>
               </tr>
               <tr>
                 <SortableTH sortId="costoMensual" sortKey="equipo" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thL,position:"sticky",left:0,top:31,zIndex:8,background:"#2563eb",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}>Equipo</SortableTH>
@@ -3146,7 +3149,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                 })}
                 <th style={{...thS,top:31,position:"sticky",zIndex:6,background:"#15803d",color:"#fff"}}>Total B</th>
                 <th colSpan={3} style={{...thS,textAlign:"center",background:"#9a3412",color:"#fff",top:31,position:"sticky",zIndex:6}}>PROMEDIO</th>
-                <th colSpan={4} style={{...thS,textAlign:"center",background:"#3730a3",color:"#fff",top:31,position:"sticky",zIndex:6}}>MANO DE OBRA Y COSTO HORARIO</th>
+                <th colSpan={5} style={{...thS,textAlign:"center",background:"#3730a3",color:"#fff",top:31,position:"sticky",zIndex:6}}>MANO DE OBRA Y COSTO HORARIO</th>
               </tr>
               <tr>
                 <th style={{...thL,position:"sticky",left:0,top:62,zIndex:8,background:"#111827",color:"#fff",boxShadow:`2px 0 0 ${C.border}`}}> </th>
@@ -3165,7 +3168,8 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                 <SortableTH sortId="costoMensual" sortKey="promCorr" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Correctivo</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="promTotal" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#431407",color:"#fed7aa"}}>Total</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="mo" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Mano de Obra</SortableTH>
-                <SortableTH sortId="costoMensual" sortKey="hsEf" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Hs efectivas</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="hsEf" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Hs efectivas acumuladas</SortableTH>
+                <SortableTH sortId="costoMensual" sortKey="hsPromedio" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>Hs promedio mensual</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="usdHsMensual" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/h mensual (prom.)</SortableTH>
                 <SortableTH sortId="costoMensual" sortKey="usdHsAcumulado" sorts={costosMantSorts} setSorts={setCostosMantSorts} style={{...thS,top:62,position:"sticky",zIndex:6,background:"#1e1b4b",color:"#c4b5fd"}}>USD/h acumulado</SortableTH>
               </tr>
@@ -3173,7 +3177,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
             <tbody>
               {sections.map(sec=>(
                 <React.Fragment key={sec.id}>
-                  <tr><td colSpan={5+mesesCM.length*3+4} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
+                  <tr><td colSpan={6+mesesCM.length*3+4} style={rowProyectoStyleCosto(sec.id)}>{sec.label}</td></tr>
                   {costoMensualRowsOrdenadas(sec.id).map((x,i)=>(
                     <tr key={sec.id+"__"+x.equipo} style={{background:i%2===0?"rgba(255,255,255,0.055)":"rgba(255,255,255,0.10)"}}>
                       <td style={{...tdL,position:"sticky",left:0,zIndex:2,background:i%2===0?C.card:C.surface}}>{x.equipo}</td>
@@ -3197,6 +3201,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                       )})()}
                       <td style={{...tdS,background:C.purple+"12",color:C.purple,fontWeight:800}}>{fmtU(getManoObraCostoMensual(x))}</td>
                       <td style={{...tdS,background:C.purple+"12",color:C.teal,fontWeight:800}}>{getHsEfectivasCM(x)>0?fmtNum(Math.round(getHsEfectivasCM(x))):"—"}</td>
+                      <td style={{...tdS,background:C.purple+"12",color:C.teal,fontWeight:800}}>{getPromedioHsMensualesCM(x)>0?fmtNum(Math.round(getPromedioHsMensualesCM(x))):"—"}</td>
                       <td style={{...tdS,background:C.purple+"12",color:"#ddd",fontWeight:800}}>{fmtU(getUsdHoraMensualCM(x))}</td>
                       <td style={{...tdS,background:C.purple+"12",color:"#fff",fontWeight:800}}>{fmtU(getUsdHoraAcumuladoCM(x))}</td>
                     </tr>
@@ -3219,6 +3224,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#92400e",color:"#fff"}}>{fmtU(sumCM(sec.id,"total"))}</td>
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(sumCM(sec.id,"mo"))}</td>
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtNum(sumCM(sec.id,"hsEf"))}</td>
+                    <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtNum(sumCM(sec.id,"hsEfMonthly"))}</td>
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(usdHsMensualTotal(sec.id))}</td>
                     <td style={{...tdT,...rowSubtotalStyleCosto,background:"#4c1d95",color:"#fff"}}>{fmtU(usdHsAcumuladoTotal(sec.id))}</td>
                   </tr>
@@ -3242,6 +3248,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#991b1b",color:"#fff"}}>{fmtU(sumCM("TOTAL","total"))}</td>
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(sumCM("TOTAL","mo"))}</td>
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtNum(sumCM("TOTAL","hsEf"))}</td>
+                <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtNum(sumCM("TOTAL","hsEfMonthly"))}</td>
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(usdHsMensualTotal("TOTAL"))}</td>
                 <td style={{...tdT,...rowTotalStyleCosto,background:"#581c87",color:"#fff"}}>{fmtU(usdHsAcumuladoTotal("TOTAL"))}</td>
               </tr>
