@@ -164,12 +164,12 @@ export default function ViewBienvenidaProjectFilter(props){
   const summaryLabel=allSelected?"Todos":projectItems.filter(item=>item.value!=="TODOS"&&selectedSet.has(item.value)).map(item=>item.label).join(" + ");
 
   const control=portalHost?createPortal(
-    <div ref={controlRef} style={{position:"relative",marginLeft:"auto",width:124,maxWidth:"42%",minWidth:0,display:"flex",flexDirection:"column",gap:5,alignItems:"stretch",boxSizing:"border-box"}} onClick={event=>event.stopPropagation()}>
+    <div ref={controlRef} style={{position:"relative",marginLeft:"auto",width:124,maxWidth:"48%",minWidth:0,display:"flex",flexDirection:"column",gap:5,alignItems:"stretch",boxSizing:"border-box"}} onClick={event=>event.stopPropagation()}>
       <button type="button" aria-label="Filtrar resumen general por proyecto" aria-expanded={open} title="Filtrar resumen general por proyecto" onClick={()=>setOpen(value=>!value)} style={{width:"100%",minWidth:0,height:28,padding:"0 8px",boxSizing:"border-box",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:10,fontWeight:800,outline:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{summaryLabel||"Todos"}</span><span style={{fontSize:9,opacity:.8,flex:"0 0 auto"}}>▾</span>
       </button>
-      <select aria-label="Filtrar resumen general por día" title="Día ROP02 del resumen" value={effectiveDay} onChange={event=>setSelectedDay(event.target.value)} disabled={!availableDays.length} style={{width:"100%",minWidth:0,height:26,padding:"0 7px",boxSizing:"border-box",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:9,fontWeight:800,outline:"none",cursor:availableDays.length?"pointer":"default"}}>
-        {!availableDays.length&&<option value="">Sin registros</option>}
+      <select aria-label="Filtrar resumen general por día" title={availableDays.length?`Día ROP02: ${effectiveDay?formatDayLabel(effectiveDay):"seleccionar"}`:"Esperando registros ROP02"} value={effectiveDay} onChange={event=>setSelectedDay(event.target.value)} disabled={!availableDays.length} style={{width:"100%",minWidth:0,height:26,padding:"0 7px",boxSizing:"border-box",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:9,fontWeight:800,outline:"none",cursor:availableDays.length?"pointer":"default"}}>
+        {!availableDays.length&&<option value="">Cargando fechas…</option>}
         {availableDays.map(day=><option key={day} value={day}>{formatDayLabel(day)}</option>)}
       </select>
       {open&&<div style={{position:"absolute",right:0,top:34,zIndex:80,width:178,maxWidth:"min(178px, 80vw)",maxHeight:300,overflowY:"auto",padding:6,boxSizing:"border-box",borderRadius:9,border:"1px solid rgba(255,255,255,.14)",background:"rgba(5,18,29,.98)",boxShadow:"0 16px 36px rgba(0,0,0,.38)",backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)"}}>

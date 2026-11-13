@@ -28,8 +28,16 @@ test("Bienvenida reutiliza cache de métricas y stock entre montajes",()=>{
   assert.match(home,/useState\(\(\)=>bienvenidaSummaryCache\|\|readWelcomeSummaryCache_\(\)/);
   assert.match(home,/if\(!welcomeSnapshotSettled\|\|bienvenidaStockCache\)return/);
   assert.match(home,/WELCOME_SUMMARY_CACHE_MAX_AGE_MS=24\*60\*60\*1000/);
-  assert.match(home,/Actualizando…/);
+  assert.match(home,/Actualizando datos…/);
   assert.match(home,/cachedSummaryOnStart\.current&&!\(flotaInputsReady&&otInputsReady\)/);
+});
+
+test("El estado de actualización y el filtro de fecha no se superponen en el resumen angosto",()=>{
+  assert.match(home,/display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"/);
+  assert.match(home,/<div role="status" style=\{\{fontSize:9[^}]*\}\}>Actualizando datos…<\/div>/);
+  const filters=fs.readFileSync(new URL("../src/modules/home/ViewBienvenidaProjectFilter.jsx",import.meta.url),"utf8");
+  assert.match(filters,/width:124,maxWidth:"48%"/);
+  assert.match(filters,/<option value="">Cargando fechas…<\/option>/);
 });
 
 test("Inicio evita precargar historiales completos que no necesita y arranca su carga sin idle delay",()=>{

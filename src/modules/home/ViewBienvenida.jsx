@@ -405,8 +405,11 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
             </div>
 
             <div ref={summaryRef} className="dm-home-summary" style={{position:"absolute",right:0,top:"50%",transform:"translateY(-45%)",width:252,borderRadius:10,background:"rgba(5,18,29,.62)",border:"1px solid rgba(255,255,255,.10)",boxShadow:"0 18px 45px rgba(0,0,0,.26)",overflow:"visible",backdropFilter:"blur(18px) saturate(115%)",WebkitBackdropFilter:"blur(18px) saturate(115%)"}}>
-              <div style={{padding:"17px 18px",fontSize:14,fontWeight:900,borderBottom:"1px solid rgba(255,255,255,.07)",display:"flex",alignItems:"center",gap:8}}><Icon name="dashboard" size={16} color="#fff"/>RESUMEN GENERAL{summaryState.fromCache&&<span style={{marginLeft:"auto",fontSize:9,fontWeight:700,color:"#93c5fd"}}>Actualizando…</span>}</div>
+              <div style={{position:"relative",padding:"12px 14px",fontSize:14,fontWeight:900,borderBottom:"1px solid rgba(255,255,255,.07)",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0,flex:"1 1 82px",lineHeight:1.1}}><Icon name="dashboard" size={16} color="#fff"/><span style={{minWidth:0}}>RESUMEN GENERAL</span></div>
+              </div>
               <div style={{padding:"9px 14px 13px"}}>
+                {summaryState.fromCache&&<div role="status" style={{fontSize:9,fontWeight:700,color:"#93c5fd",textAlign:"right",lineHeight:1.2,padding:"0 0 6px"}}>Actualizando datos…</div>}
                 <SummaryRow active={activeSummaryKey==="equiposViales"} onClick={()=>setActiveSummaryKey(k=>k==="equiposViales"?null:"equiposViales")} icon="truck" color="#e7edf2" label="Equipos viales operativos" value={summaryLoading.flota?"Cargando…":stats.viales}/>
                 <SummaryRow active={activeSummaryKey==="camiones"} onClick={()=>setActiveSummaryKey(k=>k==="camiones"?null:"camiones")} icon="truck" color="#60a5fa" label="Camiones operativos" value={summaryLoading.flota?"Cargando…":stats.camiones}/>
                 <SummaryRow active={activeSummaryKey==="camionetas"} onClick={()=>setActiveSummaryKey(k=>k==="camionetas"?null:"camionetas")} icon="car" color="#22d3ee" label="Camionetas operativas" value={summaryLoading.flota?"Cargando…":stats.camionetas}/>
