@@ -301,24 +301,31 @@ export default function App(){
   const[dashSt,setDashSt]=useState(()=>savedOr("dashSt",{proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""}));
   const[rma15Base,setRma15]=useState([]);
   const[contratoGlobal,setContratoGlobal]=useState("todos");
+  const contratoDeLista=useCallback(row=>String(getValue(row,["Lugar de alquiler","Lugar alquiler","Lugar de Alquiler","LUGAR DE ALQUILER","Ubicación de alquiler","Ubicacion de alquiler","Contrato"])||"S/D").trim()||"S/D",[]);
   const contratoPorEquipo=useMemo(()=>{
     const map=new Map();
     (listaEquiposBase||[]).forEach(row=>{
-      const contrato=String(getValue(row,["Lugar de alquiler","Lugar alquiler","Ubicación de alquiler","Ubicacion de alquiler"])||"S/D").trim()||"S/D";
-      ["Código nuevo","Codigo nuevo","Código Drusila","Codigo Drusila","Código interno","Codigo interno","Interno"].forEach(field=>{
-        const code=normalizeMachineCode(getValue(row,[field])||"");
-        if(code)map.set(code,contrato);
+      const contrato=contratoDeLista(row);
+      ["Código nuevo","Codigo nuevo","Código Drusila","Codigo Drusila","Código de Drusila","Codigo de Drusila","Código interno","Codigo interno","Interno"].forEach(field=>{
+        machineLookupVariants(getValue(row,[field])||"").forEach(code=>map.set(code,contrato));
       });
     });
     return map;
-  },[listaEquiposBase]);
-  const contratosGlobales=useMemo(()=>[...new Set(contratoPorEquipo.values())].sort((a,b)=>a.localeCompare(b,"es",{sensitivity:"base"})),[contratoPorEquipo]);
-  const coincideContratoGlobal=useCallback(maquina=>contratoGlobal==="todos"||contratoPorEquipo.get(normalizeMachineCode(maquina||""))===contratoGlobal,[contratoGlobal,contratoPorEquipo]);
-  const listaEquipos=useMemo(()=>contratoGlobal==="todos"?listaEquiposBase:listaEquiposBase.filter(row=>coincideContratoGlobal(getValue(row,["Código nuevo","Codigo nuevo","Código interno","Codigo interno","Interno"]))),[listaEquiposBase,contratoGlobal,coincideContratoGlobal]);
-  const rma15=useMemo(()=>contratoGlobal==="todos"?rma15Base:rma15Base.filter(row=>coincideContratoGlobal(row?.maquina)),[rma15Base,contratoGlobal,coincideContratoGlobal]);
-  const rop02All=useMemo(()=>contratoGlobal==="todos"?rop02AllBase:rop02AllBase.filter(row=>coincideContratoGlobal(row?.maquina)),[rop02AllBase,contratoGlobal,coincideContratoGlobal]);
-  const rop02ControlAll=useMemo(()=>contratoGlobal==="todos"?rop02ControlAllBase:rop02ControlAllBase.filter(row=>coincideContratoGlobal(row?.maquina)),[rop02ControlAllBase,contratoGlobal,coincideContratoGlobal]);
-  const rop05=useMemo(()=>contratoGlobal==="todos"?rop05Base:rop05Base.filter(row=>coincideContratoGlobal(row?.maquina)),[rop05Base,contratoGlobal,coincideContratoGlobal]);
+  },[listaEquiposBase,contratoDeLista]);
+  const contratosGlobales=useMemo(()=>[...new Set((listaEquiposBase||[]).map(contratoDeLista))].sort((a,b)=>a.localeCompare(b,"es",{sensitivity:"base"})),[listaEquiposBase,contratoDeLista]);
+  const contratoDeEquipo=useCallback(maquina=>{
+    for(const code of machineLookupVariants(maquina||"")){
+      const contrato=contratoPorEquipo.get(code);
+      if(contrato)return contrato;
+    }
+    return "S/D";
+  },[contratoPorEquipo]);
+  const coincideContratoGlobal=useCallback(maquina=>multiIsAll(contratoGlobal,"todos")||matchMulti(contratoDeEquipo(maquina),contratoGlobal,"todos"),[contratoGlobal,contratoDeEquipo]);
+  const listaEquipos=useMemo(()=>multiIsAll(contratoGlobal,"todos")?listaEquiposBase:listaEquiposBase.filter(row=>matchMulti(contratoDeLista(row),contratoGlobal,"todos")),[listaEquiposBase,contratoGlobal,contratoDeLista]);
+  const rma15=useMemo(()=>multiIsAll(contratoGlobal,"todos")?rma15Base:rma15Base.filter(row=>coincideContratoGlobal(row?.maquina)),[rma15Base,contratoGlobal,coincideContratoGlobal]);
+  const rop02All=useMemo(()=>multiIsAll(contratoGlobal,"todos")?rop02AllBase:rop02AllBase.filter(row=>coincideContratoGlobal(row?.maquina)),[rop02AllBase,contratoGlobal,coincideContratoGlobal]);
+  const rop02ControlAll=useMemo(()=>multiIsAll(contratoGlobal,"todos")?rop02ControlAllBase:rop02ControlAllBase.filter(row=>coincideContratoGlobal(row?.maquina)),[rop02ControlAllBase,contratoGlobal,coincideContratoGlobal]);
+  const rop05=useMemo(()=>multiIsAll(contratoGlobal,"todos")?rop05Base:rop05Base.filter(row=>coincideContratoGlobal(row?.maquina)),[rop05Base,contratoGlobal,coincideContratoGlobal]);
   const control=useMemo(()=>calcControl(rop02All,rop05),[rop02All,rop05]);
   const[stMant,setStMant]=useState(()=>savedOr("stMant",{modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:"todos",verGastosExcesivos:false}));
   const[stRma15CtrlEquipo,setStRma15CtrlEquipo]=useState(()=>savedOr("stRma15CtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:""}));
@@ -1189,13 +1196,7 @@ export default function App(){
               </button>}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-              {contratosGlobales.length>0&&<label style={{display:"flex",alignItems:"center",gap:6,fontSize:10,color:C.textMuted,fontWeight:700,whiteSpace:"nowrap"}}>
-                Contrato
-                <select value={contratoGlobal} onChange={event=>setContratoGlobal(event.target.value)} style={{height:29,maxWidth:180,background:C.surface,border:`1px solid ${contratoGlobal!=="todos"?C.accent:C.border}`,borderRadius:7,color:contratoGlobal!=="todos"?C.accent:C.textSub,padding:"0 8px",fontSize:11,fontWeight:700}}>
-                  <option value="todos">Todos</option>
-                  {contratosGlobales.map(contrato=><option key={contrato} value={contrato}>{contrato}</option>)}
-                </select>
-              </label>}
+              {contratosGlobales.length>0&&<MultiSel label="Contrato" value={contratoGlobal} onChange={setContratoGlobal} options={[{value:"todos",label:"Todos"},...contratosGlobales.map(contrato=>({value:contrato,label:contrato}))]}/>}
               <div style={{display:"flex",alignItems:"center",gap:7,padding:"5px 9px",borderRadius:7,background:"rgba(0,0,0,.18)",border:`1px solid ${C.border}55`,minWidth:0,maxWidth:"52vw",whiteSpace:"nowrap",overflow:"hidden"}}>
                 <Icon name="user" size={13} color={C.textSub}/>
                 <span style={{fontSize:10,color:C.textSub,overflow:"hidden",textOverflow:"ellipsis"}}>
@@ -1245,7 +1246,7 @@ export default function App(){
             )}
             {!fatalError&&(view==="bienvenida"||lastUpdate||Object.keys(rawSources).length>0||(!loading&&!fatalError))&&!(view==="dashboard"&&loading&&Object.keys(rawSources).length===0)&&(
               <>
-                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} onLoadWelcomeRop02={loadWelcomeRop02Fallback} listaEquipos={listaEquipos} rop02All={rop02All} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
+                {view==="bienvenida"&&<ViewBienvenida rawSources={rawSources} rma15={rma15} rop05={rop05} usdRate={usdRate} onNavigate={navigateToView} nombreUsuario={nombreUsuario} areaUsuario={areaUsuario} esAdministrativo={esAdministrativo} onOpenProfile={()=>setSettingsOpen(true)} onLogout={cambiarUsuario} onOpenModule={openModuleFromWelcome} onLoadWelcomeRop02={loadWelcomeRop02Fallback} listaEquipos={listaEquipos} rop02All={rop02All} contratoOptions={contratosGlobales} contratoValue={contratoGlobal} onContratoChange={setContratoGlobal} onReloadLista={()=>loadSources(["lista_equipos"],{force:true})} C={C}/>}
                 {({tallerSubida:"SUBIDA",tallerBaja:"BAJA",tallerMovilizacion:"MOVILIZACION",tallerCambioEquipo:"CAMBIO_EQUIPO"})[view]&&<ModuleErrorBoundary name="Movimientos de Taller Central" onRetry={loadData}><TallerMovimientosV9 tipo={({tallerSubida:"SUBIDA",tallerBaja:"BAJA",tallerMovilizacion:"MOVILIZACION",tallerCambioEquipo:"CAMBIO_EQUIPO"})[view]} listaEquipos={listaEquipos} rop02All={rop02All}/></ModuleErrorBoundary>}
                 {view==="dashboard"&&<ExecutiveDashboard rop02All={rop02All} rop05={rop05} rma15={rma15} rawSources={rawSources} usdRate={usdRate} onNavigate={navigateToView}/>}
                 {view==="equipmentProfile"&&<ModuleErrorBoundary name="Ficha única del equipo" onRetry={loadData}><EquipmentProfileView listaEquipos={listaEquipos} rop02All={rop02All} rop05={rop05} rma15={rma15} insumos={insumos} usdRate={usdRate} initialCode={resolveEquipmentCodeAlias(selectedEquipmentCode)} onSelectCode={code=>{const resolved=resolveEquipmentCodeAlias(code);setSelectedEquipmentCode(resolved);if(resolved)sessionStorage.setItem("dm_selected_equipment",resolved);}}/></ModuleErrorBoundary>}
@@ -1263,12 +1264,12 @@ export default function App(){
                   stRma15CtrlEquipo={stRma15CtrlEquipo} setStRma15CtrlEquipo={setStRma15CtrlEquipo}
                   stCHC={stCHC} setStCHC={setStCHC} stCtrl={stCtrl} setStCtrl={setStCtrl} onControlIssuesChange={reportControlIssues}
                 /></ModuleErrorBoundary>}
-                {view==="cambiosTurno"&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Control de horas mensuales" onRetry={loadData}><ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando control de horas mensuales..." />)}
-                {["gestionHumanaSitio","gestionHumanaHistorial","gestionHumanaRanking"].includes(view)&&(dataHydrated&&rop02All.length>0?<ModuleErrorBoundary name="Gestión Humana" onRetry={loadData}><GestionHumanaRoute view={view} rop02All={rop02All} rop05={rop05} listaEquipos={listaEquipos} rankingDeps={OPERATIONAL_ANALYTICS_DEPS} rankingState={stRanking} setRankingState={setStRanking} onNavigate={navigateToView}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Gestión Humana..." />)}
+                {view==="cambiosTurno"&&(dataHydrated&&rop02AllBase.length>0?<ModuleErrorBoundary name="Control de horas mensuales" onRetry={loadData}><ViewCambiosTurno deps={OPERATIONAL_ANALYTICS_DEPS} rop02All={rop02All}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando control de horas mensuales..." />)}
+                {["gestionHumanaSitio","gestionHumanaHistorial","gestionHumanaRanking"].includes(view)&&(dataHydrated&&rop02AllBase.length>0?<ModuleErrorBoundary name="Gestión Humana" onRetry={loadData}><GestionHumanaRoute view={view} rop02All={rop02All} rop05={rop05} listaEquipos={listaEquipos} rankingDeps={OPERATIONAL_ANALYTICS_DEPS} rankingState={stRanking} setRankingState={setStRanking} onNavigate={navigateToView}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Gestión Humana..." />)}
                 {view==="mant"&&(viewDataReady?<ModuleErrorBoundary name="Mantenimiento" onRetry={loadData}><MantenimientoRoute mode="mantenimiento" deps={MANTENIMIENTO_DEPS} rma15={rma15} insumos={insumos} usdRate={usdRate} extState={stMant} setExtState={setStMant}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando" />)}
-                {view==="distMant"&&(dataHydrated&&rma15.length>0?<ModuleErrorBoundary name="Distribución de mantenimientos" onRetry={loadData}><MantenimientoRoute mode="distribucion" deps={MANTENIMIENTO_DEPS} rma15={rma15}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
-                {["pmProgramado","pmDashboard","pmPlanificador","pmProgramacion","pmPanel","pmRealizado","pmRepuestos","pmGestion","pmConfig","pmHistorial"].includes(view)&&(dataHydrated&&listaEquipos.length>0?<ModuleErrorBoundary name="Mantenimiento Programado" onRetry={loadData}><MantenimientoRoute mode="programado" readOnly={!can("edit","MANTENIMIENTO")} deps={MANTENIMIENTO_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} initialTab={({pmProgramado:"dashboard",pmDashboard:"dashboard",pmPlanificador:"planificador",pmProgramacion:"programacion",pmPanel:"panel",pmRealizado:"realizado",pmRepuestos:"repuestos",pmGestion:"gestion",pmConfig:"config",pmHistorial:"historial"})[view]} onTabChange={tab=>navigateToView(({dashboard:"pmDashboard",planificador:"pmPlanificador",programacion:"pmProgramacion",panel:"pmPanel",realizado:"pmRealizado",repuestos:"pmRepuestos",gestion:"pmGestion",config:"pmConfig",historial:"pmHistorial"})[tab]||"pmDashboard")}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
-                {view==="costosMant"&&(dataHydrated&&rma15.length>0?<ModuleErrorBoundary name="Informe de Costos" onRetry={loadData}><InformeCostosRoute readOnly={!can("edit","OFICINA TÉCNICA")} rma15={rma15} rop02={rop02All} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate} deps={INFORME_COSTOS_DEPS}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
+                {view==="distMant"&&(dataHydrated&&rma15Base.length>0?<ModuleErrorBoundary name="Distribución de mantenimientos" onRetry={loadData}><MantenimientoRoute mode="distribucion" deps={MANTENIMIENTO_DEPS} rma15={rma15}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Distribución de mantenimientos..." />)}
+                {["pmProgramado","pmDashboard","pmPlanificador","pmProgramacion","pmPanel","pmRealizado","pmRepuestos","pmGestion","pmConfig","pmHistorial"].includes(view)&&(dataHydrated&&listaEquiposBase.length>0?<ModuleErrorBoundary name="Mantenimiento Programado" onRetry={loadData}><MantenimientoRoute mode="programado" readOnly={!can("edit","MANTENIMIENTO")} deps={MANTENIMIENTO_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} initialTab={({pmProgramado:"dashboard",pmDashboard:"dashboard",pmPlanificador:"planificador",pmProgramacion:"programacion",pmPanel:"panel",pmRealizado:"realizado",pmRepuestos:"repuestos",pmGestion:"gestion",pmConfig:"config",pmHistorial:"historial"})[view]} onTabChange={tab=>navigateToView(({dashboard:"pmDashboard",planificador:"pmPlanificador",programacion:"pmProgramacion",panel:"pmPanel",realizado:"pmRealizado",repuestos:"pmRepuestos",gestion:"pmGestion",config:"pmConfig",historial:"pmHistorial"})[tab]||"pmDashboard")}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Mantenimiento Programado..." />)}
+                {view==="costosMant"&&(dataHydrated&&rma15Base.length>0?<ModuleErrorBoundary name="Informe de Costos" onRetry={loadData}><InformeCostosRoute readOnly={!can("edit","OFICINA TÉCNICA")} rma15={rma15} rop02={rop02All} insumos={insumos} listaEquipos={listaEquipos} usdRate={usdRate} deps={INFORME_COSTOS_DEPS}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Informe de Costos..." />)}
                 {view==="costosUnitarios"&&(dataHydrated&&Object.keys(insumos||{}).length>0?<ModuleErrorBoundary name="Costos Unitarios" onRetry={loadData}><ViewCostosUnitarios deps={COSTOS_UNITARIOS_DEPS} insumos={insumos} rma15={rma15} usdRate={usdRate}/></ModuleErrorBoundary>:<BlockingDataLoader label="Cargando Costos Unitarios..." />)}
                 {["abastecimiento","abastecimientoDashboard","abastecimientoPendientes","abastecimientoParciales","abastecimientoCerradas","abastecimientoRechazadas","abastecimientoEnviosSinSolicitud","abastecimientoRemito","abastecimientoStock","abastecimientoStockDashboard","abastecimientoRABA03","abastecimientoEditarCodigos"].includes(view)&&(<ModuleErrorBoundary name="Abastecimiento" onRetry={loadData}><AbastecimientoRoute deps={ABASTECIMIENTO_DEPS} readOnly={!can("edit","ABASTECIMIENTO")} assignedProject={proyectoUsuario} initialTab={({abastecimiento:"solicitudes",abastecimientoDashboard:"dashboard",abastecimientoEditarCodigos:"editarCodigos",abastecimientoPendientes:"pendientes",abastecimientoParciales:"parciales",abastecimientoCerradas:"cerradas",abastecimientoRechazadas:"rechazadas",abastecimientoEnviosSinSolicitud:"enviosSinSolicitud",abastecimientoRemito:"remito",abastecimientoStock:"stock",abastecimientoStockDashboard:"stockDashboard",abastecimientoRABA03:"raba03"})[view]}/></ModuleErrorBoundary>) }
                 {["licitaciones","licitacionesNueva","licitacionesControl","licitacionesEquipos","licitacionesDatosEquipos"].includes(view)&&<ModuleErrorBoundary name="Licitaciones" onRetry={loadData}><LicitacionesRoute readOnly={!can("edit","LICITACIONES")} canDelete={can("delete","LICITACIONES")} canExport={can("export","LICITACIONES")} deps={LICITACIONES_DEPS} listaEquipos={listaEquipos} rop02All={rop02All} rma15={rma15} usdRate={usdRate} initialTab={({"licitaciones":"nueva","licitacionesNueva":"nueva","licitacionesControl":"control","licitacionesEquipos":"equipos","licitacionesDatosEquipos":"datosEquipos"})[view]}/></ModuleErrorBoundary>}
