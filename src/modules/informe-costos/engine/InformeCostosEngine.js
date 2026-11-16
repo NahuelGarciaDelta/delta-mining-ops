@@ -49,24 +49,45 @@ function costFilterCategory({ code = "", family = "", type = "" } = {}){
   if(normalizedFamily){
     if(normalizedFamily.startsWith("CAMIONETA"))return "CAMIONETAS";
     if(normalizedFamily.startsWith("CAMION"))return "CAMIONES";
-    if(/EXCAVADORA|CARGADOR|MOTONIVELADORA|TOPADORA|RETROPALA|MINICARGADORA|RODILLO|COMPACTADOR/.test(normalizedFamily))return "MAQUINAS";
+    if(normalizedFamily.includes("EXCAVADORA"))return "EXCAVADORA";
+    if(normalizedFamily.includes("MINICARGADORA"))return "MINICARGADORA";
+    if(normalizedFamily.includes("MOTONIVELADORA"))return "MOTONIVELADORA";
+    if(normalizedFamily.includes("CARGADOR"))return "CARGADOR FRONTAL";
+    if(normalizedFamily.includes("RETROPALA"))return "RETROPALA";
+    if(normalizedFamily.includes("RODILLO")||normalizedFamily.includes("COMPACTADOR"))return "RODILLO";
+    if(normalizedFamily.includes("TOPADORA"))return "TOPADORA";
     return "OTROS";
   }
   // Registros históricos sin Familia: sólo aquí se usan los prefijos conocidos.
   if(isTruckType(type,code,""))return "CAMIONES";
   if(/^(CTA|AG|AH)/.test(canonicalEquipmentCode(code)))return "CAMIONETAS";
-  if(isMachineType(type,code,""))return "MAQUINAS";
+  if(isMachineType(type,code,"")){
+    const fallback=norm(type);
+    if(fallback.includes("EXCAVADORA"))return "EXCAVADORA";
+    if(fallback.includes("MINICARGADORA"))return "MINICARGADORA";
+    if(fallback.includes("MOTONIVELADORA"))return "MOTONIVELADORA";
+    if(fallback.includes("CARGADOR"))return "CARGADOR FRONTAL";
+    if(fallback.includes("RETROPALA"))return "RETROPALA";
+    if(fallback.includes("RODILLO")||fallback.includes("COMPACTADOR"))return "RODILLO";
+    if(fallback.includes("TOPADORA"))return "TOPADORA";
+    return "MAQUINAS";
+  }
   return "OTROS";
+}
+function matchesCostFilterCategory(category, selections){
+  return selections.includes(category)||(
+    selections.includes("MAQUINAS")&&["EXCAVADORA","MINICARGADORA","MOTONIVELADORA","CARGADOR FRONTAL","RETROPALA","RODILLO","TOPADORA"].includes(category)
+  );
 }
 
 export function matchesAmortizationTypeFilter(row,filter){
   if(isAll(filter))return true;
   const tipoSelections=selected(filter);
-  return tipoSelections.includes(costFilterCategory({
+  return matchesCostFilterCategory(costFilterCategory({
     code:row?.equipo,
     family:row?.metaFamilia||row?.familia,
     type:row?.metaTipo||row?.tipo,
-  }));
+  }),tipoSelections);
 }
 
 function isIncludedCostRow(row){
@@ -177,7 +198,7 @@ function matchesFilters(row,filters={}){
   if(!matchMulti(display,filters.maquina)&&!matchMulti(row.equipo||row.maquina,filters.maquina))return false;
   if(!isAll(filters.tipo)){
     const sels=arrayFilter(filters.tipo).map(norm);
-    if(!sels.includes(costFilterCategory({code:rowCode,family:meta.familia||meta.family,type:meta.tipo})))return false;
+    if(!matchesCostFilterCategory(costFilterCategory({code:rowCode,family:meta.familia||meta.family,type:meta.tipo}),sels))return false;
   }
   return true;
 }
