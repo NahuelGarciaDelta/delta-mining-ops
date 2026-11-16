@@ -31,8 +31,19 @@ export async function submitHorometerOperation(url, operation, { verifyOnly = fa
   const results = [];
   let version = null;
   let cacheWarning = null;
-  const user = getAuthenticatedUser(),
-    sessionRevision = getAuthenticatedSessionRevision();
+  const user = getAuthenticatedUser();
+  // La app conserva el token también de forma plana para que las sesiones creadas
+  // antes de una actualización del perfil sigan pudiendo firmar escrituras.
+  const storedToken=typeof sessionStorage!=="undefined"?sessionStorage.getItem("dm_auth_token"):"";
+  const storedEmail=typeof sessionStorage!=="undefined"?sessionStorage.getItem("dm_user"):"";
+  const authToken=String(user?.authToken||user?.token||storedToken||"").trim();
+  const actorEmail=String(user?.email||storedEmail||"").trim().toLowerCase();
+  if(!actorEmail||!authToken){
+    const error=new Error("La sesión no tiene un token válido para actualizar horómetros. Cerrá sesión, ingresá nuevamente y volvé a intentar.");
+    error.code="AUTH_REQUIRED";
+    throw error;
+  }
+  const sessionRevision = getAuthenticatedSessionRevision();
   // Bound GAS execution time and receipt size. No source reload, Supabase query or polling.
   for (let offset = 0; offset < operation.updates.length; offset += 100) {
     const updates = operation.updates.slice(offset, offset + 100);
@@ -46,7 +57,7 @@ export async function submitHorometerOperation(url, operation, { verifyOnly = fa
     const batch = {
       operationId: `${operation.operationId}_${offset}`,
       updates,
-      actor: { email: user?.email || "", token: user?.authToken || "" }
+      actor: { email: actorEmail, token: authToken }
     };
     let response;
     try {
