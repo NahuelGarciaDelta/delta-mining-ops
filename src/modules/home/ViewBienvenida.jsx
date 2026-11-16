@@ -61,8 +61,18 @@ function saveWelcomeSummaryCache_(data){
 }
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
+function ContractPicker({options=[],value="todos",onChange}){
+  const [open,setOpen]=useState(false);
+  const selected=Array.isArray(value)?value:(value==="todos"?[]:[value]);
+  const [pending,setPending]=useState(selected);
+  useEffect(()=>{if(!open)setPending(selected);},[value,open]);
+  const toggle=contract=>setPending(current=>current.includes(contract)?current.filter(x=>x!==contract):[...current,contract]);
+  const label=selected.length?`${selected.length} contrato${selected.length===1?"":"s"}`:"Todos los contratos";
+  const apply=()=>{onChange(pending.length?pending:"todos");setOpen(false);};
+  return <div style={{position:"relative"}}><button type="button" onClick={()=>setOpen(v=>!v)} style={{height:42,display:"flex",alignItems:"center",gap:8,padding:"0 12px",borderRadius:10,border:`1px solid ${selected.length?"rgba(227,6,19,.7)":"rgba(255,255,255,.16)"}`,background:"rgba(8,22,34,.7)",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:800,backdropFilter:"blur(12px)"}}><Icon name="fileSpreadsheet" size={15} color={selected.length?"#ff5260":"#d8dee4"}/><span>{label}</span><Icon name="chevronDown" size={14} color="#d8dee4"/></button>{open&&<div style={{position:"absolute",right:0,top:48,zIndex:30,width:260,maxHeight:330,overflowY:"auto",padding:8,borderRadius:12,border:"1px solid rgba(255,255,255,.14)",background:"rgba(10,20,30,.98)",boxShadow:"0 18px 42px rgba(0,0,0,.42)"}}><div style={{display:"flex",gap:6,padding:"2px 2px 8px",borderBottom:"1px solid rgba(255,255,255,.08)"}}><button type="button" onClick={()=>setPending(options)} style={{flex:1,padding:"8px 6px",border:0,borderRadius:7,background:"rgba(255,255,255,.08)",color:"#fff",cursor:"pointer",fontSize:10,fontWeight:800}}>Seleccionar todos</button><button type="button" onClick={()=>setPending([])} style={{padding:"8px 8px",border:0,borderRadius:7,background:"transparent",color:"#b8c3cc",cursor:"pointer",fontSize:10,fontWeight:800}}>Limpiar</button></div>{options.map(contract=><label key={contract} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 10px",color:"#e8edf1",fontSize:11,cursor:"pointer"}}><input type="checkbox" checked={pending.includes(contract)} onChange={()=>toggle(contract)}/>{contract}</label>)}<div style={{position:"sticky",bottom:-8,padding:"9px 2px 2px",background:"rgba(10,20,30,.98)",borderTop:"1px solid rgba(255,255,255,.08)"}}><button type="button" onClick={apply} style={{width:"100%",padding:"9px",border:0,borderRadius:8,background:"#e30613",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:900}}>Aplicar ({pending.length||"todos"})</button></div></div>}</div>;
+}
 
-export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,onLoadWelcomeRop02,onSnapshotRop02Change,esAdministrativo=false,summaryDayFiltered=false}){
+export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,onLoadWelcomeRop02,onSnapshotRop02Change,esAdministrativo=false,summaryDayFiltered=false,contratoOptions=[],contratoValue="todos",onContratoChange}){
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
@@ -394,6 +404,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     <main style={{position:"absolute",left:sidebarCollapsed?84:218,right:0,top:0,bottom:0,zIndex:2,padding:activeView==="dashboard"?"18px 24px 22px":"30px 48px 26px",display:"grid",gridTemplateRows:"auto 1fr auto auto auto",gap:activeView==="dashboard"?10:14,transition:"left .24s ease",background:"transparent"}}>
       <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:22,minHeight:48}}>
         <TopInfo icon="☁" value={weatherData?.current?`${Math.round(weatherData.current.temperature_2m)}°C`:"—°C"} sub="Camp. Batidero · Iglesia"/>
+        <ContractPicker options={contratoOptions} value={contratoValue} onChange={onContratoChange}/>
         <Sep/><TopInfo icon="▣" value={dateTop} sub={weekday.charAt(0).toUpperCase()+weekday.slice(1)}/>
         <Sep/><TopInfo icon="◷" value={hour} sub={turno}/>
       </div>
