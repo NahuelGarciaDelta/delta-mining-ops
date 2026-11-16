@@ -86,6 +86,7 @@ function processAmortizationRows(payload){
   for(const row of rows){
     if(!matchMulti(row.equipo,filters.equipo))continue;
     if(!matchMulti(row.propiedad||"S/D",filters.propiedad))continue;
+    if(!matchMulti(row.contrato||"S/D",filters.contrato))continue;
     if(!matchesAmortizationTypeFilter(row,filters.tipo))continue;
     const vidaLM=Number(row.vidaListaMaestra||row.vidaBase||row.vida||8000);
     const override=Number(overrides[row.equipo])||0;
@@ -152,6 +153,7 @@ function matchesFilters(row,filters={}){
   const rowCode=String(row?.maquina||row?.equipo||"");
   const proyecto=row.proyecto||((row.section==='JM')?'JOSE MARIA':'FILO DEL SOL');
   if(!matchMulti(proyecto,filters.proyecto))return false;
+  if(!matchMulti(String(meta.lugarAlquiler||'S/D').trim()||'S/D',filters.contrato))return false;
   if(!isAll(filters.propiedad)){
     const props=Array.isArray(meta.props)?meta.props:[meta.propiedad||'S/D'];
     const sel=arrayFilter(filters.propiedad).map(norm);
@@ -469,6 +471,7 @@ function processResumenEquipo(payload){
     if(!matchMulti(x._resumenTipoValue,filters.tipo))continue;
     if(!matchMulti(x._resumenEquipoValue,filters.equipo))continue;
     if(!matchMulti(x._resumenPropiedadValue,filters.propiedad))continue;
+    if(!matchMulti(x._resumenContratoValue||"S/D",filters.contrato))continue;
     filtered.push(x);
   }
   const grupos=new Map();

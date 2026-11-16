@@ -267,14 +267,14 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const COSTOS_TABLAS_FILTRABLES=React.useMemo(()=>["t1","t7","t6","t4","t5","t8","t9","t10"],[]);
   const defaultFiltroPrincipalTabla=React.useCallback(()=>({fechaD:"",fechaH:"",proyecto:"todos",insumos:"todos"}),[]);
   const defaultCostosFiltrosTabla=React.useCallback(()=>({
-    t1:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos"},
-    t7:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos"},
-    t6:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos"},
-    t4:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos"},
-    t5:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos"},
-    t8:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos"},
-    t9:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"DELTA"},
-    t10:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos"},
+    t1:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos",contrato:"todos"},
+    t7:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos",contrato:"todos"},
+    t6:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos",contrato:"todos"},
+    t4:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos",contrato:"todos"},
+    t5:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos",contrato:"todos"},
+    t8:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos",contrato:"todos"},
+    t9:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"DELTA",contrato:"todos"},
+    t10:{...defaultFiltroPrincipalTabla(),tipo:"todos",equipo:"todos",propiedad:"todos",contrato:"todos"},
   }),[defaultFiltroPrincipalTabla]);
   const [costosFiltrosTabla,setCostosFiltrosTabla]=React.useState(()=>({
     ...defaultCostosFiltrosTabla(),
@@ -329,6 +329,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const dFCMaquinas=useCostoDebouncedValue(filtrosCostosActivos.equipo,180);
   const dFCTipoEquipo=useCostoDebouncedValue(filtrosCostosActivos.tipo,180);
   const dFCPropiedad=useCostoDebouncedValue(filtrosCostosActivos.propiedad,180);
+  const dFContrato=useCostoDebouncedValue(filtrosCostosActivos.contrato,180);
 
   // Filtros principales AISLADOS por subtabla. Sólo el filtro de la pestaña visible
   // alimenta sus cálculos; cambiar de pestaña recupera exactamente su selección propia.
@@ -850,12 +851,14 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const sel=Array.isArray(seleccion)?seleccion:[seleccion].filter(Boolean);
     return sel.some(p=>props.includes(String(p||"").trim().toUpperCase()));
   },[]);
+  const matchContratoMeta=React.useCallback((meta,seleccion)=>
+    matchMulti(String(meta?.lugarAlquiler||"S/D").trim()||"S/D",seleccion,"todos"),[matchMulti]);
 
   const costoRowsProyectoOpts=React.useMemo(()=>rma15PorFecha||[],[rma15PorFecha]);
 
   const costoRowsPropiedadOpts=React.useMemo(()=>
-    costoRowsProyectoOpts.filter(r=>matchMulti(r.proyecto,dFProyecto,"todos")),
-    [costoRowsProyectoOpts,dFProyecto]
+    costoRowsProyectoOpts.filter(r=>matchMulti(r.proyecto,dFProyecto,"todos")&&matchContratoMeta(metaEquipoCosto(r.maquina),dFContrato)),
+    [costoRowsProyectoOpts,dFProyecto,dFContrato,metaEquipoCosto,matchContratoMeta]
   );
 
   const costoRowsTipoEquipoOpts=React.useMemo(()=>
@@ -880,6 +883,10 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   ],[costoRowsProyectoOpts]);
 
   const propiedadOpts=React.useMemo(()=>buildCostPropertyOptions(costoRowsPropiedadOpts.flatMap(r=>(metaEquipoCosto(r.maquina).props||[]).map(propiedad=>({propiedad})))),[costoRowsPropiedadOpts,metaEquipoCosto]);
+  const contratoOpts=React.useMemo(()=>[
+    {value:"todos",label:"Todos los contratos"},
+    ...uniq(costoRowsProyectoOpts.map(r=>String(metaEquipoCosto(r.maquina).lugarAlquiler||"S/D").trim()||"S/D")).map(contrato=>({value:contrato,label:contrato}))
+  ],[costoRowsProyectoOpts,metaEquipoCosto]);
 
   const tipoEquipoOpts=React.useMemo(()=>{
     const presentes=new Set(costoRowsTipoEquipoOpts.map(r=>metaEquipoCosto(r.maquina).tipo).filter(Boolean));
@@ -930,9 +937,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const filtros=getCostosFiltrosTabla(activeCostosFiltroKey);
     const proyecto=normalizeMultiValue(filtros.proyecto,proyectoOpts);
     const insumo=normalizeMultiValue(filtros.insumos,insumosCostoOpts);
+    const contrato=normalizeMultiValue(filtros.contrato,contratoOpts);
     if(!sameCostoFilterValue(filtros.proyecto,proyecto))setCostoFiltroTabla(activeCostosFiltroKey,"proyecto",proyecto);
     if(!sameCostoFilterValue(filtros.insumos,insumo))setCostoFiltroTabla(activeCostosFiltroKey,"insumos",insumo);
-  },[activeCostosFiltroKey,proyectoOpts,insumosCostoOpts,getCostosFiltrosTabla,normalizeMultiValue,sameCostoFilterValue,setCostoFiltroTabla]);
+    if(!sameCostoFilterValue(filtros.contrato,contrato))setCostoFiltroTabla(activeCostosFiltroKey,"contrato",contrato);
+  },[activeCostosFiltroKey,proyectoOpts,insumosCostoOpts,contratoOpts,getCostosFiltrosTabla,normalizeMultiValue,sameCostoFilterValue,setCostoFiltroTabla]);
 
   // Opciones y filtrado AISLADOS para Mano de Obra.
   // Proyecto se toma del filtro general fProyecto para que coincida con el resto de la app.
@@ -989,6 +998,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const out=(rma15PorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
       if(!matchMulti(r.proyecto,dFProyecto,"todos"))return false;
+      if(!matchContratoMeta(meta,dFContrato))return false;
       if(!matchPropiedadMeta(meta,dFMOPropiedad))return false;
       if(!matchMulti(meta.display,dFMOMaquinas,"todos"))return false;
       if(multiIsAll(dFMOTipoEquipo,"todos"))return true;
@@ -998,7 +1008,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     });
     rma15FiltradoMOCacheRef.current=out;
     return out;
-  },[needsManoObraCostos,rma15PorFecha,dFProyecto,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,esEquipoMaquinaCosto]);
+  },[needsManoObraCostos,rma15PorFecha,dFProyecto,dFContrato,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,matchContratoMeta,esEquipoMaquinaCosto]);
 
   const rma15Filtrado=React.useMemo(()=>{
     const activeCalc=calcTablaCostos;
@@ -1006,6 +1016,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const out=(rma15PorFecha||[]).filter(r=>{
       const meta=metaEquipoCosto(r.maquina);
       if(!matchMulti(r.proyecto,dFProyecto,"todos"))return false;
+      if(!matchContratoMeta(meta,dFContrato))return false;
       if(!matchPropiedadMeta(meta,dFCPropiedad))return false;
       if(!matchMulti(meta.display,dFCMaquinas,"todos"))return false;
       if(multiIsAll(dFCTipoEquipo,"todos"))return true;
@@ -1015,7 +1026,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     });
     rma15FiltradoCacheRef.current=out;
     return out;
-  },[calcTablaCostos,rma15PorFecha,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta,esEquipoMaquinaCosto]);
+  },[calcTablaCostos,rma15PorFecha,dFProyecto,dFContrato,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta,matchContratoMeta,esEquipoMaquinaCosto]);
 
   // Comparación independiente de los filtros internos de cada tabla.
   // Antes heredaba Tipo/Equipo/Propiedad de Amortización y por eso podía mostrar 0
@@ -1451,18 +1462,18 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     // su categoría real. El filtrado por categoría/equipo/propiedad se hace después,
     // en PROCESS_RESUMEN_EQUIPO, usando _resumenTipoValue.
     const summaryBaseFilters=isCostosTabResumen
-      ?{proyecto:dFProyecto,propiedad:"todos",maquina:"todos",tipo:"todos"}
-      :{proyecto:dFProyecto,propiedad:dFCPropiedad,maquina:dFCMaquinas,tipo:dFCTipoEquipo};
+      ?{proyecto:dFProyecto,propiedad:"todos",maquina:"todos",tipo:"todos",contrato:dFContrato}
+      :{proyecto:dFProyecto,propiedad:dFCPropiedad,maquina:dFCMaquinas,tipo:dFCTipoEquipo,contrato:dFContrato};
     const summaryHistoricalFilters=isCostosTabResumen
-      ?{proyecto:dFProyecto,propiedad:"todos",maquina:"todos",tipo:"todos"}
-      :{proyecto:dFProyecto,propiedad:dFPropiedad,maquina:dFMaquinas,tipo:dFTipoEquipo};
+      ?{proyecto:dFProyecto,propiedad:"todos",maquina:"todos",tipo:"todos",contrato:dFContrato}
+      :{proyecto:dFProyecto,propiedad:dFPropiedad,maquina:dFMaquinas,tipo:dFTipoEquipo,contrato:dFContrato};
 
     dmCategoriasCommand("QUERY_COST_MONTHLY",{
       months:mesesCostoMensual,fixedMonths:mesesFijosAcumuladoMensual,monthsAccum:mesesAcumulado,
       rates:monthlyDollar,baseRate:Number(usdRate2)||1,hsJM:hsEfJM,hsFS:hsEfFS,subtotalJM,subtotalFS,
       filters:summaryBaseFilters,
       filtersHistorical:summaryHistoricalFilters,
-      filtersMO:{proyecto:dFProyecto,propiedad:dFMOPropiedad,maquina:dFMOMaquinas,tipo:dFMOTipoEquipo}
+      filtersMO:{proyecto:dFProyecto,propiedad:dFMOPropiedad,maquina:dFMOMaquinas,tipo:dFMOTipoEquipo,contrato:dFContrato}
     }).then(result=>{
       if(token!==costoMensualWorkerQueryRef.current)return;
       const apply=()=>{
@@ -1474,7 +1485,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     }).catch(err=>console.error("No se pudo actualizar Costo mensual en el Worker",err)).finally(()=>{
       if(token===costoMensualWorkerQueryRef.current)setCostoMensualWorkerUpdating(false);
     });
-  },[calcCostoMensual,isCostosTabResumen,costoMensualWorkerReady,mesesCostoMensual,mesesFijosAcumuladoMensual,mesesAcumulado,monthlyDollar,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,dFProyecto,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,dFPropiedad,dFMaquinas,dFTipoEquipo,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo]);
+  },[calcCostoMensual,isCostosTabResumen,costoMensualWorkerReady,mesesCostoMensual,mesesFijosAcumuladoMensual,mesesAcumulado,monthlyDollar,usdRate2,hsEfJM,hsEfFS,subtotalJM,subtotalFS,dFProyecto,dFContrato,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,dFPropiedad,dFMaquinas,dFTipoEquipo,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo]);
 
   React.useLayoutEffect(()=>{
     if(tab==="t6")restoreCostoMensualScroll();
@@ -2409,6 +2420,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const dFAmortEquipo=useCostoDebouncedValue(filtrosAmortizacion.equipo,220);
   const dFAmortTipo=useCostoDebouncedValue(filtrosAmortizacion.tipo,220);
   const dFAmortPropiedad=useCostoDebouncedValue(filtrosAmortizacion.propiedad,220);
+  const dFAmortContrato=useCostoDebouncedValue(filtrosAmortizacion.contrato,220);
   // Fase 2 del motor: filtrado, recálculo de vida útil, promedios por categoría,
   // ordenamiento y rowSpan se procesan fuera del hilo principal.
   const [rowsAmortizacionOrdenadasFiltradas,setRowsAmortizacionOrdenadasFiltradas]=React.useState(()=>rowsAmortizacionFiltCacheRef.current||[]);
@@ -2421,6 +2433,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   const amortizacionResultCacheRef=React.useRef(new Map());
   const rowsAmortizacionWorkerPayload=React.useMemo(()=>(rowsAmortizacionConHH||[]).map(x=>({
     ...x,
+    contrato:String(metaEquipoCosto(x.equipo).lugarAlquiler||"S/D").trim()||"S/D",
     metaTipo:metaEquipoCosto(x.equipo).tipo||"",
     metaFamilia:metaEquipoCosto(x.equipo).familia||""
   })),[rowsAmortizacionConHH,metaEquipoCosto]);
@@ -2450,7 +2463,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   React.useEffect(()=>{
     if(!amortizacionCalcActive||!amortizacionWorkerReady)return;
     const payloadSig=JSON.stringify({
-      filters:{equipo:dFAmortEquipo,tipo:dFAmortTipo,propiedad:dFAmortPropiedad},
+      filters:{equipo:dFAmortEquipo,tipo:dFAmortTipo,propiedad:dFAmortPropiedad,contrato:dFAmortContrato},
       useListaVidaUtil,vidaUtilOverride,sort:costosMantSorts.amortizacion||null
     });
     if(amortizacionPayloadSigRef.current===payloadSig)return;
@@ -2466,7 +2479,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     setAmortizacionWorkerUpdating(true);
     let cancelled=false;
     dmCategoriasCommand("QUERY_AMORTIZATION_ROWS",{
-      filters:{equipo:dFAmortEquipo,tipo:dFAmortTipo,propiedad:dFAmortPropiedad},
+      filters:{equipo:dFAmortEquipo,tipo:dFAmortTipo,propiedad:dFAmortPropiedad,contrato:dFAmortContrato},
       useListaVidaUtil:useListaVidaUtil||{},
       vidaUtilOverride:vidaUtilOverride||{},
       sort:costosMantSorts.amortizacion||null
@@ -2487,7 +2500,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     return()=>{cancelled=true;};
   },[
     amortizacionCalcActive,amortizacionWorkerReady,costosMantSorts.amortizacion,
-    dFAmortEquipo,dFAmortTipo,dFAmortPropiedad,
+    dFAmortEquipo,dFAmortTipo,dFAmortPropiedad,dFAmortContrato,
     useListaVidaUtil,vidaUtilOverride
   ]);
 
@@ -2567,6 +2580,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       const tipoValue=tipoLabel;
       const equipoValue=String(x.equipo||"").trim();
       const propiedadValue=String(x.propiedad||"S/D").trim()||"S/D";
+      const contratoValue=String(metaEquipoCosto(x?.equipo).lugarAlquiler||"S/D").trim()||"S/D";
       return {
         ...x,
         _resumenModelo:modeloResumen,
@@ -2574,9 +2588,10 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         _resumenTipoValue:tipoValue,
         _resumenEquipoValue:equipoValue,
         _resumenPropiedadValue:propiedadValue,
+        _resumenContratoValue:contratoValue,
       };
     }).filter(Boolean);
-  },[rowsAmortizacionOrdenadas,modeloListaEquipo,normalizarCategoriaTexto,categoriasAmortizacionSet]);
+  },[rowsAmortizacionOrdenadas,modeloListaEquipo,normalizarCategoriaTexto,categoriasAmortizacionSet,metaEquipoCosto]);
 
   const resumenTipoOptions=React.useMemo(()=>[
     {value:"todos",label:"Todos los tipos"},
@@ -2600,8 +2615,8 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   React.useEffect(()=>{
     if(!isCostosTabResumen)return;
     const payloadSig=JSON.stringify({
-      rows:(resumenFiltroRows||[]).map(x=>[x.equipo,x._resumenTipoValue,x._resumenPropiedadValue,Number(x.amort||0),Number(x.pctMant||0)]),
-      tipo:dFResumenTipo,equipo:dFResumenEquipo,propiedad:dFResumenPropiedad
+      rows:(resumenFiltroRows||[]).map(x=>[x.equipo,x._resumenTipoValue,x._resumenPropiedadValue,x._resumenContratoValue,Number(x.amort||0),Number(x.pctMant||0)]),
+      tipo:dFResumenTipo,equipo:dFResumenEquipo,propiedad:dFResumenPropiedad,contrato:dFContrato
     });
     if(resumenPayloadSigRef.current===payloadSig)return;
     resumenPayloadSigRef.current=payloadSig;
@@ -2609,7 +2624,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     setResumenWorkerUpdating(true);
     dmCategoriasCommand("PROCESS_RESUMEN_EQUIPO",{
       rows:resumenFiltroRows||[],
-      filters:{tipo:dFResumenTipo,equipo:dFResumenEquipo,propiedad:dFResumenPropiedad}
+      filters:{tipo:dFResumenTipo,equipo:dFResumenEquipo,propiedad:dFResumenPropiedad,contrato:dFContrato}
     }).then(result=>{
       if(token!==resumenWorkerRequestRef.current)return;
       const next=Array.isArray(result?.rows)?result.rows:[];
@@ -2622,7 +2637,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     }).finally(()=>{
       if(token===resumenWorkerRequestRef.current)setResumenWorkerUpdating(false);
     });
-  },[isCostosTabResumen,resumenFiltroRows,dFResumenTipo,dFResumenEquipo,dFResumenPropiedad]);
+  },[isCostosTabResumen,resumenFiltroRows,dFResumenTipo,dFResumenEquipo,dFResumenPropiedad,dFContrato]);
 
   React.useEffect(()=>{
     try{
@@ -2707,6 +2722,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         metaTipo:meta.tipo||"",metaFamilia:meta.familia||"",
         _resumenTipoValue:maquinaResumen,_resumenTipoLabel:maquinaResumen,
         _resumenEquipoValue:equipo,_resumenPropiedadValue:"DELTA",
+        _resumenContratoValue:String(meta.lugarAlquiler||"S/D").trim()||"S/D",
         maquinaResumen,
         _grupoIndex:Number(groupInfo.grupoIndex??998),
         _ordenGrupo:Number(groupInfo.orden??0)
@@ -2726,8 +2742,8 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
 
   const filtrosAmortHistorica=getCostosFiltrosTabla("t9");
   const filtrosResumenHistorico=getCostosFiltrosTabla("t10");
-  const rowsAmortizacionHistorica=React.useMemo(()=>rowsAmortizacionHistoricaBase.filter(x=>matchesAmortizationTypeFilter(x,filtrosAmortHistorica.tipo)&&(multiIsAll(filtrosAmortHistorica.equipo,"todos")||matchMulti(x.equipo,filtrosAmortHistorica.equipo))),[rowsAmortizacionHistoricaBase,filtrosAmortHistorica,multiIsAll,matchMulti]);
-  const rowsResumenHistoricoDetalle=React.useMemo(()=>rowsAmortizacionHistoricaBase.filter(x=>matchMulti(x._resumenTipoValue,filtrosResumenHistorico.tipo)&&matchMulti(x._resumenEquipoValue,filtrosResumenHistorico.equipo)&&matchMulti(x._resumenPropiedadValue,filtrosResumenHistorico.propiedad)),[rowsAmortizacionHistoricaBase,filtrosResumenHistorico,matchMulti]);
+  const rowsAmortizacionHistorica=React.useMemo(()=>rowsAmortizacionHistoricaBase.filter(x=>matchesAmortizationTypeFilter(x,filtrosAmortHistorica.tipo)&&(multiIsAll(filtrosAmortHistorica.equipo,"todos")||matchMulti(x.equipo,filtrosAmortHistorica.equipo))&&matchMulti(x._resumenContratoValue,filtrosAmortHistorica.contrato)),[rowsAmortizacionHistoricaBase,filtrosAmortHistorica,multiIsAll,matchMulti]);
+  const rowsResumenHistoricoDetalle=React.useMemo(()=>rowsAmortizacionHistoricaBase.filter(x=>matchMulti(x._resumenTipoValue,filtrosResumenHistorico.tipo)&&matchMulti(x._resumenEquipoValue,filtrosResumenHistorico.equipo)&&matchMulti(x._resumenPropiedadValue,filtrosResumenHistorico.propiedad)&&matchMulti(x._resumenContratoValue,filtrosResumenHistorico.contrato)),[rowsAmortizacionHistoricaBase,filtrosResumenHistorico,matchMulti]);
   const historicoEquipoOptions=React.useMemo(()=>[{value:"todos",label:"Todas"},...uniq(rowsAmortizacionHistoricaBase.filter(x=>matchesAmortizationTypeFilter(x,filtrosAmortHistorica.tipo)).map(x=>x.equipo)).map(v=>({value:v,label:v}))],[rowsAmortizacionHistoricaBase,filtrosAmortHistorica.tipo,uniq]);
   React.useEffect(()=>{
     const tipoNormalizado=normalizeMultiValue(filtrosAmortHistorica.tipo,tipoEquipoOpts);
@@ -3322,6 +3338,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     const tipoOptions=config.tipoOptions||tipoEquipoOpts;
     const equipoOptions=config.equipoOptions||maquinaOpts;
     const propiedadOptions=config.propiedadOptions||propiedadOpts;
+    const contratoOptions=config.contratoOptions||contratoOpts;
     return (
       <div style={{display:"flex",gap:10,alignItems:"end",flexWrap:"wrap",padding:"10px 14px",borderBottom:`1px solid ${C.border}33`,background:compact?"rgba(0,0,0,.18)":"rgba(0,0,0,.14)"}}>
         <span style={{fontWeight:800,fontSize:12,color:C.text,paddingBottom:8}}>Filtros</span>
@@ -3331,13 +3348,14 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         <MultiSel label="Tipo máquina" value={filtros.tipo} onChange={v=>setCostoFiltroTabla(tableKey,"tipo",v)} options={tipoOptions} commitOnClose commitDelay={180}/>
         <MultiSel label="Equipo" value={filtros.equipo} onChange={v=>setCostoFiltroTabla(tableKey,"equipo",v)} options={equipoOptions} commitOnClose commitDelay={180}/>
         {config.showProperty!==false&&<MultiSel label="Propiedad" value={filtros.propiedad} onChange={v=>setCostoFiltroTabla(tableKey,"propiedad",v)} options={propiedadOptions} commitOnClose commitDelay={180}/>}
+        <MultiSel label="Contrato" value={filtros.contrato} onChange={v=>setCostoFiltroTabla(tableKey,"contrato",v)} options={contratoOptions} commitOnClose commitDelay={180}/>
         {config.extra||null}
         <button onClick={()=>resetCostoFiltroTabla(tableKey)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,color:C.textSub,padding:"7px 10px",fontSize:12,cursor:"pointer",height:33}}>Limpiar filtros</button>
         {config.counter!=null&&<span style={{marginLeft:"auto",fontSize:11,color:C.textMuted,paddingBottom:8}}>Equipos considerados: <b style={{color:C.text}}>{config.counter}</b></span>}
         {config.note&&<span style={{marginLeft:"auto",fontSize:11,color:C.textMuted,paddingBottom:8}}>{config.note}</span>}
       </div>
     );
-  },[getCostosFiltrosTabla,setCostoFiltroTabla,resetCostoFiltroTabla,tipoEquipoOpts,maquinaOpts,propiedadOpts,proyectoOpts,insumosCostoOpts]);
+  },[getCostosFiltrosTabla,setCostoFiltroTabla,resetCostoFiltroTabla,tipoEquipoOpts,maquinaOpts,propiedadOpts,contratoOpts,proyectoOpts,insumosCostoOpts]);
 
   React.useEffect(()=>{
     diagEvent("Filtros actualizados",{tab,fechaD:dFechaD,fechaH:dFechaH,proyecto:dFProyecto,insumos:dFInsumos,tipo:dFTipoEquipo,maquinas:dFMaquinas,propiedad:dFPropiedad});
