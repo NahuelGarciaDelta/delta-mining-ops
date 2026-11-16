@@ -8,9 +8,7 @@ import {pmVehicleDisplayVitePlugin} from "./scripts/pm-vehicle-display-vite-plug
 import {v9PmEquipmentParityVitePlugin} from "./scripts/v9-pm-equipment-parity-vite-plugin.mjs";
 import {pmPanelActive7DaysVitePlugin} from "./scripts/pm-panel-active-7-days-vite-plugin.mjs";
 import {v9UnifiedControlSourcesVitePlugin} from "./scripts/v9-unified-control-sources-vite-plugin.mjs";
-import {equipmentProfileAliasProjectMultiselectVitePlugin} from "./scripts/equipment-profile-alias-project-multiselect-vite-plugin.mjs";
-import {equipmentProfileDeduplicateLastRop02VitePlugin} from "./scripts/equipment-profile-deduplicate-last-rop02-vite-plugin.mjs";
-import {equipmentProfileLocationVehicleLabelVitePlugin} from "./scripts/equipment-profile-location-vehicle-label-vite-plugin.mjs";
+import {equipmentProfileSummaryFieldsV9VitePlugin} from "./scripts/equipment-profile-summary-fields-v9-vite-plugin.mjs";
 import {resolve,dirname,normalize} from "node:path";
 const root=process.cwd();
 const target=Object.fromEntries(Object.entries({
@@ -69,7 +67,7 @@ function isolateV9(){
  }
 }
 export default defineConfig({
- plugins:[v9UnifiedControlSourcesVitePlugin(),atrasoIchcFixesVitePlugin(),rop02ControlVehicleFiltersVitePlugin(),pmPanelActive7DaysVitePlugin(),vehicleKmMaintenanceVitePlugin(),pmVehicleScopeVitePlugin(),pmVehicleDisplayVitePlugin(),v9PmEquipmentParityVitePlugin(),equipmentProfileAliasProjectMultiselectVitePlugin(),equipmentProfileDeduplicateLastRop02VitePlugin(),equipmentProfileLocationVehicleLabelVitePlugin(),isolateV9(),react()],
+ plugins:[v9UnifiedControlSourcesVitePlugin(),atrasoIchcFixesVitePlugin(),rop02ControlVehicleFiltersVitePlugin(),pmPanelActive7DaysVitePlugin(),vehicleKmMaintenanceVitePlugin(),pmVehicleScopeVitePlugin(),pmVehicleDisplayVitePlugin(),v9PmEquipmentParityVitePlugin(),equipmentProfileSummaryFieldsV9VitePlugin(),isolateV9(),react()],
  build:{
   outDir:"dist",
   chunkSizeWarningLimit:900,
