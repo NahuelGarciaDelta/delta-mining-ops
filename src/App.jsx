@@ -300,24 +300,25 @@ export default function App(){
   const[dashSt,setDashSt]=useState(()=>savedOr("dashSt",{proyecto:"todos",modeD:"todo",fechaD:"",fechaDD:"",fechaDH:""}));
   const[rma15Base,setRma15]=useState([]);
   const[contratoGlobal,setContratoGlobal]=useState("todos");
+  const contratoDeLista=useCallback(row=>String(getValue(row,["Lugar de alquiler","Lugar alquiler","Lugar de Alquiler","LUGAR DE ALQUILER","Ubicación de alquiler","Ubicacion de alquiler","Contrato"])||"S/D").trim()||"S/D",[]);
   const contratoPorEquipo=useMemo(()=>{
     const map=new Map();
     (listaEquiposBase||[]).forEach(row=>{
-      const contrato=String(getValue(row,["Lugar de alquiler","Lugar alquiler","Ubicación de alquiler","Ubicacion de alquiler"])||"S/D").trim()||"S/D";
+      const contrato=contratoDeLista(row);
       ["Código nuevo","Codigo nuevo","Código Drusila","Codigo Drusila","Código interno","Codigo interno","Interno"].forEach(field=>{
         const code=normalizeMachineCode(getValue(row,[field])||"");
         if(code)map.set(code,contrato);
       });
     });
     return map;
-  },[listaEquiposBase]);
-  const contratosGlobales=useMemo(()=>[...new Set(contratoPorEquipo.values())].sort((a,b)=>a.localeCompare(b,"es",{sensitivity:"base"})),[contratoPorEquipo]);
-  const coincideContratoGlobal=useCallback(maquina=>contratoGlobal==="todos"||contratoPorEquipo.get(normalizeMachineCode(maquina||""))===contratoGlobal,[contratoGlobal,contratoPorEquipo]);
-  const listaEquipos=useMemo(()=>contratoGlobal==="todos"?listaEquiposBase:listaEquiposBase.filter(row=>coincideContratoGlobal(getValue(row,["Código nuevo","Codigo nuevo","Código interno","Codigo interno","Interno"]))),[listaEquiposBase,contratoGlobal,coincideContratoGlobal]);
-  const rma15=useMemo(()=>contratoGlobal==="todos"?rma15Base:rma15Base.filter(row=>coincideContratoGlobal(row?.maquina)),[rma15Base,contratoGlobal,coincideContratoGlobal]);
-  const rop02All=useMemo(()=>contratoGlobal==="todos"?rop02AllBase:rop02AllBase.filter(row=>coincideContratoGlobal(row?.maquina)),[rop02AllBase,contratoGlobal,coincideContratoGlobal]);
-  const rop02ControlAll=useMemo(()=>contratoGlobal==="todos"?rop02ControlAllBase:rop02ControlAllBase.filter(row=>coincideContratoGlobal(row?.maquina)),[rop02ControlAllBase,contratoGlobal,coincideContratoGlobal]);
-  const rop05=useMemo(()=>contratoGlobal==="todos"?rop05Base:rop05Base.filter(row=>coincideContratoGlobal(row?.maquina)),[rop05Base,contratoGlobal,coincideContratoGlobal]);
+  },[listaEquiposBase,contratoDeLista]);
+  const contratosGlobales=useMemo(()=>[...new Set((listaEquiposBase||[]).map(contratoDeLista))].sort((a,b)=>a.localeCompare(b,"es",{sensitivity:"base"})),[listaEquiposBase,contratoDeLista]);
+  const coincideContratoGlobal=useCallback(maquina=>multiIsAll(contratoGlobal,"todos")||matchMulti(contratoPorEquipo.get(normalizeMachineCode(maquina||""))||"S/D",contratoGlobal,"todos"),[contratoGlobal,contratoPorEquipo]);
+  const listaEquipos=useMemo(()=>multiIsAll(contratoGlobal,"todos")?listaEquiposBase:listaEquiposBase.filter(row=>matchMulti(contratoDeLista(row),contratoGlobal,"todos")),[listaEquiposBase,contratoGlobal,contratoDeLista]);
+  const rma15=useMemo(()=>multiIsAll(contratoGlobal,"todos")?rma15Base:rma15Base.filter(row=>coincideContratoGlobal(row?.maquina)),[rma15Base,contratoGlobal,coincideContratoGlobal]);
+  const rop02All=useMemo(()=>multiIsAll(contratoGlobal,"todos")?rop02AllBase:rop02AllBase.filter(row=>coincideContratoGlobal(row?.maquina)),[rop02AllBase,contratoGlobal,coincideContratoGlobal]);
+  const rop02ControlAll=useMemo(()=>multiIsAll(contratoGlobal,"todos")?rop02ControlAllBase:rop02ControlAllBase.filter(row=>coincideContratoGlobal(row?.maquina)),[rop02ControlAllBase,contratoGlobal,coincideContratoGlobal]);
+  const rop05=useMemo(()=>multiIsAll(contratoGlobal,"todos")?rop05Base:rop05Base.filter(row=>coincideContratoGlobal(row?.maquina)),[rop05Base,contratoGlobal,coincideContratoGlobal]);
   const control=useMemo(()=>calcControl(rop02All,rop05),[rop02All,rop05]);
   const[stMant,setStMant]=useState(()=>savedOr("stMant",{modo:"dia",proyecto:"todos",tipoMant:"todos",maquina:"todas",fechaD:"",fechaH:"",fechaDia:"",filtroCosto:"total",insumoFiltro:"todos",verGastosExcesivos:false}));
   const[stRma15CtrlEquipo,setStRma15CtrlEquipo]=useState(()=>savedOr("stRma15CtrlEquipo",{proyecto:"todos",maquina:"todas",año:String(new Date().getFullYear()),mesIdx:new Date().getMonth(),fechaSel:""}));
@@ -1117,13 +1118,7 @@ export default function App(){
               </button>}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-              {contratosGlobales.length>0&&<label style={{display:"flex",alignItems:"center",gap:6,fontSize:10,color:C.textMuted,fontWeight:700,whiteSpace:"nowrap"}}>
-                Contrato
-                <select value={contratoGlobal} onChange={event=>setContratoGlobal(event.target.value)} style={{height:29,maxWidth:180,background:C.surface,border:`1px solid ${contratoGlobal!=="todos"?C.accent:C.border}`,borderRadius:7,color:contratoGlobal!=="todos"?C.accent:C.textSub,padding:"0 8px",fontSize:11,fontWeight:700}}>
-                  <option value="todos">Todos</option>
-                  {contratosGlobales.map(contrato=><option key={contrato} value={contrato}>{contrato}</option>)}
-                </select>
-              </label>}
+              {contratosGlobales.length>0&&<MultiSel label="Contrato" value={contratoGlobal} onChange={setContratoGlobal} options={[{value:"todos",label:"Todos"},...contratosGlobales.map(contrato=>({value:contrato,label:contrato}))]}/>}
               <div style={{display:"flex",alignItems:"center",gap:7,padding:"5px 9px",borderRadius:7,background:"rgba(0,0,0,.18)",border:`1px solid ${C.border}55`,minWidth:0,maxWidth:"52vw",whiteSpace:"nowrap",overflow:"hidden"}}>
                 <Icon name="user" size={13} color={C.textSub}/>
                 <span style={{fontSize:10,color:C.textSub,overflow:"hidden",textOverflow:"ellipsis"}}>
