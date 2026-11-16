@@ -36,8 +36,10 @@ export async function submitHorometerOperation(url, operation, { verifyOnly = fa
   // antes de una actualización del perfil sigan pudiendo firmar escrituras.
   const storedToken=typeof sessionStorage!=="undefined"?sessionStorage.getItem("dm_auth_token"):"";
   const storedEmail=typeof sessionStorage!=="undefined"?sessionStorage.getItem("dm_user"):"";
-  const authToken=String(user?.authToken||user?.token||storedToken||"").trim();
-  const actorEmail=String(user?.email||storedEmail||"").trim().toLowerCase();
+  // La clave plana se actualiza al finalizar el login y es la fuente más reciente.
+  // El objeto completo puede provenir de una sesión restaurada anterior.
+  const authToken=String(storedToken||user?.authToken||user?.token||"").trim();
+  const actorEmail=String(storedEmail||user?.email||"").trim().toLowerCase();
   if(!actorEmail||!authToken){
     const error=new Error("La sesión no tiene un token válido para actualizar horómetros. Cerrá sesión, ingresá nuevamente y volvé a intentar.");
     error.code="AUTH_REQUIRED";
