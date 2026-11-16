@@ -802,6 +802,7 @@ export default function App(){
   // donde el resumen visual quedaba desfasado respecto del botón Actualizar.
 
   useEffect(()=>{
+    if(!auth)return;
     if(view==="dashboard"&&Object.keys(rawSourcesRef.current||{}).length===0){loadInitial();return;}
     let cancelled=false;
     const run=()=>{if(!cancelled)loadSources(VIEW_SOURCES[view]||[],{background:true});};
@@ -817,7 +818,7 @@ export default function App(){
       if(typeof window.cancelIdleCallback==="function")window.cancelIdleCallback(id);
       else window.clearTimeout(id);
     };
-  },[view,loadSources,loadInitial]);
+  },[auth,view,loadSources,loadInitial]);
 
   useEffect(()=>{
     const syncCatalogSources=result=>{
