@@ -30,8 +30,15 @@ let bienvenidaSummaryCache=null;
 let bienvenidaStockCache=null;
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
+function ContractPicker({options=[],value="todos",onChange}){
+  const [open,setOpen]=useState(false);
+  const selected=Array.isArray(value)?value:(value==="todos"?[]:[value]);
+  const toggle=contract=>onChange(selected.includes(contract)?(selected.filter(x=>x!==contract).length?selected.filter(x=>x!==contract):"todos"):[...selected,contract]);
+  const label=selected.length?`${selected.length} contrato${selected.length===1?"":"s"}`:"Todos los contratos";
+  return <div style={{position:"relative"}}><button type="button" onClick={()=>setOpen(v=>!v)} style={{height:42,display:"flex",alignItems:"center",gap:8,padding:"0 12px",borderRadius:10,border:`1px solid ${selected.length?"rgba(227,6,19,.7)":"rgba(255,255,255,.16)"}`,background:"rgba(8,22,34,.7)",color:"#fff",cursor:"pointer",fontSize:11,fontWeight:800,backdropFilter:"blur(12px)"}}><Icon name="fileSpreadsheet" size={15} color={selected.length?"#ff5260":"#d8dee4"}/><span>{label}</span><Icon name="chevronDown" size={14} color="#d8dee4"/></button>{open&&<div style={{position:"absolute",right:0,top:48,zIndex:30,width:260,maxHeight:330,overflowY:"auto",padding:8,borderRadius:12,border:"1px solid rgba(255,255,255,.14)",background:"rgba(10,20,30,.98)",boxShadow:"0 18px 42px rgba(0,0,0,.42)"}}><button type="button" onClick={()=>onChange("todos")} style={{width:"100%",padding:"9px 10px",border:0,borderBottom:"1px solid rgba(255,255,255,.08)",background:"transparent",color:"#fff",cursor:"pointer",textAlign:"left",fontSize:11,fontWeight:800}}>Todos los contratos</button>{options.map(contract=><label key={contract} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 10px",color:"#e8edf1",fontSize:11,cursor:"pointer"}}><input type="checkbox" checked={selected.includes(contract)} onChange={()=>toggle(contract)}/>{contract}</label>)}</div>}</div>;
+}
 
-export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false,summaryDayFiltered=false}){
+export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,esAdministrativo=false,summaryDayFiltered=false,contratoOptions=[],contratoValue="todos",onContratoChange}){
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
@@ -337,6 +344,7 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
     <main style={{position:"absolute",left:sidebarCollapsed?84:218,right:0,top:0,bottom:0,zIndex:2,padding:activeView==="dashboard"?"18px 24px 22px":"30px 48px 26px",display:"grid",gridTemplateRows:"auto 1fr auto auto auto",gap:activeView==="dashboard"?10:14,transition:"left .24s ease",background:"transparent"}}>
       <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:22,minHeight:48}}>
         <TopInfo icon="☁" value={weatherData?.current?`${Math.round(weatherData.current.temperature_2m)}°C`:"—°C"} sub="Camp. Batidero · Iglesia"/>
+        <ContractPicker options={contratoOptions} value={contratoValue} onChange={onContratoChange}/>
         <Sep/><TopInfo icon="▣" value={dateTop} sub={weekday.charAt(0).toUpperCase()+weekday.slice(1)}/>
         <Sep/><TopInfo icon="◷" value={hour} sub={turno}/>
       </div>
