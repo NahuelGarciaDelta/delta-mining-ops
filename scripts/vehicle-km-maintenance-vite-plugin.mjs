@@ -60,7 +60,7 @@ const activityForCode = (map, value) => {
 
       out = requiredReplace(
         out,
-        'return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, propiedad };',
+        'return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, contrato, propiedad };',
         `const codigos = uniq([
     interno,
     text(pick(row, ["Código nuevo", "Codigo nuevo", "CODIGO NUEVO", "Código Nuevo", "Codigo Nuevo"])),
@@ -68,7 +68,7 @@ const activityForCode = (map, value) => {
     text(pick(row, ["Código interno", "Codigo interno", "Interno", "Interno Equipo", "Código Equipo", "Codigo Equipo"])),
     text(pick(row, ["Patente", "PATENTE", "Dominio", "DOMINIO"]))
   ]);
-  return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, propiedad, codigos };`,
+  return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, contrato, propiedad, codigos };`,
         'aliases de Lista Maestra'
       )
 

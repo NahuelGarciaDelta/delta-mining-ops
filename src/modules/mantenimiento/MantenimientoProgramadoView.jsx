@@ -93,8 +93,11 @@ function equipoFromLista(row) {
   const marca = text(pick(row, ["Marca"]));
   const modelo = text(pick(row, ["Modelo"]));
   const proyecto = text(pick(row, ["Proyecto", "Ubicación", "Ubicacion", "Lugar"]));
+  // El contrato es un atributo maestro del equipo: no se infiere de la
+  // actividad diaria ni del proyecto informado en ROP02.
+  const contrato = text(pick(row, ["Lugar de alquiler", "Lugar alquiler", "Ubicación de alquiler", "Ubicacion de alquiler"])) || "S/D";
   const propiedad = text(pick(row, ["Propiedad"]));
-  return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, propiedad };
+  return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, contrato, propiedad };
 }
 
 function ropInterno(row) {
@@ -172,6 +175,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   const [registros, setRegistros] = useState([]);
   const [proyectoFiltro, setProyectoFiltro] = useState(ALL);
   const [tipoFiltro, setTipoFiltro] = useState(ALL);
+  const [contratoFiltro, setContratoFiltro] = useState(ALL);
   const [equipoFiltro, setEquipoFiltro] = useState(ALL);
   const [propiedadFiltro, setPropiedadFiltro] = useState(ALL);
   const [estadoFiltro, setEstadoFiltro] = useState(ALL);
@@ -347,6 +351,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   }, [listaEquipos, actividad7Dias, configMap]);
 
   const proyectos = useMemo(() => uniq(equipos.map(e => e.proyecto)).sort(), [equipos]);
+  const contratos = useMemo(() => uniq(equipos.map(e => e.contrato || "S/D")).sort(), [equipos]);
   const tipos = useMemo(() => uniq(equipos.map(e => e.familia)).sort(), [equipos]);
   const propiedades = useMemo(() => uniq(equipos.map(e => e.propiedad)).sort(), [equipos]);
   const internos = useMemo(() => equipos.map(e => e.interno).sort((a, b) => a.localeCompare(b, "es", { numeric: true })), [equipos]);
@@ -355,12 +360,13 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
   const visibles = useMemo(() => equipos.filter(e => {
     if (!e.activo) return false;
     if (!selected(e.proyecto, proyectoFiltro)) return false;
+    if (!selected(e.contrato || "S/D", contratoFiltro)) return false;
     if (!selected(e.familia, tipoFiltro)) return false;
     if (!selected(e.interno, equipoFiltro)) return false;
     if (!selected(e.propiedad, propiedadFiltro)) return false;
     if (!selected(e.estado, estadoFiltro)) return false;
     return true;
-  }), [equipos, proyectoFiltro, tipoFiltro, equipoFiltro, propiedadFiltro, estadoFiltro]);
+  }), [equipos, proyectoFiltro, contratoFiltro, tipoFiltro, equipoFiltro, propiedadFiltro, estadoFiltro]);
 
   const kpis = useMemo(() => ({
     total: visibles.filter(x => x.activo).length,
@@ -659,6 +665,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
 
   const clearFilters = () => {
     setProyectoFiltro(ALL);
+    setContratoFiltro(ALL);
     setTipoFiltro(ALL);
     setEquipoFiltro(ALL);
     setPropiedadFiltro(ALL);
@@ -753,6 +760,7 @@ export default function MantenimientoProgramadoView({ deps = {}, listaEquipos = 
           <input type="date" value={fechaHasta} min={fechaDesde || undefined} onChange={e => { setMesFiltro(""); setAnioFiltro(""); setFechaHasta(e.target.value); }} style={inputStyle} />
         </label>
         <MultiSel label="Proyecto" value={proyectoFiltro} onChange={setProyectoFiltro} options={[{ value: ALL, label: "Todos" }, ...proyectos.map(v => ({ value: v, label: v }))]} />
+        <MultiSel label="Contrato" value={contratoFiltro} onChange={value=>{ setContratoFiltro(value); setEquipoFiltro(ALL); }} options={[{ value: ALL, label: "Todos" }, ...contratos.map(v => ({ value: v, label: v }))]} />
         <MultiSel label="Tipo de máquina" value={tipoFiltro} onChange={setTipoFiltro} options={[{ value: ALL, label: "Todos" }, ...tipos.map(v => ({ value: v, label: v }))]} />
         <MultiSel label="Equipo" value={equipoFiltro} onChange={setEquipoFiltro} options={[{ value: ALL, label: "Todos" }, ...internos.map(v => ({ value: v, label: v }))]} />
         <MultiSel label="Propiedad" value={propiedadFiltro} onChange={setPropiedadFiltro} options={[{ value: ALL, label: "Todas" }, ...propiedades.map(v => ({ value: v, label: v }))]} />

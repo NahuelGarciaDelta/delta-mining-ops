@@ -21,8 +21,8 @@ export function pmVehicleDisplayVitePlugin() {
       // bundle parcialmente transformado con identificadores sin declarar.
       out = requiredReplace(
         out,
-        'return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, propiedad, codigos };',
-        `return {\n    interno,\n    equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno,\n    familia, marca, modelo, proyecto, propiedad, codigos,\n    codigoNuevo: text(pick(row, ["Código nuevo", "Codigo nuevo", "CODIGO NUEVO", "Código Nuevo", "Codigo Nuevo"])),\n    codigoDrusila: text(pick(row, ["Código Drusila", "Codigo Drusila", "Código de Drusila", "Codigo de Drusila", "Código viejo", "Codigo viejo", "Código anterior", "Codigo anterior", "Patente", "PATENTE", "Dominio", "DOMINIO"]))\n  };`,
+        'return { interno, equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno, familia, marca, modelo, proyecto, contrato, propiedad, codigos };',
+        `return {\n    interno,\n    equipo: [familia, marca, modelo].filter(Boolean).join(" — ") || interno,\n    familia, marca, modelo, proyecto, contrato, propiedad, codigos,\n    codigoNuevo: text(pick(row, ["Código nuevo", "Codigo nuevo", "CODIGO NUEVO", "Código Nuevo", "Codigo Nuevo"])),\n    codigoDrusila: text(pick(row, ["Código Drusila", "Codigo Drusila", "Código de Drusila", "Codigo de Drusila", "Código viejo", "Codigo viejo", "Código anterior", "Codigo anterior", "Patente", "PATENTE", "Dominio", "DOMINIO"]))\n  };`,
         'metadatos de códigos de Lista Maestra'
       )
 
