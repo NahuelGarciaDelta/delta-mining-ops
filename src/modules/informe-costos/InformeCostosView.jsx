@@ -904,7 +904,9 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       {value:"MINICARGADORA",label:"Minicargadoras"},
       {value:"OTROS",label:"Otros"},
     ];
-    return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||presentes.has(o.value));
+    // Mantener Cargadoras frontales visible aun cuando el filtro de contrato,
+    // proyecto o período no tenga una fila coincidente en este momento.
+    return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||o.value==="CARGADORA FRONTAL"||presentes.has(o.value));
   },[costoRowsTipoEquipoOpts,metaEquipoCosto]);
 
   const maquinaOpts=React.useMemo(()=>[
@@ -978,7 +980,7 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       {value:"RETROPALA",label:"Retropalas"},{value:"COMPACTACION",label:"Rodillos compactadores"},
       {value:"MINICARGADORA",label:"Minicargadoras"},{value:"OTROS",label:"Otros"},
     ];
-    return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||presentes.has(o.value));
+    return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||o.value==="CARGADORA FRONTAL"||presentes.has(o.value));
   },[moRowsTipoEquipoOpts,metaEquipoCosto]);
   const moMaquinaOpts=React.useMemo(()=>[
     {value:"todos",label:"Todas"},
