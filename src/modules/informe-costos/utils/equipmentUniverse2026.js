@@ -23,6 +23,21 @@ export function buildEquipmentWithMaintenance2026(rows) {
   return result;
 }
 
+// El informe horario sólo tiene sentido para equipos que tengan horas
+// registradas en ROP02. El divisor solicitado es la hora realmente cargada,
+// sin reinterpretarla según el estado del parte.
+export function buildEquipmentWithRop02Activity2026(rows) {
+  const result = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const date = String(row?._dateKey || row?.fecha || "").slice(0, 10);
+    const hours = Number(row?.horas) || 0;
+    if (!date.startsWith(`${INFORME_COSTOS_YEAR}-`) || hours <= 0) continue;
+    const code = row?._canonicalEquipment || maintenanceEquipmentCode(row);
+    if (code) result.add(code);
+  }
+  return result;
+}
+
 export function prepareMaintenanceCostRows(rows) {
   return (Array.isArray(rows) ? rows : []).map(row => {
     const dateKey = String(row?.fecha || "").slice(0, 10);

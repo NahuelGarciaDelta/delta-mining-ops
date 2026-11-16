@@ -43,16 +43,51 @@ function isMachineType(value,code="",family=""){
 function isTruckType(value,code="",family=""){
   return isMaintenanceCostTruck({code,type:value,family});
 }
+function costFilterCategory({ code = "", family = "", type = "" } = {}){
+  const normalizedFamily=norm(family);
+  // Familia de Lista Maestra es la fuente de verdad para el filtro visible.
+  if(normalizedFamily){
+    if(normalizedFamily.startsWith("CAMIONETA"))return "CAMIONETAS";
+    if(normalizedFamily.startsWith("CAMION"))return "CAMIONES";
+    if(normalizedFamily.includes("EXCAVADORA"))return "EXCAVADORA";
+    if(normalizedFamily.includes("MINICARGADORA"))return "MINICARGADORA";
+    if(normalizedFamily.includes("MOTONIVELADORA"))return "MOTONIVELADORA";
+    if(normalizedFamily.includes("CARGADOR"))return "CARGADOR FRONTAL";
+    if(normalizedFamily.includes("RETROPALA"))return "RETROPALA";
+    if(normalizedFamily.includes("RODILLO")||normalizedFamily.includes("COMPACTADOR"))return "RODILLO";
+    if(normalizedFamily.includes("TOPADORA"))return "TOPADORA";
+    return "OTROS";
+  }
+  // Registros históricos sin Familia: sólo aquí se usan los prefijos conocidos.
+  if(isTruckType(type,code,""))return "CAMIONES";
+  if(/^(CTA|AG|AH)/.test(canonicalEquipmentCode(code)))return "CAMIONETAS";
+  if(isMachineType(type,code,"")){
+    const fallback=norm(type);
+    if(fallback.includes("EXCAVADORA"))return "EXCAVADORA";
+    if(fallback.includes("MINICARGADORA"))return "MINICARGADORA";
+    if(fallback.includes("MOTONIVELADORA"))return "MOTONIVELADORA";
+    if(fallback.includes("CARGADOR"))return "CARGADOR FRONTAL";
+    if(fallback.includes("RETROPALA"))return "RETROPALA";
+    if(fallback.includes("RODILLO")||fallback.includes("COMPACTADOR"))return "RODILLO";
+    if(fallback.includes("TOPADORA"))return "TOPADORA";
+    return "MAQUINAS";
+  }
+  return "OTROS";
+}
+function matchesCostFilterCategory(category, selections){
+  return selections.includes(category)||(
+    selections.includes("MAQUINAS")&&["EXCAVADORA","MINICARGADORA","MOTONIVELADORA","CARGADOR FRONTAL","RETROPALA","RODILLO","TOPADORA"].includes(category)
+  );
+}
 
 export function matchesAmortizationTypeFilter(row,filter){
   if(isAll(filter))return true;
   const tipoSelections=selected(filter);
-  const tipo=norm(row?.tipo);
-  const metaTipo=norm(row?.metaTipo);
-  const metaFamilia=norm(row?.metaFamilia);
-  return tipoSelections.includes(tipo)||tipoSelections.includes(metaTipo)||
-    (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row?.equipo,metaFamilia)||isMachineType(metaTipo,row?.equipo,metaFamilia)))||
-    (tipoSelections.includes("CAMIONES")&&(isTruckType(tipo,row?.equipo,metaFamilia)||isTruckType(metaTipo,row?.equipo,metaFamilia)));
+  return matchesCostFilterCategory(costFilterCategory({
+    code:row?.equipo,
+    family:row?.metaFamilia||row?.familia,
+    type:row?.metaTipo||row?.tipo,
+  }),tipoSelections);
 }
 
 function isIncludedCostRow(row){
@@ -86,6 +121,7 @@ function processAmortizationRows(payload){
   for(const row of rows){
     if(!matchMulti(row.equipo,filters.equipo))continue;
     if(!matchMulti(row.propiedad||"S/D",filters.propiedad))continue;
+    if(!matchMulti(row.contrato||"S/D",filters.contrato))continue;
     if(!matchesAmortizationTypeFilter(row,filters.tipo))continue;
     const vidaLM=Number(row.vidaListaMaestra||row.vidaBase||row.vida||8000);
     const override=Number(overrides[row.equipo])||0;
@@ -152,6 +188,7 @@ function matchesFilters(row,filters={}){
   const rowCode=String(row?.maquina||row?.equipo||"");
   const proyecto=row.proyecto||((row.section==='JM')?'JOSE MARIA':'FILO DEL SOL');
   if(!matchMulti(proyecto,filters.proyecto))return false;
+  if(!matchMulti(String(meta.lugarAlquiler||'S/D').trim()||'S/D',filters.contrato))return false;
   if(!isAll(filters.propiedad)){
     const props=Array.isArray(meta.props)?meta.props:[meta.propiedad||'S/D'];
     const sel=arrayFilter(filters.propiedad).map(norm);
@@ -161,9 +198,7 @@ function matchesFilters(row,filters={}){
   if(!matchMulti(display,filters.maquina)&&!matchMulti(row.equipo||row.maquina,filters.maquina))return false;
   if(!isAll(filters.tipo)){
     const sels=arrayFilter(filters.tipo).map(norm);
-    const tipo=norm(meta.tipo);
-    const familia=norm(meta.familia||meta.family);
-    if(!(sels.includes(tipo)||(sels.includes('MAQUINAS')&&isMachineType(tipo,rowCode,familia))||(sels.includes('CAMIONES')&&isTruckType(tipo,rowCode,familia))))return false;
+    if(!matchesCostFilterCategory(costFilterCategory({code:rowCode,family:meta.familia||meta.family,type:meta.tipo}),sels))return false;
   }
   return true;
 }
@@ -469,6 +504,7 @@ function processResumenEquipo(payload){
     if(!matchMulti(x._resumenTipoValue,filters.tipo))continue;
     if(!matchMulti(x._resumenEquipoValue,filters.equipo))continue;
     if(!matchMulti(x._resumenPropiedadValue,filters.propiedad))continue;
+    if(!matchMulti(x._resumenContratoValue||"S/D",filters.contrato))continue;
     filtered.push(x);
   }
   const grupos=new Map();
