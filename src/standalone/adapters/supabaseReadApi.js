@@ -467,7 +467,15 @@ export async function fetchSupabaseRop02LatestByEquipmentProject(){
       else current.CARGAS_7D++;
     }
     const data=[...latest.values()].sort((a,b)=>String(a.INTERNO).localeCompare(String(b.INTERNO),"es"));
-    return {ok:true,source:"google-sheets-original-recent",data,rows:data.length,total:data.length,referenceDate:maxDate};
+    const recentRows=records.map(row=>({
+      fecha:asDate(row),
+      maquina:asText(row.Interno??row.interno),
+      proyecto:asText(row.Proyecto??row.proyecto),
+      estado:row["OD o FS"]??row.Estado??row.estado??"",
+      horas:row["Cant. Hs."]??row.cantidad_horas??row.horas??0,
+      supervisor:row["Supervisor Delta"]??row.supervisor_delta??"",
+    })).filter(row=>row.fecha&&row.maquina&&row.proyecto);
+    return {ok:true,source:"google-sheets-original-recent",data,rows:data.length,total:data.length,referenceDate:maxDate,recentRows};
   })();
   v9WelcomeSnapshotPending=job;
   try{

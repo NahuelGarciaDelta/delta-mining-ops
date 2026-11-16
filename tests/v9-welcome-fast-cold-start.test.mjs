@@ -50,6 +50,7 @@ test("Cold welcome reads last 7 days without downloading all historical ROP02",a
  assert.equal(response.referenceDate,"2026-11-10");
  assert.ok(response.data.some(row=>row.INTERNO==="CAR-0089-JM"));
  assert.ok(response.data.some(row=>row.INTERNO==="CAC-0040"));
+ assert.ok(response.recentRows.some(row=>row.fecha==="2026-11-10"&&row.maquina==="CAR-0089-JM"));
  assert.ok(requests.length<10,"Cold page must avoid historic page fan-out");
  assert.ok(!requests.some(call=>call.source==="rop02_jm"&&call.offset>0&&call.offset<900),"Do not pull old JM history");
 });

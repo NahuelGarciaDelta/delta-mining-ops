@@ -54,6 +54,8 @@ function readInitialSelection(){
 export default function ViewBienvenidaProjectFilter(props){
   const [selection,setSelection]=React.useState(readInitialSelection);
   const [selectedDay,setSelectedDay]=React.useState("");
+  const [snapshotRop02,setSnapshotRop02]=React.useState([]);
+  const [historyLoading,setHistoryLoading]=React.useState(false);
   const [portalHost,setPortalHost]=React.useState(null);
   const [open,setOpen]=React.useState(false);
   const [dashboardHost,setDashboardHost]=React.useState(null);
@@ -70,10 +72,12 @@ export default function ViewBienvenidaProjectFilter(props){
   },[selection,projectValues]);
   const allSelected=selection===null||selectedValues.length===projectValues.length;
   const selectedSet=React.useMemo(()=>new Set(selectedValues),[selectedValues]);
+  const fullHistoryAvailable=ROP02_SOURCES.every(source=>props.rawSources?.[source.key]?.ok&&Array.isArray(props.rawSources[source.key].data));
+  const historyRop02=fullHistoryAvailable?(Array.isArray(props.rop02All)?props.rop02All:[]):(snapshotRop02.length?snapshotRop02:(Array.isArray(props.rop02All)?props.rop02All:[]));
   const projectFilteredRop02=React.useMemo(()=>{
-    const source=Array.isArray(props.rop02All)?props.rop02All:[];
+    const source=Array.isArray(historyRop02)?historyRop02:[];
     return allSelected?source:source.filter(row=>selectedSet.has(projectFromRow(row)));
-  },[props.rop02All,allSelected,selectedSet]);
+  },[historyRop02,allSelected,selectedSet]);
   const availableDays=React.useMemo(()=>[...new Set(projectFilteredRop02.map(dateFromRop02Row).filter(Boolean))].sort((a,b)=>b.localeCompare(a)),[projectFilteredRop02]);
   const effectiveDay=selectedDay&&availableDays.includes(selectedDay)?selectedDay:(availableDays[0]||"");
 
@@ -131,6 +135,7 @@ export default function ViewBienvenidaProjectFilter(props){
     if(dashboardVisible){
       return {
         ...props,
+        onSnapshotRop02Change:setSnapshotRop02,
         rop02All:Array.isArray(props.rop02All)?props.rop02All:[],
         rop05:Array.isArray(props.rop05)?props.rop05:[],
         rma15:Array.isArray(props.rma15)?props.rma15:[],
@@ -140,6 +145,7 @@ export default function ViewBienvenidaProjectFilter(props){
 
     return {
       ...props,
+      onSnapshotRop02Change:setSnapshotRop02,
       rop02All:dailySummaryRop02,
       rop05:filterRows(props.rop05),
       rma15:Array.isArray(filteredRma)&&filteredRma.length?filteredRma:[EMPTY_RMA_SENTINEL],
@@ -162,15 +168,26 @@ export default function ViewBienvenidaProjectFilter(props){
   };
 
   const summaryLabel=allSelected?"Todos":projectItems.filter(item=>item.value!=="TODOS"&&selectedSet.has(item.value)).map(item=>item.label).join(" + ");
+  const selectDay=value=>{
+    if(value!=="__LOAD_HISTORY__"){setSelectedDay(value);return;}
+    if(typeof props.onLoadWelcomeRop02!=="function")return;
+    setHistoryLoading(true);
+    Promise.resolve().then(()=>props.onLoadWelcomeRop02()).catch(()=>{}).finally(()=>{
+      setHistoryLoading(false);
+      setSelectedDay("");
+    });
+  };
 
   const control=portalHost?createPortal(
     <div ref={controlRef} style={{position:"relative",marginLeft:"auto",width:124,maxWidth:"48%",minWidth:0,display:"flex",flexDirection:"column",gap:5,alignItems:"stretch",boxSizing:"border-box"}} onClick={event=>event.stopPropagation()}>
       <button type="button" aria-label="Filtrar resumen general por proyecto" aria-expanded={open} title="Filtrar resumen general por proyecto" onClick={()=>setOpen(value=>!value)} style={{width:"100%",minWidth:0,height:28,padding:"0 8px",boxSizing:"border-box",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:10,fontWeight:800,outline:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
         <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{summaryLabel||"Todos"}</span><span style={{fontSize:9,opacity:.8,flex:"0 0 auto"}}>▾</span>
       </button>
-      <select aria-label="Filtrar resumen general por día" title={availableDays.length?`Día ROP02: ${effectiveDay?formatDayLabel(effectiveDay):"seleccionar"}`:"Esperando registros ROP02"} value={effectiveDay} onChange={event=>setSelectedDay(event.target.value)} disabled={!availableDays.length} style={{width:"100%",minWidth:0,height:26,padding:"0 7px",boxSizing:"border-box",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:9,fontWeight:800,outline:"none",cursor:availableDays.length?"pointer":"default"}}>
+      <select aria-label="Filtrar resumen general por día" title={availableDays.length?`Día ROP02: ${effectiveDay?formatDayLabel(effectiveDay):"seleccionar"}${fullHistoryAvailable?"":" · Más fechas carga el historial"}`:"Esperando registros ROP02"} value={historyLoading?"__LOAD_HISTORY__":effectiveDay} onChange={event=>selectDay(event.target.value)} disabled={!availableDays.length||historyLoading} style={{width:"100%",minWidth:0,height:26,padding:"0 7px",boxSizing:"border-box",borderRadius:7,border:"1px solid rgba(255,255,255,.16)",background:"rgba(10,24,36,.92)",color:"#fff",fontSize:9,fontWeight:800,outline:"none",cursor:availableDays.length&&!historyLoading?"pointer":"default"}}>
         {!availableDays.length&&<option value="">Cargando fechas…</option>}
         {availableDays.map(day=><option key={day} value={day}>{formatDayLabel(day)}</option>)}
+        {historyLoading&&<option value="__LOAD_HISTORY__">Cargando historial…</option>}
+        {!historyLoading&&!fullHistoryAvailable&&snapshotRop02.length>0&&props.onLoadWelcomeRop02&&<option value="__LOAD_HISTORY__">Más fechas…</option>}
       </select>
       {open&&<div style={{position:"absolute",right:0,top:34,zIndex:80,width:178,maxWidth:"min(178px, 80vw)",maxHeight:300,overflowY:"auto",padding:6,boxSizing:"border-box",borderRadius:9,border:"1px solid rgba(255,255,255,.14)",background:"rgba(5,18,29,.98)",boxShadow:"0 16px 36px rgba(0,0,0,.38)",backdropFilter:"blur(14px)",WebkitBackdropFilter:"blur(14px)"}}>
         {projectItems.map(item=>{

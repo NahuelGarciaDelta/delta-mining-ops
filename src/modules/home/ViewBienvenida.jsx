@@ -62,7 +62,7 @@ function saveWelcomeSummaryCache_(data){
 
 function MiniIcon({name,color="#fff",bg="rgba(255,255,255,.08)"}){return <span style={{width:44,height:44,borderRadius:14,display:"inline-flex",alignItems:"center",justifyContent:"center",background:bg,flex:"0 0 auto"}}><Icon name={name} size={23} color={color}/></span>;}
 
-export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,onLoadWelcomeRop02,esAdministrativo=false,summaryDayFiltered=false}){
+export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rma15=[],rop05=[],listaEquipos=[],rop02All=[],usdRate=1,nombreUsuario="Usuario",areaUsuario="OFICINA TÉCNICA",onOpenProfile,onLogout,onLoadWelcomeRop02,onSnapshotRop02Change,esAdministrativo=false,summaryDayFiltered=false}){
   const [now,setNow]=useState(()=>new Date());
   const {data:weatherData}=useBatideroWeather();
   const [sharedStockRows,setSharedStockRows]=useState(()=>bienvenidaStockCache||[]);
@@ -86,7 +86,12 @@ export default function ViewBienvenida({onOpenModule,onNavigate,rawSources={},rm
         supervisor:row.SUPERVISOR||row.supervisor||"",
         _snapshotActive:Number(row.CARGAS_7D??row.cargas7d??0)>0,
       }});
-      startTransition(()=>setSnapshotRop02(rows));
+      const recentRows=(Array.isArray(response.recentRows)?response.recentRows:[]).map(row=>{
+        const stateText=norm(row.estado||row.Estado||"");
+        const estado=stateText==="fs"||stateText.includes("fuera de servicio")?"FS":stateText==="od"||stateText.includes("orden del dia")?"OD":stateText==="em"||stateText.includes("mantenimiento")?"EM":"TRABAJO";
+        return {...row,estado,_snapshotActive:true};
+      });
+      startTransition(()=>{setSnapshotRop02(rows);onSnapshotRop02Change?.(recentRows);});
     }).catch(()=>{
       if(!alive)return;
       if(typeof onLoadWelcomeRop02==="function"){

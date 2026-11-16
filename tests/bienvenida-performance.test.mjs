@@ -38,6 +38,13 @@ test("El estado de actualización y el filtro de fecha no se superponen en el re
   const filters=fs.readFileSync(new URL("../src/modules/home/ViewBienvenidaProjectFilter.jsx",import.meta.url),"utf8");
   assert.match(filters,/width:124,maxWidth:"48%"/);
   assert.match(filters,/<option value="">Cargando fechas…<\/option>/);
+  assert.match(filters,/const fullHistoryAvailable=ROP02_SOURCES\.every\(source=>props\.rawSources\?\.\[source\.key\]\?\.ok&&Array\.isArray\(props\.rawSources\[source\.key\]\.data\)\)/);
+  assert.match(filters,/const historyRop02=fullHistoryAvailable\?/);
+  assert.match(filters,/onSnapshotRop02Change:setSnapshotRop02/);
+  assert.match(filters,/if\(value!=="__LOAD_HISTORY__"\)\{setSelectedDay\(value\);return;\}/);
+  assert.match(filters,/props\.onLoadWelcomeRop02\(\)/);
+  assert.match(filters,/Más fechas…/);
+  assert.match(home,/onSnapshotRop02Change\?\.\(recentRows\)/);
 });
 
 test("Inicio evita precargar historiales completos que no necesita y arranca su carga sin idle delay",()=>{

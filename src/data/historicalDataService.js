@@ -30,7 +30,7 @@ function normalizeHomeProject_(value){const raw=String(value||"").trim().toUpper
 function currentHomeProject_(){if(typeof window==="undefined")return "TODOS";return normalizeHomeProject_(window.__dmHomeSummaryProject||"TODOS");}
 function usesExternalHomeFilter_(){return typeof window!=="undefined"&&window.__dmHomeSummaryExternalFilter===true;}
 function rowProject_(row){return normalizeHomeProject_(row?.PROYECTO??row?.proyecto??row?.Proyecto??row?.LUGAR??row?.lugar??row?.Lugar??"");}
-function filterHomeProjectResponse_(response){const project=currentHomeProject_();if(project==="TODOS"||!Array.isArray(response?.data))return response;const data=response.data.filter(row=>rowProject_(row)===project);return {...response,data,rows:data.length,total:data.length};}
+function filterHomeProjectResponse_(response){const project=currentHomeProject_();if(project==="TODOS")return response;const filter=rows=>Array.isArray(rows)?rows.filter(row=>rowProject_(row)===project):rows;const data=filter(response?.data),recentRows=filter(response?.recentRows);return {...response,...(Array.isArray(data)?{data,rows:data.length,total:data.length}:{}),...(Array.isArray(recentRows)?{recentRows}:{})};}
 
 function assignedProjectsFromSession_(){
   if(typeof window==="undefined")return [];
@@ -55,7 +55,8 @@ function filterAssignedProjectsResponse_(response){
   if(!allowed.length||!Array.isArray(response?.data))return response;
   const allowedSet=new Set(allowed);
   const data=response.data.filter(row=>allowedSet.has(rowProject_(row)));
-  return {...response,data,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length};
+  const recentRows=Array.isArray(response.recentRows)?response.recentRows.filter(row=>allowedSet.has(rowProject_(row))):response.recentRows;
+  return {...response,data,recentRows,rows:data.length,total:data.length,hasMore:false,nextOffset:data.length};
 }
 
 // La vista ROP02 vs ROP05 ya recibe ambas bases hidratadas desde App.jsx.
