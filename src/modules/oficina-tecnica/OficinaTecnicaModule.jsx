@@ -484,8 +484,10 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista,
       setSyncingListaExcel(true);setSyncMsg({type:"info",text:"Verificando y actualizando las lecturas..."});
       // Retries retain the operation ID. The backend replays receipts instead of writing confirmed cells.
       const res=await submitHorometerOperation(METER_API_URL,operation);
-      const details=res.results.filter(r=>r.status!=="confirmed").map(r=>`${r.identity?.codigoNuevo||r.identity?.codigoDrusila||"Equipo"}: ${r.code||r.status}`).join("; ");
-      setSyncMsg({type:res.pendingRows?"info":res.failedRows?"error":"success",text:`${res.updatedRows} actualizados, ${res.skippedRows} sin cambios, ${res.failedRows} fallidos, ${res.pendingRows} pendientes de verificación.${details?` ${details}`:""}${res.pendingRows?" Volvé a presionar para verificar con la misma operación.":""}${res.cacheWarning?` ${res.cacheWarning}`:""}`});
+      const failures=res.results.filter(r=>r.status!=="confirmed");
+      const detailMessage=failures.find(r=>r.message)?.message||"";
+      const details=failures.map(r=>`${r.identity?.codigoNuevo||r.identity?.codigoDrusila||"Equipo"}: ${r.code||r.status}`).join("; ");
+      setSyncMsg({type:res.pendingRows?"info":res.failedRows?"error":"success",text:`${res.updatedRows} actualizados, ${res.skippedRows} sin cambios, ${res.failedRows} fallidos, ${res.pendingRows} pendientes de verificación.${detailMessage?` ${detailMessage}`:""}${details?` ${details}`:""}${res.pendingRows?" Volvé a presionar para verificar con la misma operación.":""}${res.cacheWarning?` ${res.cacheWarning}`:""}`});
       onMetersConfirmed?.(res);
       if(!res.pendingRows&&!res.cacheWarning)meterOperationRef.current=null;
     }catch(err){setSyncMsg({type:"info",text:err.message||"Resultado pendiente de verificación. No se confirmó un fallo de escritura."});}
