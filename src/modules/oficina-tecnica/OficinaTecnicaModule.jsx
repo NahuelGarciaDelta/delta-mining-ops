@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import ReactDOM from "react-dom";
-import {METER_WRITE_URL} from "../../config/app.js";
-import {createHorometerOperation,listaIdentityFromRow,meterNumber,submitHorometerOperation} from "../../services/horometerUpdates.js";
+import {createHorometerOperation,listaIdentityFromRow,meterNumber} from "../../services/horometerUpdates.js";
 import {dmCanEditArea} from "../../shared/access.js";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, Legend, ReferenceLine } from "recharts";
@@ -483,29 +482,23 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista,
       }
       setSyncingListaExcel(true);setSyncMsg({type:"info",text:"Verificando y actualizando las lecturas..."});
       // Retries retain the operation ID. The backend replays receipts instead of writing confirmed cells.
-      let res=await submitHorometerOperation(METER_WRITE_URL,operation);
-      // Compatibilidad con Delta V9: algunas sesiones heredadas no validan el
-      // token del endpoint transaccional. En ese caso se usa la edición puntual
-      // existente de Lista Maestra, exclusivamente sobre la columna HORAS.
-      const authRejected=res.failedRows===operation.updates.length&&res.results.every(item=>item.code==="AUTH_REQUIRED");
-      if(authRejected&&horasKey){
-        setSyncMsg({type:"info",text:"La sesión transaccional fue rechazada. Actualizando únicamente la columna HORAS mediante el método compatible de Delta V9..."});
-        const fallbackResults=[];
-        for(let index=0;index<operation.updates.length;index+=1){
-          const update=operation.updates[index];
-          try{
-            const identity=update.identity||{};
-            const result=await postUpdateListaEquipo({
-              codigoDrusila:identity.codigoDrusila||"",codigoNuevo:identity.codigoNuevo||"",
-              codigoDrusilaNorm:normalizeMachineCode(identity.codigoDrusila||""),codigoNuevoNorm:normalizeMachineCode(identity.codigoNuevo||""),
-              lookupKeys:machineLookupVariants(identity.codigoDrusila||"",identity.codigoNuevo||""),useRowNumber:false,
-            },{[horasKey]:String(update.value)});
-            fallbackResults.push({index,identity,status:"confirmed",changed:true,column:horasKey,currentValue:update.value,rowNumber:result.rowNumber});
-          }catch(error){fallbackResults.push({index,identity,status:"failed",code:"LEGACY_WRITE_FAILED",message:error?.message||"No se pudo actualizar la lectura."});}
-        }
-        const failedRows=fallbackResults.filter(item=>item.status!=="confirmed").length;
-        res={...res,results:fallbackResults,updatedRows:fallbackResults.length-failedRows,skippedRows:0,failedRows,pendingRows:0};
+      // Delta V9 confirma esta ruta de edición puntual. Se limita estrictamente
+      // a HORAS y ubica cada fila por sus códigos maestros, nunca por posición.
+      const fallbackResults=[];
+      for(let index=0;index<operation.updates.length;index+=1){
+        const update=operation.updates[index];
+        try{
+          const identity=update.identity||{};
+          const result=await postUpdateListaEquipo({
+            codigoDrusila:identity.codigoDrusila||"",codigoNuevo:identity.codigoNuevo||"",
+            codigoDrusilaNorm:normalizeMachineCode(identity.codigoDrusila||""),codigoNuevoNorm:normalizeMachineCode(identity.codigoNuevo||""),
+            lookupKeys:machineLookupVariants(identity.codigoDrusila||"",identity.codigoNuevo||""),useRowNumber:false,
+          },{[horasKey]:String(update.value)});
+          fallbackResults.push({index,identity,status:"confirmed",changed:true,column:horasKey,currentValue:update.value,rowNumber:result.rowNumber});
+        }catch(error){fallbackResults.push({index,identity,status:"failed",code:"WRITE_FAILED",message:error?.message||"No se pudo actualizar la lectura."});}
       }
+      const failedRows=fallbackResults.filter(item=>item.status!=="confirmed").length;
+      const res={results:fallbackResults,updatedRows:fallbackResults.length-failedRows,skippedRows:0,failedRows,pendingRows:0};
       const failures=res.results.filter(r=>r.status!=="confirmed");
       const detailMessage=failures.find(r=>r.message)?.message||"";
       const details=failures.map(r=>`${r.identity?.codigoNuevo||r.identity?.codigoDrusila||"Equipo"}: ${r.code||r.status}`).join("; ");
