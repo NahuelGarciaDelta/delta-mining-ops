@@ -5,3 +5,7 @@ export const APPS_SCRIPT_URL =
   typeof window !== "undefined"
     ? `${window.location.origin}/api/apps-script`
     : "/api/apps-script";
+
+// Las escrituras firmadas de horómetros van directo al mismo deployment. Evita
+// que un proxy intermedio vuelva a serializar el payload que contiene el token.
+export const METER_WRITE_URL="https://script.google.com/macros/s/AKfycbxU-ihsxXTNn2wa5EO1OkSM5FjJ43MwxSx8dY0RjbnJRFBKF0BiNNq7QsuohWxmmeOhog/exec";

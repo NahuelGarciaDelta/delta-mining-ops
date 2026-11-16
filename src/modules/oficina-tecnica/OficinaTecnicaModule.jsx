@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef, startTransition } from "react";
 import ReactDOM from "react-dom";
-import {APPS_SCRIPT_URL as METER_API_URL} from "../../config/app.js";
+import {METER_WRITE_URL} from "../../config/app.js";
 import {createHorometerOperation,listaIdentityFromRow,meterNumber,submitHorometerOperation} from "../../services/horometerUpdates.js";
 import {dmCanEditArea} from "../../shared/access.js";
 import * as XLSX from "xlsx";
@@ -483,7 +483,7 @@ function ViewListaMaestraEquipos({rows,rop02All,rop05=[],rma15=[],onReloadLista,
       }
       setSyncingListaExcel(true);setSyncMsg({type:"info",text:"Verificando y actualizando las lecturas..."});
       // Retries retain the operation ID. The backend replays receipts instead of writing confirmed cells.
-      const res=await submitHorometerOperation(METER_API_URL,operation);
+      const res=await submitHorometerOperation(METER_WRITE_URL,operation);
       const failures=res.results.filter(r=>r.status!=="confirmed");
       const detailMessage=failures.find(r=>r.message)?.message||"";
       const details=failures.map(r=>`${r.identity?.codigoNuevo||r.identity?.codigoDrusila||"Equipo"}: ${r.code||r.status}`).join("; ");
