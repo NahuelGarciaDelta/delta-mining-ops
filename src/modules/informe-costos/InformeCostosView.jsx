@@ -6,7 +6,7 @@ import CostosTabPanel from "./components/CostosTabPanel.jsx";
 import { getCostoHorarioAmortizacionOAlquiler, esEquipoPropioDelta } from "./utils/amortizationCost.js";
 import ComparisonStrip from "../../components/ComparisonStrip.jsx";
 import { previousComparablePeriod } from "../../shared/periodCompare.js";
-import { isExcludedFromMaintenanceCostReport, isMaintenanceCostMachine } from "../equipment/equipmentCode.js";
+import { isExcludedFromMaintenanceCostReport } from "../equipment/equipmentCode.js";
 import { buildVisibleCategoryRowSpans } from "./utils/categoryRowSpan.js";
 import { buildEquipmentRangeIndex, buildEquipmentWithRop02Activity2026, belongsToMaintenanceUniverse2026, clampInformeCostosDate, indexMaintenanceCostRows, maintenanceEquipmentCode, prepareMaintenanceCostRows, prepareRop02CostRows, queryEquipmentRangeIndex } from "./utils/equipmentUniverse2026.js";
 import { matchesAmortizationTypeFilter } from "./engine/InformeCostosEngine.js";
@@ -69,12 +69,9 @@ function InformeCostosDiagnosticsPanel({ open, onClose, colors, dataCounts }) {
 
 function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readOnly=false,equiposConMantenimiento2026,costDataIndex,rop02RangeIndex}){
   const {
-    AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn, HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput:BaseParamInput, PeriodMonthYear, SortableTH, appAlert, appConfirm, buildMonthKeysCosto, byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand, esMaquinaCosto, findColumnKey, fmtNum, getMachineType, getValue, mainMachineCode, matchMulti, monthKeyCosto, monthLabelCosto, multiIsAll, normalizeInsumoCode, normalizeMachineCode, normalizeMultiValue, positionTip, proyColor, sortRowsForTable, tipoEquipoCosto, toNumber, uniq
+    AmortRow, Badge, C, Card, CategoriaModeloTableRow, DateIn, HIST_COSTO_MENSUAL_ACUMULADO, MultiSel, ParamInput:BaseParamInput, PeriodMonthYear, SortableTH, appAlert, appConfirm, buildMonthKeysCosto, byDateFilter, canonicalEquivalentMachineCode, cleanKey, cleanMachine, dmCategoriasCommand, findColumnKey, fmtNum, getMachineType, getValue, mainMachineCode, matchMulti, monthKeyCosto, monthLabelCosto, multiIsAll, normalizeInsumoCode, normalizeMachineCode, normalizeMultiValue, positionTip, proyColor, sortRowsForTable, toNumber, uniq
   } = deps;
   React.useEffect(()=>()=>terminateInformeCostosWorker(),[]);
-  const esEquipoMaquinaCosto=React.useCallback((maquina,tipo,familia="")=>
-    isMaintenanceCostMachine({code:maquina,type:tipo,family:familia})||esMaquinaCosto(tipo,maquina,familia),
-  [esMaquinaCosto]);
   const ParamInput=React.useCallback((props)=><BaseParamInput {...props} set={readOnly?(()=>{}):props.set} disabled={readOnly||props.disabled}/>,[BaseParamInput,readOnly]);
   const [diagnosticoAbierto,setDiagnosticoAbierto]=React.useState(false);
   React.useEffect(()=>{
@@ -791,6 +788,17 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     return lugar;
   },[getEquipoListaMaestra,getValue,lugarAlquilerEquipoCostoMemo]);
 
+  // El filtro Tipo máquina se define por Familia de Lista Maestra. Las
+  // categorías son deliberadamente operativas y generales: no se exponen
+  // subtipos como Cargadora frontal o Excavadora como filtros separados.
+  const categoriaTipoMaquina=React.useCallback((familia="")=>{
+    const value=String(familia||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
+    if(value.startsWith("CAMIONETA"))return "CAMIONETAS";
+    if(value.startsWith("CAMION"))return "CAMIONES";
+    if(/EXCAVADORA|CARGADOR|MOTONIVELADORA|TOPADORA|RETROPALA|MINICARGADORA|RODILLO|COMPACTADOR/.test(value))return "MAQUINAS";
+    return "OTROS";
+  },[]);
+
   const matchPropiedadEquipo=React.useCallback((maquina,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return true;
     const props=propiedadesEquipo(maquina);
@@ -817,11 +825,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
         propiedad:real||props[0]||"S/D",
         familia,
         lugarAlquiler,
-        tipo:tipoEquipoCosto(codigoCanonicoEquipo(r.maquina),familia),
+        tipo:categoriaTipoMaquina(familia),
       });
     });
     return map;
-  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay,codigoCanonicoEquipo,familiaEquipoCosto,lugarAlquilerEquipoCosto,tipoEquipoCosto]);
+  },[rma15PorFecha,rma15CostoMensualPorFecha,propiedadesEquipo,equipoCostoDisplay,codigoCanonicoEquipo,familiaEquipoCosto,lugarAlquilerEquipoCosto,categoriaTipoMaquina]);
 
   const metaEquipoFallbackMemo=React.useMemo(()=>new Map(),[listaEquiposIndex,identidadCanonicaEquipos]);
   const metaEquipoCosto=React.useCallback((maquina)=>{
@@ -839,11 +847,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       propiedad:real||props[0]||"S/D",
       familia,
       lugarAlquiler,
-      tipo:tipoEquipoCosto(codigoCanonicoEquipo(maquina),familia),
+      tipo:categoriaTipoMaquina(familia),
     };
     metaEquipoFallbackMemo.set(key,out);
     return out;
-  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,codigoCanonicoEquipo,familiaEquipoCosto,lugarAlquilerEquipoCosto,tipoEquipoCosto,metaEquipoFallbackMemo]);
+  },[rma15MetaMap,equipoCostoDisplay,propiedadesEquipo,codigoCanonicoEquipo,familiaEquipoCosto,lugarAlquilerEquipoCosto,categoriaTipoMaquina,metaEquipoFallbackMemo]);
 
   const matchPropiedadMeta=React.useCallback((meta,seleccion)=>{
     if(multiIsAll(seleccion,"todos"))return true;
@@ -872,9 +880,9 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       const meta=metaEquipoCosto(r.maquina);
       const tipo=meta.tipo;
       const sel=Array.isArray(dFTipoEquipo)?dFTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo,meta.familia));
+      return sel.includes(tipo);
     }),
-    [costoRowsTipoEquipoOpts,dFTipoEquipo,metaEquipoCosto,esEquipoMaquinaCosto]
+    [costoRowsTipoEquipoOpts,dFTipoEquipo,metaEquipoCosto]
   );
 
   const proyectoOpts=React.useMemo(()=>[
@@ -888,26 +896,10 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
     ...uniq(costoRowsProyectoOpts.map(r=>String(metaEquipoCosto(r.maquina).lugarAlquiler||"S/D").trim()||"S/D")).map(contrato=>({value:contrato,label:contrato}))
   ],[costoRowsProyectoOpts,metaEquipoCosto]);
 
-  const tipoEquipoOpts=React.useMemo(()=>{
-    const presentes=new Set(costoRowsTipoEquipoOpts.map(r=>metaEquipoCosto(r.maquina).tipo).filter(Boolean));
-    const base=[
-      {value:"todos",label:"Todos los equipos"},
-      {value:"MAQUINAS",label:"Máquinas"},
-      {value:"CAMIONES",label:"Camiones"},
-      {value:"CAMIONETAS",label:"Camionetas"},
-      {value:"EXCAVADORA",label:"Excavadoras"},
-      {value:"CARGADORA FRONTAL",label:"Cargadoras frontales"},
-      {value:"MOTONIVELADORA",label:"Motoniveladoras"},
-      {value:"TOPADORA",label:"Topadoras"},
-      {value:"RETROPALA",label:"Retropalas"},
-      {value:"COMPACTACION",label:"Rodillos compactadores"},
-      {value:"MINICARGADORA",label:"Minicargadoras"},
-      {value:"OTROS",label:"Otros"},
-    ];
-    // Mantener Cargadoras frontales visible aun cuando el filtro de contrato,
-    // proyecto o período no tenga una fila coincidente en este momento.
-    return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||o.value==="CARGADORA FRONTAL"||presentes.has(o.value));
-  },[costoRowsTipoEquipoOpts,metaEquipoCosto]);
+  const tipoEquipoOpts=React.useMemo(()=>[
+    {value:"todos",label:"Todos los equipos"},{value:"MAQUINAS",label:"Máquinas"},
+    {value:"CAMIONES",label:"Camiones"},{value:"CAMIONETAS",label:"Camionetas"},{value:"OTROS",label:"Otros"}
+  ],[]);
 
   const maquinaOpts=React.useMemo(()=>[
     {value:"todos",label:"Todas"},
@@ -935,15 +927,24 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
   React.useEffect(()=>{
     setFTipoEquipo(v=>{const n=normalizeMultiValue(v,tipoEquipoOpts);return sameCostoFilterValue(v,n)?v:n;});
   },[tipoEquipoOpts,sameCostoFilterValue]);
+  const normalizarTipoFiltroCosto=React.useCallback((value)=>{
+    if(multiIsAll(value,"todos"))return value;
+    const machineTypes=new Set(["EXCAVADORA","CARGADORA FRONTAL","MOTONIVELADORA","TOPADORA","RETROPALA","COMPACTACION","MINICARGADORA"]);
+    const current=Array.isArray(value)?value:[value];
+    const mapped=[...new Set(current.map(v=>machineTypes.has(String(v||"").toUpperCase())?"MAQUINAS":v))];
+    return normalizeMultiValue(mapped,tipoEquipoOpts);
+  },[multiIsAll,normalizeMultiValue,tipoEquipoOpts]);
   React.useEffect(()=>{
     const filtros=getCostosFiltrosTabla(activeCostosFiltroKey);
     const proyecto=normalizeMultiValue(filtros.proyecto,proyectoOpts);
     const insumo=normalizeMultiValue(filtros.insumos,insumosCostoOpts);
     const contrato=normalizeMultiValue(filtros.contrato,contratoOpts);
+    const tipo=normalizarTipoFiltroCosto(filtros.tipo);
     if(!sameCostoFilterValue(filtros.proyecto,proyecto))setCostoFiltroTabla(activeCostosFiltroKey,"proyecto",proyecto);
     if(!sameCostoFilterValue(filtros.insumos,insumo))setCostoFiltroTabla(activeCostosFiltroKey,"insumos",insumo);
     if(!sameCostoFilterValue(filtros.contrato,contrato))setCostoFiltroTabla(activeCostosFiltroKey,"contrato",contrato);
-  },[activeCostosFiltroKey,proyectoOpts,insumosCostoOpts,contratoOpts,getCostosFiltrosTabla,normalizeMultiValue,sameCostoFilterValue,setCostoFiltroTabla]);
+    if(!sameCostoFilterValue(filtros.tipo,tipo))setCostoFiltroTabla(activeCostosFiltroKey,"tipo",tipo);
+  },[activeCostosFiltroKey,proyectoOpts,insumosCostoOpts,contratoOpts,getCostosFiltrosTabla,normalizeMultiValue,normalizarTipoFiltroCosto,sameCostoFilterValue,setCostoFiltroTabla]);
 
   // Opciones y filtrado AISLADOS para Mano de Obra.
   // Proyecto se toma del filtro general fProyecto para que coincida con el resto de la app.
@@ -962,26 +963,15 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       const meta=metaEquipoCosto(r.maquina);
       const tipo=meta.tipo;
       const sel=Array.isArray(dFMOTipoEquipo)?dFMOTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo,meta.familia));
+      return sel.includes(tipo);
     }),
-    [moRowsTipoEquipoOpts,dFMOTipoEquipo,metaEquipoCosto,esEquipoMaquinaCosto]
+    [moRowsTipoEquipoOpts,dFMOTipoEquipo,metaEquipoCosto]
   );
   const moPropiedadOpts=React.useMemo(()=>[
     {value:"todos",label:"Todas las propiedades"},
     ...uniq(moRowsPropiedadOpts.flatMap(r=>metaEquipoCosto(r.maquina).props||[]).filter(Boolean)).map(p=>({value:p,label:p}))
   ],[moRowsPropiedadOpts,metaEquipoCosto]);
-  const moTipoEquipoOpts=React.useMemo(()=>{
-    const presentes=new Set(moRowsTipoEquipoOpts.map(r=>metaEquipoCosto(r.maquina).tipo).filter(Boolean));
-    const base=[
-      {value:"todos",label:"Todos los equipos"},{value:"MAQUINAS",label:"Máquinas"},
-      {value:"CAMIONES",label:"Camiones"},{value:"CAMIONETAS",label:"Camionetas"},
-      {value:"EXCAVADORA",label:"Excavadoras"},{value:"CARGADORA FRONTAL",label:"Cargadoras frontales"},
-      {value:"MOTONIVELADORA",label:"Motoniveladoras"},{value:"TOPADORA",label:"Topadoras"},
-      {value:"RETROPALA",label:"Retropalas"},{value:"COMPACTACION",label:"Rodillos compactadores"},
-      {value:"MINICARGADORA",label:"Minicargadoras"},{value:"OTROS",label:"Otros"},
-    ];
-    return base.filter(o=>o.value==="todos"||o.value==="MAQUINAS"||o.value==="CARGADORA FRONTAL"||presentes.has(o.value));
-  },[moRowsTipoEquipoOpts,metaEquipoCosto]);
+  const moTipoEquipoOpts=tipoEquipoOpts;
   const moMaquinaOpts=React.useMemo(()=>[
     {value:"todos",label:"Todas"},
     ...uniq(moRowsMaquinaOpts.map(r=>metaEquipoCosto(r.maquina).display).filter(Boolean)).map(m=>({value:m,label:m}))
@@ -1006,11 +996,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       if(multiIsAll(dFMOTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
       const sel=Array.isArray(dFMOTipoEquipo)?dFMOTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo,meta.familia));
+      return sel.includes(tipo);
     });
     rma15FiltradoMOCacheRef.current=out;
     return out;
-  },[needsManoObraCostos,rma15PorFecha,dFProyecto,dFContrato,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,matchContratoMeta,esEquipoMaquinaCosto]);
+  },[needsManoObraCostos,rma15PorFecha,dFProyecto,dFContrato,dFMOPropiedad,dFMOMaquinas,dFMOTipoEquipo,metaEquipoCosto,matchPropiedadMeta,matchContratoMeta]);
 
   const rma15Filtrado=React.useMemo(()=>{
     const activeCalc=calcTablaCostos;
@@ -1024,11 +1014,11 @@ function ViewCostosMantCore({rma15,rop02,insumos,listaEquipos,usdRate,deps,readO
       if(multiIsAll(dFCTipoEquipo,"todos"))return true;
       const tipo=meta.tipo;
       const sel=Array.isArray(dFCTipoEquipo)?dFCTipoEquipo:[];
-      return sel.includes(tipo)||(sel.includes("MAQUINAS")&&esEquipoMaquinaCosto(r.maquina,tipo,meta.familia));
+      return sel.includes(tipo);
     });
     rma15FiltradoCacheRef.current=out;
     return out;
-  },[calcTablaCostos,rma15PorFecha,dFProyecto,dFContrato,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta,matchContratoMeta,esEquipoMaquinaCosto]);
+  },[calcTablaCostos,rma15PorFecha,dFProyecto,dFContrato,dFCPropiedad,dFCMaquinas,dFCTipoEquipo,metaEquipoCosto,matchPropiedadMeta,matchContratoMeta]);
 
   // Comparación independiente de los filtros internos de cada tabla.
   // Antes heredaba Tipo/Equipo/Propiedad de Amortización y por eso podía mostrar 0

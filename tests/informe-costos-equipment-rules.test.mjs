@@ -345,7 +345,8 @@ test("los filtros del motor respetan Familia antes que el código", () => {
   });
   assert.deepEqual(query({tipo:["CAMIONES"]}).monthly.map(row=>row.equipo),["CAT-0073"]);
   assert.deepEqual(query({tipo:["CAMIONETAS"]}).monthly.map(row=>row.equipo),["CTA-0848"]);
-  assert.deepEqual(query({tipo:["MAQUINAS"]}).monthly.map(row=>row.equipo),["CAT"]);
+  assert.deepEqual(query({tipo:["MAQUINAS"]}).monthly.map(row=>row.equipo),[]);
+  assert.deepEqual(query({tipo:["OTROS"]}).monthly.map(row=>row.equipo),["CAT"]);
 });
 
 test("el motor acumula todos los datos CFN0101 dentro de PCA0101", () => {

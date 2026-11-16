@@ -43,16 +43,30 @@ function isMachineType(value,code="",family=""){
 function isTruckType(value,code="",family=""){
   return isMaintenanceCostTruck({code,type:value,family});
 }
+function costFilterCategory({ code = "", family = "", type = "" } = {}){
+  const normalizedFamily=norm(family);
+  // Familia de Lista Maestra es la fuente de verdad para el filtro visible.
+  if(normalizedFamily){
+    if(normalizedFamily.startsWith("CAMIONETA"))return "CAMIONETAS";
+    if(normalizedFamily.startsWith("CAMION"))return "CAMIONES";
+    if(/EXCAVADORA|CARGADOR|MOTONIVELADORA|TOPADORA|RETROPALA|MINICARGADORA|RODILLO|COMPACTADOR/.test(normalizedFamily))return "MAQUINAS";
+    return "OTROS";
+  }
+  // Registros históricos sin Familia: sólo aquí se usan los prefijos conocidos.
+  if(isTruckType(type,code,""))return "CAMIONES";
+  if(/^(CTA|AG|AH)/.test(canonicalEquipmentCode(code)))return "CAMIONETAS";
+  if(isMachineType(type,code,""))return "MAQUINAS";
+  return "OTROS";
+}
 
 export function matchesAmortizationTypeFilter(row,filter){
   if(isAll(filter))return true;
   const tipoSelections=selected(filter);
-  const tipo=norm(row?.tipo);
-  const metaTipo=norm(row?.metaTipo);
-  const metaFamilia=norm(row?.metaFamilia);
-  return tipoSelections.includes(tipo)||tipoSelections.includes(metaTipo)||
-    (tipoSelections.includes("MAQUINAS")&&(isMachineType(tipo,row?.equipo,metaFamilia)||isMachineType(metaTipo,row?.equipo,metaFamilia)))||
-    (tipoSelections.includes("CAMIONES")&&(isTruckType(tipo,row?.equipo,metaFamilia)||isTruckType(metaTipo,row?.equipo,metaFamilia)));
+  return tipoSelections.includes(costFilterCategory({
+    code:row?.equipo,
+    family:row?.metaFamilia||row?.familia,
+    type:row?.metaTipo||row?.tipo,
+  }));
 }
 
 function isIncludedCostRow(row){
@@ -163,9 +177,7 @@ function matchesFilters(row,filters={}){
   if(!matchMulti(display,filters.maquina)&&!matchMulti(row.equipo||row.maquina,filters.maquina))return false;
   if(!isAll(filters.tipo)){
     const sels=arrayFilter(filters.tipo).map(norm);
-    const tipo=norm(meta.tipo);
-    const familia=norm(meta.familia||meta.family);
-    if(!(sels.includes(tipo)||(sels.includes('MAQUINAS')&&isMachineType(tipo,rowCode,familia))||(sels.includes('CAMIONES')&&isTruckType(tipo,rowCode,familia))))return false;
+    if(!sels.includes(costFilterCategory({code:rowCode,family:meta.familia||meta.family,type:meta.tipo})))return false;
   }
   return true;
 }
